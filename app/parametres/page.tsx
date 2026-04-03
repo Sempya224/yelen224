@@ -1,3 +1,3 @@
 export default function ParametresPage() {
-  return <div>Paramètres</div>
-}
+  return <div>ok</div>
+}  
