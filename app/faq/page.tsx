@@ -183,7 +183,7 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
               </div>
 
               {/* Liens */}
-              {faq.liens?.length > 0 && (
+              {(faq.liens?.length ?? 0) > 0 && (
                 <div style={{ marginBottom: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>
                   {faq.liens.map(lien => (
                     <a key={lien.href} href={lien.href} style={{
