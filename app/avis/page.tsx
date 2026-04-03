@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -18,7 +18,7 @@ type RDV = {
   } | null;
 };
 
-export default function LaissezAvis() {
+function LaissezAvis() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rdvId = searchParams.get("rdv_id");
@@ -93,7 +93,7 @@ export default function LaissezAvis() {
         institution_id: data.institution_id,
         institution: instData || null,
       });
-    } catch (err) {
+    } catch {
       setError("Erreur de chargement.");
     } finally {
       setLoading(false);
@@ -141,7 +141,7 @@ export default function LaissezAvis() {
       }
 
       setSubmitted(true);
-    } catch (err) {
+    } catch {
       setError("Erreur lors de l'envoi. Reessayez.");
     } finally {
       setSubmitting(false);
@@ -187,7 +187,7 @@ export default function LaissezAvis() {
         </div>
         <p style={{ color: COLORS[note], fontSize: "16px", fontWeight: "700", margin: "0 0 28px" }}>{LABELS[note]}</p>
         <button onClick={() => router.push("/")} style={{ width: "100%", backgroundColor: "#F5A623", color: "#0D0D1A", border: "none", borderRadius: "12px", padding: "14px", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}>
-          Retour a l'accueil
+          Retour a l&apos;accueil
         </button>
       </div>
     </div>
@@ -214,11 +214,10 @@ export default function LaissezAvis() {
       </header>
 
       <main style={{ maxWidth: "600px", margin: "0 auto", padding: "32px 24px 60px" }}>
-
         <div style={{ backgroundColor: "#13132A", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "20px", marginBottom: "28px", display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={{ width: "52px", height: "52px", borderRadius: "12px", flexShrink: 0, backgroundColor: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
             {rdv?.institution?.logo
-              ? <img src={rdv.institution.logo} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ? <img src={rdv.institution.logo} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="logo" />
               : <span style={{ color: "#F5A623", fontSize: "20px", fontWeight: "800" }}>{rdv?.institution?.name?.[0]?.toUpperCase() || "?"}</span>
             }
           </div>
@@ -235,7 +234,7 @@ export default function LaissezAvis() {
         </div>
 
         <div style={{ marginBottom: "28px" }}>
-          <h1 style={{ color: "#fff", fontSize: "22px", fontWeight: "800", margin: "0 0 8px" }}>Comment s'est passe votre rendez-vous ?</h1>
+          <h1 style={{ color: "#fff", fontSize: "22px", fontWeight: "800", margin: "0 0 8px" }}>Comment s&apos;est passe votre rendez-vous ?</h1>
           <p style={{ color: "#555", fontSize: "13px", margin: 0, lineHeight: "1.6" }}>
             Objet : <span style={{ color: "#aaa" }}>{rdv?.objet}</span><br />
             Votre avis aide les autres citoyens a choisir les meilleurs services en Guinee.
@@ -283,7 +282,7 @@ export default function LaissezAvis() {
         <div style={{ backgroundColor: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)", borderRadius: "10px", padding: "12px 16px", marginBottom: "24px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
           <span style={{ color: "#3b82f6", fontSize: "14px", marginTop: "1px" }}>&#8505;</span>
           <p style={{ color: "rgba(147,197,253,0.7)", fontSize: "12px", margin: 0, lineHeight: "1.6" }}>
-            Votre avis sera publie publiquement sur le profil de l'etablissement. Tout avis diffamatoire, faux ou abusif sera supprime et pourra entrainer la suspension de votre compte.
+            Votre avis sera publie publiquement sur le profil de l&apos;etablissement. Tout avis diffamatoire, faux ou abusif sera supprime et pourra entrainer la suspension de votre compte.
           </p>
         </div>
 
@@ -306,5 +305,18 @@ export default function LaissezAvis() {
         </p>
       </main>
     </div>
+  );
+}
+
+export default function AvisPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", backgroundColor: "#0D0D1A", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: "40px", height: "40px", border: "3px solid #F5A623", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    }>
+      <LaissezAvis />
+    </Suspense>
   );
 }
