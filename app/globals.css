@@ -1,0 +1,263 @@
+@import 'leaflet/dist/leaflet.css';
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --border: rgba(0,0,0,0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --border: rgba(255,255,255,0.08);
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  /* ⚠️ padding-top: env(safe-area-inset-top) SUPPRIMÉ — décalait les zones cliquables */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ============================================
+   BASE RESET
+   ============================================ */
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* ============================================
+   DARK / LIGHT MODE
+   ============================================ */
+html:not(.dark) .bg-\[\#1A1A2E\],
+html:not(.dark) .bg-\[\#16162a\] {
+  background-color: #ffffff !important;
+}
+
+.dark .text-\[\#1A1A2E\] {
+  color: #ededed !important;
+}
+
+html:not(.dark) .bg-\[\#1A1A2E\] *,
+html:not(.dark) .bg-\[\#16162a\] * {
+  color: #111111;
+}
+
+html:not(.dark) .bg-\[\#1A1A2E\] .text-\[\#F5A623\],
+html:not(.dark) .bg-\[\#16162a\] .text-\[\#F5A623\] {
+  color: #F5A623 !important;
+}
+
+/* ============================================
+   TOUCH / CLICS — NE PAS BLOQUER
+   ============================================ */
+
+/* Tous les éléments interactifs doivent recevoir les clics */
+button, a, [role="button"] {
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  /* ⚠️ PAS de pointer-events:none ici */
+}
+
+/* Les SVG à l'intérieur des boutons ne doivent pas intercepter les clics */
+button svg,
+a svg,
+[role="button"] svg {
+  pointer-events: none;
+}
+
+/* ============================================
+   FORMULAIRES — éviter zoom iOS
+   ============================================ */
+input, textarea, select {
+  font-size: 16px !important;
+  max-width: 100% !important;
+}
+
+input[inputmode="numeric"][maxlength="1"] {
+  width: 42px !important;
+  height: 50px !important;
+  font-size: 20px !important;
+}
+
+/* ============================================
+   SCROLLBAR cachée globalement
+   ============================================ */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================
+   HEADER NAVIGATION MOBILE
+   ============================================ */
+@media (max-width: 768px) {
+  header nav,
+  header .nav-links,
+  header [class*="hidden sm:"],
+  header [class*="sm:flex"],
+  header [class*="sm:block"] {
+    display: none !important;
+  }
+
+  .mobile-nav-toggle {
+    display: flex !important;
+  }
+
+  header a[href="/"] p:first-child {
+    font-size: 13px !important;
+  }
+
+  header button,
+  header a[href="/inscription"],
+  header a[href="/login"] {
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+  }
+
+  nav .flex {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap !important;
+    padding-bottom: 4px;
+  }
+}
+
+/* ============================================
+   GRILLES MOBILE
+   ============================================ */
+@media (max-width: 640px) {
+
+  /* ⚠️ NE PAS forcer 1fr sur les grilles inline-style de page.tsx
+     car elles sont déjà responsive via JS/inline styles.
+     On cible uniquement les classes Tailwind. */
+  .grid-cols-2,
+  .grid-cols-3,
+  .grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Flex row → column uniquement classes Tailwind */
+  .flex.gap-8,
+  .flex.gap-6,
+  .flex.gap-10 {
+    flex-direction: column !important;
+  }
+
+  /* Containers max-width */
+  [style*="maxWidth: 1280px"],
+  [style*="maxWidth: 1200px"],
+  [style*="maxWidth: 1100px"] {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  /* Titres — uniquement si pas déjà stylés inline */
+  h1:not([style]) {
+    font-size: clamp(22px, 7vw, 32px) !important;
+    line-height: 1.2 !important;
+  }
+
+  h2:not([style]) {
+    font-size: clamp(18px, 5vw, 24px) !important;
+  }
+}
+
+/* ============================================
+   SIDEBAR sticky → normal mobile
+   ============================================ */
+@media (max-width: 1024px) {
+  [style*="gridTemplateColumns: 1fr 340px"],
+  [style*="grid-template-columns: 1fr 340px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  [style*="position: sticky"][style*="top: 76px"] {
+    position: relative !important;
+    top: auto !important;
+  }
+}
+
+/* ============================================
+   FOOTER MOBILE
+   ============================================ */
+@media (max-width: 640px) {
+  footer > div,
+  footer .flex {
+    flex-direction: column !important;
+    gap: 16px !important;
+    text-align: center !important;
+  }
+
+  footer .grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 16px !important;
+  }
+}
+
+/* ============================================
+   HERO PAGES PADDING MOBILE
+   ============================================ */
+@media (max-width: 640px) {
+  [style*="padding: 60px 20px"],
+  [style*="padding: 48px 20px"],
+  [style*="padding: 40px 24px"] {
+    padding-top: 32px !important;
+    padding-bottom: 28px !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  [style*="padding: 28px 32px"] {
+    padding: 20px 16px !important;
+  }
+
+  [style*="padding: 36px 32px"] {
+    padding: 24px 18px !important;
+  }
+}
+
+/* ============================================
+   HIDE / SHOW UTILITIES
+   ============================================ */
+@media (max-width: 640px) {
+  .hide-mobile,
+  [class*="hide-mobile"] {
+    display: none !important;
+  }
+}
+
+@media (min-width: 641px) {
+  .show-mobile-only {
+    display: none !important;
+  }
+}
