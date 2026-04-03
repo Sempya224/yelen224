@@ -422,7 +422,7 @@ function Popup({ data, onClose }: { data: PopupData; onClose: () => void }) {
             {data.content.map((c, i) => (
               <div key={i} className="flex gap-2.5">
                 <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: `${data.color}22` }}>
-                  <CheckCircle size={12} style={{ color: data.color }} />
+                <CheckCircle size={12} />
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed">{c}</p>
               </div>
