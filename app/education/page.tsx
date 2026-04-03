@@ -482,7 +482,7 @@ function VideoCard({ video }: { video: typeof VIDEOS[0] }) {
         {/* YELEN overlay brand */}
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}>
           <div className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg" style={{ background: "#F59E0B" }}>
-            <Play size={24} fill="white" color="white" />
+          <Play size={24} fill="white" />
           </div>
         </div>
         {/* YELEN logo stamp - top right */}
