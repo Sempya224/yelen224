@@ -1,0 +1,13 @@
+{
+    "name": "Yelen224",
+    "short_name": "Yelen224",
+    "description": "Votre rendez-vous, en un clic.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#070B14",
+    "theme_color": "#F5A623",
+    "orientation": "portrait",
+    "icons": [
+      { "src": "/file.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    ]
+  }
