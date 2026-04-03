@@ -76,7 +76,7 @@ const SECTIONS = [
 ];
 
 // ── FAQ Item ─────────────────────────────────────────────────────────────────
-function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: string }; sectionColor: string }) {
+function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: string; liens?: { href: string; label: string }[] }; sectionColor: string }) {
   const [open, setOpen] = useState(false);
   const [vote, setVote] = useState(null);
 
