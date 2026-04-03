@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useState } from "react";
 
 // ── Data ─────────────────────────────────────────────────────────────────────
@@ -16,7 +17,7 @@ const SIEGES = [
 ];
 
 // ── Shared input style ────────────────────────────────────────────────────────
-const inp = {
+const inp: React.CSSProperties = {
   width: "100%",
   padding: "13px 16px",
   borderRadius: "14px",
@@ -35,7 +36,6 @@ const inp = {
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function ContactPage() {
   const [activeForm, setActiveForm] = useState("general");
-  const [step, setStep] = useState(1); // 1 = type select, 2 = form
   const [formData, setFormData] = useState({
     nom: "", prenom: "", email: "", telephone: "",
     organisation: "", sujet: "", message: "",
@@ -43,12 +43,13 @@ export default function ContactPage() {
     media: "", publication: "",
     typeProbleme: "", urlPage: "",
   });
-  const [status, setStatus] = useState("idle"); // idle | sending | success | error
+  const [status, setStatus] = useState("idle");
   const [honeypot, setHoneypot] = useState("");
 
-  const handleChange = e => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
-  const handleSubmit = async e => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (honeypot) return;
     setStatus("sending");
@@ -148,7 +149,7 @@ export default function ContactPage() {
         <div style={{ width: "8px", flexShrink: 0 }} />
       </div>
 
-      {/* ── Form type selector (step 1) ── */}
+      {/* ── Form type selector ── */}
       <div style={{ padding: "0 20px 20px" }}>
         <div style={{ marginBottom: "14px" }}>
           <span style={{ color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "2px" }}>TYPE DE DEMANDE</span>
@@ -157,21 +158,7 @@ export default function ContactPage() {
           {FORM_TYPES.map(ft => {
             const isActive = activeForm === ft.id;
             return (
-              <button
-                key={ft.id}
-                onClick={() => setActiveForm(ft.id)}
-                style={{
-                  padding: "14px 12px",
-                  borderRadius: "16px",
-                  border: isActive ? "2px solid #F5A623" : "1.5px solid rgba(255,255,255,0.85)",
-                  background: isActive ? "rgba(245,166,35,0.12)" : "rgba(255,255,255,0.65)",
-                  backdropFilter: "blur(12px)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  boxShadow: isActive ? "0 4px 16px rgba(245,166,35,0.2)" : "0 2px 8px rgba(200,140,0,0.06)",
-                  transition: "all 0.15s ease",
-                }}
-              >
+              <button key={ft.id} onClick={() => setActiveForm(ft.id)} style={{ padding: "14px 12px", borderRadius: "16px", border: isActive ? "2px solid #F5A623" : "1.5px solid rgba(255,255,255,0.85)", background: isActive ? "rgba(245,166,35,0.12)" : "rgba(255,255,255,0.65)", backdropFilter: "blur(12px)", cursor: "pointer", textAlign: "left", boxShadow: isActive ? "0 4px 16px rgba(245,166,35,0.2)" : "0 2px 8px rgba(200,140,0,0.06)", transition: "all 0.15s ease" }}>
                 <div style={{ fontSize: "20px", marginBottom: "6px" }}>{ft.icon}</div>
                 <div style={{ color: isActive ? "#c47a00" : "#1a1200", fontSize: "12px", fontWeight: "800", marginBottom: "3px", lineHeight: 1.2 }}>{ft.label}</div>
                 <div style={{ color: "#8B6914", fontSize: "10px", lineHeight: 1.4 }}>{ft.desc}</div>
@@ -180,14 +167,11 @@ export default function ContactPage() {
           })}
         </div>
 
-        {/* ── Form ── */}
         {status === "success" ? (
           <div className="fade-up" style={{ background: "rgba(255,255,255,0.72)", backdropFilter: "blur(12px)", border: "1.5px solid rgba(255,255,255,0.9)", borderRadius: "24px", padding: "40px 24px", textAlign: "center" }}>
             <div style={{ fontSize: "48px", marginBottom: "14px" }}>✅</div>
             <h3 style={{ color: "#1a1200", fontSize: "18px", fontWeight: "900", margin: "0 0 8px" }}>Message envoyé !</h3>
-            <p style={{ color: "#6b5000", fontSize: "13px", maxWidth: "260px", margin: "0 auto 20px", lineHeight: 1.6 }}>
-              Notre équipe vous répond sous 24–48h ouvrées.
-            </p>
+            <p style={{ color: "#6b5000", fontSize: "13px", maxWidth: "260px", margin: "0 auto 20px", lineHeight: 1.6 }}>Notre équipe vous répond sous 24–48h ouvrées.</p>
             <button onClick={() => setStatus("idle")} style={{ background: "#F5A623", color: "#1a1200", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "14px", border: "none", cursor: "pointer", boxShadow: "0 4px 16px rgba(245,166,35,0.35)", fontFamily: "'Sora', sans-serif" }}>
               Nouveau message
             </button>
@@ -195,12 +179,10 @@ export default function ContactPage() {
         ) : (
           <form onSubmit={handleSubmit} className="fade-up" style={{ background: "rgba(255,255,255,0.72)", backdropFilter: "blur(12px)", border: "1.5px solid rgba(255,255,255,0.9)", borderRadius: "24px", padding: "24px", boxShadow: "0 4px 24px rgba(200,140,0,0.1)" }}>
 
-            {/* Honeypot */}
             <div className="hp-field" aria-hidden="true">
               <input tabIndex={-1} name="_hp" value={honeypot} onChange={e => setHoneypot(e.target.value)} autoComplete="off" />
             </div>
 
-            {/* Form header */}
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px", paddingBottom: "16px", borderBottom: "1px solid rgba(200,140,0,0.12)" }}>
               <div style={{ width: "3px", height: "20px", borderRadius: "2px", background: "#F5A623", flexShrink: 0 }} />
               <div>
@@ -210,8 +192,6 @@ export default function ContactPage() {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-
-              {/* Prénom + Nom */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <div>
                   <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>PRÉNOM *</label>
@@ -223,27 +203,24 @@ export default function ContactPage() {
                 </div>
               </div>
 
-              {/* Email */}
               <div>
                 <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>EMAIL *</label>
                 <input name="email" type="email" required value={formData.email} onChange={handleChange} placeholder="alpha@exemple.com" style={inp} />
               </div>
 
-              {/* Téléphone */}
               <div>
                 <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>TÉLÉPHONE</label>
                 <input name="telephone" type="tel" value={formData.telephone} onChange={handleChange} placeholder="+224 6xx xx xx xx" style={inp} />
               </div>
 
-              {/* Institution fields */}
               {activeForm === "institution" && (
                 <>
                   <div>
-                    <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>NOM DE L'INSTITUTION *</label>
+                    <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>NOM DE L&apos;INSTITUTION *</label>
                     <input name="nomInstitution" required value={formData.nomInstitution} onChange={handleChange} placeholder="Hôpital National Donka" style={inp} />
                   </div>
                   <div>
-                    <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>TYPE D'INSTITUTION *</label>
+                    <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>TYPE D&apos;INSTITUTION *</label>
                     <select name="typeInstitution" required value={formData.typeInstitution} onChange={handleChange} style={inp}>
                       <option value="">Sélectionner...</option>
                       <option>Hôpital / Clinique</option>
@@ -269,7 +246,6 @@ export default function ContactPage() {
                 </>
               )}
 
-              {/* Presse fields */}
               {activeForm === "presse" && (
                 <>
                   <div>
@@ -283,7 +259,6 @@ export default function ContactPage() {
                 </>
               )}
 
-              {/* Support fields */}
               {activeForm === "support" && (
                 <>
                   <div>
@@ -305,13 +280,11 @@ export default function ContactPage() {
                 </>
               )}
 
-              {/* Sujet */}
               <div>
                 <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>SUJET *</label>
                 <input name="sujet" required value={formData.sujet} onChange={handleChange} placeholder="Objet de votre message" style={inp} />
               </div>
 
-              {/* Organisation */}
               {activeForm !== "institution" && (
                 <div>
                   <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>ORGANISATION (optionnel)</label>
@@ -319,13 +292,11 @@ export default function ContactPage() {
                 </div>
               )}
 
-              {/* Message */}
               <div>
                 <label style={{ display: "block", color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "6px" }}>MESSAGE *</label>
                 <textarea name="message" required value={formData.message} onChange={handleChange} rows={5} placeholder="Décrivez votre demande en détail..." style={{ ...inp, resize: "vertical", minHeight: "120px" }} />
               </div>
 
-              {/* Mention légale */}
               <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", background: "rgba(200,140,0,0.06)", border: "1px solid rgba(200,140,0,0.15)", borderRadius: "12px", padding: "12px" }}>
                 <span style={{ fontSize: "14px", flexShrink: 0 }}>🔒</span>
                 <p style={{ color: "#6b5000", fontSize: "11px", margin: 0, lineHeight: 1.6 }}>
@@ -333,37 +304,19 @@ export default function ContactPage() {
                 </p>
               </div>
 
-              {/* Error */}
               {status === "error" && (
                 <div style={{ padding: "12px 16px", borderRadius: "12px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#dc2626", fontSize: "13px", fontWeight: "600" }}>
                   ❌ Erreur. Réessayez ou écrivez à yelen224gn@gmail.com
                 </div>
               )}
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={status === "sending"}
-                style={{
-                  width: "100%", padding: "16px",
-                  borderRadius: "16px", border: "none",
-                  background: status === "sending" ? "rgba(200,140,0,0.3)" : "linear-gradient(135deg, #F5A623, #e8950f)",
-                  color: status === "sending" ? "#8B6914" : "#1a1200",
-                  fontWeight: "900", fontSize: "15px",
-                  cursor: status === "sending" ? "not-allowed" : "pointer",
-                  fontFamily: "'Sora', sans-serif",
-                  boxShadow: status === "sending" ? "none" : "0 6px 20px rgba(245,166,35,0.4)",
-                  letterSpacing: "0.3px",
-                  transition: "all 0.15s ease",
-                }}
-              >
+              <button type="submit" disabled={status === "sending"} style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: status === "sending" ? "rgba(200,140,0,0.3)" : "linear-gradient(135deg, #F5A623, #e8950f)", color: status === "sending" ? "#8B6914" : "#1a1200", fontWeight: "900", fontSize: "15px", cursor: status === "sending" ? "not-allowed" : "pointer", fontFamily: "'Sora', sans-serif", boxShadow: status === "sending" ? "none" : "0 6px 20px rgba(245,166,35,0.4)", letterSpacing: "0.3px", transition: "all 0.15s ease" }}>
                 {status === "sending" ? "Envoi en cours..." : "Envoyer le message →"}
               </button>
             </div>
           </form>
         )}
 
-        {/* ── Infos bas de page ── */}
         <div style={{ marginTop: "20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
           {[
             { icon: "⚡", titre: "Réponse rapide", desc: "24–48h ouvrées" },
@@ -377,7 +330,6 @@ export default function ContactPage() {
           ))}
         </div>
 
-        {/* Email direct */}
         <div style={{ marginTop: "12px", background: "rgba(255,255,255,0.6)", border: "1.5px solid rgba(255,255,255,0.85)", borderRadius: "16px", padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "2px" }}>EMAIL DIRECT</div>
