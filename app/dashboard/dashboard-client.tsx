@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -7,7 +8,6 @@ import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 type RDV = {
   id: string; date_rdv: string; heure_rdv?: string;
@@ -306,12 +306,11 @@ export function DashboardClient() {
     { q: "Comment contacter le support ?",                a: "Via le centre d'aide, onglet Aide, ou directement par email à contact@yelen224.com — réponse sous 24h ouvrables." },
   ];
 
-  const TABS: { key: Tab; label: string; icon: (a?: boolean) => JSX.Element }[] = [
-    { key: "accueil", label: "Accueil",  icon: Ic.Home },
+  const TABS: { key: Tab; label: string; icon: (a?: boolean) => React.ReactElement }[] = [
+    { key: "accueil", label: "Accueil", icon: Ic.Home },
     { key: "rdv",     label: "Mes RDV", icon: Ic.Cal  },
     { key: "aide",    label: "Aide",    icon: Ic.Help  },
   ];
-
   // ── Header ────────────────────────────────────────────────────────────────
   const Bandeau = () => (
     <div onClick={() => setTab("accueil")} style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: isDark ? "rgba(8,8,18,0.96)" : "rgba(250,250,252,0.96)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.12)" : "rgba(0,0,0,0.06)"}`, padding: "0 16px", cursor: "pointer" }}>
