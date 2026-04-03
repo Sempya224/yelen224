@@ -1,0 +1,35 @@
+warning: in the working copy of 'app/dashboard/dashboard-client.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/app/dashboard/dashboard-client.tsx b/app/dashboard/dashboard-client.tsx[m
+[1mindex 4afb3ca..39e6cc8 100644[m
+[1m--- a/app/dashboard/dashboard-client.tsx[m
+[1m+++ b/app/dashboard/dashboard-client.tsx[m
+[36m@@ -1,5 +1,6 @@[m
+ "use client";[m
+ [m
+[32m+[m[32mimport React from "react";[m
+ import { useRouter } from "next/navigation";[m
+ import { useCallback, useEffect, useState } from "react";[m
+ import Link from "next/link";[m
+[36m@@ -7,7 +8,6 @@[m [mimport { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";[m
+ import { supabase } from "@/lib/supabase";[m
+ import { useTheme } from "@/components/ThemeProvider";[m
+ import { T } from "@/lib/theme";[m
+[31m-[m
+ // ─── Types ────────────────────────────────────────────────────────────────────[m
+ type RDV = {[m
+   id: string; date_rdv: string; heure_rdv?: string;[m
+[36m@@ -306,12 +306,11 @@[m [mexport function DashboardClient() {[m
+     { q: "Comment contacter le support ?",                a: "Via le centre d'aide, onglet Aide, ou directement par email à contact@yelen224.com — réponse sous 24h ouvrables." },[m
+   ];[m
+ [m
+[31m-  const TABS: { key: Tab; label: string; icon: (a?: boolean) => JSX.Element }[] = [[m
+[31m-    { key: "accueil", label: "Accueil",  icon: Ic.Home },[m
+[32m+[m[32m  const TABS: { key: Tab; label: string; icon: (a?: boolean) => React.ReactElement }[] = [[m
+[32m+[m[32m    { key: "accueil", label: "Accueil", icon: Ic.Home },[m
+     { key: "rdv",     label: "Mes RDV", icon: Ic.Cal  },[m
+     { key: "aide",    label: "Aide",    icon: Ic.Help  },[m
+   ];[m
+[31m-[m
+   // ── Header ────────────────────────────────────────────────────────────────[m
+   const Bandeau = () => ([m
+     <div onClick={() => setTab("accueil")} style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: isDark ? "rgba(8,8,18,0.96)" : "rgba(250,250,252,0.96)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.12)" : "rgba(0,0,0,0.06)"}`, padding: "0 16px", cursor: "pointer" }}>[m
