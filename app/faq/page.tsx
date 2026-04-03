@@ -2,8 +2,25 @@
 
 import { useState } from "react";
 
+// ── Types ────────────────────────────────────────────────────────────────────
+type Lien = { href: string; label: string };
+type FAQ = {
+  id: string;
+  question: string;
+  reponse: string;
+  liens?: Lien[];
+  tags?: string[];
+};
+type Section = {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+  faqs: FAQ[];
+};
+
 // ── Data ────────────────────────────────────────────────────────────────────
-const SECTIONS = [
+const SECTIONS: Section[] = [
   {
     id: "general", label: "Général", icon: "🌍", color: "#F5A623",
     faqs: [
@@ -76,7 +93,7 @@ const SECTIONS = [
 ];
 
 // ── FAQ Item ─────────────────────────────────────────────────────────────────
-function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: string; liens?: { href: string; label: string }[]; tags?: string[] }; sectionColor: string }) {
+function FAQItem({ faq, sectionColor }: { faq: FAQ; sectionColor: string }) {
   const [open, setOpen] = useState(false);
   const [vote, setVote] = useState<string | null>(null);
 
@@ -114,7 +131,6 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
         </div>
       </button>
 
-      {/* Bottom sheet panel */}
       {open && (
         <>
           <style>{`
@@ -141,12 +157,10 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
             animation: "sheetIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards",
             boxShadow: "0 -8px 48px rgba(200,140,0,0.15)",
           }}>
-            {/* Handle bar */}
             <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 6px" }}>
               <div style={{ width: "40px", height: "4px", borderRadius: "2px", background: "rgba(200,140,0,0.25)" }} />
             </div>
 
-            {/* Sheet header */}
             <div style={{ padding: "8px 24px 16px", borderBottom: "1px solid rgba(200,140,0,0.12)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <div style={{ width: "3px", height: "16px", borderRadius: "2px", background: sectionColor }} />
@@ -163,7 +177,6 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
               >✕</button>
             </div>
 
-            {/* Scrollable body */}
             <div style={{ overflowY: "auto", padding: "20px 24px 40px", flex: 1 }}>
               <h2 style={{ color: "#1a1200", fontSize: "18px", fontWeight: "900", lineHeight: 1.3, margin: "0 0 20px", fontFamily: "'Sora', sans-serif", letterSpacing: "-0.3px" }}>
                 {faq.question}
@@ -182,10 +195,9 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
                 {faq.reponse}
               </div>
 
-              {/* Liens */}
               {(faq.liens?.length ?? 0) > 0 && (
                 <div style={{ marginBottom: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                 {faq.liens!.map(lien => (
+                  {faq.liens!.map(lien => (
                     <a key={lien.href} href={lien.href} style={{
                       display: "flex", alignItems: "center", justifyContent: "space-between",
                       background: `linear-gradient(135deg, ${sectionColor}18, ${sectionColor}08)`,
@@ -201,10 +213,9 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
                 </div>
               )}
 
-              {/* Tags */}
-              {faq.tags && (
+              {(faq.tags?.length ?? 0) > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "20px" }}>
-                  {faq.tags.map(tag => (
+                  {faq.tags!.map(tag => (
                     <span key={tag} style={{
                       fontSize: "11px", color: "#8B6914",
                       background: "rgba(200,140,0,0.1)", border: "1px solid rgba(200,140,0,0.2)",
@@ -214,7 +225,6 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
                 </div>
               )}
 
-              {/* Vote */}
               <div style={{ background: "rgba(255,255,255,0.6)", border: "1px solid rgba(200,140,0,0.15)", borderRadius: "16px", padding: "16px" }}>
                 <p style={{ color: "#1a1200", fontSize: "13px", fontWeight: "700", margin: "0 0 12px", fontFamily: "'Sora', sans-serif" }}>
                   Cette réponse vous a-t-elle aidé ?
@@ -239,7 +249,7 @@ function FAQItem({ faq, sectionColor }: { faq: { question: string; reponse: stri
                 ) : vote === "yes" ? (
                   <div style={{ textAlign: "center", padding: "10px" }}>
                     <div style={{ fontSize: "28px", marginBottom: "6px" }}>✅</div>
-                    <p style={{ color: "#16a34a", fontSize: "13px", fontWeight: "700", margin: 0, fontFamily: "'Sora', sans-serif" }}>Merci ! Heureux d'avoir aidé.</p>
+                    <p style={{ color: "#16a34a", fontSize: "13px", fontWeight: "700", margin: 0, fontFamily: "'Sora', sans-serif" }}>Merci ! Heureux d&apos;avoir aidé.</p>
                   </div>
                 ) : (
                   <div style={{ textAlign: "center" }}>
@@ -267,13 +277,13 @@ export default function FAQPage() {
   const [search, setSearch] = useState("");
 
   const currentSection = SECTIONS.find(s => s.id === activeSection);
-  const filteredFAQs = search.trim()
+  const filteredFAQs: FAQ[] = search.trim()
     ? SECTIONS.flatMap(s => s.faqs).filter(f =>
         f.question.toLowerCase().includes(search.toLowerCase()) ||
         f.reponse.toLowerCase().includes(search.toLowerCase()) ||
         f.tags?.some(t => t.toLowerCase().includes(search.toLowerCase()))
       )
-    : currentSection.faqs;
+    : currentSection?.faqs ?? [];
 
   return (
     <div style={{
@@ -290,12 +300,9 @@ export default function FAQPage() {
         input:focus { outline: none; }
       `}</style>
 
-      {/* Safe area top spacer */}
       <div style={{ height: "env(safe-area-inset-top, 0px)" }} />
 
-      {/* ── Hero ── */}
       <div style={{ padding: "28px 20px 0" }}>
-        {/* Logo mini */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "24px" }}>
           <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 12px rgba(245,166,35,0.4)" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1a1200" strokeWidth="2.5" strokeLinecap="round">
@@ -304,7 +311,7 @@ export default function FAQPage() {
           </div>
           <div>
             <div style={{ fontSize: "13px", fontWeight: "900", color: "#1a1200", letterSpacing: "0.5px", lineHeight: 1 }}>YELEN<span style={{ color: "#c47a00" }}>224</span></div>
-            <div style={{ fontSize: "8px", color: "#8B6914", letterSpacing: "1.5px", fontWeight: "600" }}>CENTRE D'AIDE</div>
+            <div style={{ fontSize: "8px", color: "#8B6914", letterSpacing: "1.5px", fontWeight: "600" }}>CENTRE D&apos;AIDE</div>
           </div>
         </div>
 
@@ -312,10 +319,9 @@ export default function FAQPage() {
           Questions<br /><span style={{ color: "#c47a00" }}>fréquentes</span>
         </h1>
         <p style={{ color: "#6b5000", fontSize: "13px", margin: "0 0 20px", lineHeight: 1.6 }}>
-          Citoyens, prestataires, institutions & diaspora guinéenne.
+          Citoyens, prestataires, institutions &amp; diaspora guinéenne.
         </p>
 
-        {/* Search bar */}
         <div style={{ position: "relative", marginBottom: "24px" }}>
           <div style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", fontSize: "16px", pointerEvents: "none" }}>🔍</div>
           <input
@@ -344,7 +350,6 @@ export default function FAQPage() {
         </div>
       </div>
 
-      {/* ── Section tabs (horizontal scroll) ── */}
       {!search && (
         <div style={{ overflowX: "auto", paddingLeft: "20px", paddingBottom: "4px", marginBottom: "16px", display: "flex", gap: "8px", scrollbarWidth: "none" }}>
           {SECTIONS.map(section => {
@@ -378,17 +383,14 @@ export default function FAQPage() {
         </div>
       )}
 
-      {/* ── FAQ list ── */}
       <div style={{ padding: "0 20px 100px" }}>
-        {/* Search result count */}
         {search && (
           <p style={{ color: "#6b5000", fontSize: "12px", marginBottom: "14px", fontWeight: "600" }}>
             {filteredFAQs.length} résultat{filteredFAQs.length !== 1 ? "s" : ""} pour « {search} »
           </p>
         )}
 
-        {/* Section title */}
-        {!search && (
+        {!search && currentSection && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
             <span style={{ fontSize: "22px" }}>{currentSection.icon}</span>
             <div>
@@ -402,7 +404,7 @@ export default function FAQPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {filteredFAQs.map(faq => {
               const sec = SECTIONS.find(s => s.faqs.some(f => f.id === faq.id));
-              return <FAQItem key={faq.id} faq={faq} sectionColor={sec?.color || "#F5A623"} />;
+              return <FAQItem key={faq.id} faq={faq} sectionColor={sec?.color ?? "#F5A623"} />;
             })}
           </div>
         ) : (
@@ -418,11 +420,10 @@ export default function FAQPage() {
           </div>
         )}
 
-        {/* Bottom CTA */}
         {!search && (
           <div style={{ marginTop: "32px", background: "rgba(255,255,255,0.65)", backdropFilter: "blur(12px)", border: "1.5px solid rgba(255,255,255,0.9)", borderRadius: "24px", padding: "24px", textAlign: "center", boxShadow: "0 4px 24px rgba(200,140,0,0.1)" }}>
             <div style={{ fontSize: "28px", marginBottom: "10px" }}>💬</div>
-            <h3 style={{ color: "#1a1200", fontSize: "16px", fontWeight: "900", margin: "0 0 6px" }}>Votre question n'est pas ici ?</h3>
+            <h3 style={{ color: "#1a1200", fontSize: "16px", fontWeight: "900", margin: "0 0 6px" }}>Votre question n&apos;est pas ici ?</h3>
             <p style={{ color: "#6b5000", fontSize: "12px", maxWidth: "280px", margin: "0 auto 16px", lineHeight: 1.6 }}>
               Disponible lun–ven 8h–18h GMT depuis Conakry et New York.
             </p>
@@ -438,7 +439,6 @@ export default function FAQPage() {
         )}
       </div>
 
-      {/* Safe area bottom */}
       <div style={{ height: "env(safe-area-inset-bottom, 0px)" }} />
     </div>
   );
