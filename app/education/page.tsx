@@ -370,7 +370,7 @@ function Popup({ data, onClose }: { data: PopupData; onClose: () => void }) {
             className="absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center shadow-lg"
             style={{ background: "rgba(255,255,255,0.9)" }}
           >
-            <X size={18} color="#374151" />
+            <X size={18} />
           </button>
           <div className="absolute bottom-3 left-4">
             <span className="text-xs font-semibold px-3 py-1 rounded-full" style={{ background: data.color, color: "#fff" }}>
