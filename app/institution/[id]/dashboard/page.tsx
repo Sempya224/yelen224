@@ -1,5 +1,4 @@
-
-
+WDG          ACTUELE 
 
 
 
@@ -1960,7 +1959,7 @@ export default function InstitutionDashboard() {
               items: [
                 { label: "Modifier le profil",     href: `/institution/profil`,      color: T.gold },
                 { label: "Documents officiels",    href: `/institution/document`,   color: T.blue },
-                { label: "Services proposés",      href: `/institution/service`,    color: T.purple },
+                { label: "Services proposés",      href: `/institution/services-payants`,    color: T.purple },
                 { label: "Créneaux & Horaires",    href: `/institution/disponibilites`,    color: T.green },
                 { label: "Validation Yelen",       href: `/institution/validation`,  color: T.teal },
               ],
@@ -1972,6 +1971,9 @@ export default function InstitutionDashboard() {
                 { label: "Annonces publiques",          href: `/institution/annonce`,     color: T.orange },
                 { label: "Signalements citoyens",       href: `/institution//signalement`, color: T.red },
                 { label: "Mon Forfait Pro",              href: `/institution/forfait`,      color: T.purple },
+                { label: "Valider un RDV payant",  href: "/institution/valider-rdv",      color: T.blue },
+{ label: "Mon code QR",            href: "/institution/codeqr",            color: T.orange },
+{ label: "Mes services payants",   href: "/institution/services-payants",  color: T.orange },
               ],
             },
             {
@@ -1980,7 +1982,7 @@ export default function InstitutionDashboard() {
                 { label: "Aide & FAQ",                   href: `/faq`,          color: T.blue },
                 { label: "Contacter le support",         href: "mailto:support@yelen224.com",         color: T.purple },
                 { label: "Conditions d'utilisation",     href: "/cgu",                          color: T.t2 },
-                { label: "Politique de confidentialité", href: "/confidentialite",              color: T.t2 },
+                { label: "Politique de confidentialité", href: "/confidentialite",              color: T.t2 },              
               ],
             },
           ].map((section, si) => (
@@ -2053,13 +2055,3 @@ export default function InstitutionDashboard() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
