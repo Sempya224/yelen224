@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import crypto from "crypto";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,7 +41,7 @@ export async function POST(req: NextRequest) {
         id, date_rdv, heure_rdv, statut, presence_status,
         institution_id, citoyen_id, objet,
         qr_token, qr_expires_at,
-        users!rdv_citoyen_id_fkey (nom, prenom, telephone)
+        users!rdv_citoyen_id_fkey (nom, prenom, phone)
       `)
       .eq("id", rdv_id)
       .single();
@@ -75,9 +74,9 @@ export async function POST(req: NextRequest) {
         heure_rdv: rdv.heure_rdv,
         objet: rdv.objet,
         citoyen_nom: citoyen
-          ? `${citoyen.prenom} ${citoyen.nom}`
+          ? `${citoyen.prenom ?? ""} ${citoyen.nom ?? ""}`.trim() || "Citoyen"
           : "Citoyen",
-        citoyen_phone: citoyen?.telephone || "",
+        citoyen_phone: citoyen?.phone || "",
       },
     });
   } catch (err: any) {
