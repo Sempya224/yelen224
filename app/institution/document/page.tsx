@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -53,6 +53,686 @@ const DOCUMENTS_PAR_CATEGORIE: Record<string, { label: string; description: stri
   ],
 };
 
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --gold: #F5A623;
+    --gold-dim: rgba(245,166,35,0.12);
+    --gold-border: rgba(245,166,35,0.2);
+    --bg: #080810;
+    --surface: #0E0E1C;
+    --surface-2: #141426;
+    --border: rgba(255,255,255,0.06);
+    --border-hover: rgba(245,166,35,0.35);
+    --text: #F0EFE8;
+    --text-muted: #6B6A7A;
+    --text-dim: #3A3A52;
+    --green: #10B981;
+    --green-dim: rgba(16,185,129,0.1);
+    --green-border: rgba(16,185,129,0.25);
+    --red: #EF4444;
+    --red-dim: rgba(239,68,68,0.08);
+    --red-border: rgba(239,68,68,0.25);
+    --blue: #60A5FA;
+    --blue-dim: rgba(96,165,250,0.08);
+    --blue-border: rgba(96,165,250,0.2);
+  }
+
+  body { background: var(--bg); font-family: 'DM Sans', sans-serif; color: var(--text); }
+
+  .page-wrap {
+    min-height: 100vh;
+    background: var(--bg);
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Subtle ambient noise */
+  .page-wrap::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(245,166,35,0.06) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 90% 80%, rgba(96,165,250,0.04) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(8,8,16,0.85);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+  }
+  .header-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .back-btn {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  }
+  .back-btn:hover { border-color: var(--gold-border); color: var(--gold); background: var(--gold-dim); }
+  .logo {
+    font-family: 'DM Serif Display', serif;
+    font-size: 20px;
+    color: var(--gold);
+    letter-spacing: 0.02em;
+  }
+  .logo span { color: var(--text-muted); font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 400; letter-spacing: 0.05em; margin-left: 4px; vertical-align: middle; }
+  .badge-verif {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: var(--gold-dim);
+    border: 1px solid var(--gold-border);
+    padding: 5px 14px;
+    border-radius: 100px;
+  }
+
+  /* ── MAIN ── */
+  .main {
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  /* ── HERO BLOCK ── */
+  .hero {
+    margin-bottom: 40px;
+  }
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 16px;
+  }
+  .hero-eyebrow-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--gold);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+  .hero-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(26px, 5vw, 36px);
+    font-weight: 400;
+    color: var(--text);
+    line-height: 1.15;
+    margin-bottom: 16px;
+    letter-spacing: -0.01em;
+  }
+  .hero-title em {
+    font-style: italic;
+    color: var(--gold);
+  }
+  .hero-sub {
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text-muted);
+    max-width: 560px;
+  }
+  .hero-category-tag {
+    display: inline-block;
+    color: var(--text);
+    background: var(--gold-dim);
+    border: 1px solid var(--gold-border);
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  /* ── PROGRESS ── */
+  .progress-section {
+    margin-bottom: 32px;
+  }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .progress-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+  .progress-count {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+  }
+  .progress-track {
+    height: 4px;
+    border-radius: 100px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 100px;
+    background: linear-gradient(90deg, #F5A623 0%, #FFD97A 100%);
+    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
+  }
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 40px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; }
+  }
+
+  /* ── SECURITY BANNER ── */
+  .security-banner {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    background: var(--blue-dim);
+    border: 1px solid var(--blue-border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 36px;
+  }
+  .security-icon {
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: rgba(96,165,250,0.12);
+    border: 1px solid rgba(96,165,250,0.25);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .security-text-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--blue);
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+  }
+  .security-text-body {
+    font-size: 12px;
+    line-height: 1.65;
+    color: rgba(147,197,253,0.65);
+  }
+  .security-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .security-pill {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--blue);
+    background: rgba(96,165,250,0.1);
+    border: 1px solid rgba(96,165,250,0.2);
+    padding: 3px 10px;
+    border-radius: 100px;
+  }
+
+  /* ── DOCS ── */
+  .docs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .doc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 24px;
+    transition: border-color 0.25s, box-shadow 0.25s;
+  }
+  .doc-card:has(.upload-zone:hover) {
+    border-color: var(--gold-border);
+    box-shadow: 0 0 0 1px rgba(245,166,35,0.08), 0 8px 32px rgba(0,0,0,0.25);
+  }
+  .doc-card.uploaded {
+    border-color: var(--green-border);
+    background: linear-gradient(135deg, var(--surface) 0%, rgba(16,185,129,0.04) 100%);
+  }
+
+  .doc-card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .doc-index {
+    width: 32px; height: 32px;
+    border-radius: 10px;
+    background: var(--gold-dim);
+    border: 1px solid var(--gold-border);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+  }
+  .doc-index.done {
+    background: var(--green-dim);
+    border-color: var(--green-border);
+    color: var(--green);
+  }
+  .doc-meta { flex: 1; }
+  .doc-label-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .doc-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  .badge-oblig {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--red);
+    background: var(--red-dim);
+    border: 1px solid var(--red-border);
+    padding: 2px 8px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+  .badge-optionnel {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 2px 8px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+  .doc-description {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .doc-formats {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .doc-formats span { color: var(--gold); font-weight: 500; }
+
+  /* ── UPLOAD ZONE ── */
+  .upload-zone {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border: 1.5px dashed rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .upload-zone:hover {
+    border-color: rgba(245,166,35,0.4);
+    background: rgba(245,166,35,0.03);
+  }
+  .upload-zone.has-file {
+    border-color: var(--green-border);
+    background: var(--green-dim);
+    border-style: solid;
+  }
+
+  .upload-thumb {
+    width: 48px; height: 48px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .upload-thumb.has-file {
+    border-color: var(--green-border);
+    background: var(--green-dim);
+  }
+  .upload-thumb img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .upload-thumb-pdf {
+    font-size: 10px;
+    font-weight: 900;
+    color: var(--red);
+    letter-spacing: 0.05em;
+  }
+  .upload-thumb-icon {
+    color: var(--gold);
+    opacity: 0.7;
+  }
+  .upload-info { flex: 1; min-width: 0; }
+  .upload-filename {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
+  }
+  .upload-filename.has-file { color: var(--green); }
+  .upload-hint {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .upload-check {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--green-dim);
+    border: 1px solid var(--green-border);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    color: var(--green);
+    font-size: 13px;
+  }
+  .upload-arrow {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--gold-dim);
+    border: 1px solid var(--gold-border);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    color: var(--gold);
+    font-size: 13px;
+    transition: background 0.2s;
+  }
+  .upload-zone:hover .upload-arrow {
+    background: rgba(245,166,35,0.2);
+  }
+
+  /* ── ERROR ── */
+  .error-box {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: var(--red-dim);
+    border: 1px solid var(--red-border);
+    border-left: 3px solid var(--red);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .error-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #FCA5A5;
+  }
+
+  /* ── SUBMIT BUTTON ── */
+  .submit-wrapper {
+    position: relative;
+  }
+  .submit-btn {
+    width: 100%;
+    background: var(--gold);
+    color: #080810;
+    border: none;
+    border-radius: 14px;
+    padding: 17px 24px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    position: relative;
+    overflow: hidden;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+  .submit-btn:not(:disabled):hover { opacity: 0.92; transform: translateY(-1px); }
+  .submit-btn:not(:disabled):active { transform: translateY(0); }
+  .submit-btn:disabled {
+    background: var(--surface-2);
+    color: var(--text-dim);
+    cursor: not-allowed;
+  }
+  .submit-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+    transform: translateX(-100%);
+    animation: btn-shine 2.5s ease-in-out infinite;
+  }
+  .submit-btn:disabled::before { display: none; }
+  @keyframes btn-shine {
+    0% { transform: translateX(-100%); }
+    30%, 100% { transform: translateX(200%); }
+  }
+  .submit-loading {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(8,8,16,0.2);
+    border-top-color: #080810;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .submit-disclaimer {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: center;
+    margin-top: 14px;
+    line-height: 1.65;
+  }
+
+  /* ── SUCCESS ── */
+  .success-wrap {
+    min-height: 100vh;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    position: relative;
+  }
+  .success-wrap::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(16,185,129,0.07) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .success-card {
+    max-width: 480px;
+    width: 100%;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+  .success-icon-wrap {
+    width: 88px; height: 88px;
+    border-radius: 50%;
+    background: var(--green-dim);
+    border: 1.5px solid var(--green-border);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 28px;
+    position: relative;
+  }
+  .success-icon-wrap::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    border: 1px solid rgba(16,185,129,0.12);
+  }
+  .success-icon-wrap::after {
+    content: '';
+    position: absolute;
+    inset: -16px;
+    border-radius: 50%;
+    border: 1px solid rgba(16,185,129,0.06);
+  }
+  .success-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 28px;
+    color: var(--text);
+    margin-bottom: 12px;
+    line-height: 1.2;
+  }
+  .success-sub {
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text-muted);
+    margin-bottom: 36px;
+  }
+  .steps-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 28px;
+    text-align: left;
+  }
+  .steps-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: var(--gold-dim);
+  }
+  .step-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 13px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .step-row:last-child { border-bottom: none; }
+  .step-num {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--gold-dim);
+    border: 1px solid var(--gold-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--gold);
+    flex-shrink: 0;
+  }
+  .step-text {
+    font-size: 13px;
+    color: #9090A8;
+    line-height: 1.4;
+  }
+  .success-btn {
+    width: 100%;
+    background: var(--gold);
+    color: #080810;
+    border: none;
+    border-radius: 14px;
+    padding: 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: opacity 0.2s;
+  }
+  .success-btn:hover { opacity: 0.9; }
+
+  /* ── LOADING ── */
+  .page-loading {
+    min-height: 100vh;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+  .loading-ring {
+    width: 44px; height: 44px;
+    border: 2px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .loading-text {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 480px) {
+    .main { padding: 32px 16px 60px; }
+    .header-inner { padding: 0 16px; }
+    .doc-card { padding: 18px; }
+    .security-banner { flex-direction: column; gap: 12px; }
+  }
+`;
+
 export default function DocumentOfficiel() {
   const router = useRouter();
   const [files, setFiles] = useState<Record<string, File | null>>({});
@@ -79,6 +759,11 @@ export default function DocumentOfficiel() {
     fetchCategory();
   }, [router]);
 
+  const docs = DOCUMENTS_PAR_CATEGORIE[category || "Autre"] || [];
+  const uploadedCount = docs.filter((d) => files[d.label]).length;
+  const totalCount = docs.length;
+  const progressPercent = totalCount > 0 ? Math.round((uploadedCount / totalCount) * 100) : 0;
+
   const handleFile = (label: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -92,12 +777,15 @@ export default function DocumentOfficiel() {
 
   const handleSubmit = async () => {
     setError("");
-    const docs = DOCUMENTS_PAR_CATEGORIE[category || "Autre"] || [];
     const obligatoires = docs.filter((d) => d.obligatoire);
     const manquants = obligatoires.filter((d) => !files[d.label]);
 
     if (manquants.length > 0) {
-      setError(`Document(s) obligatoire(s) manquant(s) : ${manquants.map((d) => d.label).join(", ")}`);
+      setError(
+        manquants.length === 1
+          ? `Le document suivant est obligatoire : « ${manquants[0].label} »`
+          : `${manquants.length} documents obligatoires manquants : ${manquants.map((d) => `« ${d.label} »`).join(", ")}`
+      );
       return;
     }
 
@@ -129,141 +817,223 @@ export default function DocumentOfficiel() {
       if (updateError) throw updateError;
       setSubmitted(true);
     } catch {
-      setError("Erreur lors de l'envoi. Verifiez votre connexion et reessayez.");
+      setError("Une erreur est survenue lors de l'envoi. Vérifiez votre connexion et réessayez.");
     } finally {
       setLoading(false);
     }
   };
 
   if (loadingCategory) return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#0D0D1A", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <p style={{ color: "#F5A623", fontSize: "14px", letterSpacing: "1px" }}>CHARGEMENT...</p>
-    </div>
+    <>
+      <style>{CSS}</style>
+      <div className="page-loading">
+        <div className="loading-ring" />
+        <p className="loading-text">Chargement du dossier</p>
+      </div>
+    </>
   );
 
-  const docs = DOCUMENTS_PAR_CATEGORIE[category || "Autre"] || [];
-
   if (submitted) return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#0D0D1A", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", fontFamily: "'Segoe UI', sans-serif" }}>
-      <div style={{ maxWidth: "480px", width: "100%", textAlign: "center" }}>
-        <div style={{ width: "80px", height: "80px", borderRadius: "50%", backgroundColor: "rgba(34,197,94,0.15)", border: "2px solid rgba(34,197,94,0.4)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", fontSize: "36px" }}>&#10003;</div>
-        <h1 style={{ color: "#fff", fontSize: "24px", fontWeight: "800", margin: "0 0 12px" }}>Document soumis avec succes</h1>
-        <p style={{ color: "#666", fontSize: "14px", lineHeight: "1.7", margin: "0 0 32px" }}>
-          Votre dossier est en cours d&apos;examen par l&apos;equipe de verification de Yelen224. Ce processus prend generalement entre 24 et 72 heures ouvrables. Vous serez notifie par SMS une fois la decision rendue.
-        </p>
-        <div style={{ backgroundColor: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", padding: "16px 20px", marginBottom: "28px", textAlign: "left" }}>
-          <p style={{ color: "#F5A623", fontSize: "12px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "1px", margin: "0 0 8px" }}>Prochaines etapes</p>
-          {["Examen du dossier par l'equipe Yelen224", "Verification des documents soumis", "Notification par SMS de la decision", "Activation de votre espace institution"].map((step, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0", borderBottom: i < 3 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-              <div style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "rgba(245,166,35,0.15)", border: "1px solid rgba(245,166,35,0.3)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ color: "#F5A623", fontSize: "10px", fontWeight: "700" }}>{i + 1}</span>
+    <>
+      <style>{CSS}</style>
+      <div className="success-wrap">
+        <div className="success-card">
+          <div className="success-icon-wrap">
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <path d="M7 16.5L13 22.5L25 10" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <h1 className="success-title">Dossier soumis<br/>avec succès</h1>
+          <p className="success-sub">
+            Votre dossier est en cours d&apos;examen par l&apos;équipe de vérification de Yelen224.
+            Ce processus prend généralement entre <strong>24 et 72 heures ouvrables</strong>.
+            Vous serez notifié par SMS une fois la décision rendue.
+          </p>
+          <div className="steps-card">
+            <div className="steps-header">Prochaines étapes</div>
+            {[
+              "Examen du dossier par l'équipe Yelen224",
+              "Vérification des documents soumis",
+              "Notification par SMS de la décision",
+              "Activation de votre espace institution",
+            ].map((step, i) => (
+              <div key={i} className="step-row">
+                <div className="step-num">{i + 1}</div>
+                <span className="step-text">{step}</span>
               </div>
-              <span style={{ color: "#aaa", fontSize: "13px" }}>{step}</span>
-            </div>
-          ))}
+            ))}
+          </div>
+          <button className="success-btn" onClick={() => router.push("/institution/dashboard")}>
+            Retour au tableau de bord
+          </button>
         </div>
-        <button onClick={() => router.push("/institution/dashboard")} style={{ width: "100%", backgroundColor: "#F5A623", color: "#0D0D1A", border: "none", borderRadius: "12px", padding: "15px", fontSize: "15px", fontWeight: "700", cursor: "pointer" }}>
-          Retour au tableau de bord
-        </button>
       </div>
-    </div>
+    </>
   );
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#0D0D1A", fontFamily: "'Segoe UI', sans-serif", color: "#fff" }}>
-      <style>{`
-        .upload-zone:hover { border-color: rgba(245,166,35,0.5) !important; background-color: rgba(245,166,35,0.05) !important; }
-        .upload-zone { transition: all 0.2s; }
-      `}</style>
-
-      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(13,13,26,0.95)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(245,166,35,0.15)", padding: "0 24px" }}>
-        <div style={{ maxWidth: "720px", margin: "0 auto", height: "60px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <a href="/institution/dashboard" style={{ color: "#666", fontSize: "20px", textDecoration: "none", lineHeight: 1 }}>&#8592;</a>
-            <span style={{ color: "#F5A623", fontSize: "17px", fontWeight: "800", letterSpacing: "2px" }}>YELEN224</span>
+    <>
+      <style>{CSS}</style>
+      <div className="page-wrap">
+        {/* HEADER */}
+        <header className="header">
+          <div className="header-inner">
+            <div className="header-left">
+              <a href="/institution/dashboard" className="back-btn" title="Retour">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </a>
+              <div className="logo">
+                Yelen<span style={{color:"#F5A623", fontFamily:"'DM Serif Display',serif", fontSize:"20px"}}>224</span>
+              </div>
+            </div>
+            <span className="badge-verif">Vérification</span>
           </div>
-          <span style={{ backgroundColor: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", color: "#F5A623", fontSize: "11px", fontWeight: "700", padding: "4px 12px", borderRadius: "20px", letterSpacing: "0.5px" }}>VERIFICATION</span>
-        </div>
-      </header>
+        </header>
 
-      <main style={{ maxWidth: "720px", margin: "0 auto", padding: "36px 24px 60px" }}>
-        <div style={{ marginBottom: "32px" }}>
-          <p style={{ color: "#F5A623", fontSize: "11px", letterSpacing: "2px", textTransform: "uppercase", margin: "0 0 8px" }}>Dossier de verification</p>
-          <h1 style={{ color: "#fff", fontSize: "26px", fontWeight: "800", margin: "0 0 10px" }}>Verification de votre etablissement</h1>
-          <p style={{ color: "#666", fontSize: "14px", lineHeight: "1.7", margin: 0 }}>
-            Pour garantir la confiance des citoyens guineens, Yelen224 verifie l&apos;authenticite de chaque etablissement. Les documents ci-dessous sont requis pour votre categorie : <strong style={{ color: "#F5A623" }}>{category}</strong>.
-          </p>
-        </div>
-
-        <div style={{ backgroundColor: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", borderLeft: "4px solid #3b82f6", borderRadius: "12px", padding: "16px 20px", marginBottom: "28px", display: "flex", gap: "14px", alignItems: "flex-start" }}>
-          <span style={{ fontSize: "20px", marginTop: "2px" }}>&#128274;</span>
-          <div>
-            <p style={{ color: "#93c5fd", fontSize: "13px", fontWeight: "600", margin: "0 0 4px" }}>Confidentialite et securite des donnees</p>
-            <p style={{ color: "rgba(147,197,253,0.7)", fontSize: "12px", margin: 0, lineHeight: "1.6" }}>
-              Vos documents sont chiffres et stockes de maniere securisee. Ils ne sont accessibles qu&apos;aux agents de verification autorises de Yelen224 et sont traites conformement a la reglementation guineenne sur la protection des donnees.
+        <main className="main">
+          {/* HERO */}
+          <div className="hero">
+            <div className="hero-eyebrow">
+              <div className="hero-eyebrow-dot" />
+              Dossier de vérification officielle
+            </div>
+            <h1 className="hero-title">
+              Authentifiez votre<br/><em>établissement</em>
+            </h1>
+            <p className="hero-sub">
+              Pour garantir la confiance des citoyens guinéens, Yelen224 vérifie l&apos;authenticité de chaque structure. Les documents requis pour votre catégorie&nbsp;: <span className="hero-category-tag">{category}</span>
             </p>
           </div>
-        </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginBottom: "28px" }}>
-          {docs.map((doc, i) => (
-            <div key={i} style={{ backgroundColor: "#13132A", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "16px", padding: "24px", overflow: "hidden" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", marginBottom: "16px" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                    <h3 style={{ color: "#fff", fontSize: "14px", fontWeight: "700", margin: 0 }}>{doc.label}</h3>
-                    {doc.obligatoire
-                      ? <span style={{ backgroundColor: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>OBLIGATOIRE</span>
-                      : <span style={{ backgroundColor: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#888", fontSize: "10px", fontWeight: "600", padding: "2px 8px", borderRadius: "20px" }}>OPTIONNEL</span>
-                    }
-                  </div>
-                  <p style={{ color: "#666", fontSize: "12px", lineHeight: "1.6", margin: "0 0 6px" }}>{doc.description}</p>
-                  <p style={{ color: "#444", fontSize: "11px", margin: 0 }}>Formats acceptes : <span style={{ color: "#F5A623" }}>{doc.formats}</span></p>
-                </div>
-              </div>
-
-              <label className="upload-zone" style={{ display: "flex", alignItems: "center", gap: "16px", backgroundColor: files[doc.label] ? "rgba(34,197,94,0.05)" : "rgba(255,255,255,0.02)", border: `1px dashed ${files[doc.label] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.1)"}`, borderRadius: "12px", padding: "16px 20px", cursor: "pointer" }}>
-                <div style={{ width: "44px", height: "44px", borderRadius: "10px", flexShrink: 0, backgroundColor: files[doc.label] ? "rgba(34,197,94,0.15)" : "rgba(245,166,35,0.08)", border: `1px solid ${files[doc.label] ? "rgba(34,197,94,0.3)" : "rgba(245,166,35,0.2)"}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                  {previews[doc.label] === "pdf"
-                    ? <span style={{ color: "#ef4444", fontSize: "11px", fontWeight: "800" }}>PDF</span>
-                    : previews[doc.label]
-                      ? <img src={previews[doc.label]} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="preview" />
-                      : <span style={{ color: "#F5A623", fontSize: "20px" }}>&#8593;</span>
-                  }
-                </div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ color: files[doc.label] ? "#22c55e" : "#fff", fontSize: "13px", fontWeight: "600", margin: "0 0 3px" }}>
-                    {files[doc.label] ? files[doc.label]!.name : "Cliquer pour selectionner un fichier"}
-                  </p>
-                  <p style={{ color: "#444", fontSize: "11px", margin: 0 }}>
-                    {files[doc.label] ? `${(files[doc.label]!.size / 1024 / 1024).toFixed(2)} MB` : "PDF, JPG ou PNG - max 10MB"}
-                  </p>
-                </div>
-                {files[doc.label] && <span style={{ color: "#22c55e", fontSize: "18px" }}>&#10003;</span>}
-                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFile(doc.label, e)} style={{ display: "none" }} />
-              </label>
+          {/* PROGRESS */}
+          <div className="progress-section">
+            <div className="progress-header">
+              <span className="progress-label">Documents téléversés</span>
+              <span className="progress-count">{uploadedCount} / {totalCount}</span>
             </div>
-          ))}
-        </div>
-
-        {error && (
-          <div style={{ backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderLeft: "4px solid #ef4444", borderRadius: "12px", padding: "14px 18px", marginBottom: "20px" }}>
-            <p style={{ color: "#ef4444", fontSize: "13px", margin: 0, lineHeight: "1.6" }}>{error}</p>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
+            </div>
           </div>
-        )}
 
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          style={{ width: "100%", backgroundColor: loading ? "#333" : "#F5A623", color: loading ? "#666" : "#0D0D1A", border: "none", borderRadius: "12px", padding: "16px", fontSize: "15px", fontWeight: "700", cursor: loading ? "not-allowed" : "pointer", letterSpacing: "0.5px" }}
-        >
-          {loading ? "Envoi en cours..." : "Soumettre le dossier pour verification"}
-        </button>
+          {/* SECURITY BANNER */}
+          <div className="security-banner">
+            <div className="security-icon">
+              <svg width="18" height="20" viewBox="0 0 18 20" fill="none">
+                <path d="M9 1L1.5 4.5V9.5C1.5 13.6 4.8 17.4 9 18.5C13.2 17.4 16.5 13.6 16.5 9.5V4.5L9 1Z" stroke="#60A5FA" strokeWidth="1.5" strokeLinejoin="round"/>
+                <path d="M6 10L8 12L12 8" stroke="#60A5FA" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <p className="security-text-title">Sécurité & Confidentialité des données</p>
+              <p className="security-text-body">
+                Vos documents sont chiffrés en transit et au repos. Ils ne sont accessibles qu&apos;aux agents de vérification habilités de Yelen224, en conformité avec la réglementation guinéenne sur la protection des données personnelles.
+              </p>
+              <div className="security-pills">
+                <span className="security-pill">Chiffrement TLS 1.3</span>
+                <span className="security-pill">Accès restreint</span>
+                <span className="security-pill">Traçabilité complète</span>
+                <span className="security-pill">Données en Guinée</span>
+              </div>
+            </div>
+          </div>
 
-        <p style={{ color: "#444", fontSize: "12px", textAlign: "center", marginTop: "16px", lineHeight: "1.6" }}>
-          En soumettant ce dossier, vous certifiez que les documents fournis sont authentiques et vous engagez a respecter les conditions d&apos;utilisation de la plateforme Yelen224.
-        </p>
-      </main>
-    </div>
+          {/* DOCUMENTS */}
+          <div className="docs-list">
+            {docs.map((doc, i) => {
+              const hasFile = !!files[doc.label];
+              const preview = previews[doc.label];
+              return (
+                <div key={i} className={`doc-card${hasFile ? " uploaded" : ""}`}>
+                  <div className="doc-card-header">
+                    <div className={`doc-index${hasFile ? " done" : ""}`}>
+                      {hasFile
+                        ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7L6 10L11 4" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        : String(i + 1).padStart(2, "0")
+                      }
+                    </div>
+                    <div className="doc-meta">
+                      <div className="doc-label-row">
+                        <span className="doc-label">{doc.label}</span>
+                        {doc.obligatoire
+                          ? <span className="badge-oblig">Obligatoire</span>
+                          : <span className="badge-optionnel">Optionnel</span>
+                        }
+                      </div>
+                      <p className="doc-description">{doc.description}</p>
+                      <p className="doc-formats">Formats&nbsp;: <span>{doc.formats}</span></p>
+                    </div>
+                  </div>
+
+                  <label className={`upload-zone${hasFile ? " has-file" : ""}`}>
+                    <div className={`upload-thumb${hasFile ? " has-file" : ""}`}>
+                      {preview === "pdf" ? (
+                        <span className="upload-thumb-pdf">PDF</span>
+                      ) : preview ? (
+                        <img src={preview} alt="aperçu" />
+                      ) : (
+                        <svg className="upload-thumb-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                          <path d="M10 14V6M10 6L7 9M10 6L13 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                        </svg>
+                      )}
+                    </div>
+                    <div className="upload-info">
+                      <p className={`upload-filename${hasFile ? " has-file" : ""}`}>
+                        {hasFile ? files[doc.label]!.name : "Sélectionner un fichier"}
+                      </p>
+                      <p className="upload-hint">
+                        {hasFile
+                          ? `${(files[doc.label]!.size / 1024 / 1024).toFixed(2)} MB`
+                          : "PDF, JPG ou PNG — 10 MB max"
+                        }
+                      </p>
+                    </div>
+                    {hasFile
+                      ? <div className="upload-check">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        </div>
+                      : <div className="upload-arrow">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 9V3M6 3L3.5 5.5M6 3L8.5 5.5" stroke="#F5A623" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        </div>
+                    }
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFile(doc.label, e)} style={{ display: "none" }} />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ERROR */}
+          {error && (
+            <div className="error-box">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{flexShrink:0, marginTop:2}}>
+                <circle cx="8" cy="8" r="7" stroke="#EF4444" strokeWidth="1.5"/>
+                <path d="M8 5V8.5" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round"/>
+                <circle cx="8" cy="11" r="0.75" fill="#EF4444"/>
+              </svg>
+              <p className="error-text">{error}</p>
+            </div>
+          )}
+
+          {/* SUBMIT */}
+          <div className="submit-wrapper">
+            <button className="submit-btn" onClick={handleSubmit} disabled={loading}>
+              {loading ? (
+                <span className="submit-loading">
+                  <span className="spinner" />
+                  Envoi en cours…
+                </span>
+              ) : "Soumettre le dossier pour vérification"}
+            </button>
+            <p className="submit-disclaimer">
+              En soumettant ce dossier, vous certifiez que les documents fournis sont authentiques et vous engagez à respecter les conditions d&apos;utilisation de la plateforme Yelen224.
+            </p>
+          </div>
+        </main>
+      </div>
+    </>
   );
 }
