@@ -994,33 +994,124 @@ function SupportBanner() {
     </div>
   );
 }
-useEffect(() => {
-  const timer = setTimeout(() => {
-    const scanner = new Html5QrcodeScanner(
-      "qr-reader-modal",
-      {
-        fps: 10,
-        qrbox: { width: 220, height: 220 },
-        rememberLastUsedCamera: true,
-        videoConstraints: { facingMode: { ideal: "environment" } },
-      },
-      false
-    );
-    scanner.render(async (decodedText: string) => {
-      scanner.clear().catch(() => {});
-      try {
-        const storedId = localStorage.getItem("yelen224_institution_id") || institutionId;
-        const res = await fetch("/api/qr/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qr_payload: decodedText, institution_id: storedId }) });
-        const data = await res.json();
-        if (!res.ok) { setErrorMsg(data.error || "QR invalide"); setPhase("error"); return; }
-        setScanResult(data);
-        setPhase("result");
-      } catch { setErrorMsg("Erreur réseau"); setPhase("error"); }
-    }, () => {});
-    scannerRef.current = scanner;
-  }, 150);
-  return () => { clearTimeout(timer); if (scannerRef.current) scannerRef.current.clear().catch(() => {}); };
-}, [institutionId]);
+
+
+
+
+
+
+
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// SCANNER QR
+// ═══════════════════════════════════════════════════════════════════════
+function ScannerModal({ institutionId, onClose }: { institutionId: string; onClose: () => void }) {
+  const [phase, setPhase] = useState<"scan" | "result" | "done" | "error">("scan");
+  const [scanResult, setScanResult] = useState<any>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const scanner = new Html5QrcodeScanner(
+        "qr-reader-modal",
+        {
+          fps: 10,
+          qrbox: { width: 220, height: 220 },
+          rememberLastUsedCamera: true,
+          videoConstraints: { facingMode: { ideal: "environment" } },
+        },
+        false
+      );
+      scanner.render(async (decodedText: string) => {
+        scanner.clear().catch(() => {});
+        try {
+          const storedId = localStorage.getItem("yelen224_institution_id") || institutionId;
+          const res = await fetch("/api/qr/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qr_payload: decodedText, institution_id: storedId }) });
+          const data = await res.json();
+          if (!res.ok) { setErrorMsg(data.error || "QR invalide"); setPhase("error"); return; }
+          setScanResult(data);
+          setPhase("result");
+        } catch { setErrorMsg("Erreur réseau"); setPhase("error"); }
+      }, () => {});
+      scannerRef.current = scanner;
+    }, 150);
+    return () => { clearTimeout(timer); if (scannerRef.current) scannerRef.current.clear().catch(() => {}); };
+  }, [institutionId]);
+
+  async function confirmer(action: "present" | "absent") {
+    if (!scanResult?.rdv) return;
+    setConfirming(true);
+    try {
+      await fetch("/api/qr/validate", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rdv_id: scanResult.rdv.id, action, institution_id: institutionId }) });
+      setPhase("done");
+    } catch { setErrorMsg("Erreur"); setPhase("error"); } finally { setConfirming(false); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.88)", backdropFilter: "blur(16px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: T.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "480px", border: `1px solid ${T.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
+        <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: T.t3, margin: "0 auto 20px" }}/>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+          <div>
+            <div style={{ color: T.t1, fontSize: "18px", fontWeight: "900" }}>Scanner le Client</div>
+            <div style={{ color: T.t3, fontSize: "12px", marginTop: "2px" }}>QR Code du citoyen</div>
+          </div>
+          <button onClick={onClose} style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: T.bg3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        {phase === "scan" && <div id="qr-reader-modal" style={{ borderRadius: "16px", overflow: "hidden", backgroundColor: T.bg3, minHeight: "260px" }}/>}
+        {phase === "result" && scanResult?.rdv && (
+          <div style={{ animation: "fadeUp 0.2s ease" }}>
+            <div style={{ backgroundColor: T.greenL, border: `1px solid ${T.green}30`, borderRadius: "12px", padding: "10px 14px", marginBottom: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <span style={{ color: T.green, fontSize: "12px", fontWeight: "800" }}>QR valide</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: `linear-gradient(135deg, ${T.gold}30, ${T.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: T.gold }}>
+                {(scanResult.rdv.citoyen_nom || "C")[0].toUpperCase()}
+              </div>
+              <div>
+                <div style={{ color: T.t1, fontSize: "16px", fontWeight: "800" }}>{scanResult.rdv.citoyen_nom}</div>
+                <div style={{ color: T.t3, fontSize: "11px" }}>{scanResult.rdv.objet || "RDV général"} · {formatDate(scanResult.rdv.date_rdv, { day: "numeric", month: "short" })}</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <button onClick={() => confirmer("absent")} disabled={confirming} className="tap" style={{ backgroundColor: T.redL, color: T.red, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${T.red}25`, cursor: "pointer" }}>{confirming ? "..." : "Absent"}</button>
+              <button onClick={() => confirmer("present")} disabled={confirming} className="tap" style={{ background: `linear-gradient(135deg, ${T.green}, #009e76)`, color: "#fff", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>{confirming ? "..." : "Présent"}</button>
+            </div>
+          </div>
+        )}
+        {phase === "done" && (
+          <div style={{ textAlign: "center", padding: "20px 0" }}>
+            <div style={{ width: "60px", height: "60px", borderRadius: "50%", backgroundColor: T.greenL, border: `2px solid ${T.green}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div style={{ color: T.green, fontSize: "16px", fontWeight: "900", marginBottom: "20px" }}>Présence confirmée</div>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+              <button onClick={() => { setPhase("scan"); setScanResult(null); }} className="tap" style={{ backgroundColor: T.bg3, border: `1px solid ${T.border}`, color: T.t1, fontWeight: "700", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", cursor: "pointer" }}>Scanner suivant</button>
+              <button onClick={onClose} className="tap" style={{ background: `linear-gradient(135deg, ${T.gold}, ${T.goldD})`, color: "#000", fontWeight: "800", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Fermer</button>
+            </div>
+          </div>
+        )}
+        {phase === "error" && (
+          <div style={{ textAlign: "center", padding: "20px 0" }}>
+            <div style={{ width: "60px", height: "60px", borderRadius: "50%", backgroundColor: T.redL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+            <div style={{ color: T.red, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>QR invalide</div>
+            <div style={{ color: T.t2, fontSize: "12px", marginBottom: "20px" }}>{errorMsg}</div>
+            <button onClick={() => { setPhase("scan"); setErrorMsg(""); }} className="tap" style={{ background: `linear-gradient(135deg, ${T.gold}, ${T.goldD})`, color: "#000", fontWeight: "800", fontSize: "14px", padding: "12px 32px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Réessayer</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL
