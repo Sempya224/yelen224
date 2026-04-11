@@ -166,7 +166,7 @@ export default function MesRdvPage() {
       .eq("citoyen_id", id)
       .order("date_rdv", { ascending: false });
 
-    const list = (data as Rdv[]) || [];
+    const list = (data as unknown as Rdv[]) || [];
 
     const enriched = await Promise.all(
       list.map(async (rdv) => {

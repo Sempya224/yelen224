@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -13,14 +13,14 @@ export default function InstitutionVerification() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [shake, setShake] = useState(false);
-  const inputs = useRef([]);
+  const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Auto-focus premier champ
   useEffect(() => {
     setTimeout(() => inputs.current[0]?.focus(), 400);
   }, []);
 
-  const handleChange = (index, value) => {
+  const handleChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return;
     const newCode = [...code];
     newCode[index] = value.slice(-1);
@@ -31,7 +31,7 @@ export default function InstitutionVerification() {
     }
   };
 
-  const handleKeyDown = (index, e) => {
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Backspace" && !code[index] && index > 0) {
       const newCode = [...code];
       newCode[index - 1] = "";
@@ -40,7 +40,7 @@ export default function InstitutionVerification() {
     }
   };
 
-  const handlePaste = (e) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (pasted.length === 6) {

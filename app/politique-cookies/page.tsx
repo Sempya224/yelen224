@@ -508,7 +508,7 @@ export default function PolitiqueCookiesPage() {
                 <p style={{ color: C.textMuted, fontSize: "14px", lineHeight: 1.85, marginBottom: "24px" }}>
                   {currentSection.contenu}
                 </p>
-                <TableauCookies C={C} theme={theme} />
+                <TableauCookies C={C as typeof T.dark} theme={theme} />
               </>
             ) : (
               <div style={{ color: C.textMuted, fontSize: "14px", lineHeight: 1.95, whiteSpace: "pre-line" }}>

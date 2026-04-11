@@ -4,765 +4,1117 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const DOCUMENTS_PAR_CATEGORIE: Record<string, { label: string; description: string; formats: string; obligatoire: boolean }[]> = {
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface DocSpec {
+  label: string;
+  description: string;
+  formats: string;
+  obligatoire: boolean;
+}
+
+// ─── Documents par catégorie ──────────────────────────────────────────────────
+const DOCUMENTS_PAR_CATEGORIE: Record<string, DocSpec[]> = {
   "Hopital / Clinique": [
-    { label: "Autorisation d'exercice du Ministere de la Sante", description: "Document officiel delivre par le Ministere de la Sante Publique de Guinee autorisant l'etablissement a exercer.", formats: "PDF, JPG, PNG", obligatoire: true },
-    { label: "Registre de Commerce (RCCM)", description: "Extrait du registre de commerce et du credit mobilier.", formats: "PDF", obligatoire: true },
-    { label: "Carte d'identification fiscale (NIF)", description: "Numero d'Identification Fiscale delivre par la Direction Nationale des Impots.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Autorisation d'exercice du Ministère de la Santé", description: "Document officiel délivré par le Ministère de la Santé Publique de Guinée autorisant l'établissement à exercer.", formats: "PDF, JPG, PNG", obligatoire: true },
+    { label: "Registre de Commerce (RCCM)", description: "Extrait du registre de commerce et du crédit mobilier.", formats: "PDF", obligatoire: true },
+    { label: "Carte d'identification fiscale (NIF)", description: "Numéro d'Identification Fiscale délivré par la Direction Nationale des Impôts.", formats: "PDF, JPG", obligatoire: true },
   ],
   "Ecole / Universite": [
-    { label: "Arrete ministeriel d'ouverture", description: "Arrete du Ministere de l'Education Nationale ou de l'Enseignement Superieur autorisant l'ouverture.", formats: "PDF", obligatoire: true },
+    { label: "Arrêté ministériel d'ouverture", description: "Arrêté du Ministère de l'Éducation Nationale ou de l'Enseignement Supérieur autorisant l'ouverture.", formats: "PDF", obligatoire: true },
     { label: "Registre de Commerce (RCCM)", description: "Extrait du registre de commerce.", formats: "PDF", obligatoire: true },
-    { label: "Carte d'identification fiscale (NIF)", description: "Numero d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Carte d'identification fiscale (NIF)", description: "Numéro d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
   ],
   "Mairie / Administration": [
-    { label: "Arrete de creation ou decret officiel", description: "Document officiel attestant la creation et l'existence legale de l'entite administrative.", formats: "PDF", obligatoire: true },
-    { label: "Lettre d'autorisation du responsable hierarchique", description: "Lettre signee par l'autorite de tutelle authorisant l'enregistrement sur la plateforme.", formats: "PDF", obligatoire: true },
+    { label: "Arrêté de création ou décret officiel", description: "Document officiel attestant la création et l'existence légale de l'entité administrative.", formats: "PDF", obligatoire: true },
+    { label: "Lettre d'autorisation du responsable hiérarchique", description: "Lettre signée par l'autorité de tutelle autorisant l'enregistrement sur la plateforme.", formats: "PDF", obligatoire: true },
   ],
   "Banque / Microfinance": [
-    { label: "Agrement de la Banque Centrale de la Republique de Guinee (BCRG)", description: "Autorisation officielle de la BCRG pour exercer une activite bancaire ou de microfinance.", formats: "PDF", obligatoire: true },
+    { label: "Agrément de la Banque Centrale de la République de Guinée (BCRG)", description: "Autorisation officielle de la BCRG pour exercer une activité bancaire ou de microfinance.", formats: "PDF", obligatoire: true },
     { label: "Registre de Commerce (RCCM)", description: "Extrait du registre de commerce.", formats: "PDF", obligatoire: true },
-    { label: "Carte d'identification fiscale (NIF)", description: "Numero d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Carte d'identification fiscale (NIF)", description: "Numéro d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
   ],
   "Pharmacie": [
-    { label: "Autorisation d'exercice - Ordre National des Pharmaciens", description: "Document delivre par l'Ordre National des Pharmaciens de Guinee.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Autorisation d'exercice — Ordre National des Pharmaciens", description: "Document délivré par l'Ordre National des Pharmaciens de Guinée.", formats: "PDF, JPG", obligatoire: true },
     { label: "Registre de Commerce (RCCM)", description: "Extrait du registre de commerce.", formats: "PDF", obligatoire: true },
-    { label: "Carte d'identification fiscale (NIF)", description: "Numero d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Carte d'identification fiscale (NIF)", description: "Numéro d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
   ],
   "Cabinet medical": [
-    { label: "Autorisation d'exercice prive - Ministere de la Sante", description: "Autorisation officielle pour exercer la medecine en cabinet prive en Guinee.", formats: "PDF, JPG", obligatoire: true },
-    { label: "Diplome et inscription a l'Ordre des Medecins", description: "Copie du diplome et attestation d'inscription a l'Ordre National des Medecins de Guinee.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Autorisation d'exercice privé — Ministère de la Santé", description: "Autorisation officielle pour exercer la médecine en cabinet privé en Guinée.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Diplôme et inscription à l'Ordre des Médecins", description: "Copie du diplôme et attestation d'inscription à l'Ordre National des Médecins de Guinée.", formats: "PDF, JPG", obligatoire: true },
   ],
   "Tribunal / Justice": [
-    { label: "Arrete de creation du Ministere de la Justice", description: "Document officiel attestant la creation et la juridiction de l'entite judiciaire.", formats: "PDF", obligatoire: true },
+    { label: "Arrêté de création du Ministère de la Justice", description: "Document officiel attestant la création et la juridiction de l'entité judiciaire.", formats: "PDF", obligatoire: true },
     { label: "Lettre d'autorisation du Ministre de la Justice", description: "Autorisation formelle pour l'enregistrement sur la plateforme Yelen224.", formats: "PDF", obligatoire: true },
   ],
   "Transport / Logistique": [
-    { label: "Licence de transport - Ministere des Transports", description: "Licence officielle delivree par le Ministere des Transports et des Infrastructures.", formats: "PDF", obligatoire: true },
+    { label: "Licence de transport — Ministère des Transports", description: "Licence officielle délivrée par le Ministère des Transports et des Infrastructures.", formats: "PDF", obligatoire: true },
     { label: "Registre de Commerce (RCCM)", description: "Extrait du registre de commerce.", formats: "PDF", obligatoire: true },
-    { label: "Carte d'identification fiscale (NIF)", description: "Numero d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
+    { label: "Carte d'identification fiscale (NIF)", description: "Numéro d'Identification Fiscale.", formats: "PDF, JPG", obligatoire: true },
   ],
   "ONG / Association": [
-    { label: "Recepisse de declaration au Ministere de l'Administration du Territoire", description: "Document officiel attestant la reconnaissance legale de l'ONG ou association en Guinee.", formats: "PDF", obligatoire: true },
-    { label: "Statuts de l'organisation", description: "Copie des statuts signes et enregistres.", formats: "PDF", obligatoire: true },
-    { label: "Proces verbal de l'assemblee constitutive", description: "PV signe de la reunion fondatrice de l'organisation.", formats: "PDF", obligatoire: false },
+    { label: "Récépissé de déclaration au Ministère de l'Administration du Territoire", description: "Document officiel attestant la reconnaissance légale de l'ONG ou association en Guinée.", formats: "PDF", obligatoire: true },
+    { label: "Statuts de l'organisation", description: "Copie des statuts signés et enregistrés.", formats: "PDF", obligatoire: true },
+    { label: "Procès-verbal de l'assemblée constitutive", description: "PV signé de la réunion fondatrice de l'organisation.", formats: "PDF", obligatoire: false },
   ],
   "Autre": [
-    { label: "Document officiel d'identification de la structure", description: "Tout document officiel prouvant l'existence legale et l'identite de votre etablissement (RCCM, arrete, decret, etc.).", formats: "PDF, JPG, PNG", obligatoire: true },
-    { label: "Carte d'identification fiscale (NIF)", description: "Numero d'Identification Fiscale delivre par les autorites guineennes.", formats: "PDF, JPG", obligatoire: false },
+    { label: "Document officiel d'identification de la structure", description: "Tout document officiel prouvant l'existence légale et l'identité de votre établissement (RCCM, arrêté, décret, etc.).", formats: "PDF, JPG, PNG", obligatoire: true },
+    { label: "Carte d'identification fiscale (NIF)", description: "Numéro d'Identification Fiscale délivré par les autorités guinéennes.", formats: "PDF, JPG", obligatoire: false },
   ],
 };
 
+// ─── CSS Global ───────────────────────────────────────────────────────────────
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --gold: #F5A623;
-    --gold-dim: rgba(245,166,35,0.12);
-    --gold-border: rgba(245,166,35,0.2);
-    --bg: #080810;
-    --surface: #0E0E1C;
-    --surface-2: #141426;
-    --border: rgba(255,255,255,0.06);
-    --border-hover: rgba(245,166,35,0.35);
-    --text: #F0EFE8;
-    --text-muted: #6B6A7A;
-    --text-dim: #3A3A52;
-    --green: #10B981;
-    --green-dim: rgba(16,185,129,0.1);
-    --green-border: rgba(16,185,129,0.25);
-    --red: #EF4444;
-    --red-dim: rgba(239,68,68,0.08);
-    --red-border: rgba(239,68,68,0.25);
-    --blue: #60A5FA;
-    --blue-dim: rgba(96,165,250,0.08);
-    --blue-border: rgba(96,165,250,0.2);
+    --gold: #D4A017;
+    --gold-deep: #B8860B;
+    --gold-light: #F5C842;
+    --gold-bg: rgba(212,160,23,0.06);
+    --gold-border: rgba(212,160,23,0.18);
+    --gold-border-strong: rgba(212,160,23,0.35);
+    --black: #0A0A0A;
+    --gray-900: #111111;
+    --gray-800: #1A1A1A;
+    --gray-700: #2A2A2A;
+    --gray-600: #3D3D3D;
+    --gray-500: #666666;
+    --gray-400: #888888;
+    --gray-300: #B8B8B8;
+    --gray-200: #D9D9D9;
+    --gray-100: #F0F0F0;
+    --gray-50: #F8F8F8;
+    --white: #FFFFFF;
+    --green: #16A34A;
+    --green-bg: rgba(22,163,74,0.06);
+    --green-border: rgba(22,163,74,0.2);
+    --red: #DC2626;
+    --red-bg: rgba(220,38,38,0.06);
+    --red-border: rgba(220,38,38,0.2);
+    --blue: #2563EB;
+    --blue-bg: rgba(37,99,235,0.06);
+    --blue-border: rgba(37,99,235,0.18);
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --radius-2xl: 24px;
   }
 
-  body { background: var(--bg); font-family: 'DM Sans', sans-serif; color: var(--text); }
-
-  .page-wrap {
-    min-height: 100vh;
-    background: var(--bg);
-    position: relative;
-    overflow-x: hidden;
+  body {
+    background: var(--white);
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--black);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Subtle ambient noise */
-  .page-wrap::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(245,166,35,0.06) 0%, transparent 70%),
-      radial-gradient(ellipse 40% 40% at 90% 80%, rgba(96,165,250,0.04) 0%, transparent 60%);
-    pointer-events: none;
-    z-index: 0;
-  }
+  .app { min-height: 100vh; background: var(--white); }
 
-  /* ── HEADER ── */
-  .header {
+  /* ── STICKY PROGRESS TOP ── */
+  .sticky-top {
     position: sticky;
     top: 0;
     z-index: 100;
-    background: rgba(8,8,16,0.85);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--gray-100);
   }
-  .header-inner {
-    max-width: 760px;
-    margin: 0 auto;
-    height: 64px;
+  .progress-bar-line {
+    height: 3px;
+    background: var(--gray-100);
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold-deep), var(--gold-light));
+    transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+  }
+  .top-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 24px;
+    padding: 16px 20px;
   }
-  .header-left { display: flex; align-items: center; gap: 16px; }
-  .back-btn {
-    width: 36px; height: 36px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--surface);
+  .logo-mark {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-square {
+    width: 32px; height: 32px;
+    background: var(--gold);
+    border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer;
-    color: var(--text-muted);
-    text-decoration: none;
-    transition: border-color 0.2s, color 0.2s, background 0.2s;
   }
-  .back-btn:hover { border-color: var(--gold-border); color: var(--gold); background: var(--gold-dim); }
-  .logo {
-    font-family: 'DM Serif Display', serif;
-    font-size: 20px;
-    color: var(--gold);
-    letter-spacing: 0.02em;
+  .logo-text {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--black);
+    letter-spacing: -0.3px;
   }
-  .logo span { color: var(--text-muted); font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 400; letter-spacing: 0.05em; margin-left: 4px; vertical-align: middle; }
-  .badge-verif {
+  .logo-text span { color: var(--gold-deep); }
+  .badge-etat {
     font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--gold);
-    background: var(--gold-dim);
+    color: var(--gold-deep);
+    background: var(--gold-bg);
     border: 1px solid var(--gold-border);
-    padding: 5px 14px;
+    padding: 4px 12px;
     border-radius: 100px;
+  }
+  .progress-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px 14px;
+  }
+  .progress-label-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gray-400);
+    letter-spacing: 0.04em;
+  }
+  .progress-count-text {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gold-deep);
   }
 
   /* ── MAIN ── */
-  .main {
-    position: relative;
-    z-index: 1;
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 48px 24px 80px;
-  }
+  .main { padding: 0 20px 120px; max-width: 520px; margin: 0 auto; }
 
-  /* ── HERO BLOCK ── */
-  .hero {
-    margin-bottom: 40px;
+  /* ── PAGE TITLE BLOCK ── */
+  .page-title-block {
+    padding: 28px 0 24px;
+    border-bottom: 1px solid var(--gray-100);
+    margin-bottom: 28px;
   }
-  .hero-eyebrow {
-    display: inline-flex;
+  .page-eyebrow {
+    display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--gold);
-    margin-bottom: 16px;
+    gap: 6px;
+    margin-bottom: 10px;
   }
-  .hero-eyebrow-dot {
+  .eyebrow-dot {
     width: 6px; height: 6px;
     border-radius: 50%;
     background: var(--gold);
-    animation: pulse-dot 2s ease-in-out infinite;
+    animation: blink 2s ease-in-out infinite;
   }
-  @keyframes pulse-dot {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.7); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .eyebrow-text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
   }
-  .hero-title {
-    font-family: 'DM Serif Display', serif;
-    font-size: clamp(26px, 5vw, 36px);
-    font-weight: 400;
-    color: var(--text);
+  .page-h1 {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--black);
+    letter-spacing: -0.6px;
     line-height: 1.15;
-    margin-bottom: 16px;
-    letter-spacing: -0.01em;
-  }
-  .hero-title em {
-    font-style: italic;
-    color: var(--gold);
-  }
-  .hero-sub {
-    font-size: 14px;
-    line-height: 1.75;
-    color: var(--text-muted);
-    max-width: 560px;
-  }
-  .hero-category-tag {
-    display: inline-block;
-    color: var(--text);
-    background: var(--gold-dim);
-    border: 1px solid var(--gold-border);
-    border-radius: 6px;
-    padding: 2px 10px;
-    font-weight: 600;
-    font-size: 13px;
-  }
-
-  /* ── PROGRESS ── */
-  .progress-section {
-    margin-bottom: 32px;
-  }
-  .progress-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     margin-bottom: 10px;
   }
-  .progress-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-muted);
-    letter-spacing: 0.04em;
+  .page-sub {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--gray-500);
   }
-  .progress-count {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--gold);
-    font-variant-numeric: tabular-nums;
-  }
-  .progress-track {
-    height: 4px;
+  .category-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--gold-bg);
+    border: 1px solid var(--gold-border);
     border-radius: 100px;
-    background: var(--surface-2);
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    border-radius: 100px;
-    background: linear-gradient(90deg, #F5A623 0%, #FFD97A 100%);
-    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-    position: relative;
-  }
-  .progress-fill::after {
-    content: '';
-    position: absolute;
-    right: 0; top: 0; bottom: 0;
-    width: 40px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
-    animation: shimmer 1.5s ease-in-out infinite;
-  }
-  @keyframes shimmer {
-    0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; }
-  }
-
-  /* ── SECURITY BANNER ── */
-  .security-banner {
-    display: flex;
-    gap: 16px;
-    align-items: flex-start;
-    background: var(--blue-dim);
-    border: 1px solid var(--blue-border);
-    border-radius: 14px;
-    padding: 18px 20px;
-    margin-bottom: 36px;
-  }
-  .security-icon {
-    width: 38px; height: 38px;
-    border-radius: 10px;
-    background: rgba(96,165,250,0.12);
-    border: 1px solid rgba(96,165,250,0.25);
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-  }
-  .security-text-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--blue);
-    letter-spacing: 0.04em;
-    margin-bottom: 5px;
-  }
-  .security-text-body {
-    font-size: 12px;
-    line-height: 1.65;
-    color: rgba(147,197,253,0.65);
-  }
-  .security-pills {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 10px;
-  }
-  .security-pill {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    color: var(--blue);
-    background: rgba(96,165,250,0.1);
-    border: 1px solid rgba(96,165,250,0.2);
     padding: 3px 10px;
-    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gold-deep);
+    margin-top: 8px;
   }
 
-  /* ── DOCS ── */
-  .docs-list {
+  /* ── SECTION CARD ── */
+  .section-card {
+    background: var(--white);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .section-header {
     display: flex;
-    flex-direction: column;
-    gap: 16px;
-    margin-bottom: 32px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--gray-100);
+    background: var(--gray-50);
   }
+  .section-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gray-600);
+  }
+  .section-body { padding: 20px; }
 
-  .doc-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 24px;
-    transition: border-color 0.25s, box-shadow 0.25s;
+  /* ── WHY SECTION ── */
+  .why-block {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-xl);
+    padding: 20px;
+    margin-bottom: 12px;
   }
-  .doc-card:has(.upload-zone:hover) {
-    border-color: var(--gold-border);
-    box-shadow: 0 0 0 1px rgba(245,166,35,0.08), 0 8px 32px rgba(0,0,0,0.25);
-  }
-  .doc-card.uploaded {
-    border-color: var(--green-border);
-    background: linear-gradient(135deg, var(--surface) 0%, rgba(16,185,129,0.04) 100%);
-  }
-
-  .doc-card-header {
+  .why-icon-row {
     display: flex;
-    align-items: flex-start;
-    gap: 14px;
-    margin-bottom: 18px;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
   }
-  .doc-index {
-    width: 32px; height: 32px;
-    border-radius: 10px;
-    background: var(--gold-dim);
+  .why-icon {
+    width: 40px; height: 40px;
+    border-radius: var(--radius-md);
+    background: var(--gold-bg);
     border: 1px solid var(--gold-border);
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
-    font-size: 12px;
-    font-weight: 800;
-    color: var(--gold);
-    font-variant-numeric: tabular-nums;
   }
-  .doc-index.done {
-    background: var(--green-dim);
-    border-color: var(--green-border);
-    color: var(--green);
+  .why-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--black);
   }
-  .doc-meta { flex: 1; }
-  .doc-label-row {
+  .why-body {
+    font-size: 12.5px;
+    line-height: 1.75;
+    color: var(--gray-500);
+  }
+  .why-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+  }
+  .why-pill {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gray-600);
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    padding: 4px 10px;
+    border-radius: 100px;
+  }
+
+  /* ── ACCORD SECTION ── */
+  .accord-block {
+    background: var(--white);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .accord-header-gold {
+    background: var(--gold-bg);
+    border-bottom: 1px solid var(--gold-border);
+    padding: 14px 20px;
     display: flex;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 6px;
+    gap: 10px;
   }
-  .doc-label {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-    line-height: 1.3;
+  .accord-title-text {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
   }
-  .badge-oblig {
-    font-size: 9px;
+  .accord-body { padding: 20px; }
+  .accord-party {
+    margin-bottom: 20px;
+  }
+  .accord-party:last-child { margin-bottom: 0; }
+  .accord-party-label {
+    font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--red);
-    background: var(--red-dim);
-    border: 1px solid var(--red-border);
-    padding: 2px 8px;
-    border-radius: 100px;
-    white-space: nowrap;
+    color: var(--gray-400);
+    margin-bottom: 10px;
   }
-  .badge-optionnel {
-    font-size: 9px;
-    font-weight: 600;
+  .accord-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--gray-50);
+  }
+  .accord-item:last-child { border-bottom: none; }
+  .accord-bullet {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--gold-bg);
+    border: 1px solid var(--gold-border);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .accord-bullet-green {
+    background: var(--green-bg);
+    border-color: var(--green-border);
+  }
+  .accord-text {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--gray-600);
+  }
+  .accord-divider {
+    height: 1px;
+    background: var(--gray-100);
+    margin: 20px 0;
+    position: relative;
+  }
+  .accord-divider::after {
+    content: 'ET';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%,-50%);
+    background: var(--white);
+    padding: 0 10px;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--gray-300);
+    letter-spacing: 0.1em;
+  }
+
+  /* ── DOCUMENTS ── */
+  .docs-section { margin-bottom: 12px; }
+  .docs-section-title {
+    font-size: 12px;
+    font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    padding: 2px 8px;
-    border-radius: 100px;
-    white-space: nowrap;
+    color: var(--gray-400);
+    padding: 0 4px;
+    margin-bottom: 10px;
+    margin-top: 24px;
   }
-  .doc-description {
+  .doc-card {
+    background: var(--white);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    margin-bottom: 8px;
+    transition: border-color 0.2s;
+  }
+  .doc-card.is-uploaded {
+    border-color: var(--green-border);
+  }
+  .doc-card-top {
+    padding: 16px 20px 14px;
+  }
+  .doc-num-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .doc-num {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--gray-100);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--gray-500);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .doc-num.done {
+    background: var(--green-bg);
+    color: var(--green);
+  }
+  .doc-info { flex: 1; }
+  .doc-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 5px;
+  }
+  .doc-label {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--black);
+    line-height: 1.3;
+  }
+  .badge-req {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--red);
+    background: var(--red-bg);
+    border: 1px solid var(--red-border);
+    padding: 2px 7px;
+    border-radius: 100px;
+  }
+  .badge-opt {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gray-400);
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    padding: 2px 7px;
+    border-radius: 100px;
+  }
+  .doc-desc {
     font-size: 12px;
     line-height: 1.65;
-    color: var(--text-muted);
-    margin-bottom: 6px;
+    color: var(--gray-400);
+    margin-bottom: 5px;
   }
   .doc-formats {
     font-size: 11px;
-    color: var(--text-dim);
+    color: var(--gray-300);
   }
-  .doc-formats span { color: var(--gold); font-weight: 500; }
+  .doc-formats b { color: var(--gold-deep); font-weight: 700; }
 
   /* ── UPLOAD ZONE ── */
   .upload-zone {
     display: flex;
     align-items: center;
-    gap: 16px;
-    border: 1.5px dashed rgba(255,255,255,0.1);
-    border-radius: 12px;
-    padding: 16px;
+    gap: 14px;
+    margin: 0 12px 12px;
+    border: 1.5px dashed var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: 14px;
     cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
+    transition: border-color 0.2s, background 0.15s;
     position: relative;
-    overflow: hidden;
   }
   .upload-zone:hover {
-    border-color: rgba(245,166,35,0.4);
-    background: rgba(245,166,35,0.03);
+    border-color: var(--gold-border-strong);
+    background: var(--gold-bg);
   }
-  .upload-zone.has-file {
-    border-color: var(--green-border);
-    background: var(--green-dim);
+  .upload-zone.filled {
     border-style: solid;
-  }
-
-  .upload-thumb {
-    width: 48px; height: 48px;
-    border-radius: 10px;
-    flex-shrink: 0;
-    overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-  }
-  .upload-thumb.has-file {
     border-color: var(--green-border);
-    background: var(--green-dim);
+    background: var(--green-bg);
   }
-  .upload-thumb img {
-    width: 100%; height: 100%;
-    object-fit: cover;
+  .upload-thumb {
+    width: 44px; height: 44px;
+    border-radius: var(--radius-md);
+    background: var(--gray-100);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
   }
+  .upload-thumb.filled {
+    background: rgba(22,163,74,0.08);
+  }
+  .upload-thumb img { width: 100%; height: 100%; object-fit: cover; }
   .upload-thumb-pdf {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 900;
     color: var(--red);
-    letter-spacing: 0.05em;
-  }
-  .upload-thumb-icon {
-    color: var(--gold);
-    opacity: 0.7;
+    letter-spacing: 0.06em;
   }
   .upload-info { flex: 1; min-width: 0; }
-  .upload-filename {
+  .upload-name {
     font-size: 13px;
     font-weight: 600;
-    color: var(--text);
+    color: var(--black);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-bottom: 3px;
+    margin-bottom: 2px;
   }
-  .upload-filename.has-file { color: var(--green); }
+  .upload-name.filled { color: var(--green); }
   .upload-hint {
     font-size: 11px;
-    color: var(--text-dim);
+    color: var(--gray-300);
   }
-  .upload-check {
-    width: 28px; height: 28px;
+  .upload-action {
+    width: 30px; height: 30px;
     border-radius: 50%;
-    background: var(--green-dim);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .upload-action.arrow {
+    background: var(--gold-bg);
+    border: 1px solid var(--gold-border);
+  }
+  .upload-action.check {
+    background: var(--green-bg);
     border: 1px solid var(--green-border);
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    color: var(--green);
-    font-size: 13px;
-  }
-  .upload-arrow {
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    background: var(--gold-dim);
-    border: 1px solid var(--gold-border);
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    color: var(--gold);
-    font-size: 13px;
-    transition: background 0.2s;
-  }
-  .upload-zone:hover .upload-arrow {
-    background: rgba(245,166,35,0.2);
   }
 
-  /* ── ERROR ── */
-  .error-box {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    background: var(--red-dim);
-    border: 1px solid var(--red-border);
-    border-left: 3px solid var(--red);
-    border-radius: 12px;
-    padding: 14px 18px;
-    margin-bottom: 20px;
-    animation: slideIn 0.3s ease;
-  }
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .error-text {
-    font-size: 13px;
-    line-height: 1.6;
-    color: #FCA5A5;
-  }
-
-  /* ── SUBMIT BUTTON ── */
-  .submit-wrapper {
-    position: relative;
-  }
-  .submit-btn {
-    width: 100%;
-    background: var(--gold);
-    color: #080810;
-    border: none;
-    border-radius: 14px;
-    padding: 17px 24px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    letter-spacing: 0.02em;
-    position: relative;
+  /* ── DOC CUSTOM ── */
+  .doc-custom-section {
+    background: var(--white);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-xl);
     overflow: hidden;
-    transition: opacity 0.2s, transform 0.1s;
-  }
-  .submit-btn:not(:disabled):hover { opacity: 0.92; transform: translateY(-1px); }
-  .submit-btn:not(:disabled):active { transform: translateY(0); }
-  .submit-btn:disabled {
-    background: var(--surface-2);
-    color: var(--text-dim);
-    cursor: not-allowed;
-  }
-  .submit-btn::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
-    transform: translateX(-100%);
-    animation: btn-shine 2.5s ease-in-out infinite;
-  }
-  .submit-btn:disabled::before { display: none; }
-  @keyframes btn-shine {
-    0% { transform: translateX(-100%); }
-    30%, 100% { transform: translateX(200%); }
-  }
-  .submit-loading {
-    display: flex; align-items: center; justify-content: center; gap: 10px;
-  }
-  .spinner {
-    width: 16px; height: 16px;
-    border: 2px solid rgba(8,8,16,0.2);
-    border-top-color: #080810;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .submit-disclaimer {
-    font-size: 11px;
-    color: var(--text-dim);
-    text-align: center;
-    margin-top: 14px;
-    line-height: 1.65;
-  }
-
-  /* ── SUCCESS ── */
-  .success-wrap {
-    min-height: 100vh;
-    background: var(--bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 32px 24px;
-    position: relative;
-  }
-  .success-wrap::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(16,185,129,0.07) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .success-card {
-    max-width: 480px;
-    width: 100%;
-    text-align: center;
-    position: relative;
-    z-index: 1;
-  }
-  .success-icon-wrap {
-    width: 88px; height: 88px;
-    border-radius: 50%;
-    background: var(--green-dim);
-    border: 1.5px solid var(--green-border);
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 28px;
-    position: relative;
-  }
-  .success-icon-wrap::before {
-    content: '';
-    position: absolute;
-    inset: -8px;
-    border-radius: 50%;
-    border: 1px solid rgba(16,185,129,0.12);
-  }
-  .success-icon-wrap::after {
-    content: '';
-    position: absolute;
-    inset: -16px;
-    border-radius: 50%;
-    border: 1px solid rgba(16,185,129,0.06);
-  }
-  .success-title {
-    font-family: 'DM Serif Display', serif;
-    font-size: 28px;
-    color: var(--text);
     margin-bottom: 12px;
-    line-height: 1.2;
   }
-  .success-sub {
-    font-size: 14px;
-    line-height: 1.75;
-    color: var(--text-muted);
-    margin-bottom: 36px;
-  }
-  .steps-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    overflow: hidden;
-    margin-bottom: 28px;
-    text-align: left;
-  }
-  .steps-header {
+  .doc-custom-header {
     padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--gold);
-    background: var(--gold-dim);
-  }
-  .step-row {
+    border-bottom: 1px solid var(--gray-100);
+    background: var(--gray-50);
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 13px 20px;
-    border-bottom: 1px solid var(--border);
+    gap: 10px;
   }
-  .step-row:last-child { border-bottom: none; }
-  .step-num {
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    background: var(--gold-dim);
-    border: 1px solid var(--gold-border);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 10px;
+  .doc-custom-title {
+    font-size: 12px;
     font-weight: 800;
-    color: var(--gold);
-    flex-shrink: 0;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gray-600);
   }
-  .step-text {
-    font-size: 13px;
-    color: #9090A8;
-    line-height: 1.4;
-  }
-  .success-btn {
-    width: 100%;
-    background: var(--gold);
-    color: #080810;
-    border: none;
-    border-radius: 14px;
-    padding: 16px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    letter-spacing: 0.02em;
-    transition: opacity 0.2s;
-  }
-  .success-btn:hover { opacity: 0.9; }
-
-  /* ── LOADING ── */
-  .page-loading {
-    min-height: 100vh;
-    background: var(--bg);
+  .doc-custom-body { padding: 20px; }
+  .custom-upload-empty {
+    border: 1.5px dashed var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: 24px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 20px;
+    gap: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.15s;
+  }
+  .custom-upload-empty:hover {
+    border-color: var(--gold-border-strong);
+    background: var(--gold-bg);
+  }
+  .custom-add-icon {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--gray-100);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .custom-add-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-500);
+  }
+  .custom-add-hint {
+    font-size: 11px;
+    color: var(--gray-300);
+  }
+  .custom-file-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gray-50);
+  }
+  .custom-file-row:last-child { border-bottom: none; }
+  .custom-file-thumb {
+    width: 36px; height: 36px;
+    border-radius: var(--radius-sm);
+    background: var(--gray-100);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .custom-file-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .custom-file-info { flex: 1; min-width: 0; }
+  .custom-file-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--black);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .custom-file-size {
+    font-size: 11px;
+    color: var(--gray-400);
+  }
+  .custom-file-remove {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--gray-100);
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .custom-file-remove:hover { background: var(--red-bg); }
+
+  /* ── CONTACT SECTION ── */
+  .contact-section {
+    background: var(--white);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .contact-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--gray-50);
+    transition: background 0.15s;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .contact-row:last-child { border-bottom: none; }
+  .contact-row:hover { background: var(--gray-50); }
+  .contact-icon {
+    width: 38px; height: 38px;
+    border-radius: var(--radius-md);
+    background: var(--gray-100);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .contact-info { flex: 1; }
+  .contact-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--black);
+    margin-bottom: 2px;
+  }
+  .contact-val {
+    font-size: 12px;
+    color: var(--gray-400);
+  }
+
+  /* ── ERROR BOX ── */
+  .error-box {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: var(--red-bg);
+    border: 1px solid var(--red-border);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    animation: slideUp 0.25s ease;
+  }
+  @keyframes slideUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  .error-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--red);
+    font-weight: 500;
+  }
+
+  /* ── STICKY BOTTOM SUBMIT ── */
+  .sticky-bottom {
+    position: fixed;
+    bottom: 0;
+    left: 0; right: 0;
+    z-index: 100;
+    background: rgba(255,255,255,0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--gray-100);
+    padding: 16px 20px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .submit-btn {
+    width: 100%;
+    background: var(--black);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius-lg);
+    padding: 16px 24px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    letter-spacing: -0.2px;
+    transition: opacity 0.15s, transform 0.1s;
+    position: relative;
+    overflow: hidden;
+  }
+  .submit-btn:not(:disabled):hover { opacity: 0.88; }
+  .submit-btn:not(:disabled):active { transform: scale(0.99); }
+  .submit-btn:disabled {
+    background: var(--gray-200);
+    color: var(--gray-400);
+    cursor: not-allowed;
+  }
+  .submit-btn-gold {
+    background: var(--gold);
+    color: var(--black);
+  }
+  .submit-btn-gold:not(:disabled):hover { opacity: 0.9; }
+  .spinner-sm {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: var(--white);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .submit-hint {
+    font-size: 11px;
+    color: var(--gray-400);
+    text-align: center;
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+
+  /* ── PREVIEW MODAL ── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+  .modal-sheet {
+    background: var(--white);
+    border-radius: 24px 24px 0 0;
+    max-height: 92vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    animation: sheetUp 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  @keyframes sheetUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+  .sheet-handle {
+    width: 36px; height: 4px;
+    background: var(--gray-200);
+    border-radius: 100px;
+    margin: 14px auto 0;
+  }
+  .sheet-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--gray-100);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .sheet-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--black);
+    letter-spacing: -0.3px;
+  }
+  .sheet-close {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--gray-100);
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sheet-body { padding: 20px; }
+
+  /* Preview accord */
+  .preview-logo-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--gray-100);
+  }
+  .preview-logo-sq {
+    width: 40px; height: 40px;
+    background: var(--gold);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .preview-brand {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--black);
+  }
+  .preview-brand span { color: var(--gold-deep); }
+  .preview-brand-sub {
+    font-size: 11px;
+    color: var(--gray-400);
+    font-weight: 500;
+  }
+  .preview-field {
+    margin-bottom: 14px;
+  }
+  .preview-field-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gray-300);
+    margin-bottom: 4px;
+  }
+  .preview-field-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--black);
+  }
+  .preview-docs-list {
+    margin-top: 16px;
+  }
+  .preview-doc-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--gray-50);
+  }
+  .preview-doc-row:last-child { border-bottom: none; }
+  .preview-doc-check {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--green-bg);
+    border: 1px solid var(--green-border);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .preview-doc-name {
+    font-size: 12px;
+    color: var(--gray-600);
+    font-weight: 500;
+    flex: 1;
+  }
+  .preview-accord-block {
+    background: var(--gold-bg);
+    border: 1px solid var(--gold-border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+  .preview-accord-title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gold-deep);
+    margin-bottom: 8px;
+  }
+  .preview-accord-text {
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--gray-600);
+  }
+  .preview-timestamp {
+    font-size: 11px;
+    color: var(--gray-400);
+    text-align: center;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--gray-100);
+  }
+  .preview-submit-btn {
+    width: 100%;
+    background: var(--black);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: opacity 0.15s;
+  }
+  .preview-submit-btn:hover { opacity: 0.88; }
+  .preview-download-btn {
+    width: 100%;
+    background: transparent;
+    color: var(--gold-deep);
+    border: 1.5px solid var(--gold-border-strong);
+    border-radius: var(--radius-lg);
+    padding: 14px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.15s;
+  }
+  .preview-download-btn:hover { background: var(--gold-bg); }
+
+  /* ── SUCCESS ── */
+  .success-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    background: var(--white);
+  }
+  .success-inner { max-width: 360px; width: 100%; text-align: center; }
+  .success-check-ring {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: var(--green-bg);
+    border: 1.5px solid var(--green-border);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 24px;
+  }
+  .success-h1 {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--black);
+    letter-spacing: -0.5px;
+    margin-bottom: 10px;
+  }
+  .success-sub {
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--gray-500);
+    margin-bottom: 28px;
+  }
+  .success-steps {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    margin-bottom: 24px;
+    text-align: left;
+  }
+  .success-step-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--gray-100);
+  }
+  .success-step-row:last-child { border-bottom: none; }
+  .success-step-num {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--gold-bg);
+    border: 1px solid var(--gold-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--gold-deep);
+    flex-shrink: 0;
+  }
+  .success-step-text { font-size: 12.5px; color: var(--gray-500); font-weight: 500; }
+  .success-btn {
+    width: 100%;
+    background: var(--black);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .success-btn:hover { opacity: 0.88; }
+
+  /* ── LOADING ── */
+  .loading-screen {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: var(--white);
   }
   .loading-ring {
-    width: 44px; height: 44px;
-    border: 2px solid var(--border);
+    width: 36px; height: 36px;
+    border: 2.5px solid var(--gray-100);
     border-top-color: var(--gold);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
   .loading-text {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: 0.14em;
+    color: var(--gray-400);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--text-dim);
   }
 
-  /* ── RESPONSIVE ── */
-  @media (max-width: 480px) {
-    .main { padding: 32px 16px 60px; }
-    .header-inner { padding: 0 16px; }
-    .doc-card { padding: 18px; }
-    .security-banner { flex-direction: column; gap: 12px; }
+  @media (max-width: 390px) {
+    .main { padding: 0 16px 120px; }
+    .page-h1 { font-size: 22px; }
   }
 `;
 
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function DocumentOfficiel() {
   const router = useRouter();
+
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [customFiles, setCustomFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [loadingCategory, setLoadingCategory] = useState(true);
+  const [institutionName, setInstitutionName] = useState("");
+  const [institutionId, setInstitutionId] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [accordAccepted, setAccordAccepted] = useState(false);
+  const customInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const fetchCategory = async () => {
+    const fetchData = async () => {
       if (typeof window === "undefined") return;
       const id = localStorage.getItem("yelen224_institution_id");
       if (!id) { router.push("/institution/inscription"); return; }
+      setInstitutionId(id);
+
       const { data } = await supabase
         .from("institutions")
-        .select("category")
+        .select("category, name")
         .eq("id", id)
         .single();
+
       setCategory(data?.category || "Autre");
+      setInstitutionName(data?.name || "Votre établissement");
       setLoadingCategory(false);
     };
-    fetchCategory();
+    fetchData();
   }, [router]);
 
   const docs = DOCUMENTS_PAR_CATEGORIE[category || "Autre"] || [];
-  const uploadedCount = docs.filter((d) => files[d.label]).length;
-  const totalCount = docs.length;
-  const progressPercent = totalCount > 0 ? Math.round((uploadedCount / totalCount) * 100) : 0;
+  const uploadedCount = docs.filter((d) => files[d.label]).length + customFiles.length;
+  const totalRequired = docs.filter((d) => d.obligatoire).length;
+  const uploadedRequired = docs.filter((d) => d.obligatoire && files[d.label]).length;
+  const progressPercent = totalRequired > 0 ? Math.round((uploadedRequired / totalRequired) * 100) : 0;
+  const allRequiredDone = uploadedRequired === totalRequired;
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  const timeStr = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
   const handleFile = (label: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -775,95 +1127,128 @@ export default function DocumentOfficiel() {
     }
   };
 
-  const handleSubmit = async () => {
-    setError("");
-    const obligatoires = docs.filter((d) => d.obligatoire);
-    const manquants = obligatoires.filter((d) => !files[d.label]);
+  const handleCustomFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCustomFiles((prev) => [...prev, file]);
+    if (e.target) e.target.value = "";
+  };
 
+  const removeCustomFile = (idx: number) => {
+    setCustomFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handlePreview = () => {
+    setError("");
+    const manquants = docs.filter((d) => d.obligatoire && !files[d.label]);
     if (manquants.length > 0) {
       setError(
         manquants.length === 1
-          ? `Le document suivant est obligatoire : « ${manquants[0].label} »`
-          : `${manquants.length} documents obligatoires manquants : ${manquants.map((d) => `« ${d.label} »`).join(", ")}`
+          ? `Document obligatoire manquant : « ${manquants[0].label} »`
+          : `${manquants.length} documents obligatoires manquants.`
       );
       return;
     }
+    if (!accordAccepted) {
+      setError("Veuillez accepter les engagements de la Charte Yelen224 avant de continuer.");
+      return;
+    }
+    setShowPreview(true);
+  };
 
+  const handleSubmit = async () => {
+    setError("");
     setLoading(true);
     try {
-      const institutionId = localStorage.getItem("yelen224_institution_id");
-      if (!institutionId) throw new Error("Session expiree");
+      if (!institutionId) throw new Error("Session expirée");
 
       const uploadedUrls: string[] = [];
 
+      // Upload docs requis
       for (const [label, file] of Object.entries(files)) {
         if (!file) continue;
         const ext = file.name.split(".").pop();
-        const safeName = label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
-        const path = `documents/${institutionId}/${safeName}.${ext}`;
+        const safeName = label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase().substring(0, 50);
+        const path = `documents/${institutionId}/${safeName}_${Date.now()}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from("documents")
           .upload(path, file, { upsert: true });
-        if (uploadError) throw uploadError;
+        if (uploadError) throw new Error(`Upload échoué: ${uploadError.message}`);
         const { data: urlData } = supabase.storage.from("documents").getPublicUrl(path);
         uploadedUrls.push(urlData.publicUrl);
       }
 
+      // Upload docs custom
+      for (const file of customFiles) {
+        const ext = file.name.split(".").pop();
+        const safeName = file.name.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase().substring(0, 40);
+        const path = `documents/${institutionId}/custom_${safeName}_${Date.now()}.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from("documents")
+          .upload(path, file, { upsert: true });
+        if (uploadError) throw new Error(`Upload custom échoué: ${uploadError.message}`);
+        const { data: urlData } = supabase.storage.from("documents").getPublicUrl(path);
+        uploadedUrls.push(urlData.publicUrl);
+      }
+
+      // Sauvegarde en base
       const { error: updateError } = await supabase
         .from("institutions")
-        .update({ document_officiel: uploadedUrls[0] })
+        .update({
+          document_officiel: uploadedUrls[0] || null,
+          documents_urls: uploadedUrls,
+          statut: "en_attente",
+        })
         .eq("id", institutionId);
 
-      if (updateError) throw updateError;
+      if (updateError) throw new Error(`DB update: ${updateError.message}`);
+
+      setShowPreview(false);
       setSubmitted(true);
-    } catch {
-      setError("Une erreur est survenue lors de l'envoi. Vérifiez votre connexion et réessayez.");
+    } catch (err: any) {
+      setError(`Erreur : ${err.message || "Vérifiez votre connexion et réessayez."}`);
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Loading ──────────────────────────────────────────────────────────────────
   if (loadingCategory) return (
     <>
       <style>{CSS}</style>
-      <div className="page-loading">
+      <div className="loading-screen">
         <div className="loading-ring" />
-        <p className="loading-text">Chargement du dossier</p>
+        <p className="loading-text">Chargement</p>
       </div>
     </>
   );
 
+  // ── Success ──────────────────────────────────────────────────────────────────
   if (submitted) return (
     <>
       <style>{CSS}</style>
-      <div className="success-wrap">
-        <div className="success-card">
-          <div className="success-icon-wrap">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <path d="M7 16.5L13 22.5L25 10" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <div className="success-screen">
+        <div className="success-inner">
+          <div className="success-check-ring">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <path d="M6 14.5L11.5 20L22 9" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <h1 className="success-title">Dossier soumis<br/>avec succès</h1>
+          <h1 className="success-h1">Dossier soumis</h1>
           <p className="success-sub">
-            Votre dossier est en cours d&apos;examen par l&apos;équipe de vérification de Yelen224.
-            Ce processus prend généralement entre <strong>24 et 72 heures ouvrables</strong>.
-            Vous serez notifié par SMS une fois la décision rendue.
+            Votre dossier est en cours d&apos;examen par l&apos;équipe de vérification Yelen224.
+            Délai habituel : <strong>24 à 72 heures ouvrables</strong>.
+            Notification par SMS à réception de la décision.
           </p>
-          <div className="steps-card">
-            <div className="steps-header">Prochaines étapes</div>
-            {[
-              "Examen du dossier par l'équipe Yelen224",
-              "Vérification des documents soumis",
-              "Notification par SMS de la décision",
-              "Activation de votre espace institution",
-            ].map((step, i) => (
-              <div key={i} className="step-row">
-                <div className="step-num">{i + 1}</div>
-                <span className="step-text">{step}</span>
+          <div className="success-steps">
+            {["Réception et accusé du dossier", "Examen par l'équipe Yelen224", "Vérification des documents officiels", "Notification SMS de la décision", "Activation de l'espace institution"].map((s, i) => (
+              <div key={i} className="success-step-row">
+                <div className="success-step-num">{i + 1}</div>
+                <span className="success-step-text">{s}</span>
               </div>
             ))}
           </div>
-          <button className="success-btn" onClick={() => router.push("/institution/dashboard")}>
+          <button className="success-btn" onClick={() => router.push(`/institution/${institutionId}/dashboard`)}>
             Retour au tableau de bord
           </button>
         </div>
@@ -871,134 +1256,220 @@ export default function DocumentOfficiel() {
     </>
   );
 
+  // ── Main render ──────────────────────────────────────────────────────────────
   return (
     <>
       <style>{CSS}</style>
-      <div className="page-wrap">
-        {/* HEADER */}
-        <header className="header">
-          <div className="header-inner">
-            <div className="header-left">
-              <a href="/institution/dashboard" className="back-btn" title="Retour">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <div className="app">
+
+        {/* ── STICKY TOP ── */}
+        <div className="sticky-top">
+          <div className="progress-bar-line">
+            <div className="progress-bar-fill" style={{ width: `${progressPercent}%` }} />
+          </div>
+          <div className="top-header">
+            <div className="logo-mark">
+              <div className="logo-square">
+                <svg width="16" height="18" viewBox="0 0 16 18" fill="none">
+                  <path d="M8 1L14.5 4.5V9C14.5 13 11.5 16.5 8 17.5C4.5 16.5 1.5 13 1.5 9V4.5L8 1Z" fill="white" fillOpacity="0.9"/>
                 </svg>
-              </a>
-              <div className="logo">
-                Yelen<span style={{color:"#F5A623", fontFamily:"'DM Serif Display',serif", fontSize:"20px"}}>224</span>
+              </div>
+              <div>
+                <div className="logo-text">Yelen<span>224</span></div>
               </div>
             </div>
-            <span className="badge-verif">Vérification</span>
+            <span className="badge-etat">Vérification État</span>
           </div>
-        </header>
+          <div className="progress-meta">
+            <span className="progress-label-text">Documents obligatoires</span>
+            <span className="progress-count-text">{uploadedRequired} / {totalRequired}</span>
+          </div>
+        </div>
 
         <main className="main">
-          {/* HERO */}
-          <div className="hero">
-            <div className="hero-eyebrow">
-              <div className="hero-eyebrow-dot" />
-              Dossier de vérification officielle
+
+          {/* ── TITRE ── */}
+          <div className="page-title-block">
+            <div className="page-eyebrow">
+              <div className="eyebrow-dot" />
+              <span className="eyebrow-text">Dossier officiel de vérification</span>
             </div>
-            <h1 className="hero-title">
-              Authentifiez votre<br/><em>établissement</em>
-            </h1>
-            <p className="hero-sub">
-              Pour garantir la confiance des citoyens guinéens, Yelen224 vérifie l&apos;authenticité de chaque structure. Les documents requis pour votre catégorie&nbsp;: <span className="hero-category-tag">{category}</span>
+            <h1 className="page-h1">Authentifiez votre établissement</h1>
+            <p className="page-sub">
+              Pour protéger les citoyens guinéens, Yelen224 vérifie l&apos;authenticité de chaque structure avant activation.
             </p>
-          </div>
-
-          {/* PROGRESS */}
-          <div className="progress-section">
-            <div className="progress-header">
-              <span className="progress-label">Documents téléversés</span>
-              <span className="progress-count">{uploadedCount} / {totalCount}</span>
-            </div>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
-            </div>
-          </div>
-
-          {/* SECURITY BANNER */}
-          <div className="security-banner">
-            <div className="security-icon">
-              <svg width="18" height="20" viewBox="0 0 18 20" fill="none">
-                <path d="M9 1L1.5 4.5V9.5C1.5 13.6 4.8 17.4 9 18.5C13.2 17.4 16.5 13.6 16.5 9.5V4.5L9 1Z" stroke="#60A5FA" strokeWidth="1.5" strokeLinejoin="round"/>
-                <path d="M6 10L8 12L12 8" stroke="#60A5FA" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <div className="category-chip">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <circle cx="5" cy="5" r="4.5" stroke="#B8860B" strokeWidth="1"/>
+                <circle cx="5" cy="5" r="2" fill="#B8860B"/>
               </svg>
-            </div>
-            <div>
-              <p className="security-text-title">Sécurité & Confidentialité des données</p>
-              <p className="security-text-body">
-                Vos documents sont chiffrés en transit et au repos. Ils ne sont accessibles qu&apos;aux agents de vérification habilités de Yelen224, en conformité avec la réglementation guinéenne sur la protection des données personnelles.
-              </p>
-              <div className="security-pills">
-                <span className="security-pill">Chiffrement TLS 1.3</span>
-                <span className="security-pill">Accès restreint</span>
-                <span className="security-pill">Traçabilité complète</span>
-                <span className="security-pill">Données en Guinée</span>
-              </div>
+              {category}
             </div>
           </div>
 
-          {/* DOCUMENTS */}
-          <div className="docs-list">
+          {/* ── POURQUOI CES DOCUMENTS ── */}
+          <div className="why-block">
+            <div className="why-icon-row">
+              <div className="why-icon">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M9 1L16 4.5V9C16 13.5 12.5 17.5 9 18.5C5.5 17.5 2 13.5 2 9V4.5L9 1Z" stroke="#B8860B" strokeWidth="1.4" strokeLinejoin="round"/>
+                  <path d="M6.5 9L8 10.5L11.5 7" stroke="#B8860B" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div className="why-title">Pourquoi ces documents ?</div>
+            </div>
+            <p className="why-body">
+              Yelen224 est une plateforme officielle au service de l&apos;État guinéen et de ses citoyens.
+              La vérification des documents garantit que seuls des établissements légalement reconnus peuvent proposer des rendez-vous.
+              Cela protège les usagers contre les structures fictives et assure la crédibilité du service public numérique.
+            </p>
+            <div className="why-pills">
+              <span className="why-pill">Chiffrement TLS 1.3</span>
+              <span className="why-pill">Accès restreint</span>
+              <span className="why-pill">Usage unique</span>
+              <span className="why-pill">Données en Guinée</span>
+              <span className="why-pill">Conformité RGPD</span>
+            </div>
+          </div>
+
+          {/* ── ENGAGEMENTS ── */}
+          <div className="accord-block">
+            <div className="accord-header-gold">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M7 1L12.5 3.5V7C12.5 10.5 9.5 13.5 7 14.5C4.5 13.5 1.5 10.5 1.5 7V3.5L7 1Z" stroke="#B8860B" strokeWidth="1.3" strokeLinejoin="round"/>
+              </svg>
+              <span className="accord-title-text">Charte d&apos;engagement Yelen224</span>
+            </div>
+            <div className="accord-body">
+
+              {/* Institution */}
+              <div className="accord-party">
+                <div className="accord-party-label">L&apos;institution s&apos;engage à</div>
+                {[
+                  "Fournir des services conformes aux standards de qualité Yelen224",
+                  "Traiter les citoyens avec égalité absolue — sans discrimination de race, religion, genre, ethnie ou statut social",
+                  "Respecter les horaires et disponibilités publiés sur la plateforme",
+                  "Notifier Yelen224 de toute modification d&apos;activité ou de fermeture",
+                  "Maintenir des informations exactes et à jour sur leur profil",
+                  "Garantir la confidentialité des données personnelles des usagers",
+                ].map((item, i) => (
+                  <div key={i} className="accord-item">
+                    <div className="accord-bullet">
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                        <path d="M1.5 4L3.5 6L6.5 2" stroke="#B8860B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <span className="accord-text" dangerouslySetInnerHTML={{__html: item}} />
+                  </div>
+                ))}
+              </div>
+
+              <div className="accord-divider" />
+
+              {/* Citoyen */}
+              <div className="accord-party">
+                <div className="accord-party-label">Le citoyen s&apos;engage à</div>
+                {[
+                  "Se présenter aux rendez-vous confirmés ou annuler dans les délais",
+                  "Fournir des informations exactes lors de la prise de rendez-vous",
+                  "Respecter les règles et le personnel de l&apos;établissement",
+                  "Utiliser la plateforme de manière honnête et responsable",
+                ].map((item, i) => (
+                  <div key={i} className="accord-item">
+                    <div className="accord-bullet accord-bullet-green">
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                        <path d="M1.5 4L3.5 6L6.5 2" stroke="#16A34A" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <span className="accord-text" dangerouslySetInnerHTML={{__html: item}} />
+                  </div>
+                ))}
+              </div>
+
+              {/* Checkbox accord */}
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginTop: "20px", cursor: "pointer", padding: "14px", background: accordAccepted ? "rgba(22,163,74,0.05)" : "var(--gray-50)", borderRadius: "var(--radius-lg)", border: `1px solid ${accordAccepted ? "var(--green-border)" : "var(--gray-200)"}`, transition: "all 0.2s" }}>
+                <div
+                  onClick={() => setAccordAccepted(v => !v)}
+                  style={{ width: "20px", height: "20px", borderRadius: "6px", border: `1.5px solid ${accordAccepted ? "var(--green)" : "var(--gray-300)"}`, background: accordAccepted ? "var(--green)" : "var(--white)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "1px", transition: "all 0.2s", cursor: "pointer" }}
+                >
+                  {accordAccepted && (
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path d="M2 5L4.5 7.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </div>
+                <span style={{ fontSize: "12.5px", lineHeight: "1.6", color: "var(--gray-600)", fontWeight: "500" }}>
+                  Je certifie avoir lu et j&apos;accepte la Charte d&apos;engagement Yelen224. Je m&apos;engage à respecter l&apos;ensemble de ces conditions au nom de mon établissement.
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* ── DOCUMENTS ── */}
+          <div className="docs-section">
+            <div className="docs-section-title">Documents requis pour {category}</div>
             {docs.map((doc, i) => {
               const hasFile = !!files[doc.label];
               const preview = previews[doc.label];
               return (
-                <div key={i} className={`doc-card${hasFile ? " uploaded" : ""}`}>
-                  <div className="doc-card-header">
-                    <div className={`doc-index${hasFile ? " done" : ""}`}>
-                      {hasFile
-                        ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7L6 10L11 4" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        : String(i + 1).padStart(2, "0")
-                      }
-                    </div>
-                    <div className="doc-meta">
-                      <div className="doc-label-row">
-                        <span className="doc-label">{doc.label}</span>
-                        {doc.obligatoire
-                          ? <span className="badge-oblig">Obligatoire</span>
-                          : <span className="badge-optionnel">Optionnel</span>
-                        }
+                <div key={i} className={`doc-card${hasFile ? " is-uploaded" : ""}`}>
+                  <div className="doc-card-top">
+                    <div className="doc-num-row">
+                      <div className={`doc-num${hasFile ? " done" : ""}`}>
+                        {hasFile ? (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <path d="M2 5L4.5 7.5L8 3" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        ) : String(i + 1).padStart(2, "0")}
                       </div>
-                      <p className="doc-description">{doc.description}</p>
-                      <p className="doc-formats">Formats&nbsp;: <span>{doc.formats}</span></p>
+                      <div className="doc-info">
+                        <div className="doc-label-row">
+                          <span className="doc-label">{doc.label}</span>
+                          {doc.obligatoire
+                            ? <span className="badge-req">Obligatoire</span>
+                            : <span className="badge-opt">Optionnel</span>
+                          }
+                        </div>
+                        <p className="doc-desc">{doc.description}</p>
+                        <p className="doc-formats">Formats acceptés : <b>{doc.formats}</b> — 10 Mo max</p>
+                      </div>
                     </div>
                   </div>
 
-                  <label className={`upload-zone${hasFile ? " has-file" : ""}`}>
-                    <div className={`upload-thumb${hasFile ? " has-file" : ""}`}>
+                  <label className={`upload-zone${hasFile ? " filled" : ""}`}>
+                    <div className={`upload-thumb${hasFile ? " filled" : ""}`}>
                       {preview === "pdf" ? (
                         <span className="upload-thumb-pdf">PDF</span>
                       ) : preview ? (
-                        <img src={preview} alt="aperçu" />
+                        <img src={preview} alt="" />
                       ) : (
-                        <svg className="upload-thumb-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
-                          <path d="M10 14V6M10 6L7 9M10 6L13 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                          <path d="M9 13V5M9 5L6 8M9 5L12 8" stroke="#B8B8B8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          <rect x="2" y="2" width="14" height="14" rx="3" stroke="#D9D9D9" strokeWidth="1.2"/>
                         </svg>
                       )}
                     </div>
                     <div className="upload-info">
-                      <p className={`upload-filename${hasFile ? " has-file" : ""}`}>
+                      <p className={`upload-name${hasFile ? " filled" : ""}`}>
                         {hasFile ? files[doc.label]!.name : "Sélectionner un fichier"}
                       </p>
                       <p className="upload-hint">
                         {hasFile
-                          ? `${(files[doc.label]!.size / 1024 / 1024).toFixed(2)} MB`
-                          : "PDF, JPG ou PNG — 10 MB max"
-                        }
+                          ? `${(files[doc.label]!.size / 1024 / 1024).toFixed(2)} Mo`
+                          : "Appuyer pour choisir"}
                       </p>
                     </div>
-                    {hasFile
-                      ? <div className="upload-check">
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#10B981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </div>
-                      : <div className="upload-arrow">
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 9V3M6 3L3.5 5.5M6 3L8.5 5.5" stroke="#F5A623" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </div>
-                    }
+                    <div className={`upload-action ${hasFile ? "check" : "arrow"}`}>
+                      {hasFile ? (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ) : (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M6 9V3M6 3L3.5 5.5M6 3L8.5 5.5" stroke="#B8860B" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </div>
                     <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFile(doc.label, e)} style={{ display: "none" }} />
                   </label>
                 </div>
@@ -1006,33 +1477,293 @@ export default function DocumentOfficiel() {
             })}
           </div>
 
-          {/* ERROR */}
+          {/* ── DOCUMENTS SUPPLÉMENTAIRES ── */}
+          <div className="doc-custom-section">
+            <div className="doc-custom-header">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="6" stroke="#666" strokeWidth="1.2"/>
+                <path d="M7 4V10M4 7H10" stroke="#666" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              <span className="doc-custom-title">Documents supplémentaires</span>
+            </div>
+            <div className="doc-custom-body">
+              <p style={{ fontSize: "12px", color: "var(--gray-400)", lineHeight: "1.65", marginBottom: "14px" }}>
+                Votre profil ne correspond pas exactement aux catégories proposées ? Ajoutez ici tout document complémentaire qui atteste de votre existence légale (RCCM, décret, agrément spécial, etc.).
+              </p>
+              {customFiles.length > 0 && (
+                <div style={{ marginBottom: "12px" }}>
+                  {customFiles.map((f, i) => (
+                    <div key={i} className="custom-file-row">
+                      <div className="custom-file-thumb">
+                        {f.type.startsWith("image/") ? (
+                          <img src={URL.createObjectURL(f)} alt="" />
+                        ) : (
+                          <span style={{ fontSize: "8px", fontWeight: "900", color: "var(--red)" }}>PDF</span>
+                        )}
+                      </div>
+                      <div className="custom-file-info">
+                        <p className="custom-file-name">{f.name}</p>
+                        <p className="custom-file-size">{(f.size / 1024 / 1024).toFixed(2)} Mo</p>
+                      </div>
+                      <button className="custom-file-remove" onClick={() => removeCustomFile(i)}>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M2.5 2.5L7.5 7.5M7.5 2.5L2.5 7.5" stroke="#666" strokeWidth="1.4" strokeLinecap="round"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <label className="custom-upload-empty" onClick={() => customInputRef.current?.click()}>
+                <div className="custom-add-icon">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M9 4V14M4 9H14" stroke="#888" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                </div>
+                <p className="custom-add-label">Ajouter un document</p>
+                <p className="custom-add-hint">PDF, JPG, PNG — 10 Mo max</p>
+              </label>
+              <input ref={customInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleCustomFile} style={{ display: "none" }} />
+            </div>
+          </div>
+
+          {/* ── CONTACT YELEN AVANT ENVOI ── */}
+          <div className="contact-section">
+            <div className="section-header">
+              <span className="section-title">Besoin d&apos;aide avant d&apos;envoyer ?</span>
+            </div>
+            <a href="https://wa.me/224000000000?text=Bonjour%20Yelen224%2C%20j%27ai%20une%20question%20sur%20la%20v%C3%A9rification%20de%20mon%20dossier." className="contact-row" target="_blank" rel="noopener noreferrer">
+              <div className="contact-icon" style={{ background: "rgba(37,211,102,0.08)" }}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M9 1.5C4.86 1.5 1.5 4.86 1.5 9C1.5 10.35 1.86 11.61 2.49 12.69L1.5 16.5L5.43 15.54C6.48 16.11 7.7 16.5 9 16.5C13.14 16.5 16.5 13.14 16.5 9C16.5 4.86 13.14 1.5 9 1.5Z" stroke="#25D366" strokeWidth="1.3" strokeLinejoin="round"/>
+                  <path d="M6.5 8.5C6.5 8.5 7 10 9.5 11.5C12 13 13 12 13 12" stroke="#25D366" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <div className="contact-info">
+                <p className="contact-label">WhatsApp Yelen224</p>
+                <p className="contact-val">Réponse en moins de 24h</p>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M5 3L9 7L5 11" stroke="#B8B8B8" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </a>
+            <a href="mailto:verification@yelen224.com?subject=Question%20sur%20la%20v%C3%A9rification%20de%20dossier" className="contact-row" target="_blank" rel="noopener noreferrer">
+              <div className="contact-icon" style={{ background: "var(--blue-bg)" }}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <rect x="2" y="4" width="14" height="10" rx="2" stroke="#2563EB" strokeWidth="1.3"/>
+                  <path d="M2 6L9 10L16 6" stroke="#2563EB" strokeWidth="1.3" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <div className="contact-info">
+                <p className="contact-label">Email officiel</p>
+                <p className="contact-val">verification@yelen224.com</p>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M5 3L9 7L5 11" stroke="#B8B8B8" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </a>
+            <a href="tel:+224000000000" className="contact-row">
+              <div className="contact-icon" style={{ background: "rgba(212,160,23,0.08)" }}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M3.5 3.5H6.5L8 7L6.5 8C7.5 10 9.5 11.5 11 12.5L12 11L16 12.5V15.5C16 15.5 13 17 9 13C5 9 3.5 5 3.5 5V3.5Z" stroke="#B8860B" strokeWidth="1.3" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div className="contact-info">
+                <p className="contact-label">Ligne directe Yelen224</p>
+                <p className="contact-val">+224 000 000 000</p>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M5 3L9 7L5 11" stroke="#B8B8B8" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </a>
+          </div>
+
+          {/* ── ERROR ── */}
           {error && (
             <div className="error-box">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{flexShrink:0, marginTop:2}}>
-                <circle cx="8" cy="8" r="7" stroke="#EF4444" strokeWidth="1.5"/>
-                <path d="M8 5V8.5" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round"/>
-                <circle cx="8" cy="11" r="0.75" fill="#EF4444"/>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
+                <circle cx="8" cy="8" r="7" stroke="#DC2626" strokeWidth="1.4"/>
+                <path d="M8 5V8.5" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round"/>
+                <circle cx="8" cy="11" r="0.8" fill="#DC2626"/>
               </svg>
               <p className="error-text">{error}</p>
             </div>
           )}
 
-          {/* SUBMIT */}
-          <div className="submit-wrapper">
-            <button className="submit-btn" onClick={handleSubmit} disabled={loading}>
-              {loading ? (
-                <span className="submit-loading">
-                  <span className="spinner" />
-                  Envoi en cours…
-                </span>
-              ) : "Soumettre le dossier pour vérification"}
-            </button>
-            <p className="submit-disclaimer">
-              En soumettant ce dossier, vous certifiez que les documents fournis sont authentiques et vous engagez à respecter les conditions d&apos;utilisation de la plateforme Yelen224.
-            </p>
-          </div>
         </main>
+
+        {/* ── STICKY BOTTOM ── */}
+        <div className="sticky-bottom">
+          <button
+            className={`submit-btn${allRequiredDone && accordAccepted ? "" : ""}`}
+            onClick={handlePreview}
+            style={{ background: allRequiredDone && accordAccepted ? "var(--black)" : "var(--gray-200)", color: allRequiredDone && accordAccepted ? "var(--white)" : "var(--gray-400)" }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 1L14 4.5V8.5C14 12.5 11 15.5 8 16.5C5 15.5 2 12.5 2 8.5V4.5L8 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+              <path d="M5.5 8L7.5 10L10.5 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Prévisualiser et soumettre
+          </button>
+          <p className="submit-hint">
+            {!allRequiredDone
+              ? `${totalRequired - uploadedRequired} document(s) obligatoire(s) manquant(s)`
+              : !accordAccepted
+              ? "Acceptez la Charte pour continuer"
+              : "Vos documents seront examinés par l'équipe Yelen224"
+            }
+          </p>
+        </div>
+
+        {/* ── PREVIEW MODAL ── */}
+        {showPreview && (
+          <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowPreview(false); }}>
+            <div className="modal-sheet">
+              <div className="sheet-handle" />
+              <div className="sheet-header">
+                <span className="sheet-title">Récapitulatif du dossier</span>
+                <button className="sheet-close" onClick={() => setShowPreview(false)}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 2L10 10M10 2L2 10" stroke="#666" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+              <div className="sheet-body">
+
+                {/* Branding preview */}
+                <div className="preview-logo-row">
+                  <div className="preview-logo-sq">
+                    <svg width="20" height="22" viewBox="0 0 20 22" fill="none">
+                      <path d="M10 1L18 5V10C18 16 14 20 10 21.5C6 20 2 16 2 10V5L10 1Z" fill="white" fillOpacity="0.9"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="preview-brand">Yelen<span>224</span></div>
+                    <div className="preview-brand-sub">Dossier de vérification officielle</div>
+                  </div>
+                </div>
+
+                {/* Infos */}
+                <div className="preview-field">
+                  <div className="preview-field-label">Établissement</div>
+                  <div className="preview-field-value">{institutionName}</div>
+                </div>
+                <div className="preview-field">
+                  <div className="preview-field-label">Catégorie</div>
+                  <div className="preview-field-value">{category}</div>
+                </div>
+                <div className="preview-field">
+                  <div className="preview-field-label">Date et heure de soumission</div>
+                  <div className="preview-field-value">{dateStr} à {timeStr}</div>
+                </div>
+                <div className="preview-field">
+                  <div className="preview-field-label">Référence dossier</div>
+                  <div className="preview-field-value" style={{ fontFamily: "monospace", fontSize: "12px", color: "var(--gray-500)" }}>YLN-{institutionId?.slice(0, 8).toUpperCase()}-{Date.now().toString().slice(-6)}</div>
+                </div>
+
+                {/* Docs soumis */}
+                <div style={{ marginTop: "16px" }}>
+                  <div style={{ fontSize: "10px", fontWeight: "800", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--gray-300)", marginBottom: "8px" }}>
+                    Documents soumis ({Object.values(files).filter(Boolean).length + customFiles.length})
+                  </div>
+                  <div className="preview-docs-list">
+                    {docs.filter(d => files[d.label]).map((doc, i) => (
+                      <div key={i} className="preview-doc-row">
+                        <div className="preview-doc-check">
+                          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                            <path d="M1.5 4L3.5 6L6.5 2.5" stroke="#16A34A" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </div>
+                        <span className="preview-doc-name">{doc.label}</span>
+                        <span style={{ fontSize: "10px", color: "var(--gray-300)", fontWeight: "600" }}>
+                          {(files[doc.label]!.size / 1024 / 1024).toFixed(1)} Mo
+                        </span>
+                      </div>
+                    ))}
+                    {customFiles.map((f, i) => (
+                      <div key={`c${i}`} className="preview-doc-row">
+                        <div className="preview-doc-check">
+                          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                            <path d="M1.5 4L3.5 6L6.5 2.5" stroke="#16A34A" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </div>
+                        <span className="preview-doc-name">{f.name} <span style={{ color: "var(--gray-300)", fontSize: "10px" }}>(document supplémentaire)</span></span>
+                        <span style={{ fontSize: "10px", color: "var(--gray-300)", fontWeight: "600" }}>
+                          {(f.size / 1024 / 1024).toFixed(1)} Mo
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Accord résumé */}
+                <div className="preview-accord-block">
+                  <div className="preview-accord-title">Accord bilatéral Yelen224</div>
+                  <p className="preview-accord-text">
+                    En soumettant ce dossier, <strong>{institutionName}</strong> certifie que les documents fournis sont authentiques et s&apos;engage à respecter la Charte d&apos;engagement Yelen224 — incluant l&apos;égalité de traitement de tous les citoyens, le respect des standards de service et la conformité aux conditions de la plateforme.
+                  </p>
+                </div>
+
+                {/* Timestamp officiel */}
+                <div className="preview-timestamp">
+                  Accord enregistré le {dateStr} à {timeStr}<br/>
+                  Dossier traité sous 24 à 72h ouvrables · Notification par SMS
+                </div>
+
+                {/* Erreur dans modal */}
+                {error && (
+                  <div className="error-box" style={{ marginTop: "16px" }}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                      <circle cx="7" cy="7" r="6" stroke="#DC2626" strokeWidth="1.2"/>
+                      <path d="M7 4.5V7.5" stroke="#DC2626" strokeWidth="1.3" strokeLinecap="round"/>
+                      <circle cx="7" cy="9.5" r="0.7" fill="#DC2626"/>
+                    </svg>
+                    <p className="error-text">{error}</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <button
+                  className="preview-download-btn"
+                  onClick={() => {
+                    const content = `YELEN224 — DOSSIER DE VÉRIFICATION OFFICIELLE\n\nÉtablissement : ${institutionName}\nCatégorie : ${category}\nDate : ${dateStr} à ${timeStr}\nRéférence : YLN-${institutionId?.slice(0,8).toUpperCase()}\n\nDOCUMENTS SOUMIS :\n${docs.filter(d=>files[d.label]).map(d=>`• ${d.label}`).join('\n')}${customFiles.length > 0 ? '\n' + customFiles.map(f=>`• ${f.name} (supplémentaire)`).join('\n') : ''}\n\nENGAGEMENTS :\nL'établissement certifie que les documents fournis sont authentiques et s'engage à respecter la Charte Yelen224.\n\n© Yelen224 — Plateforme officielle de prise de rendez-vous en République de Guinée`;
+                    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `Yelen224_Dossier_${institutionId?.slice(0,8)}_${Date.now()}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M7 1V9M7 9L4.5 6.5M7 9L9.5 6.5" stroke="#B8860B" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M2 11H12" stroke="#B8860B" strokeWidth="1.4" strokeLinecap="round"/>
+                  </svg>
+                  Télécharger le récapitulatif
+                </button>
+
+                <button className="preview-submit-btn" onClick={handleSubmit} disabled={loading}>
+                  {loading ? (
+                    <>
+                      <div className="spinner-sm" />
+                      Envoi en cours…
+                    </>
+                  ) : (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M2 8L6 12L14 4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      Confirmer et soumettre le dossier
+                    </>
+                  )}
+                </button>
+
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </>
   );

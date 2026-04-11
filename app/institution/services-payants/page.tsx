@@ -133,7 +133,7 @@ function YelenLogo({ size = 28, color = T.gold }: { size?: number; color?: strin
 function Toast({ msg, color, onDismiss }: { msg: string; color: string; onDismiss: () => void }) {
   useEffect(() => { const t = setTimeout(onDismiss, 3500); return () => clearTimeout(t); }, [onDismiss]);
   return (
-    <div onClick={onDismiss} style={{ position: "fixed", top: "70px", left: "50%", transform: "translateX(-50%)", zIndex: 999, backgroundColor: "#fff", border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: "14px", padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", boxShadow: "0 8px 32px rgba(0,0,0,0.12)", animation: "fadeUp 0.22s ease", cursor: "pointer", minWidth: "220px", maxWidth: "calc(100vw - 32px)", zIndex: 998 }}>
+    <div onClick={onDismiss} style={{ position: "fixed", top: "70px", left: "50%", transform: "translateX(-50%)", zIndex: 999, backgroundColor: "#fff", border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: "14px", padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", boxShadow: "0 8px 32px rgba(0,0,0,0.12)", animation: "fadeUp 0.22s ease", cursor: "pointer", minWidth: "220px", maxWidth: "calc(100vw - 32px)" }}>
       <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: color, flexShrink: 0 }}/>
       <span style={{ color: T.t1, fontSize: "12px", fontWeight: "700", flex: 1 }}>{msg}</span>
     </div>

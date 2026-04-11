@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -75,7 +75,7 @@ const Icons = {
   CatPharma:  () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>,
 };
 
-const CAT_ICON: Record<string, () => JSX.Element> = {
+const CAT_ICON: Record<string, () => React.ReactElement> = {
   "Hopital / Clinique":      Icons.CatHealth,
   "Ecole / Universite":      Icons.CatEdu,
   "Mairie / Administration": Icons.CatAdmin,
@@ -309,7 +309,7 @@ export default function InstitutionProfilePage() {
     { key: "info",      label: "Info",      icon: <Icons.Info /> },
     { key: "horaires",  label: "Horaires",  icon: <Icons.Clock /> },
     { key: "services",  label: "Services",  icon: <Icons.Note />,  count: inst.services.length },
-    { key: "avis",      label: "Avis",      icon: <Icons.Star filled={true} />, count: nbAvis },
+    { key: "avis",      label: "Avis",      icon: Icons.Star(true), count: nbAvis },
   ] as { key: typeof activeTab; label: string; icon: React.ReactNode; count?: number }[];
 
   return (
@@ -723,7 +723,7 @@ export default function InstitutionProfilePage() {
                           {/* Badge vérifié si le citoyen a un RDV confirmé */}
                           {a.rdv_confirmed && (
                             <span style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", color: "#22c55e", fontSize: "9px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px", display: "inline-flex", alignItems: "center", gap: "2px" }}>
-                              <Icons.Check /> Vérifié
+                              {Icons.Check()} Vérifié
                             </span>
                           )}
                         </div>
@@ -741,7 +741,7 @@ export default function InstitutionProfilePage() {
               ))
             ) : (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center", border: `1px solid ${C.borderCard}` }}>
-                <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}><Icons.Star filled={false} /></div>
+                <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}>{Icons.Star(false)}</div>
                 <p style={{ color: C.text, fontSize: "14px", fontWeight: "700", margin: "0 0 6px" }}>Aucun avis pour le moment</p>
                 <p style={{ color: C.textSubtle, fontSize: "12px", margin: "0 0 16px" }}>Prenez rendez-vous pour être le premier à laisser un avis.</p>
                 <Link href={`/rdv/${inst.id}`} style={{ display: "inline-block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "13px", padding: "10px 20px", borderRadius: "12px", textDecoration: "none" }}>Prendre rendez-vous</Link>

@@ -497,7 +497,7 @@ export async function verifierRdvsDepasses(institutionId: string): Promise<void>
     const depasseSeuil = new Date(heureFinEstimee.getTime() + 10 * 60 * 1000); // +10min
 
     if (now >= depasseSeuil) {
-      await notifierRdvDepasse(rdv as RdvComplet);
+      await notifierRdvDepasse(rdv as unknown as RdvComplet);
     }
   }
 }
@@ -548,17 +548,17 @@ export async function verifierRappels(userId: string, userType: "citoyen" | "ins
 
     // Rappel 24h : entre 23h et 25h avant
     if (diffMin >= 23 * 60 && diffMin <= 25 * 60 && !typesEnvoyes.has("rappel_24h")) {
-      await notifierRappel24h(rdv as RdvComplet);
+      await notifierRappel24h(rdv as unknown as RdvComplet);
     }
 
     // Rappel 30min : entre 28min et 32min avant
     if (diffMin >= 28 && diffMin <= 32 && !typesEnvoyes.has("rappel_30min")) {
-      await notifierRappel30min(rdv as RdvComplet);
+      await notifierRappel30min(rdv as unknown as RdvComplet);
     }
 
     // Heure exacte : entre -2min et +2min
     if (diffMin >= -2 && diffMin <= 2 && !typesEnvoyes.has("heure_rdv")) {
-      await notifierHeureRdv(rdv as RdvComplet);
+      await notifierHeureRdv(rdv as unknown as RdvComplet);
     }
   }
 }

@@ -66,7 +66,7 @@ function parseToRules(raw: unknown): Record<DayKey, DayRule> {
     if (!times.length) continue;
     const deltas = times.slice(1).map((t, i) => t - times[i]).filter(t => [15,30,45,60].includes(t));
     const freq = deltas.reduce((a, v) => { a[v] = (a[v] ?? 0) + 1; return a; }, {} as Record<number, number>);
-    const dur = (Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 30) as DayRule["duration"];
+    const dur = (Number(Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 30)) as DayRule["duration"];
     rules[d.key] = { active: true, start: toHHMM(times[0]), end: toHHMM(times[times.length - 1] + dur), duration: Number(dur) as DayRule["duration"] };
   }
   return rules;

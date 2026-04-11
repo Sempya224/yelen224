@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 // ═══════════════════════════════════════════════════════════
 // DEV CONFIG — retirer avant mise en prod
 // ═══════════════════════════════════════════════════════════
-const DEV_MODE = true;         // ← passer à false en production
+const DEV_MODE = false;        // ← false en production
 const DEV_OTP  = "123456";     // ← code fictif accepté en dev
 
 // ═══════════════════════════════════════════════════════════
@@ -311,7 +311,7 @@ export default function InstitutionInscription() {
         {step !== "success" && (
           <div style={{display:"flex",alignItems:"center",gap:"0",marginBottom:"32px"}}>
             {[{n:1,l:"Numéro"},{n:2,l:"Vérification"},{n:3,l:"Informations"}].map((s,i,arr)=>{
-              const done = (step==="otp"&&s.n<2)||(step==="info"&&s.n<3)||(step==="success");
+              const done = (step==="otp"&&s.n<2)||(step==="info"&&s.n<3)||((step as string)==="success");
               const active = (step==="phone"&&s.n===1)||(step==="otp"&&s.n===2)||(step==="info"&&s.n===3);
               return(
                 <div key={s.n} style={{display:"flex",alignItems:"center",flex:i<arr.length-1?1:"auto"}}>

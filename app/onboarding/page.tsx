@@ -309,7 +309,7 @@ export default function OnboardingPage() {
 
         {/* Citoyen */}
         <button
-          onClick={() => handleChoice("login")}
+          onClick={() => handleChoice("citoyen")}
           className="w-full max-w-sm mb-4 p-6 rounded-3xl text-left transition-all duration-200 active:scale-95"
           style={{ background: "white", boxShadow: "0 8px 32px rgba(245,166,35,0.25)", border: "2px solid transparent" }}>
           <div className="flex items-center gap-4">

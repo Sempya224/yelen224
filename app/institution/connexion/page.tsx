@@ -81,7 +81,7 @@ export default function InstitutionConnexion() {
   const [chalAns, setChalAns]         = useState("");
   const [chalOk, setChalOk]           = useState(false);
   const otpRefs = useRef<(HTMLInputElement|null)[]>([]);
-  const intervalRef = useRef<NodeJS.Timeout>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   // Timer bloquage
   useEffect(() => {

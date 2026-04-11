@@ -1168,11 +1168,11 @@ export default function InstitutionDashboard() {
     } catch { showToast("Erreur", T.red); } finally { setActionLoading(null); }
   }
 
-  async function handleRefuse(rdvId: string) {
+  async function handleRefuse(rdvId: string, motif?: string) {
     setActionLoading(rdvId);
     try {
-      await supabase.from("rdv").update({ statut: "annule" }).eq("id", rdvId).eq("institution_id", instId);
-      setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, statut: "annule" } : r));
+      await supabase.from("rdv").update({ statut: "annule", motif_annulation: motif || null }).eq("id", rdvId).eq("institution_id", instId);
+      setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, statut: "annule", motif_annulation: motif || undefined } : r));
       setSelectedRDV(null);
       setBannerRdv(null);
       setShowBannerDetail(false);
@@ -1465,7 +1465,7 @@ export default function InstitutionDashboard() {
           rdv={bannerRdv}
           onClose={() => setShowBannerDetail(false)}
           onAccept={() => handleAccept(bannerRdv.id)}
-          onRefuse={() => handleRefuse(bannerRdv.id)}
+          onRefuse={(motif) => handleRefuse(bannerRdv.id, motif)}
           loading={actionLoading === bannerRdv.id}
         />
       )}
@@ -1509,7 +1509,7 @@ export default function InstitutionDashboard() {
                 </div>
               </div>
             )}
-            {selectedRDV.statut === "en attente" ? (
+            {selectedRDV.statut === "en_attente" ? (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <button onClick={() => handleRefuse(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: T.redL, color: T.red, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${T.red}25`, cursor: "pointer" }}>
                   {actionLoading === selectedRDV.id ? "..." : "Refuser"}
@@ -1946,7 +1946,7 @@ export default function InstitutionDashboard() {
                 <div style={{ color: T.t2, fontSize: "11px" }}>{inst.category} · {inst.ville}</div>
                 {inst.badge_verifie && <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: T.greenL, color: T.green, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "10px", marginTop: "4px" }}>✓ Vérifié</div>}
               </div>
-              <Link href={`/institution/${instId}/profil`} style={{ color: T.gold, textDecoration: "none", fontSize: "11px", fontWeight: "700", flexShrink: 0 }}>Modifier</Link>
+              <Link href={`/institution/profil`} style={{ color: T.gold, textDecoration: "none", fontSize: "11px", fontWeight: "700", flexShrink: 0 }}>Modifier</Link>
             </div>
           )}
 

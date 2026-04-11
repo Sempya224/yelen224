@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 
 const CarteMapHome = dynamic(() => import("@/components/CarteMapHome"), { ssr: false });
 
-async function ft<T>(p: Promise<T>, ms = 5000): Promise<T | null> {
+async function ft<T>(p: Promise<T> | PromiseLike<T>, ms = 5000): Promise<T | null> {
   try {
     return await Promise.race([
       p,
@@ -132,8 +132,8 @@ function Logo({ size = 38, textSize = 16, subSize = 8, color = "#fff" }: { size?
 // ============================================================
 
 /** Génère un challenge aléatoire pour WebAuthn */
-function generateChallenge(): Uint8Array {
-  return crypto.getRandomValues(new Uint8Array(32));
+function generateChallenge(): ArrayBuffer {
+  return crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer;
 }
 
 /** Vérifie si WebAuthn est supporté sur l'appareil */
@@ -155,7 +155,7 @@ async function registerBiometrie(userId: string, userName: string): Promise<bool
         challenge,
         rp: { name: "YELEN224", id: window.location.hostname },
         user: {
-          id: new TextEncoder().encode(userId),
+          id: new TextEncoder().encode(userId) as unknown as BufferSource,
           name: userName,
           displayName: userName,
         },
@@ -201,7 +201,7 @@ async function authenticateBiometrie(): Promise<boolean> {
     if (credentialId) {
       // Cibler le credential enregistré
       const idBytes = Uint8Array.from(atob(credentialId.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
-      options.allowCredentials = [{ type: "public-key", id: idBytes, transports: ["internal"] }];
+      options.allowCredentials = [{ type: "public-key", id: idBytes as unknown as BufferSource, transports: ["internal"] }];
     }
 
     const assertion = await navigator.credentials.get({ publicKey: options }) as PublicKeyCredential | null;

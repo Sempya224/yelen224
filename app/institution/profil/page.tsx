@@ -207,15 +207,17 @@ export default function ProfilSetup() {
       if (logoUrl) payload.logo = logoUrl;
       if (banniereUrl) payload.banniere = banniereUrl;
 
-      const { error: updateError } = await supabase
+      const { data: updated, error: updateError } = await supabase
         .from("institutions")
         .update(payload)
-        .eq("id", institutionId);
+        .eq("id", institutionId)
+        .select("id");
 
       if (updateError) throw updateError;
+      if (!updated || updated.length === 0) throw new Error("Aucune ligne mise à jour — vérifiez les droits Supabase (RLS).");
       return true;
-    } catch {
-      setError("Erreur lors de la sauvegarde. Réessayez.");
+    } catch (err: any) {
+      setError(err?.message || "Erreur lors de la sauvegarde. Réessayez.");
       return false;
     } finally {
       setLoading(false);

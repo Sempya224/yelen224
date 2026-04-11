@@ -433,7 +433,7 @@ function RechercheInner() {
         {!loading && vue === "grille" && institutions.length > 0 && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", animation: "fadeUp 0.3s ease" }}>
-              {visible.map(inst => <CardGrille key={inst.id} inst={inst} C={C}/>)}
+              {visible.map(inst => <CardGrille key={inst.id} inst={inst} C={C as typeof T["dark"]}/>)}
             </div>
             {hasMore && (
               <button onClick={() => setPage(p => p + 1)} className="tap" style={{ width: "100%", marginTop: "12px", padding: "13px", background: iBg, border: "1px solid rgba(245,166,35,0.2)", borderRadius: "14px", color: "#F5A623", fontWeight: "700", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
