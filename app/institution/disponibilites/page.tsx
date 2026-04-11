@@ -149,8 +149,7 @@ export default function InstitutionDisponibilitesPage() {
     const { error } = await supabase.from("institutions").update({ disponibilites: generateSlots(rules) }).eq("id", institutionId);
     setSaving(false);
     if (error) { setLoadError(error.message); return; }
-    setSaveMsg("Disponibilités sauvegardées avec succès !");
-    setTimeout(() => setSaveMsg(null), 4000);
+    router.push(`/institution/${institutionId}/dashboard`);
   }, [institutionId, rules]);
 
   // ── Couleurs thème ──
