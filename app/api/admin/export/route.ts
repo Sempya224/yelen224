@@ -70,14 +70,17 @@ export async function GET(request: NextRequest) {
       case 'institutions': {
         const { data: rows } = await supabaseAdmin
           .from('institutions')
-          .select('id, nom, secteur, ville, statut, email, phone, created_at')
+          .select('id, name, category, ville, statut, email, phone, plan, badge_verifie, avertissements, created_at')
           .order('created_at', { ascending: false })
         data = (rows || []).map(r => ({
           ID: r.id,
-          Nom: r.nom || '',
-          Secteur: r.secteur || '',
+          Nom: r.name || '',
+          Categorie: r.category || '',
           Ville: r.ville || '',
           Statut: r.statut || '',
+          Plan: r.plan || '',
+          Badge: r.badge_verifie ? 'Oui' : 'Non',
+          Avertissements: r.avertissements || 0,
           Email: r.email || '',
           Telephone: r.phone || '',
           Inscription: new Date(r.created_at).toLocaleDateString('fr-FR'),

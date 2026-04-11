@@ -42,65 +42,65 @@ export async function GET(request: NextRequest) {
       return d
     })
 
-    const [
-      instTotal, instActives, instEnAttente, instSuspendues,
-      citoyensTotal, citoyensMois, citoyensAujourdhui,
-      rdvTotal, rdvAujourdhui, rdvMois,
-      revenuTotal, revenuMois, revenuAujourdhui,
-      signalements, avisData, paiementsEnAttente,
-      rdv30j, inscriptions30j, revenus12m, secteurs,
-    ] = await Promise.all([
-
+    const settled = await Promise.allSettled([
       // ── INSTITUTIONS ──
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }),
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'active'),
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente'),
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'suspendue'),
-
       // ── CITOYENS ──
       supabaseAdmin.from('users').select('id', { count: 'exact', head: true }),
       supabaseAdmin.from('users').select('id', { count: 'exact', head: true }).gte('created_at', startOfMonth),
       supabaseAdmin.from('users').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay),
-
       // ── RDV ──
       supabaseAdmin.from('rdv').select('id', { count: 'exact', head: true }),
       supabaseAdmin.from('rdv').select('id', { count: 'exact', head: true }).gte('created_at', startOfDay),
       supabaseAdmin.from('rdv').select('id', { count: 'exact', head: true }).gte('created_at', startOfMonth),
-
       // ── REVENUS ──
       supabaseAdmin.from('paiements').select('montant'),
       supabaseAdmin.from('paiements').select('montant').gte('created_at', startOfMonth),
       supabaseAdmin.from('paiements').select('montant').gte('created_at', startOfDay),
-
       // ── SIGNALEMENTS + AVIS ──
       supabaseAdmin.from('signalements').select('id', { count: 'exact', head: true }).eq('statut', 'nouveau'),
       supabaseAdmin.from('avis').select('id, note'),
       supabaseAdmin.from('paiements').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente'),
-
       // ── GRAPHES ──
-      // RDV 30 jours
-      supabaseAdmin.from('rdv').select('created_at')
-        .gte('created_at', last30Days[0].toISOString()),
-
-      // Inscriptions 30 jours
-      supabaseAdmin.from('users').select('created_at')
-        .gte('created_at', last30Days[0].toISOString()),
-
-      // Revenus 12 mois
-      supabaseAdmin.from('paiements').select('montant, created_at')
-        .gte('created_at', last12Months[0].toISOString()),
-
-      // Secteurs institutions
-      supabaseAdmin.from('institutions').select('secteur').eq('statut', 'active'),
+      supabaseAdmin.from('rdv').select('created_at').gte('created_at', last30Days[0].toISOString()),
+      supabaseAdmin.from('users').select('created_at').gte('created_at', last30Days[0].toISOString()),
+      supabaseAdmin.from('paiements').select('montant, created_at').gte('created_at', last12Months[0].toISOString()),
+      supabaseAdmin.from('institutions').select('category').eq('statut', 'active'),
     ])
 
+    function getCount(r: typeof settled[number]) { return r.status === 'fulfilled' ? (r.value as { count: number | null }).count || 0 : 0 }
+    function getData<T>(r: typeof settled[number]): T[] { return r.status === 'fulfilled' ? (r.value as { data: T[] | null }).data || [] : [] }
+
+    const instTotal = getCount(settled[0])
+    const instActives = getCount(settled[1])
+    const instEnAttente = getCount(settled[2])
+    const instSuspendues = getCount(settled[3])
+    const citoyensTotal = getCount(settled[4])
+    const citoyensMois = getCount(settled[5])
+    const citoyensAujourdhui = getCount(settled[6])
+    const rdvTotal = getCount(settled[7])
+    const rdvAujourdhui = getCount(settled[8])
+    const rdvMois = getCount(settled[9])
+    const revenuTotalData = getData<{ montant: number }>(settled[10])
+    const revenuMoisData = getData<{ montant: number }>(settled[11])
+    const revenuAujourduiData = getData<{ montant: number }>(settled[12])
+    const signalements = getCount(settled[13])
+    const avisArr = getData<{ note: number }>(settled[14])
+    const paiementsEnAttente = getCount(settled[15])
+    const rdv30jData = getData<{ created_at: string }>(settled[16])
+    const inscriptions30jData = getData<{ created_at: string }>(settled[17])
+    const revenus12mData = getData<{ montant: number; created_at: string }>(settled[18])
+    const secteursData = getData<{ category: string }>(settled[19])
+
     // ── CALCULS REVENUS ──
-    const totalRevenu = (revenuTotal.data || []).reduce((s, p) => s + (p.montant || 0), 0)
-    const totalRevenuMois = (revenuMois.data || []).reduce((s, p) => s + (p.montant || 0), 0)
-    const totalRevenuAujourdhui = (revenuAujourdhui.data || []).reduce((s, p) => s + (p.montant || 0), 0)
+    const totalRevenu = revenuTotalData.reduce((s, p) => s + (p.montant || 0), 0)
+    const totalRevenuMois = revenuMoisData.reduce((s, p) => s + (p.montant || 0), 0)
+    const totalRevenuAujourdhui = revenuAujourduiData.reduce((s, p) => s + (p.montant || 0), 0)
 
     // ── CALCUL AVIS ──
-    const avisArr = avisData.data || []
     const avisMoyenne = avisArr.length
       ? avisArr.reduce((s, a) => s + (a.note || 0), 0) / avisArr.length
       : 0
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
     // ── GRAPHE RDV 30j ──
     const rdvByDay = last30Days.map(d => {
       const dateStr = d.toISOString().slice(0, 10)
-      return (rdv30j.data || []).filter(r => r.created_at.slice(0, 10) === dateStr).length
+      return rdv30jData.filter(r => r.created_at.slice(0, 10) === dateStr).length
     })
     const rdvLabels = last30Days.map(d =>
       d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
@@ -117,13 +117,13 @@ export async function GET(request: NextRequest) {
     // ── GRAPHE INSCRIPTIONS 30j ──
     const inscByDay = last30Days.map(d => {
       const dateStr = d.toISOString().slice(0, 10)
-      return (inscriptions30j.data || []).filter(u => u.created_at.slice(0, 10) === dateStr).length
+      return inscriptions30jData.filter(u => u.created_at.slice(0, 10) === dateStr).length
     })
 
     // ── GRAPHE REVENUS 12m ──
     const revenusByMonth = last12Months.map(d => {
       const month = d.toISOString().slice(0, 7)
-      return (revenus12m.data || [])
+      return revenus12mData
         .filter(p => p.created_at.slice(0, 7) === month)
         .reduce((s, p) => s + (p.montant || 0), 0)
     })
@@ -133,8 +133,8 @@ export async function GET(request: NextRequest) {
 
     // ── SECTEURS PIE ──
     const secteurCounts: Record<string, number> = {}
-    for (const inst of secteurs.data || []) {
-      const s = inst.secteur || 'Autre'
+    for (const inst of secteursData) {
+      const s = inst.category || 'Autre'
       secteurCounts[s] = (secteurCounts[s] || 0) + 1
     }
     const secteursArr = Object.entries(secteurCounts)
@@ -143,29 +143,26 @@ export async function GET(request: NextRequest) {
       .map(([label, value]) => ({ label, value }))
 
     return NextResponse.json({
-      // KPIs
-      institutions_total: instTotal.count || 0,
-      institutions_actives: instActives.count || 0,
-      institutions_en_attente: instEnAttente.count || 0,
-      institutions_suspendues: instSuspendues.count || 0,
-      citoyens_total: citoyensTotal.count || 0,
-      citoyens_ce_mois: citoyensMois.count || 0,
-      citoyens_aujourd_hui: citoyensAujourdhui.count || 0,
-      rdv_total: rdvTotal.count || 0,
-      rdv_aujourd_hui: rdvAujourdhui.count || 0,
-      rdv_ce_mois: rdvMois.count || 0,
+      institutions_total: instTotal,
+      institutions_actives: instActives,
+      institutions_en_attente: instEnAttente,
+      institutions_suspendues: instSuspendues,
+      citoyens_total: citoyensTotal,
+      citoyens_ce_mois: citoyensMois,
+      citoyens_aujourd_hui: citoyensAujourdhui,
+      rdv_total: rdvTotal,
+      rdv_aujourd_hui: rdvAujourdhui,
+      rdv_ce_mois: rdvMois,
       revenus_total: totalRevenu,
       revenus_ce_mois: totalRevenuMois,
       revenus_aujourd_hui: totalRevenuAujourdhui,
-      signalements_non_traites: signalements.count || 0,
+      signalements_non_traites: signalements,
       avis_total: avisArr.length,
       avis_moyenne: Math.round(avisMoyenne * 10) / 10,
       taux_presence: 78,
       taux_annulation: 12,
-      paiements_en_attente: paiementsEnAttente.count || 0,
+      paiements_en_attente: paiementsEnAttente,
       documents_en_attente: 0,
-
-      // Graphes
       rdv_chart_30j: rdvByDay,
       rdv_labels_30j: rdvLabels,
       revenus_chart_12m: revenusByMonth,

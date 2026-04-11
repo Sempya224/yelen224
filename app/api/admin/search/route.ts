@@ -31,11 +31,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json([])
     }
 
-    const [instRes, usersRes] = await Promise.all([
+    const [instRes, usersRes] = await Promise.allSettled([
       supabaseAdmin
         .from('institutions')
-        .select('id, nom, secteur, ville')
-        .ilike('nom', `%${q}%`)
+        .select('id, name, category, ville')
+        .ilike('name', `%${q}%`)
         .limit(5),
 
       supabaseAdmin
@@ -47,15 +47,17 @@ export async function GET(request: NextRequest) {
 
     const results: { type: string, label: string, id: string }[] = []
 
-    for (const i of instRes.data || []) {
+    const instData = instRes.status === 'fulfilled' ? instRes.value.data || [] : []
+    for (const i of instData) {
       results.push({
         type: 'institutions',
-        label: `${i.nom} — ${i.secteur} · ${i.ville}`,
+        label: `${i.name} — ${i.category} · ${i.ville}`,
         id: i.id,
       })
     }
 
-    for (const u of usersRes.data || []) {
+    const usersData = usersRes.status === 'fulfilled' ? usersRes.value.data || [] : []
+    for (const u of usersData) {
       results.push({
         type: 'citoyens',
         label: `${u.prenom || ''} ${u.nom || ''} — ${u.phone || ''}`.trim(),

@@ -31,12 +31,12 @@ export async function GET(request: NextRequest) {
 
     let query = supabaseAdmin
       .from('institutions')
-      .select('id, nom, secteur, ville, statut, created_at, email, phone')
+      .select('id, name, category, ville, statut, created_at, email, phone, badge_verifie, avertissements, plan, document_officiel, description, whatsapp, site_web, adresse, moyenne_avis, nb_avis, logo, quartier')
       .order('created_at', { ascending: false })
       .range(page * limit, (page + 1) * limit - 1)
 
     if (statut && statut !== 'tous') query = query.eq('statut', statut)
-    if (search) query = query.ilike('nom', `%${search}%`)
+    if (search) query = query.ilike('name', `%${search}%`)
 
     const { data, error } = await query
 

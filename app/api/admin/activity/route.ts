@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '30')
 
     // Récupérer les dernières activités depuis plusieurs tables en parallèle
-    const [rdvRes, usersRes, instRes, sigRes, paiRes] = await Promise.all([
+    const [rdvRes, usersRes, instRes, sigRes, paiRes] = await Promise.allSettled([
       // Derniers RDV
       supabaseAdmin
         .from('rdv')
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       // Dernières institutions inscrites
       supabaseAdmin
         .from('institutions')
-        .select('id, created_at, nom, statut')
+        .select('id, created_at, name, statut')
         .order('created_at', { ascending: false })
         .limit(10),
 
@@ -66,62 +66,37 @@ export async function GET(request: NextRequest) {
     ])
 
     // Construire le journal d'activité unifié
-    const items: {
-      id: string
-      type: string
-      message: string
-      created_at: string
-      actor?: string
-    }[] = []
+    type ActivityItem = { id: string; type: string; message: string; created_at: string; actor?: string }
+    const items: ActivityItem[] = []
 
     // RDV
-    for (const r of rdvRes.data || []) {
-      items.push({
-        id: 'rdv_' + r.id,
-        type: 'rdv',
-        message: `Nouveau rendez-vous créé — statut : ${r.statut}`,
-        created_at: r.created_at,
-      })
+    const rdvData = rdvRes.status === 'fulfilled' ? rdvRes.value.data || [] : []
+    for (const r of rdvData) {
+      items.push({ id: 'rdv_' + r.id, type: 'rdv', message: `Nouveau rendez-vous créé — statut : ${r.statut}`, created_at: r.created_at })
     }
 
     // Citoyens
-    for (const u of usersRes.data || []) {
-      items.push({
-        id: 'user_' + u.id,
-        type: 'citoyen',
-        message: `Nouveau citoyen inscrit — ${u.prenom || ''} ${u.nom || ''}`.trim(),
-        created_at: u.created_at,
-      })
+    const usersData = usersRes.status === 'fulfilled' ? usersRes.value.data || [] : []
+    for (const u of usersData) {
+      items.push({ id: 'user_' + u.id, type: 'citoyen', message: `Nouveau citoyen inscrit — ${u.prenom || ''} ${u.nom || ''}`.trim(), created_at: u.created_at })
     }
 
     // Institutions
-    for (const i of instRes.data || []) {
-      items.push({
-        id: 'inst_' + i.id,
-        type: 'institution',
-        message: `Institution enregistrée — ${i.nom} (${i.statut})`,
-        created_at: i.created_at,
-      })
+    const instData = instRes.status === 'fulfilled' ? instRes.value.data || [] : []
+    for (const i of instData) {
+      items.push({ id: 'inst_' + i.id, type: 'institution', message: `Institution enregistrée — ${i.name} (${i.statut})`, created_at: i.created_at })
     }
 
     // Signalements
-    for (const s of sigRes.data || []) {
-      items.push({
-        id: 'sig_' + s.id,
-        type: 'signalement',
-        message: `Signalement reçu — type : ${s.type || 'non spécifié'}`,
-        created_at: s.created_at,
-      })
+    const sigData = sigRes.status === 'fulfilled' ? sigRes.value.data || [] : []
+    for (const s of sigData) {
+      items.push({ id: 'sig_' + s.id, type: 'signalement', message: `Signalement reçu — type : ${s.type || 'non spécifié'}`, created_at: s.created_at })
     }
 
     // Paiements
-    for (const p of paiRes.data || []) {
-      items.push({
-        id: 'pai_' + p.id,
-        type: 'paiement',
-        message: `Paiement enregistré — ${p.montant?.toLocaleString('fr-FR') || 0} GNF (${p.statut})`,
-        created_at: p.created_at,
-      })
+    const paiData = paiRes.status === 'fulfilled' ? paiRes.value.data || [] : []
+    for (const p of paiData) {
+      items.push({ id: 'pai_' + p.id, type: 'paiement', message: `Paiement enregistré — ${(p.montant || 0).toLocaleString('fr-FR')} GNF (${p.statut})`, created_at: p.created_at })
     }
 
     // Trier par date décroissante et limiter

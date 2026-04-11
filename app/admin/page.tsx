@@ -117,13 +117,50 @@ interface KPIs {
 
 interface Institution {
   id: string
-  nom: string
-  secteur: string
+  name: string
+  category: string
   ville: string
   statut: string
   created_at: string
   email?: string
   phone?: string
+  badge_verifie?: boolean
+  avertissements?: number
+  plan?: string
+  document_officiel?: string
+  description?: string
+  whatsapp?: string
+  site_web?: string
+  adresse?: string
+  moyenne_avis?: number
+  nb_avis?: number
+  logo?: string
+  quartier?: string
+}
+
+interface Annonce {
+  id: string
+  titre: string
+  contenu: string
+  type: string
+  statut: string
+  date_expiration?: string
+  nb_vues: number
+  nb_clics: number
+  epingle: boolean
+  institution_id?: string
+  created_at: string
+}
+
+interface AdminUser {
+  id: string
+  email: string
+  nom?: string
+  prenom?: string
+  role: string
+  is_active: boolean
+  last_login?: string
+  created_at: string
 }
 
 interface Signalement {
@@ -471,17 +508,37 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
     async function action(id: string, endpoint: string, body?: object) {
       setActionLoading(id + endpoint)
       try {
-        const res = await fetch(`/api/admin/institutions/${id}/${endpoint}`, {
+        // Mapper les actions spéciales vers leurs endpoints réels
+        let url = `/api/admin/institutions/${id}/${endpoint}`
+        let reqBody = body
+        if (endpoint === 'badge_accorder') { url = `/api/admin/institutions/${id}/badge`; reqBody = { badge_verifie: true } }
+        if (endpoint === 'badge_retirer')  { url = `/api/admin/institutions/${id}/badge`; reqBody = { badge_verifie: false } }
+        if (endpoint === 'plan_premium')   { url = `/api/admin/institutions/${id}/plan`;  reqBody = { plan: 'premium' } }
+        if (endpoint === 'plan_gratuit')   { url = `/api/admin/institutions/${id}/plan`;  reqBody = { plan: 'gratuit' } }
+
+        const res = await fetch(url, {
           method: 'POST',
-          headers: body ? { 'Content-Type': 'application/json' } : {},
-          body: body ? JSON.stringify(body) : undefined,
+          headers: reqBody ? { 'Content-Type': 'application/json' } : {},
+          body: reqBody ? JSON.stringify(reqBody) : undefined,
         })
         if (res.ok) {
-          toast(endpoint === 'valider' ? 'Institution validée' : endpoint === 'suspendre' ? 'Institution suspendue' : 'Institution refusée')
-          setData(prev => prev.filter(i => i.id !== id))
+          const messages: Record<string, string> = {
+            valider: 'Institution validée',
+            suspendre: 'Institution suspendue',
+            refuser: 'Institution refusée',
+            reactiver: 'Institution réactivée',
+            avertir: 'Avertissement ajouté',
+            badge_accorder: 'Badge accordé',
+            badge_retirer: 'Badge retiré',
+            plan_premium: 'Plan mis à Premium',
+            plan_gratuit: 'Plan remis à Gratuit',
+          }
+          toast(messages[endpoint] || 'Action effectuée')
+          // Recharger les données pour reflèter les changements
+          load()
           setPanel(null)
           setMotif('')
-        } else toast('Erreur', 'error')
+        } else toast('Erreur action', 'error')
       } catch { toast('Erreur réseau', 'error') }
       finally { setActionLoading(null) }
     }
@@ -566,8 +623,13 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
               rows={data.map(inst => {
                 const s = statusColor[inst.statut] || { color: D.textMuted, bg: D.surface3, label: inst.statut }
                 return {
-                  nom:     <span style={{ fontWeight: '600', color: D.text }}>{inst.nom}</span>,
-                  secteur: <span style={{ color: D.textSub }}>{inst.secteur || '—'}</span>,
+                  nom:     <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                    {inst.badge_verifie && <span title="Badge vérifié" style={{ color: D.blue, fontSize: '11px' }}>{Ic.Check(D.blue)}</span>}
+                    <span style={{ fontWeight: '600', color: D.text }}>{inst.name}</span>
+                    {inst.plan === 'premium' && <Badge label="PRO" color={D.yellow} bg={D.yellowDim}/>}
+                    {(inst.avertissements || 0) > 0 && <span title={`${inst.avertissements} avertissement(s)`} style={{ color: D.red, fontSize: '10px', fontWeight: '700' }}>⚠{inst.avertissements}</span>}
+                  </div>,
+                  secteur: <span style={{ color: D.textSub }}>{inst.category || '—'}</span>,
                   ville:   <span style={{ color: D.textSub }}>{inst.ville || '—'}</span>,
                   statut:  <Badge label={s.label} color={s.color} bg={s.bg}/>,
                   date:    <span style={{ color: D.textMuted, fontSize: '11px' }}>{new Date(inst.created_at).toLocaleDateString('fr-FR')}</span>,
@@ -577,19 +639,16 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
                         Voir
                       </button>
                       {inst.statut === 'en_attente' && (
-                        <button
-                          onClick={() => action(inst.id, 'valider')}
-                          disabled={actionLoading === inst.id + 'valider'}
-                          style={{ padding: '4px 8px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', color: D.green, fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}
-                        >
+                        <button onClick={() => action(inst.id, 'valider')} disabled={actionLoading === inst.id + 'valider'} style={{ padding: '4px 8px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', color: D.green, fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>
                           {actionLoading === inst.id + 'valider' ? '...' : Ic.Check(D.green)}
                         </button>
                       )}
-                      {inst.statut !== 'suspendue' && (
-                        <button
-                          onClick={() => { setSelected(inst); setPanel('suspendre') }}
-                          style={{ padding: '4px 8px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: '5px', color: D.red, fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}
-                        >
+                      {inst.statut === 'suspendue' ? (
+                        <button onClick={() => action(inst.id, 'reactiver')} style={{ padding: '4px 8px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', color: D.green, fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>
+                          Réactiver
+                        </button>
+                      ) : (
+                        <button onClick={() => { setSelected(inst); setPanel('suspendre') }} style={{ padding: '4px 8px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: '5px', color: D.red, fontSize: '11px', cursor: 'pointer' }}>
                           {Ic.Ban(D.red)}
                         </button>
                       )}
@@ -614,37 +673,87 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
         </div>
   
         {/* Panel détail */}
-        <SlidePanel open={panel === 'detail'} onClose={() => setPanel(null)} title={selected?.nom || 'Détail'}>
+        <SlidePanel open={panel === 'detail'} onClose={() => setPanel(null)} title={selected?.name || 'Détail'} width="520px">
           {selected && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* En-tête */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', backgroundColor: D.surface2, borderRadius: D.radiusSm, border: `1px solid ${D.border}` }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: `linear-gradient(135deg, ${D.yellow}, #b8860b)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: '800', color: '#000', flexShrink: 0, overflow: 'hidden' }}>
+                  {selected.logo ? <img src={selected.logo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/> : (selected.name?.slice(0,2) || '?').toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: '700', color: D.text, fontSize: '14px' }}>{selected.name}</span>
+                    {selected.badge_verifie && <span title="Badge vérifié" style={{ color: D.blue }}>{Ic.Check(D.blue)}</span>}
+                    {selected.plan === 'premium' && <Badge label="PREMIUM" color={D.yellow} bg={D.yellowDim}/>}
+                  </div>
+                  <div style={{ color: D.textMuted, fontSize: '11px' }}>{selected.category} · {selected.ville}</div>
+                </div>
+              </div>
+
+              {/* Infos */}
               <div style={{ backgroundColor: D.surface2, borderRadius: D.radiusSm, border: `1px solid ${D.border}`, overflow: 'hidden' }}>
-                {[
-                  ['Nom', selected.nom],
-                  ['Secteur', selected.secteur || '—'],
-                  ['Ville', selected.ville || '—'],
-                  ['Statut', selected.statut],
+                {([
+                  ['Catégorie', selected.category || '—'],
+                  ['Ville / Quartier', [selected.ville, selected.quartier].filter(Boolean).join(', ') || '—'],
+                  ['Adresse', selected.adresse || '—'],
                   ['Email', selected.email || '—'],
                   ['Téléphone', selected.phone || '—'],
+                  ['WhatsApp', selected.whatsapp || '—'],
+                  ['Site web', selected.site_web || '—'],
+                  ['Statut', selected.statut],
+                  ['Plan', selected.plan || 'gratuit'],
+                  ['Avertissements', String(selected.avertissements || 0)],
+                  ['Note moyenne', selected.moyenne_avis ? `${selected.moyenne_avis.toFixed(1)} / 5 (${selected.nb_avis} avis)` : '—'],
+                  ['Document officiel', selected.document_officiel ? 'Fourni' : 'Non fourni'],
                   ['Inscrite le', new Date(selected.created_at).toLocaleDateString('fr-FR')],
-                ].map(([l, v], i, arr) => (
-                  <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderBottom: i < arr.length-1 ? `1px solid ${D.border}` : 'none' }}>
-                    <span style={{ fontSize: '12px', color: D.textMuted }}>{l}</span>
-                    <span style={{ fontSize: '12px', fontWeight: '600', color: D.text }}>{v}</span>
+                ] as [string, string][]).map(([l, v], i, arr) => (
+                  <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', borderBottom: i < arr.length-1 ? `1px solid ${D.border}` : 'none' }}>
+                    <span style={{ fontSize: '11px', color: D.textMuted }}>{l}</span>
+                    <span style={{ fontSize: '11px', fontWeight: '600', color: l === 'Avertissements' && parseInt(v) > 0 ? D.red : D.text, maxWidth: '240px', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</span>
                   </div>
                 ))}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {selected.statut === 'en_attente' && (
-                  <button onClick={() => action(selected.id, 'valider')} style={{ padding: '11px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: D.radiusSm, color: D.green, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
-                    Valider l'institution
+
+              {/* Description */}
+              {selected.description && (
+                <div style={{ padding: '10px 12px', backgroundColor: D.surface2, borderRadius: D.radiusSm, border: `1px solid ${D.border}` }}>
+                  <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: D.textMuted, letterSpacing: '0.6px' }}>Description</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: D.textSub, lineHeight: 1.5 }}>{selected.description}</p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: D.textMuted, letterSpacing: '0.6px' }}>Actions</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                  {selected.statut === 'en_attente' && (
+                    <button onClick={() => action(selected.id, 'valider')} style={{ padding: '9px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: D.radiusSm, color: D.green, fontSize: '12px', fontWeight: '600', cursor: 'pointer', gridColumn: '1/-1' }}>
+                      Valider l'institution
+                    </button>
+                  )}
+                  {selected.statut === 'suspendue' ? (
+                    <button onClick={() => action(selected.id, 'reactiver')} style={{ padding: '9px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: D.radiusSm, color: D.green, fontSize: '12px', fontWeight: '600', cursor: 'pointer', gridColumn: '1/-1' }}>
+                      Réactiver le compte
+                    </button>
+                  ) : (
+                    <button onClick={() => action(selected.id, 'suspendre')} style={{ padding: '9px', backgroundColor: D.orangeDim, border: `1px solid ${D.orangeBrd}`, borderRadius: D.radiusSm, color: D.orange, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                      Suspendre
+                    </button>
+                  )}
+                  <button onClick={() => setPanel('refus')} style={{ padding: '9px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: D.radiusSm, color: D.red, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                    Refuser
                   </button>
-                )}
-                <button onClick={() => setPanel('refus')} style={{ padding: '11px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: D.radiusSm, color: D.red, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
-                  Refuser avec motif
-                </button>
-                <button onClick={() => action(selected.id, 'suspendre')} style={{ padding: '11px', backgroundColor: D.orangeDim, border: `1px solid ${D.orangeBrd}`, borderRadius: D.radiusSm, color: D.orange, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
-                  Suspendre le compte
-                </button>
+                  <button onClick={() => action(selected.id, 'avertir')} style={{ padding: '9px', backgroundColor: D.yellowDim, border: `1px solid ${D.yellowBrd}`, borderRadius: D.radiusSm, color: D.yellow, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                    + Avertissement
+                  </button>
+                  <button onClick={() => action(selected.id, selected.badge_verifie ? 'badge_retirer' : 'badge_accorder')} style={{ padding: '9px', backgroundColor: D.blueDim, border: `1px solid ${D.blueBrd}`, borderRadius: D.radiusSm, color: D.blue, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                    {selected.badge_verifie ? 'Retirer badge' : 'Accorder badge'}
+                  </button>
+                  <button onClick={() => action(selected.id, selected.plan === 'premium' ? 'plan_gratuit' : 'plan_premium')} style={{ padding: '9px', backgroundColor: D.purpleDim, border: `1px solid ${D.purpleBrd}`, borderRadius: D.radiusSm, color: D.purple, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                    {selected.plan === 'premium' ? 'Passer gratuit' : 'Passer premium'}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -1104,6 +1213,433 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
     )
   }
   
+  // ═══════════════════════════════════════════════════════
+  // VUE PAIEMENTS
+  // ═══════════════════════════════════════════════════════
+  function ViewPaiements({ toast }: { toast: (m: string, t?: ToastItem['type']) => void }) {
+    const [data, setData] = useState<{id:string,montant:number,statut:string,created_at:string,institution_id:string,citoyen_id:string}[]>([])
+    const [loading, setLoading] = useState(true)
+    const [filter, setFilter] = useState('tous')
+    const [page, setPage] = useState(0)
+    const [error, setError] = useState('')
+
+    const load = useCallback(async () => {
+      setLoading(true); setError('')
+      try {
+        const params = new URLSearchParams({ limit: '25', page: String(page) })
+        if (filter !== 'tous') params.set('statut', filter)
+        const res = await fetch(`/api/admin/export?type=paiements`)
+        if (!res.ok) { setError('Table paiements inaccessible ou inexistante'); setData([]); return }
+        // Pour l'affichage direct, on utilise l'API rdv adaptée
+        const r2 = await fetch(`/api/admin/rdv?limit=25&page=${page}`)
+        if (r2.ok) setData(await r2.json())
+      } catch { setError('Erreur chargement') }
+      finally { setLoading(false) }
+    }, [page, filter])
+
+    useEffect(() => { load() }, [load])
+
+    const statusColor: Record<string, { color: string, bg: string, label: string }> = {
+      confirme:   { color: D.green,  bg: D.greenDim,  label: 'Confirmé'   },
+      en_attente: { color: D.yellow, bg: D.yellowDim, label: 'En attente' },
+      annule:     { color: D.red,    bg: D.redDim,    label: 'Annulé'     },
+      termine:    { color: D.blue,   bg: D.blueDim,   label: 'Terminé'    },
+    }
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: D.text, letterSpacing: '-0.5px' }}>Rendez-vous & Paiements</h1>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: D.textMuted }}>Suivi des RDV et transactions</p>
+          </div>
+          <button onClick={() => exportCSV('rdv')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '12px', color: D.textSub, cursor: 'pointer' }}>
+            {Ic.Download(D.textSub)} Exporter CSV
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          {['tous','confirme','en_attente','annule','termine'].map(f => (
+            <button key={f} onClick={() => { setFilter(f); setPage(0) }} style={{ padding: '7px 14px', borderRadius: D.radiusSm, fontSize: '12px', fontWeight: filter === f ? '700' : '400', backgroundColor: filter === f ? D.yellow : D.surface2, color: filter === f ? '#000' : D.textSub, border: `1px solid ${filter === f ? D.yellow : D.border}`, cursor: 'pointer' }}>
+              {f === 'tous' ? 'Tous' : statusColor[f]?.label || f}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Chargement...</div>
+          ) : error ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>{error}</div>
+          ) : data.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Aucun résultat</div>
+          ) : (
+            <DataTable
+              cols={[
+                { key: 'id',     label: 'ID',         width: '10%' },
+                { key: 'statut', label: 'Statut',     width: '15%' },
+                { key: 'date',   label: 'Date RDV',   width: '18%' },
+                { key: 'heure',  label: 'Heure',      width: '12%' },
+                { key: 'inst',   label: 'Institution',width: '25%' },
+                { key: 'cree',   label: 'Créé le',    width: '20%' },
+              ]}
+              rows={(data as unknown as {id:string,statut:string,date_rdv:string,heure_rdv:string,institution_id:string,created_at:string}[]).map(r => {
+                const s = statusColor[r.statut] || { color: D.textMuted, bg: D.surface3, label: r.statut }
+                return {
+                  id:     <span style={{ fontFamily: 'monospace', fontSize: '10px', color: D.textMuted }}>{r.id.slice(0,8)}…</span>,
+                  statut: <Badge label={s.label} color={s.color} bg={s.bg}/>,
+                  date:   <span style={{ color: D.textSub, fontSize: '12px' }}>{r.date_rdv || '—'}</span>,
+                  heure:  <span style={{ color: D.textSub, fontSize: '12px' }}>{r.heure_rdv || '—'}</span>,
+                  inst:   <span style={{ color: D.textMuted, fontSize: '11px' }}>{r.institution_id?.slice(0,12) || '—'}…</span>,
+                  cree:   <span style={{ color: D.textMuted, fontSize: '11px' }}>{new Date(r.created_at).toLocaleDateString('fr-FR')}</span>,
+                }
+              })}
+            />
+          )}
+          <div style={{ padding: '12px 16px', borderTop: `1px solid ${D.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: D.textMuted }}>Page {page + 1}</span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0} style={{ padding: '5px 10px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, cursor: 'pointer', fontSize: '12px', opacity: page === 0 ? 0.4 : 1 }}>Préc</button>
+              <button onClick={() => setPage(p => p+1)} disabled={data.length < 25} style={{ padding: '5px 10px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, cursor: 'pointer', fontSize: '12px', opacity: data.length < 25 ? 0.4 : 1 }}>Suiv</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // VUE ANNONCES
+  // ═══════════════════════════════════════════════════════
+  function ViewAnnonces({ toast }: { toast: (m: string, t?: ToastItem['type']) => void }) {
+    const [data, setData] = useState<Annonce[]>([])
+    const [loading, setLoading] = useState(true)
+    const [filter, setFilter] = useState('tous')
+    const [search, setSearch] = useState('')
+    const [page, setPage] = useState(0)
+    const [panel, setPanel] = useState<string | null>(null)
+    const [selected, setSelected] = useState<Annonce | null>(null)
+    const [form, setForm] = useState({ titre: '', contenu: '', type: 'information', statut: 'publiee', date_expiration: '', epingle: false })
+    const [saving, setSaving] = useState(false)
+
+    const load = useCallback(async () => {
+      setLoading(true)
+      try {
+        const params = new URLSearchParams({ limit: '25', page: String(page) })
+        if (filter !== 'tous') params.set('statut', filter)
+        if (search) params.set('search', search)
+        const res = await fetch(`/api/admin/annonces?${params}`)
+        if (res.ok) setData(await res.json())
+      } finally { setLoading(false) }
+    }, [filter, search, page])
+
+    useEffect(() => { load() }, [load])
+
+    async function saveAnnonce() {
+      if (!form.titre.trim() || !form.contenu.trim()) { toast('Titre et contenu requis', 'error'); return }
+      setSaving(true)
+      try {
+        const url = selected ? `/api/admin/annonces/${selected.id}` : '/api/admin/annonces'
+        const method = selected ? 'PATCH' : 'POST'
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+        if (res.ok) {
+          toast(selected ? 'Annonce modifiée' : 'Annonce créée')
+          setPanel(null); setSelected(null)
+          setForm({ titre: '', contenu: '', type: 'information', statut: 'publiee', date_expiration: '', epingle: false })
+          load()
+        } else toast('Erreur sauvegarde', 'error')
+      } finally { setSaving(false) }
+    }
+
+    async function deleteAnnonce(id: string) {
+      if (!confirm('Supprimer cette annonce ?')) return
+      const res = await fetch(`/api/admin/annonces/${id}`, { method: 'DELETE' })
+      if (res.ok) { toast('Annonce supprimée'); load() }
+      else toast('Erreur suppression', 'error')
+    }
+
+    async function togglePin(ann: Annonce) {
+      await fetch(`/api/admin/annonces/${ann.id}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ epingle: !ann.epingle }) })
+      load()
+    }
+
+    const typeColor: Record<string, { color: string, bg: string }> = {
+      information: { color: D.blue,   bg: D.blueDim   },
+      urgent:      { color: D.red,    bg: D.redDim    },
+      evenement:   { color: D.purple, bg: D.purpleDim },
+      alerte:      { color: D.orange, bg: D.orangeDim },
+    }
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: D.text, letterSpacing: '-0.5px' }}>Annonces</h1>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: D.textMuted }}>{data.length} annonce(s)</p>
+          </div>
+          <button onClick={() => { setSelected(null); setForm({ titre:'', contenu:'', type:'information', statut:'publiee', date_expiration:'', epingle:false }); setPanel('form') }} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', backgroundColor: D.yellow, border: 'none', borderRadius: D.radiusSm, fontSize: '12px', color: '#000', fontWeight: '700', cursor: 'pointer' }}>
+            + Nouvelle annonce
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+            <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: D.textMuted }}>{Ic.Search(D.textMuted)}</span>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..." style={{ width: '100%', padding: '8px 12px 8px 32px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}/>
+          </div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {['tous','publiee','archivee'].map(f => (
+              <button key={f} onClick={() => { setFilter(f); setPage(0) }} style={{ padding: '8px 14px', borderRadius: D.radiusSm, fontSize: '12px', fontWeight: filter === f ? '700' : '400', backgroundColor: filter === f ? D.yellow : D.surface2, color: filter === f ? '#000' : D.textSub, border: `1px solid ${filter === f ? D.yellow : D.border}`, cursor: 'pointer' }}>
+                {f === 'tous' ? 'Toutes' : f === 'publiee' ? 'Publiées' : 'Archivées'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Chargement...</div>
+          ) : data.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Aucune annonce</div>
+          ) : (
+            <DataTable
+              cols={[
+                { key: 'titre',  label: 'Titre',       width: '30%' },
+                { key: 'type',   label: 'Type',        width: '12%' },
+                { key: 'statut', label: 'Statut',      width: '12%' },
+                { key: 'vues',   label: 'Vues',        width: '10%' },
+                { key: 'epingle',label: 'Épinglée',    width: '10%' },
+                { key: 'date',   label: 'Date',        width: '14%' },
+                { key: 'actions',label: 'Actions',     width: '12%' },
+              ]}
+              rows={data.map(ann => {
+                const tc = typeColor[ann.type] || { color: D.textMuted, bg: D.surface3 }
+                return {
+                  titre:   <span style={{ fontWeight: '600', color: D.text, fontSize: '12px' }}>{ann.titre}</span>,
+                  type:    <Badge label={ann.type} color={tc.color} bg={tc.bg}/>,
+                  statut:  <Badge label={ann.statut} color={ann.statut === 'publiee' ? D.green : D.textMuted} bg={ann.statut === 'publiee' ? D.greenDim : D.surface3}/>,
+                  vues:    <span style={{ color: D.textSub, fontSize: '12px' }}>{ann.nb_vues || 0}</span>,
+                  epingle: <span style={{ color: ann.epingle ? D.yellow : D.textMuted, cursor: 'pointer' }} onClick={() => togglePin(ann)}>{ann.epingle ? '★' : '☆'}</span>,
+                  date:    <span style={{ color: D.textMuted, fontSize: '11px' }}>{new Date(ann.created_at).toLocaleDateString('fr-FR')}</span>,
+                  actions: (
+                    <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                      <button onClick={() => { setSelected(ann); setForm({ titre: ann.titre, contenu: ann.contenu, type: ann.type, statut: ann.statut, date_expiration: ann.date_expiration || '', epingle: ann.epingle }); setPanel('form') }} style={{ padding: '4px 7px', backgroundColor: D.blueDim, border: `1px solid ${D.blueBrd}`, borderRadius: '5px', color: D.blue, fontSize: '11px', cursor: 'pointer' }}>
+                        Éditer
+                      </button>
+                      <button onClick={() => deleteAnnonce(ann.id)} style={{ padding: '4px 7px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: '5px', color: D.red, fontSize: '11px', cursor: 'pointer' }}>
+                        {Ic.X(D.red)}
+                      </button>
+                    </div>
+                  ),
+                }
+              })}
+            />
+          )}
+          <div style={{ padding: '12px 16px', borderTop: `1px solid ${D.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: D.textMuted }}>Page {page + 1}</span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0} style={{ padding: '5px 10px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, cursor: 'pointer', fontSize: '12px', opacity: page === 0 ? 0.4 : 1 }}>Préc</button>
+              <button onClick={() => setPage(p => p+1)} disabled={data.length < 25} style={{ padding: '5px 10px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, cursor: 'pointer', fontSize: '12px', opacity: data.length < 25 ? 0.4 : 1 }}>Suiv</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Panel formulaire annonce */}
+        <SlidePanel open={panel === 'form'} onClose={() => setPanel(null)} title={selected ? 'Modifier l\'annonce' : 'Nouvelle annonce'} width="500px">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Titre *</label>
+              <input value={form.titre} onChange={e => setForm(f => ({...f, titre: e.target.value}))} placeholder="Titre de l'annonce" style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}/>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Contenu *</label>
+              <textarea value={form.contenu} onChange={e => setForm(f => ({...f, contenu: e.target.value}))} rows={5} placeholder="Contenu de l'annonce..." style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, resize: 'vertical', outline: 'none', fontFamily: D.font, boxSizing: 'border-box' }}/>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Type</label>
+                <select value={form.type} onChange={e => setForm(f => ({...f, type: e.target.value}))} style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}>
+                  <option value="information">Information</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="evenement">Événement</option>
+                  <option value="alerte">Alerte</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Statut</label>
+                <select value={form.statut} onChange={e => setForm(f => ({...f, statut: e.target.value}))} style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}>
+                  <option value="publiee">Publiée</option>
+                  <option value="archivee">Archivée</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Date d'expiration (optionnel)</label>
+              <input type="date" value={form.date_expiration} onChange={e => setForm(f => ({...f, date_expiration: e.target.value}))} style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}/>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.epingle} onChange={e => setForm(f => ({...f, epingle: e.target.checked}))} style={{ width: '16px', height: '16px', cursor: 'pointer' }}/>
+              <span style={{ fontSize: '13px', color: D.textSub }}>Épingler en haut</span>
+            </label>
+            <div style={{ display: 'flex', gap: '8px', paddingTop: '4px' }}>
+              <button onClick={saveAnnonce} disabled={saving} style={{ flex: 1, padding: '11px', backgroundColor: D.yellow, border: 'none', borderRadius: D.radiusSm, color: '#000', fontSize: '13px', fontWeight: '700', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+                {saving ? 'Sauvegarde...' : selected ? 'Enregistrer' : 'Créer l\'annonce'}
+              </button>
+              <button onClick={() => setPanel(null)} style={{ padding: '11px 16px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, fontSize: '13px', cursor: 'pointer' }}>Annuler</button>
+            </div>
+          </div>
+        </SlidePanel>
+      </div>
+    )
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // VUE ADMINS
+  // ═══════════════════════════════════════════════════════
+  function ViewAdmins({ toast }: { toast: (m: string, t?: ToastItem['type']) => void }) {
+    const [data, setData] = useState<AdminUser[]>([])
+    const [loading, setLoading] = useState(true)
+    const [panel, setPanel] = useState<string | null>(null)
+    const [form, setForm] = useState({ email: '', password: '', nom: '', prenom: '', role: 'support' })
+    const [saving, setSaving] = useState(false)
+
+    const load = useCallback(async () => {
+      setLoading(true)
+      try {
+        const res = await fetch('/api/admin/admins')
+        if (res.ok) setData(await res.json())
+        else setData([])
+      } finally { setLoading(false) }
+    }, [])
+
+    useEffect(() => { load() }, [load])
+
+    async function createAdmin() {
+      if (!form.email || !form.password) { toast('Email et mot de passe requis', 'error'); return }
+      setSaving(true)
+      try {
+        const res = await fetch('/api/admin/admins', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(form) })
+        if (res.ok) { toast('Admin créé'); setPanel(null); setForm({ email:'', password:'', nom:'', prenom:'', role:'support' }); load() }
+        else { const d = await res.json(); toast(d.error || 'Erreur', 'error') }
+      } finally { setSaving(false) }
+    }
+
+    async function toggleActive(id: string, active: boolean) {
+      const res = await fetch(`/api/admin/admins/${id}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ is_active: !active }) })
+      if (res.ok) { toast(active ? 'Admin désactivé' : 'Admin réactivé'); load() }
+      else toast('Erreur', 'error')
+    }
+
+    async function deleteAdmin(id: string) {
+      if (!confirm('Supprimer cet admin ?')) return
+      const res = await fetch(`/api/admin/admins/${id}`, { method: 'DELETE' })
+      if (res.ok) { toast('Admin supprimé'); load() }
+      else toast('Erreur suppression', 'error')
+    }
+
+    const roleColor: Record<string, { color: string, bg: string }> = {
+      super_admin: { color: D.yellow, bg: D.yellowDim },
+      admin:       { color: D.blue,   bg: D.blueDim   },
+      support:     { color: D.green,  bg: D.greenDim  },
+      moderateur:  { color: D.purple, bg: D.purpleDim },
+    }
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: D.text, letterSpacing: '-0.5px' }}>Gestion des admins</h1>
+            <p style={{ margin: '2px 0 0', fontSize: '12px', color: D.textMuted }}>{data.length} compte(s) administrateur</p>
+          </div>
+          <button onClick={() => setPanel('create')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', backgroundColor: D.yellow, border: 'none', borderRadius: D.radiusSm, fontSize: '12px', color: '#000', fontWeight: '700', cursor: 'pointer' }}>
+            + Nouvel admin
+          </button>
+        </div>
+
+        <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Chargement...</div>
+          ) : data.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Accès super_admin requis pour lister les admins</div>
+          ) : (
+            <DataTable
+              cols={[
+                { key: 'nom',       label: 'Nom',         width: '22%' },
+                { key: 'email',     label: 'Email',       width: '25%' },
+                { key: 'role',      label: 'Rôle',        width: '15%' },
+                { key: 'statut',    label: 'Statut',      width: '12%' },
+                { key: 'derniere',  label: 'Dernière connexion', width: '16%' },
+                { key: 'actions',   label: 'Actions',     width: '10%' },
+              ]}
+              rows={data.map(a => {
+                const rc = roleColor[a.role] || { color: D.textMuted, bg: D.surface3 }
+                return {
+                  nom:      <div style={{ fontWeight: '600', color: D.text, fontSize: '12px' }}>{[a.prenom, a.nom].filter(Boolean).join(' ') || '—'}</div>,
+                  email:    <span style={{ color: D.textSub, fontSize: '12px', fontFamily: 'monospace' }}>{a.email}</span>,
+                  role:     <Badge label={a.role.replace('_', ' ')} color={rc.color} bg={rc.bg}/>,
+                  statut:   <Badge label={a.is_active ? 'Actif' : 'Inactif'} color={a.is_active ? D.green : D.red} bg={a.is_active ? D.greenDim : D.redDim}/>,
+                  derniere: <span style={{ color: D.textMuted, fontSize: '11px' }}>{a.last_login ? timeAgo(a.last_login) : 'Jamais'}</span>,
+                  actions:  (
+                    <div style={{ display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                      <button onClick={() => toggleActive(a.id, a.is_active)} style={{ padding: '4px 7px', backgroundColor: a.is_active ? D.redDim : D.greenDim, border: `1px solid ${a.is_active ? D.redBrd : D.greenBrd}`, borderRadius: '5px', color: a.is_active ? D.red : D.green, fontSize: '10px', fontWeight: '600', cursor: 'pointer' }}>
+                        {a.is_active ? 'Désact.' : 'Réact.'}
+                      </button>
+                      <button onClick={() => deleteAdmin(a.id)} style={{ padding: '4px 6px', backgroundColor: D.surface3, border: `1px solid ${D.border}`, borderRadius: '5px', color: D.textMuted, fontSize: '11px', cursor: 'pointer' }}>
+                        {Ic.X(D.textMuted)}
+                      </button>
+                    </div>
+                  ),
+                }
+              })}
+            />
+          )}
+        </div>
+
+        {/* Panel création admin */}
+        <SlidePanel open={panel === 'create'} onClose={() => setPanel(null)} title="Créer un compte admin" width="460px">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ padding: '12px 14px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: D.radiusSm }}>
+              <p style={{ margin: 0, fontSize: '12px', color: D.red, fontWeight: '600' }}>Accès super_admin requis. Ce formulaire crée un compte avec accès complet au dashboard.</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '5px', textTransform: 'uppercase' }}>Prénom</label>
+                <input value={form.prenom} onChange={e => setForm(f => ({...f, prenom: e.target.value}))} style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}/>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '5px', textTransform: 'uppercase' }}>Nom</label>
+                <input value={form.nom} onChange={e => setForm(f => ({...f, nom: e.target.value}))} style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}/>
+              </div>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '5px', textTransform: 'uppercase' }}>Email *</label>
+              <input type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} placeholder="admin@yelen224.com" style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}/>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '5px', textTransform: 'uppercase' }}>Mot de passe *</label>
+              <input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))} placeholder="Minimum 8 caractères" style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}/>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: D.textMuted, marginBottom: '5px', textTransform: 'uppercase' }}>Rôle</label>
+              <select value={form.role} onChange={e => setForm(f => ({...f, role: e.target.value}))} style={{ width: '100%', padding: '9px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, outline: 'none', boxSizing: 'border-box' }}>
+                <option value="support">Support</option>
+                <option value="moderateur">Modérateur</option>
+                <option value="admin">Admin</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', paddingTop: '4px' }}>
+              <button onClick={createAdmin} disabled={saving} style={{ flex: 1, padding: '11px', backgroundColor: D.yellow, border: 'none', borderRadius: D.radiusSm, color: '#000', fontSize: '13px', fontWeight: '700', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+                {saving ? 'Création...' : 'Créer le compte'}
+              </button>
+              <button onClick={() => setPanel(null)} style={{ padding: '11px 16px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, fontSize: '13px', cursor: 'pointer' }}>Annuler</button>
+            </div>
+          </div>
+        </SlidePanel>
+      </div>
+    )
+  }
+
   // ═══════════════════════════════════════════════════════
   // HELPER EXPORT (accessible globalement dans ce fichier)
   // ═══════════════════════════════════════════════════════
@@ -1603,8 +2139,8 @@ export default function AdminOverview() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
                         {institutions.map(inst => (
                           <div key={inst.id} style={{ padding: '10px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm }}>
-                            <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '600', color: D.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.nom}</p>
-                            <p style={{ margin: '0 0 8px', fontSize: '10px', color: D.textMuted }}>{inst.secteur || '—'} · {inst.ville || '—'} · {timeAgo(inst.created_at)}</p>
+                            <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '600', color: D.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.name}</p>
+                            <p style={{ margin: '0 0 8px', fontSize: '10px', color: D.textMuted }}>{inst.category || '—'} · {inst.ville || '—'} · {timeAgo(inst.created_at)}</p>
                             <div style={{ display: 'flex', gap: '5px' }}>
                               <button onClick={() => validerInst(inst.id)} disabled={actionLoading === inst.id + 'v'} style={{ flex: 1, padding: '5px 0', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', fontSize: '11px', fontWeight: '600', color: D.green, cursor: 'pointer' }}>
                                 {actionLoading === inst.id + 'v' ? '...' : 'Valider'}
@@ -1738,37 +2274,16 @@ export default function AdminOverview() {
             {view === 'moderation'   && <ViewModeration toast={toast}/>}
             {view === 'analytiques'  && <ViewAnalytiques kpis={kpis}/>}
             {view === 'logs'         && <ViewLogs/>}
-            {view === 'paiements'    && (
-              <div>
-                <h1 style={{ margin: '0 0 20px', fontSize: '20px', fontWeight: '700', color: D.text }}>Paiements</h1>
-                <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted, backgroundColor: D.surface, borderRadius: D.radius, border: `1px solid ${D.border}` }}>
-                  Section paiements — à construire avec la table `paiements`
-                </div>
-              </div>
-            )}
-            {view === 'annonces' && (
-              <div>
-                <h1 style={{ margin: '0 0 20px', fontSize: '20px', fontWeight: '700', color: D.text }}>Annonces</h1>
-                <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted, backgroundColor: D.surface, borderRadius: D.radius, border: `1px solid ${D.border}` }}>
-                  Gestion des annonces — à construire avec la table `annonces`
-                </div>
-              </div>
-            )}
-            {view === 'admins' && (
-              <div>
-                <h1 style={{ margin: '0 0 20px', fontSize: '20px', fontWeight: '700', color: D.text }}>Gestion admins</h1>
-                <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted, backgroundColor: D.surface, borderRadius: D.radius, border: `1px solid ${D.border}` }}>
-                  Gestion des comptes admin — à construire
-                </div>
-              </div>
-            )}
+            {view === 'paiements'    && <ViewPaiements toast={toast}/>}
+            {view === 'annonces'     && <ViewAnnonces toast={toast}/>}
+            {view === 'admins'       && <ViewAdmins toast={toast}/>}
           </main>
         </div>
   
         {/* ═══ PANELS SLIDES ═══ */}
   
         {/* Refus institution */}
-        <SlidePanel open={activePanel === 'refus'} onClose={() => setActivePanel(null)} title={`Refuser — ${selectedInst?.nom || ''}`}>
+        <SlidePanel open={activePanel === 'refus'} onClose={() => setActivePanel(null)} title={`Refuser — ${selectedInst?.name || ''}`}>
           <p style={{ fontSize: '13px', color: D.textSub, marginBottom: '14px' }}>L'institution sera notifiée avec ce motif par la plateforme.</p>
           <textarea value={refusMotif} onChange={e => setRefusMotif(e.target.value)} placeholder="Motif de refus détaillé..." rows={5}
             style={{ width: '100%', padding: '10px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, resize: 'vertical', outline: 'none', fontFamily: D.font, boxSizing: 'border-box', marginBottom: '12px' }}
@@ -1782,21 +2297,39 @@ export default function AdminOverview() {
         </SlidePanel>
   
         {/* Détail institution */}
-        <SlidePanel open={activePanel === 'inst_detail'} onClose={() => setActivePanel(null)} title={selectedInst?.nom || 'Détail institution'}>
+        <SlidePanel open={activePanel === 'inst_detail'} onClose={() => setActivePanel(null)} title={selectedInst?.name || 'Détail institution'} width="520px">
           {selectedInst && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ backgroundColor: D.surface2, borderRadius: D.radiusSm, border: `1px solid ${D.border}`, overflow: 'hidden' }}>
-                {[['Nom', selectedInst.nom], ['Secteur', selectedInst.secteur || '—'], ['Ville', selectedInst.ville || '—'], ['Statut', selectedInst.statut], ['Email', selectedInst.email || '—'], ['Téléphone', selectedInst.phone || '—'], ['Inscrite le', new Date(selectedInst.created_at).toLocaleDateString('fr-FR')]].map(([l, v], i, arr) => (
-                  <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderBottom: i < arr.length-1 ? `1px solid ${D.border}` : 'none' }}>
+                {([
+                  ['Nom', selectedInst.name],
+                  ['Catégorie', selectedInst.category || '—'],
+                  ['Ville', selectedInst.ville || '—'],
+                  ['Adresse', selectedInst.adresse || '—'],
+                  ['Email', selectedInst.email || '—'],
+                  ['Téléphone', selectedInst.phone || '—'],
+                  ['Plan', selectedInst.plan || 'gratuit'],
+                  ['Badge vérifié', selectedInst.badge_verifie ? 'Oui' : 'Non'],
+                  ['Avertissements', String(selectedInst.avertissements || 0)],
+                  ['Statut', selectedInst.statut],
+                  ['Inscrite le', new Date(selectedInst.created_at).toLocaleDateString('fr-FR')],
+                ] as [string, string][]).map(([l, v], i, arr) => (
+                  <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 14px', borderBottom: i < arr.length-1 ? `1px solid ${D.border}` : 'none' }}>
                     <span style={{ fontSize: '12px', color: D.textMuted }}>{l}</span>
-                    <span style={{ fontSize: '12px', fontWeight: '600', color: D.text }}>{v}</span>
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: l === 'Avertissements' && parseInt(v) > 0 ? D.red : D.text }}>{v}</span>
                   </div>
                 ))}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                {selectedInst.statut === 'en_attente' && <button onClick={() => validerInst(selectedInst.id)} style={{ padding: '11px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: D.radiusSm, color: D.green, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Valider l'institution</button>}
-                <button onClick={() => setActivePanel('refus')} style={{ padding: '11px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: D.radiusSm, color: D.red, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Refuser avec motif</button>
-                <button onClick={() => suspendreInst(selectedInst.id)} style={{ padding: '11px', backgroundColor: D.orangeDim, border: `1px solid ${D.orangeBrd}`, borderRadius: D.radiusSm, color: D.orange, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Suspendre le compte</button>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                {selectedInst.statut === 'en_attente' && <button onClick={() => validerInst(selectedInst.id)} style={{ padding: '9px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: D.radiusSm, color: D.green, fontSize: '12px', fontWeight: '600', cursor: 'pointer', gridColumn: '1/-1' }}>Valider l'institution</button>}
+                {selectedInst.statut === 'suspendue'
+                  ? <button onClick={async () => { const r = await fetch(`/api/admin/institutions/${selectedInst.id}/reactiver`, {method:'POST'}); if (r.ok) { toast('Réactivée'); fetchAll(true); setActivePanel(null) } }} style={{ padding: '9px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: D.radiusSm, color: D.green, fontSize: '12px', fontWeight: '600', cursor: 'pointer', gridColumn: '1/-1' }}>Réactiver le compte</button>
+                  : <button onClick={() => suspendreInst(selectedInst.id)} style={{ padding: '9px', backgroundColor: D.orangeDim, border: `1px solid ${D.orangeBrd}`, borderRadius: D.radiusSm, color: D.orange, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Suspendre</button>
+                }
+                <button onClick={() => setActivePanel('refus')} style={{ padding: '9px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: D.radiusSm, color: D.red, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Refuser</button>
+                <button onClick={async () => { const r = await fetch(`/api/admin/institutions/${selectedInst.id}/avertir`, {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); if (r.ok) { toast('Avertissement ajouté'); fetchAll(true) } }} style={{ padding: '9px', backgroundColor: D.yellowDim, border: `1px solid ${D.yellowBrd}`, borderRadius: D.radiusSm, color: D.yellow, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>+ Avertissement</button>
+                <button onClick={async () => { const nb = selectedInst.badge_verifie; const r = await fetch(`/api/admin/institutions/${selectedInst.id}/badge`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({badge_verifie:!nb})}); if (r.ok) { toast(nb ? 'Badge retiré' : 'Badge accordé'); fetchAll(true) } }} style={{ padding: '9px', backgroundColor: D.blueDim, border: `1px solid ${D.blueBrd}`, borderRadius: D.radiusSm, color: D.blue, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>{selectedInst.badge_verifie ? 'Retirer badge' : 'Accorder badge'}</button>
+                <button onClick={async () => { const p = selectedInst.plan === 'premium' ? 'gratuit' : 'premium'; const r = await fetch(`/api/admin/institutions/${selectedInst.id}/plan`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:p})}); if (r.ok) { toast(`Plan mis à ${p}`); fetchAll(true) } }} style={{ padding: '9px', backgroundColor: D.purpleDim, border: `1px solid ${D.purpleBrd}`, borderRadius: D.radiusSm, color: D.purple, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>{selectedInst.plan === 'premium' ? 'Passer gratuit' : 'Passer premium'}</button>
               </div>
             </div>
           )}
