@@ -37,43 +37,25 @@ export async function POST(
       )
     }
 
-    // Mettre à jour le statut
     const { error } = await supabaseAdmin
       .from('institutions')
-      .update({
-        statut: 'refuse',
-        refus_motif: motif.trim(),
-        refused_at: new Date().toISOString(),
-      })
+      .update({ statut: 'refuse' })
       .eq('id', id)
 
     if (error) throw error
 
-    // Récupérer l'institution pour la notif
     const { data: inst } = await supabaseAdmin
       .from('institutions')
-      .select('nom, user_id')
+      .select('name')
       .eq('id', id)
       .single()
 
-    // Notifier l'institution
-    if (inst?.user_id) {
-      await supabaseAdmin.from('notifications').insert({
-        user_id: inst.user_id,
-        titre: 'Demande refusée',
-        message: `Votre demande d'inscription pour "${inst.nom}" a été refusée. Motif : ${motif.trim()}. Vous pouvez corriger et soumettre à nouveau.`,
-        type: 'refus',
-        lu: false,
-      })
-    }
-
-    // Logger l'action
     await supabaseAdmin.from('admin_logs').insert({
       admin_id: admin.adminId as string,
       action: 'REFUSER_INSTITUTION',
       cible_table: 'institutions',
       cible_id: id,
-      details: { nom: inst?.nom, motif: motif.trim() },
+      details: { name: inst?.name, motif: motif.trim() },
     })
 
     return NextResponse.json({ success: true })

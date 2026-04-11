@@ -30,10 +30,7 @@ export async function POST(
 
     const { error } = await supabaseAdmin
       .from('signalements')
-      .update({
-        statut: 'resolu',
-        resolved_at: new Date().toISOString(),
-      })
+      .update({ statut: 'resolu' })
       .eq('id', id)
 
     if (error) throw error

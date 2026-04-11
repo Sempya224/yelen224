@@ -607,22 +607,20 @@ function GuideScalingModal({ onClose }: { onClose: () => void }) {
 // ═══════════════════════════════════════════════════════════════════════
 // TUNNEL D'ACQUISITION
 // ═══════════════════════════════════════════════════════════════════════
-function TunnelAcquisition({ rdvs, vues }: { rdvs: RDV[]; vues: number }) {
-  const impressions = Math.max(vues * 4, rdvs.length * 12, 100);
-  const visites = Math.max(vues, rdvs.length * 3, 30);
+function TunnelAcquisition({ rdvs }: { rdvs: RDV[] }) {
   const demandes = rdvs.length;
   const confirmes = rdvs.filter(r => ["confirme", "effectue", "termine", "honore"].includes(r.statut)).length;
+  const termines = rdvs.filter(r => ["effectue", "termine", "honore"].includes(r.statut)).length;
   const etapes = [
-    { label: "Impressions", value: impressions, color: T.blue, icon: "👁", desc: "Vues dans les résultats de recherche" },
-    { label: "Visites profil", value: visites, color: T.purple, icon: "📋", desc: "Citoyens qui ont consulté votre profil" },
-    { label: "Demandes RDV", value: demandes, color: T.gold, icon: "📅", desc: "Citoyens ayant fait une demande" },
-    { label: "RDV confirmés", value: confirmes, color: T.green, icon: "✅", desc: "Rendez-vous effectivement réalisés" },
+    { label: "Demandes RDV", value: demandes, color: T.gold, icon: "📅", desc: "Citoyens ayant soumis une demande de RDV", estime: false },
+    { label: "RDV confirmés", value: confirmes, color: T.green, icon: "✅", desc: "Demandes acceptées et confirmées", estime: false },
+    { label: "RDV terminés", value: termines, color: T.blue, icon: "🏁", desc: "Consultations effectivement réalisées", estime: false },
   ];
-  const maxVal = Math.max(impressions, 1);
+  const maxVal = Math.max(demandes, 1);
   return (
     <div style={{ backgroundColor: T.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${T.border}`, marginBottom: "14px" }}>
       <SectionHeader label="Tunnel d'Acquisition" accent={T.blue} />
-      <p style={{ color: T.t3, fontSize: "11px", marginBottom: "16px", lineHeight: 1.5 }}>Visualisez où vous perdez vos clients potentiels. Chaque étape est une opportunité d'optimisation.</p>
+      <p style={{ color: T.t3, fontSize: "11px", marginBottom: "16px", lineHeight: 1.5 }}>Taux de transformation de vos demandes de RDV. Données réelles issues de votre activité.</p>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         {etapes.map((e, i) => {
           const pct = (e.value / maxVal) * 100;
@@ -635,7 +633,7 @@ function TunnelAcquisition({ rdvs, vues }: { rdvs: RDV[]; vues: number }) {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
                     <span style={{ color: T.t1, fontSize: "12px", fontWeight: "700" }}>{e.label}</span>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      {i > 0 && (<span style={{ color: convRate < 30 ? T.red : convRate < 60 ? T.orange : T.green, fontSize: "10px", fontWeight: "800", backgroundColor: convRate < 30 ? T.redL : convRate < 60 ? T.orangeL : T.greenL, padding: "1px 6px", borderRadius: "8px" }}>{convRate}% de conversion</span>)}
+                      {i > 0 && (<span style={{ color: convRate < 30 ? T.red : convRate < 60 ? T.orange : T.green, fontSize: "10px", fontWeight: "800", backgroundColor: convRate < 30 ? T.redL : convRate < 60 ? T.orangeL : T.greenL, padding: "1px 6px", borderRadius: "8px" }}>{convRate}%</span>)}
                       <span style={{ color: e.color, fontSize: "14px", fontWeight: "900" }}>{e.value.toLocaleString("fr-FR")}</span>
                     </div>
                   </div>
@@ -650,6 +648,9 @@ function TunnelAcquisition({ rdvs, vues }: { rdvs: RDV[]; vues: number }) {
           );
         })}
       </div>
+      {demandes === 0 && (
+        <div style={{ textAlign: "center", color: T.t3, fontSize: "11px", marginTop: "12px" }}>Aucune demande de RDV enregistrée pour l'instant.</div>
+      )}
     </div>
   );
 }
@@ -709,43 +710,44 @@ function HeatmapActivite({ rdvs }: { rdvs: RDV[] }) {
 // CARTE GÉOGRAPHIQUE
 // ═══════════════════════════════════════════════════════════════════════
 function CarteGeographique({ rdvs }: { rdvs: RDV[] }) {
-  const communes = [
-    { nom: "Kaloum", x: 42, y: 62, rayon: 22 },
-    { nom: "Dixinn", x: 58, y: 48, rayon: 30 },
-    { nom: "Matam", x: 65, y: 38, rayon: 25 },
-    { nom: "Ratoma", x: 55, y: 28, rayon: 35 },
-    { nom: "Matoto", x: 70, y: 52, rayon: 28 },
-  ];
-  const total = rdvs.length || 50;
-  const distribution = communes.map((c, i) => ({ ...c, count: Math.round(total * [0.18, 0.26, 0.20, 0.22, 0.14][i]), pct: [18, 26, 20, 22, 14][i] }));
-  const maxCount = Math.max(...distribution.map(d => d.count), 1);
+  const total = rdvs.length;
+  const confirmes = rdvs.filter(r => ["confirme", "effectue", "termine", "honore"].includes(r.statut)).length;
+  const taux = total > 0 ? Math.round((confirmes / total) * 100) : 0;
   return (
     <div style={{ backgroundColor: T.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${T.border}`, marginBottom: "14px" }}>
       <SectionHeader label="Zone de Chalandise" accent={T.teal}/>
-      <p style={{ color: T.t3, fontSize: "11px", marginBottom: "14px" }}>Origine estimée de vos demandes — Conakry, Guinée</p>
+      <p style={{ color: T.t3, fontSize: "11px", marginBottom: "14px" }}>Conakry, Guinée — Répartition géographique de vos clients</p>
       <div style={{ backgroundColor: T.bg3, borderRadius: "14px", padding: "4px", marginBottom: "14px" }}>
         <svg viewBox="0 0 120 90" style={{ width: "100%", height: "auto", display: "block" }}>
           <rect width="120" height="90" fill="#0d1420"/>
           <path d="M15,45 Q20,30 35,25 Q50,20 65,22 Q80,20 90,28 Q100,35 95,50 Q90,65 75,72 Q60,78 45,75 Q30,72 20,62 Q12,55 15,45Z" fill="#1a2035" stroke={`${T.teal}40`} strokeWidth="0.5"/>
           <path d="M35,55 Q38,50 42,52 Q48,55 45,62 Q40,68 35,65 Q30,60 35,55Z" fill="#1e2840" stroke={`${T.blue}50`} strokeWidth="0.4"/>
-          {distribution.map((d, i) => {
-            const intensity = d.count / maxCount;
-            const r = d.rayon * (0.4 + intensity * 0.6);
-            return (
-              <g key={i}>
-                <circle cx={d.x} cy={d.y} r={r} fill={`${T.gold}${Math.round(intensity * 20 + 5).toString(16).padStart(2,"0")}`}/>
-                <circle cx={d.x} cy={d.y} r={r * 0.6} fill={`${T.orange}${Math.round(intensity * 40 + 10).toString(16).padStart(2,"0")}`}/>
-                <circle cx={d.x} cy={d.y} r={r * 0.25} fill={intensity > 0.7 ? T.red : intensity > 0.4 ? T.gold : `${T.gold}80`}/>
-                <text x={d.x} y={d.y + r + 5} textAnchor="middle" fill={T.t2} fontSize="4" fontWeight="bold">{d.nom}</text>
-                <text x={d.x} y={d.y + r + 9} textAnchor="middle" fill={T.gold} fontSize="3.5">{d.pct}%</text>
-              </g>
-            );
-          })}
+          <circle cx="60" cy="45" r={Math.min(Math.max(total * 0.6, 8), 28)} fill={`${T.gold}18`}/>
+          <circle cx="60" cy="45" r={Math.min(Math.max(confirmes * 0.6, 5), 18)} fill={`${T.green}25`}/>
+          <circle cx="60" cy="45" r="4" fill={T.gold}/>
+          <text x="60" y="52" textAnchor="middle" fill={T.gold} fontSize="4" fontWeight="bold">Conakry</text>
+          <text x="60" y="57" textAnchor="middle" fill={T.teal} fontSize="3.5">{total} RDV</text>
           <text x="5" y="8" fill={T.t3} fontSize="4" fontWeight="bold">GUINÉE · CONAKRY</text>
         </svg>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        {distribution.sort((a, b) => b.count - a.count).map((d, i) => (
+      <div style={{ backgroundColor: `${T.teal}10`, border: `1px solid ${T.teal}20`, borderRadius: "10px", padding: "10px 12px", marginBottom: "12px", display: "flex", gap: "8px", alignItems: "flex-start" }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div style={{ color: T.t3, fontSize: "10px", lineHeight: 1.5 }}>La répartition par quartier sera disponible lorsque les citoyens renseigneront leur adresse lors de l'inscription.</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+        {[
+          { label: "Total RDV", value: total, color: T.gold },
+          { label: "Confirmés", value: confirmes, color: T.green },
+          { label: "Taux", value: `${taux}%`, color: T.teal },
+        ].map(s => (
+          <div key={s.label} style={{ backgroundColor: T.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
+            <div style={{ color: s.color, fontSize: "18px", fontWeight: "900" }}>{s.value}</div>
+            <div style={{ color: T.t3, fontSize: "9px", marginTop: "2px" }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "12px" }}>
+        {[{ nom: "Conakry", pct: 100, count: total }].map((d, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{ width: "20px", height: "20px", borderRadius: "6px", background: `linear-gradient(135deg, ${i === 0 ? T.gold : i === 1 ? T.orange : T.blue}30, transparent)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <span style={{ color: i === 0 ? T.gold : i === 1 ? T.orange : T.blue, fontSize: "9px", fontWeight: "900" }}>{i + 1}</span>
@@ -1006,9 +1008,10 @@ function SupportBanner() {
 // ═══════════════════════════════════════════════════════════════════════
 // SCANNER QR
 // ═══════════════════════════════════════════════════════════════════════
-function ScannerModal({ institutionId, onClose }: { institutionId: string; onClose: () => void }) {
+function ScannerModal({ institutionId, onClose, onTermine }: { institutionId: string; onClose: () => void; onTermine?: (rdvId: string) => void }) {
   const [phase, setPhase] = useState<"scan" | "result" | "done" | "error">("scan");
   const [scanResult, setScanResult] = useState<any>(null);
+  const [storedRdvId, setStoredRdvId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [confirming, setConfirming] = useState(false);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
@@ -1021,7 +1024,11 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
           fps: 10,
           qrbox: { width: 220, height: 220 },
           rememberLastUsedCamera: true,
-          videoConstraints: { facingMode: { ideal: "environment" } },
+          videoConstraints: {
+            facingMode: "environment",
+            width: { min: 320, ideal: 1280, max: 1920 },
+            height: { min: 240, ideal: 720, max: 1080 },
+          },
         },
         false
       );
@@ -1046,6 +1053,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
     setConfirming(true);
     try {
       await fetch("/api/qr/validate", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rdv_id: scanResult.rdv.id, action, institution_id: institutionId }) });
+      setStoredRdvId(scanResult.rdv.id);
       setPhase("done");
     } catch { setErrorMsg("Erreur"); setPhase("error"); } finally { setConfirming(false); }
   }
@@ -1090,10 +1098,18 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
             <div style={{ width: "60px", height: "60px", borderRadius: "50%", backgroundColor: T.greenL, border: `2px solid ${T.green}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <div style={{ color: T.green, fontSize: "16px", fontWeight: "900", marginBottom: "20px" }}>Présence confirmée</div>
-            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-              <button onClick={() => { setPhase("scan"); setScanResult(null); }} className="tap" style={{ backgroundColor: T.bg3, border: `1px solid ${T.border}`, color: T.t1, fontWeight: "700", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", cursor: "pointer" }}>Scanner suivant</button>
-              <button onClick={onClose} className="tap" style={{ background: `linear-gradient(135deg, ${T.gold}, ${T.goldD})`, color: "#000", fontWeight: "800", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Fermer</button>
+            <div style={{ color: T.green, fontSize: "16px", fontWeight: "900", marginBottom: "4px" }}>Présence confirmée</div>
+            <div style={{ color: T.t3, fontSize: "11px", marginBottom: "20px" }}>Marquez le RDV comme terminé une fois la consultation achevée</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {onTermine && storedRdvId && (
+                <button onClick={() => { onTermine(storedRdvId); onClose(); }} className="tap" style={{ background: `linear-gradient(135deg, ${T.purple}, #7a55d0)`, color: "#fff", fontWeight: "800", fontSize: "14px", padding: "13px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+                  ✓ Marquer RDV terminé
+                </button>
+              )}
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button onClick={() => { setPhase("scan"); setScanResult(null); setStoredRdvId(null); }} className="tap" style={{ flex: 1, backgroundColor: T.bg3, border: `1px solid ${T.border}`, color: T.t1, fontWeight: "700", fontSize: "13px", padding: "12px", borderRadius: "12px", cursor: "pointer" }}>Scanner suivant</button>
+                <button onClick={onClose} className="tap" style={{ flex: 1, background: `linear-gradient(135deg, ${T.gold}, ${T.goldD})`, color: "#000", fontWeight: "800", fontSize: "13px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Fermer</button>
+              </div>
             </div>
           </div>
         )}
@@ -1147,10 +1163,16 @@ export default function InstitutionDashboard() {
   const [rdvFilter, setRdvFilter]           = useState("tous");
   const [rdvSearch, setRdvSearch]           = useState("");
   const [analyseTab, setAnalyseTab]         = useState<"tunnel" | "heatmap" | "geo" | "crm">("tunnel");
-  const [vuesEstimees]                      = useState(150);
   const [bannerRdv, setBannerRdv]           = useState<RDV | null>(null);
   const [showBannerDetail, setShowBannerDetail] = useState(false);
-  const [darkMode, setDarkMode]             = useState(true);
+  const [dismissRetard, setDismissRetard]   = useState(false);
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const s = localStorage.getItem('yelen224_dark_mode');
+      return s !== null ? s === 'true' : true;
+    }
+    return true;
+  });
   const lastRdvCountRef                     = useRef(0);
 
   function showToast(msg: string, color = T.green) { setToast({ msg, color }); }
@@ -1180,9 +1202,19 @@ export default function InstitutionDashboard() {
     } catch { showToast("Erreur", T.red); } finally { setActionLoading(null); }
   }
 
+  async function handleTermine(rdvId: string) {
+    setActionLoading(rdvId);
+    try {
+      await supabase.from("rdv").update({ statut: "termine" }).eq("id", rdvId).eq("institution_id", instId);
+      setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, statut: "termine" } : r));
+      setSelectedRDV(null);
+      showToast("RDV marqué comme terminé", T.purple);
+    } catch { showToast("Erreur", T.red); } finally { setActionLoading(null); }
+  }
+
   async function saveClientNote(clientId: string, note: string) {
     try {
-      await supabase.from("client_notes").upsert({ institution_id: instId, citoyen_id: clientId, note }, { onConflict: "institution_id,citoyen_id" });
+      localStorage.setItem(`yelen224_note_${instId}_${clientId}`, note);
       setClients(prev => prev.map(c => c.id === clientId ? { ...c, note_privee: note } : c));
       showToast("Note sauvegardée", T.purple);
     } catch { showToast("Erreur sauvegarde", T.red); }
@@ -1231,12 +1263,13 @@ export default function InstitutionDashboard() {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-        const { data: notes } = await supabase
-          .from("client_notes")
-          .select("citoyen_id,note")
-          .eq("institution_id", instId);
         const notesMap: Record<string, string> = {};
-        (notes ?? []).forEach((n: any) => { notesMap[n.citoyen_id] = n.note; });
+        rdvRaw.forEach((r: any) => {
+          if (r.citoyen_id && !notesMap[r.citoyen_id]) {
+            const saved = localStorage.getItem(`yelen224_note_${instId}_${r.citoyen_id}`);
+            if (saved) notesMap[r.citoyen_id] = saved;
+          }
+        });
 
         const clientMap: Record<string, Client> = {};
         rdvList.forEach(r => {
@@ -1397,6 +1430,7 @@ export default function InstitutionDashboard() {
   }, [instId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { localStorage.setItem('yelen224_dark_mode', String(darkMode)); }, [darkMode]);
 
   // ── Realtime ──
   useEffect(() => {
@@ -1423,6 +1457,12 @@ export default function InstitutionDashboard() {
   }, [instId, loadData]);
 
   const rdvsPending  = rdvs.filter(r => r.statut === "en_attente");
+  const rdvsEnRetard = rdvs.filter(r => {
+    if (r.statut !== "confirme" || !r.date_rdv || !r.heure_rdv) return false;
+    const [hh, mm] = r.heure_rdv.split(":").map(Number);
+    const rdvTime = new Date(`${r.date_rdv}T${String(hh).padStart(2,"0")}:${String(mm || 0).padStart(2,"0")}:00`);
+    return rdvTime < new Date();
+  });
   const notifCount   = stats.avis_non_lus + stats.pending;
   const filteredRdvs = rdvs
     .filter(r => rdvFilter === "tous" || r.statut === rdvFilter)
@@ -1458,7 +1498,7 @@ export default function InstitutionDashboard() {
 
       {/* ── MODALS ── */}
       {showGuide && <GuideScalingModal onClose={() => setShowGuide(false)}/>}
-      {showScanner && instId && <ScannerModal institutionId={instId} onClose={() => setShowScanner(false)}/>}
+      {showScanner && instId && <ScannerModal institutionId={instId} onClose={() => { setShowScanner(false); loadData(); }} onTermine={handleTermine}/>}
 
       {showBannerDetail && bannerRdv && (
         <RdvDetailFullscreen
@@ -1518,6 +1558,13 @@ export default function InstitutionDashboard() {
                   {actionLoading === selectedRDV.id ? "..." : "Accepter"}
                 </button>
               </div>
+            ) : selectedRDV.statut === "confirme" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <button onClick={() => handleTermine(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ background: `linear-gradient(135deg, ${T.purple}, #7a55d0)`, color: "#fff", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>
+                  {actionLoading === selectedRDV.id ? "..." : "✓ Marquer terminé"}
+                </button>
+                <button onClick={() => setSelectedRDV(null)} className="tap" style={{ backgroundColor: T.bg3, color: T.t2, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", border: `1px solid ${T.border}`, cursor: "pointer" }}>Fermer</button>
+              </div>
             ) : (
               <button onClick={() => setSelectedRDV(null)} className="tap" style={{ width: "100%", backgroundColor: T.bg3, color: T.t2, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", border: `1px solid ${T.border}`, cursor: "pointer" }}>Fermer</button>
             )}
@@ -1529,6 +1576,30 @@ export default function InstitutionDashboard() {
 
       {bannerRdv && !showBannerDetail && (
         <NouveauRdvBanner rdv={bannerRdv} onClose={() => setBannerRdv(null)} onOpen={() => setShowBannerDetail(true)}/>
+      )}
+
+      {/* Bandeau RDV en retard */}
+      {rdvsEnRetard.length > 0 && !dismissRetard && (
+        <div style={{ backgroundColor: `${T.purple}18`, borderBottom: `1px solid ${T.purple}35`, padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", animation: "slideDown 0.3s ease" }}>
+          <div style={{ position: "relative", flexShrink: 0, width: "8px", height: "8px" }}>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: T.purple }}/>
+            <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: T.purple, animation: "ping 1.5s ease-out infinite" }}/>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: T.purple, fontSize: "11px", fontWeight: "800" }}>
+              {rdvsEnRetard.length === 1 ? "1 RDV confirmé a dépassé son heure" : `${rdvsEnRetard.length} RDV confirmés ont dépassé leur heure`} — Pensez à les clôturer
+            </div>
+            <div style={{ color: T.t3, fontSize: "10px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {rdvsEnRetard.slice(0, 3).map(r => `${r.citoyen_nom} (${r.heure_rdv})`).join(" · ")}{rdvsEnRetard.length > 3 ? ` +${rdvsEnRetard.length - 3}` : ""}
+            </div>
+          </div>
+          <button onClick={() => { setTab("rdv"); setRdvFilter("confirme"); setDismissRetard(true); }} className="tap" style={{ backgroundColor: T.purple, color: "#fff", fontSize: "10px", fontWeight: "800", padding: "6px 10px", borderRadius: "8px", border: "none", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+            Voir
+          </button>
+          <button onClick={() => setDismissRetard(true)} style={{ background: "none", border: "none", cursor: "pointer", flexShrink: 0, padding: "4px" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.t3} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
       )}
 
       {/* ═══════ HEADER ═══════ */}
@@ -1744,10 +1815,10 @@ export default function InstitutionDashboard() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}>
               {[
-                { label: "Annonces",    href: `/institution/annonce`,     icon: T.orange, svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.orange} strokeWidth="1.8" strokeLinecap="round"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg> },
-                { label: "Vos services payant",   href: `institution/services-payants`,     icon: T.blue,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.blue} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
-                { label: "Signalements",href: `/institution/signalements`,  icon: T.red,    svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-                { label: "FAQ",         href: `/institution/faq`,           icon: T.teal,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+                { label: "Annonces",    href: `/institution/annonce`,          icon: T.orange, svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.orange} strokeWidth="1.8" strokeLinecap="round"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg> },
+                { label: "Mes services",href: `/institution/services-payants`, icon: T.blue,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.blue} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
+                { label: "Signalements",href: `/institution/signalements`,     icon: T.red,    svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+                { label: "FAQ",         href: `/faq`,                          icon: T.teal,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
               ].map((item, i) => (
                 <Link key={i} href={item.href} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "14px 8px", textDecoration: "none", borderRight: i < 3 ? `1px solid ${T.border}` : "none" }}>
                   <div style={{ width: "38px", height: "38px", borderRadius: "11px", backgroundColor: `${item.icon}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>{item.svg}</div>
@@ -1847,6 +1918,13 @@ export default function InstitutionDashboard() {
                         </button>
                       </div>
                     )}
+                    {r.statut === "confirme" && (
+                      <div style={{ borderTop: `1px solid ${T.border}` }}>
+                        <button onClick={() => handleTermine(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", backgroundColor: "transparent", color: T.purple, fontWeight: "800", fontSize: "12px", padding: "10px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.purple} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>Marquer terminé
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1897,7 +1975,7 @@ export default function InstitutionDashboard() {
                 </div>
               ))}
             </div>
-            {analyseTab === "tunnel"  && <TunnelAcquisition rdvs={rdvs} vues={vuesEstimees}/>}
+            {analyseTab === "tunnel"  && <TunnelAcquisition rdvs={rdvs}/>}
             {analyseTab === "heatmap" && <HeatmapActivite rdvs={rdvs}/>}
             {analyseTab === "geo"     && <CarteGeographique rdvs={rdvs}/>}
             {analyseTab === "crm"     && <MiniCRM clients={clients} onSaveNote={saveClientNote} instId={instId}/>}

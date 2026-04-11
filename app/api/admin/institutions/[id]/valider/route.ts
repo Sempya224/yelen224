@@ -28,42 +28,25 @@ export async function POST(
     const admin = await verifyToken(request)
     const { id } = await params
 
-    // Mettre à jour le statut
     const { error } = await supabaseAdmin
       .from('institutions')
-      .update({
-        statut: 'active',
-        validated_at: new Date().toISOString(),
-      })
+      .update({ statut: 'active' })
       .eq('id', id)
 
     if (error) throw error
 
-    // Récupérer l'institution pour la notif
     const { data: inst } = await supabaseAdmin
       .from('institutions')
-      .select('nom, user_id')
+      .select('name')
       .eq('id', id)
       .single()
 
-    // Notifier l'institution
-    if (inst?.user_id) {
-      await supabaseAdmin.from('notifications').insert({
-        user_id: inst.user_id,
-        titre: 'Compte validé',
-        message: `Félicitations ! Votre institution "${inst.nom}" a été validée par l'équipe Yelen224. Vous pouvez maintenant recevoir des rendez-vous.`,
-        type: 'validation',
-        lu: false,
-      })
-    }
-
-    // Logger l'action
     await supabaseAdmin.from('admin_logs').insert({
       admin_id: admin.adminId as string,
       action: 'VALIDER_INSTITUTION',
       cible_table: 'institutions',
       cible_id: id,
-      details: { nom: inst?.nom },
+      details: { name: inst?.name },
     })
 
     return NextResponse.json({ success: true })

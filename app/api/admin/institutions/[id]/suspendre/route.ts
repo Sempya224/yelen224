@@ -30,36 +30,23 @@ export async function POST(
 
     const { error } = await supabaseAdmin
       .from('institutions')
-      .update({
-        statut: 'suspendue',
-        suspended_at: new Date().toISOString(),
-      })
+      .update({ statut: 'suspendue' })
       .eq('id', id)
 
     if (error) throw error
 
     const { data: inst } = await supabaseAdmin
       .from('institutions')
-      .select('nom, user_id')
+      .select('name')
       .eq('id', id)
       .single()
-
-    if (inst?.user_id) {
-      await supabaseAdmin.from('notifications').insert({
-        user_id: inst.user_id,
-        titre: 'Compte suspendu',
-        message: `Votre compte "${inst.nom}" a été suspendu par l'administration Yelen224. Contactez le support pour plus d'informations.`,
-        type: 'suspension',
-        lu: false,
-      })
-    }
 
     await supabaseAdmin.from('admin_logs').insert({
       admin_id: admin.adminId as string,
       action: 'SUSPENDRE_INSTITUTION',
       cible_table: 'institutions',
       cible_id: id,
-      details: { nom: inst?.nom },
+      details: { name: inst?.name },
     })
 
     return NextResponse.json({ success: true })
