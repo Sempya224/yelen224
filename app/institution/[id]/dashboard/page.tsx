@@ -24,7 +24,7 @@
 // ✅ Bandeau progression profil + statut Yelen intégré sous le header
 // ═══════════════════════════════════════════════════════════════════════
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -95,7 +95,7 @@ type Institution = {
 type Stats = {
   today: number; week: number; month: number;
   pending: number; confirmed: number; done: number; cancelled: number;
-  nouveau: number;
+  nouveau: number; absents: number;
   avis_count: number; moyenne_avis: number; avis_non_lus: number;
   taux_confirmation: number; taux_annulation: number; taux_satisfaction: number;
   rdv_total: number; evolution_week: number; evolution_month: number;
@@ -150,6 +150,27 @@ const CSS = `
     padding:10px 20px!important;border-radius:10px!important;font-weight:800!important;
     font-size:14px!important;cursor:pointer!important;font-family:inherit!important;
   }
+  /* ── Layout PC ≥1024px ── */
+  @media(min-width:1024px){
+    .yelen-shell{display:flex;height:100svh;overflow:hidden}
+    .yelen-sidebar{
+      width:264px;min-width:264px;height:100svh;overflow-y:auto;
+      background:${T.bgCard};border-right:1px solid rgba(255,255,255,0.07);
+      display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:400
+    }
+    .yelen-main{margin-left:264px;flex:1;overflow-y:auto;height:100svh;display:flex;flex-direction:column}
+    .yelen-bottom-nav{display:none!important}
+    .yelen-content{flex:1;overflow-y:auto}
+    .yelen-header-inner{padding:0 32px!important}
+  }
+  @media(max-width:1023px){
+    .yelen-sidebar{display:none}
+    .yelen-shell{display:block}
+    .yelen-main{margin-left:0!important}
+  }
+  @media(min-width:1024px){
+    .yelen-main{padding-bottom:0!important}
+  }
 `;
 
 // ─── Logo Yelen Soleil-Ampoule ─────────────────────────────────────────
@@ -178,6 +199,8 @@ function stInfo(s: string) {
     case "effectue":   return { c: T.blue,   bg: T.blueL,   l: "Effectué" };
     case "termine":    return { c: T.purple, bg: T.purpleL, l: "Terminé" };
     case "honore":     return { c: T.green,  bg: T.greenL,  l: "Honoré" };
+    case "nouveau":    return { c: T.gold,   bg: `${T.gold}15`,           l: "Nouveau" };
+    case "absent":     return { c: T.red,    bg: T.redL,                  l: "Absent" };
     default:           return { c: T.t2,     bg: "rgba(153,153,179,0.1)", l: s };
   }
 }
@@ -232,6 +255,9 @@ function ProfilProgressionBandeau({ inst, instId }: { inst: Institution | null; 
   };
   const sc = statutCfg[inst.statut ?? "en_attente"] ?? statutCfg["en_attente"];
   const barColor = pct === 100 ? T.green : pct >= 60 ? T.gold : T.orange;
+
+  // Profil complet ET institution validée → bandeau inutile, laisser la place aux alertes RDV
+  if (complet && (inst.statut === "valide" || inst.statut === "active")) return null;
 
   if (complet) {
     return (
@@ -349,21 +375,19 @@ function Toast({ msg, color, onDismiss }: { msg: string; color: string; onDismis
 // ═══════════════════════════════════════════════════════════════════════
 function NouveauRdvBanner({ rdv, onClose, onOpen }: { rdv: RDV; onClose: () => void; onOpen: () => void }) {
   return (
-    <div style={{ position: "sticky", top: 0, zIndex: 210, animation: "slideDownBanner 0.4s ease" }}>
-      <div onClick={onOpen} className="tap" style={{ backgroundColor: T.gold, padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-        <div style={{ position: "relative", flexShrink: 0 }}>
-          <div style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#000" }}/>
-          <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: "#000", animation: "ping 1.2s ease-out infinite" }}/>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ color: "#000", fontSize: "12px", fontWeight: "900" }}>🆕 Nouveau RDV — {rdv.citoyen_nom}</span>
-          <span style={{ color: "rgba(0,0,0,0.6)", fontSize: "10px", marginLeft: "8px" }}>{rdv.objet || "RDV général"} · {formatDate(rdv.date_rdv, { day: "numeric", month: "short" })} {rdv.heure_rdv}</span>
-        </div>
-        <span style={{ color: "#000", fontSize: "10px", fontWeight: "800", backgroundColor: "rgba(0,0,0,0.15)", padding: "3px 8px", borderRadius: "20px", flexShrink: 0 }}>Voir →</span>
-        <button onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "rgba(0,0,0,0.15)", border: "none", borderRadius: "50%", width: "22px", height: "22px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
+    <div onClick={onOpen} className="tap" style={{ backgroundColor: T.gold, padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", animation: "slideDownBanner 0.4s ease" }}>
+      <div style={{ position: "relative", flexShrink: 0 }}>
+        <div style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#000" }}/>
+        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: "#000", animation: "ping 1.2s ease-out infinite" }}/>
       </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ color: "#000", fontSize: "12px", fontWeight: "900" }}>Nouveau RDV — {rdv.citoyen_nom}</span>
+        <span style={{ color: "rgba(0,0,0,0.6)", fontSize: "10px", marginLeft: "8px" }}>{rdv.objet || "RDV général"} · {formatDate(rdv.date_rdv, { day: "numeric", month: "short" })} {rdv.heure_rdv}</span>
+      </div>
+      <span style={{ color: "#000", fontSize: "10px", fontWeight: "800", backgroundColor: "rgba(0,0,0,0.15)", padding: "3px 8px", borderRadius: "20px", flexShrink: 0 }}>Voir →</span>
+      <button onClick={e => { e.stopPropagation(); onClose(); }} style={{ background: "rgba(0,0,0,0.15)", border: "none", borderRadius: "50%", width: "22px", height: "22px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </div>
   );
 }
@@ -1048,11 +1072,11 @@ function ScannerModal({ institutionId, onClose, onTermine }: { institutionId: st
     return () => { clearTimeout(timer); if (scannerRef.current) scannerRef.current.clear().catch(() => {}); };
   }, [institutionId]);
 
-  async function confirmer(action: "present" | "absent") {
+  async function confirmer() {
     if (!scanResult?.rdv) return;
     setConfirming(true);
     try {
-      await fetch("/api/qr/validate", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rdv_id: scanResult.rdv.id, action, institution_id: institutionId }) });
+      await fetch("/api/qr/validate", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rdv_id: scanResult.rdv.id, action: "present", institution_id: institutionId }) });
       setStoredRdvId(scanResult.rdv.id);
       setPhase("done");
     } catch { setErrorMsg("Erreur"); setPhase("error"); } finally { setConfirming(false); }
@@ -1087,9 +1111,12 @@ function ScannerModal({ institutionId, onClose, onTermine }: { institutionId: st
                 <div style={{ color: T.t3, fontSize: "11px" }}>{scanResult.rdv.objet || "RDV général"} · {formatDate(scanResult.rdv.date_rdv, { day: "numeric", month: "short" })}</div>
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <button onClick={() => confirmer("absent")} disabled={confirming} className="tap" style={{ backgroundColor: T.redL, color: T.red, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${T.red}25`, cursor: "pointer" }}>{confirming ? "..." : "Absent"}</button>
-              <button onClick={() => confirmer("present")} disabled={confirming} className="tap" style={{ background: `linear-gradient(135deg, ${T.green}, #009e76)`, color: "#fff", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>{confirming ? "..." : "Présent"}</button>
+            <div>
+              <button onClick={() => confirmer()} disabled={confirming} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${T.green}, #009e76)`, color: "#fff", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                {confirming ? "Confirmation..." : "Confirmer la présence"}
+              </button>
+              <p style={{ color: T.t3, fontSize: "10px", textAlign: "center", marginTop: "8px" }}>Pour marquer un client absent, utilisez la liste RDV.</p>
             </div>
           </div>
         )}
@@ -1143,7 +1170,7 @@ export default function InstitutionDashboard() {
   const [avis, setAvis]             = useState<AvisItem[]>([]);
   const [clients, setClients]       = useState<Client[]>([]);
   const [stats, setStats]           = useState<Stats>({
-    today: 0, week: 0, month: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, nouveau: 0,
+    today: 0, week: 0, month: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, nouveau: 0, absents: 0,
     avis_count: 0, moyenne_avis: 0, avis_non_lus: 0,
     taux_confirmation: 0, taux_annulation: 0, taux_satisfaction: 0, rdv_total: 0,
     evolution_week: 0, evolution_month: 0, peak_hour: "—", peak_day: "—",
@@ -1151,7 +1178,7 @@ export default function InstitutionDashboard() {
     ratio_refus: 0, compte_restreint: false, score_sante: 0,
   });
 
-  const [tab, setTab] = useState<"accueil" | "rdv" | "analyse" | "parametres">("accueil");
+  const [tab, setTab] = useState<"accueil" | "rdv" | "demandes" | "analyse" | "parametres">("accueil");
   const [loading, setLoading]               = useState(true);
   const [error, setError]                   = useState<string | null>(null);
   const [refreshing, setRefreshing]         = useState(false);
@@ -1177,16 +1204,39 @@ export default function InstitutionDashboard() {
 
   function showToast(msg: string, color = T.green) { setToast({ msg, color }); }
 
+  function exportCsv() {
+    const termines = rdvs.filter(r => ["effectue", "termine", "honore", "annule"].includes(r.statut));
+    if (!termines.length) { showToast("Aucun RDV à exporter", T.orange); return; }
+    const header = ["Date", "Heure", "Citoyen", "Téléphone", "Objet", "Statut", "Motif annulation", "Reçu le"];
+    const rows = termines.map(r => [
+      r.date_rdv,
+      r.heure_rdv || "",
+      r.citoyen_nom,
+      r.citoyen_phone || "",
+      r.objet || "RDV général",
+      r.statut,
+      r.motif_annulation || "",
+      r.created_at ? new Date(r.created_at).toLocaleDateString("fr-FR") : "",
+    ]);
+    const csv = [header, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `rdv_${inst?.name || instId}_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+    showToast(`${termines.length} RDV exportés`, T.green);
+  }
+
   // ── Actions RDV ──
   async function handleAccept(rdvId: string) {
     setActionLoading(rdvId);
     try {
-      await supabase.from("rdv").update({ statut: "confirme" }).eq("id", rdvId).eq("institution_id", instId);
-      setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, statut: "confirme" } : r));
+      await supabase.from("rdv").update({ statut: "en_attente" }).eq("id", rdvId).eq("institution_id", instId);
+      setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, statut: "en_attente" } : r));
       setSelectedRDV(null);
       setBannerRdv(null);
       setShowBannerDetail(false);
-      showToast("RDV accepté et confirmé", T.green);
+      showToast("RDV accepté — en attente du jour J", T.green);
     } catch { showToast("Erreur", T.red); } finally { setActionLoading(null); }
   }
 
@@ -1212,6 +1262,16 @@ export default function InstitutionDashboard() {
     } catch { showToast("Erreur", T.red); } finally { setActionLoading(null); }
   }
 
+  async function handleAbsent(rdvId: string) {
+    setActionLoading(rdvId);
+    try {
+      await supabase.from("rdv").update({ statut: "absent" }).eq("id", rdvId).eq("institution_id", instId);
+      setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, statut: "absent" } : r));
+      setSelectedRDV(null);
+      showToast("Client marqué absent", T.orange);
+    } catch { showToast("Erreur", T.red); } finally { setActionLoading(null); }
+  }
+
   async function saveClientNote(clientId: string, note: string) {
     try {
       localStorage.setItem(`yelen224_note_${instId}_${clientId}`, note);
@@ -1224,6 +1284,7 @@ export default function InstitutionDashboard() {
   const loadData = useCallback(async () => {
     if (!instId) { setError("Identifiant manquant."); setLoading(false); return; }
     try {
+      setError(null);
       setRefreshing(true);
 
       const { data: instData } = await supabase
@@ -1234,12 +1295,13 @@ export default function InstitutionDashboard() {
       if (instData) setInst(instData as Institution);
       localStorage.setItem("yelen224_institution_id", instId);
 
-      const { data: rdvRaw } = await supabase
+      const { data: rdvRaw, error: rdvErr } = await supabase
         .from("rdv")
         .select("id,objet,date_rdv,heure_rdv,statut,citoyen_id,pour_autre,nom_autre,phone_autre,presence,presence_status,conversation_terminee,motif_annulation,created_at")
         .eq("institution_id", instId)
         .order("created_at", { ascending: false })
         .limit(300);
+      if (rdvErr) console.error("[Yelen] RDV fetch error:", rdvErr.message);
 
       let rdvList: RDV[] = [];
       if (rdvRaw?.length) {
@@ -1294,7 +1356,7 @@ export default function InstitutionDashboard() {
         });
         setClients(Object.values(clientMap));
 
-        const newPending = rdvList.filter(r => r.statut === "en_attente");
+        const newPending = rdvList.filter(r => r.statut === "nouveau");
         if (newPending.length > lastRdvCountRef.current && lastRdvCountRef.current > 0) {
           setBannerRdv(newPending[0]);
         }
@@ -1359,7 +1421,8 @@ export default function InstitutionDashboard() {
       const confirmed = rdvList.filter(r => r.statut === "confirme").length;
       const done      = rdvList.filter(r => ["effectue", "termine", "honore"].includes(r.statut)).length;
       const cancelled = rdvList.filter(r => r.statut === "annule").length;
-      const nouveau   = rdvList.filter(r => r.created_at && new Date(r.created_at) >= dayAgo && r.statut === "en_attente").length;
+      const nouveau   = rdvList.filter(r => r.statut === "nouveau").length;
+      const absents   = rdvList.filter(r => r.statut === "absent").length;
       const total     = rdvList.length;
 
       const last10  = rdvList.filter(r => ["confirme", "annule", "effectue", "termine"].includes(r.statut)).slice(0, 10);
@@ -1407,7 +1470,7 @@ export default function InstitutionDashboard() {
 
       setStats({
         today: todayN, week: weekN, month: monthN,
-        pending, confirmed, done, cancelled, nouveau,
+        pending, confirmed, done, cancelled, nouveau, absents,
         avis_count: avisList.length,
         moyenne_avis: Math.round(moy * 10) / 10,
         avis_non_lus: avisList.filter(a => !a.lu).length,
@@ -1456,9 +1519,9 @@ export default function InstitutionDashboard() {
     return () => { supabase.removeChannel(ch); };
   }, [instId, loadData]);
 
-  const rdvsPending  = rdvs.filter(r => r.statut === "en_attente");
+  const rdvsPending  = rdvs.filter(r => r.statut === "nouveau");
   const rdvsEnRetard = rdvs.filter(r => {
-    if (r.statut !== "confirme" || !r.date_rdv || !r.heure_rdv) return false;
+    if (r.statut !== "en_attente" || !r.date_rdv || !r.heure_rdv) return false;
     const [hh, mm] = r.heure_rdv.split(":").map(Number);
     const rdvTime = new Date(`${r.date_rdv}T${String(hh).padStart(2,"0")}:${String(mm || 0).padStart(2,"0")}:00`);
     return rdvTime < new Date();
@@ -1492,9 +1555,92 @@ export default function InstitutionDashboard() {
     </div>
   );
 
+  // ── Sidebar PC ──────────────────────────────────────────────────
+  const navItems: { key: typeof tab; label: string; icon: React.ReactNode }[] = [
+    { key: "accueil",    label: "Vue d'ensemble",  icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
+    { key: "demandes",   label: "Nouvelles demandes", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg> },
+    { key: "rdv",        label: "Rendez-vous",     icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+    { key: "analyse",    label: "Analyse",         icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+    { key: "parametres", label: "Paramètres",      icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
+  ];
+
   return (
-    <div style={{ minHeight: "100svh", backgroundColor: T.bg, fontFamily: "-apple-system,'SF Pro Display','Helvetica Neue',sans-serif", color: T.t1, paddingBottom: "80px" }}>
+    <div className="yelen-shell" style={{ minHeight: "100svh", backgroundColor: T.bg, fontFamily: "-apple-system,'SF Pro Display','Helvetica Neue',sans-serif", color: T.t1 }}>
       <style>{CSS}</style>
+
+      {/* ── SIDEBAR PC (≥1024px) ── */}
+      <aside className="yelen-sidebar">
+        {/* Logo + titre */}
+        <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+            <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `linear-gradient(135deg, ${T.gold}, ${T.goldD})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <YelenLogo size={22} color="#000" />
+            </div>
+            <div>
+              <div style={{ color: T.gold, fontSize: "13px", fontWeight: "900", letterSpacing: "0.5px" }}>YELEN224</div>
+              <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", letterSpacing: "0.5px" }}>PRO DASHBOARD</div>
+            </div>
+          </div>
+          {inst && (
+            <div style={{ backgroundColor: T.bg3, borderRadius: "12px", padding: "10px 12px", display: "flex", alignItems: "center", gap: "10px" }}>
+              {inst.logo ? (
+                <img src={inst.logo} alt="" style={{ width: "32px", height: "32px", borderRadius: "8px", objectFit: "cover", flexShrink: 0 }}/>
+              ) : (
+                <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: `linear-gradient(135deg, ${T.gold}30, ${T.goldD}15)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ color: T.gold, fontSize: "11px", fontWeight: "900" }}>{inst.name.slice(0,2).toUpperCase()}</span>
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst.name}</div>
+                <div style={{ color: T.t3, fontSize: "10px" }}>{inst.category}</div>
+              </div>
+              {/* Indicateur statut en ligne */}
+              <div style={{ display: "flex", alignItems: "center", gap: "4px", backgroundColor: "rgba(0,200,150,0.1)", border: "1px solid rgba(0,200,150,0.2)", borderRadius: "20px", padding: "3px 7px", flexShrink: 0 }}>
+                <div style={{ position: "relative", width: "6px", height: "6px" }}>
+                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: T.green }}/>
+                  <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: T.green, animation: "ping 2s ease-out infinite" }}/>
+                </div>
+                <span style={{ color: T.green, fontSize: "9px", fontWeight: "800" }}>En ligne</span>
+              </div>
+            </div>
+          )}
+        </div>
+        {/* Navigation principale */}
+        <nav style={{ flex: 1, padding: "12px 8px", display: "flex", flexDirection: "column", gap: "2px" }}>
+          {navItems.map(item => {
+            const active = tab === item.key;
+            const badge = item.key === "demandes" ? rdvsPending.length : item.key === "rdv" ? 0 : 0;
+            return (
+              <button key={item.key} onClick={() => setTab(item.key)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "12px", background: active ? `linear-gradient(135deg, ${T.gold}15, ${T.gold}08)` : "transparent", border: `1px solid ${active ? T.gold + "30" : "transparent"}`, color: active ? T.gold : T.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", position: "relative" }}>
+                <span style={{ color: active ? T.gold : T.t3, flexShrink: 0 }}>{item.icon}</span>
+                <span style={{ flex: 1 }}>{item.label}</span>
+                {badge > 0 && (
+                  <span style={{ backgroundColor: T.gold, color: "#000", fontSize: "9px", fontWeight: "900", borderRadius: "10px", minWidth: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{badge}</span>
+                )}
+                {active && <div style={{ position: "absolute", left: 0, top: "20%", bottom: "20%", width: "3px", background: T.gold, borderRadius: "0 2px 2px 0" }}/>}
+              </button>
+            );
+          })}
+        </nav>
+        {/* Raccourcis bas de sidebar */}
+        <div style={{ padding: "12px 8px", borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: "4px" }}>
+          <button onClick={() => setShowScanner(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", borderRadius: "10px", background: `linear-gradient(135deg, ${T.gold}15, transparent)`, border: `1px solid ${T.gold}25`, color: T.gold, fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="2" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+            Scanner QR
+          </button>
+          <a href={`/institution/disponibilites`} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", borderRadius: "10px", backgroundColor: "transparent", border: `1px solid ${T.border}`, color: T.t2, fontSize: "12px", fontWeight: "600", textDecoration: "none" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Disponibilités
+          </a>
+          <button onClick={() => setShowGuide(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", borderRadius: "10px", background: "transparent", border: `1px solid ${T.border}`, color: T.t2, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Guide Yelen
+          </button>
+        </div>
+      </aside>
+
+      {/* ── CONTENU PRINCIPAL ── */}
+      <div className="yelen-main" style={{ paddingBottom: "80px" }}>
 
       {/* ── MODALS ── */}
       {showGuide && <GuideScalingModal onClose={() => setShowGuide(false)}/>}
@@ -1549,7 +1695,7 @@ export default function InstitutionDashboard() {
                 </div>
               </div>
             )}
-            {selectedRDV.statut === "en_attente" ? (
+            {selectedRDV.statut === "nouveau" ? (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <button onClick={() => handleRefuse(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: T.redL, color: T.red, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${T.red}25`, cursor: "pointer" }}>
                   {actionLoading === selectedRDV.id ? "..." : "Refuser"}
@@ -1558,7 +1704,27 @@ export default function InstitutionDashboard() {
                   {actionLoading === selectedRDV.id ? "..." : "Accepter"}
                 </button>
               </div>
-            ) : selectedRDV.statut === "confirme" ? (
+            ) : selectedRDV.statut === "en_attente" ? (() => {
+              const isRetard = (() => {
+                if (!selectedRDV.date_rdv || !selectedRDV.heure_rdv) return false;
+                const [hh, mm] = selectedRDV.heure_rdv.split(":").map(Number);
+                return new Date(`${selectedRDV.date_rdv}T${String(hh).padStart(2,"0")}:${String(mm||0).padStart(2,"0")}:00`) < new Date();
+              })();
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <button onClick={() => handleTermine(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ background: `linear-gradient(135deg, ${T.purple}, #7a55d0)`, color: "#fff", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>
+                    {actionLoading === selectedRDV.id ? "..." : "✓ Marquer terminé"}
+                  </button>
+                  {isRetard && (
+                    <button onClick={() => handleAbsent(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: T.orangeL, color: T.orange, fontWeight: "800", fontSize: "14px", padding: "13px", borderRadius: "14px", border: `1px solid ${T.orange}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.orange} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      {actionLoading === selectedRDV.id ? "..." : "Client absent"}
+                    </button>
+                  )}
+                  <button onClick={() => setSelectedRDV(null)} className="tap" style={{ backgroundColor: T.bg3, color: T.t2, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", border: `1px solid ${T.border}`, cursor: "pointer" }}>Fermer</button>
+                </div>
+              );
+            })() : selectedRDV.statut === "confirme" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 <button onClick={() => handleTermine(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ background: `linear-gradient(135deg, ${T.purple}, #7a55d0)`, color: "#fff", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>
                   {actionLoading === selectedRDV.id ? "..." : "✓ Marquer terminé"}
@@ -1573,34 +1739,6 @@ export default function InstitutionDashboard() {
       )}
 
       {toast && <Toast msg={toast.msg} color={toast.color} onDismiss={() => setToast(null)}/>}
-
-      {bannerRdv && !showBannerDetail && (
-        <NouveauRdvBanner rdv={bannerRdv} onClose={() => setBannerRdv(null)} onOpen={() => setShowBannerDetail(true)}/>
-      )}
-
-      {/* Bandeau RDV en retard */}
-      {rdvsEnRetard.length > 0 && !dismissRetard && (
-        <div style={{ backgroundColor: `${T.purple}18`, borderBottom: `1px solid ${T.purple}35`, padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", animation: "slideDown 0.3s ease" }}>
-          <div style={{ position: "relative", flexShrink: 0, width: "8px", height: "8px" }}>
-            <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: T.purple }}/>
-            <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: T.purple, animation: "ping 1.5s ease-out infinite" }}/>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: T.purple, fontSize: "11px", fontWeight: "800" }}>
-              {rdvsEnRetard.length === 1 ? "1 RDV confirmé a dépassé son heure" : `${rdvsEnRetard.length} RDV confirmés ont dépassé leur heure`} — Pensez à les clôturer
-            </div>
-            <div style={{ color: T.t3, fontSize: "10px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {rdvsEnRetard.slice(0, 3).map(r => `${r.citoyen_nom} (${r.heure_rdv})`).join(" · ")}{rdvsEnRetard.length > 3 ? ` +${rdvsEnRetard.length - 3}` : ""}
-            </div>
-          </div>
-          <button onClick={() => { setTab("rdv"); setRdvFilter("confirme"); setDismissRetard(true); }} className="tap" style={{ backgroundColor: T.purple, color: "#fff", fontSize: "10px", fontWeight: "800", padding: "6px 10px", borderRadius: "8px", border: "none", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
-            Voir
-          </button>
-          <button onClick={() => setDismissRetard(true)} style={{ background: "none", border: "none", cursor: "pointer", flexShrink: 0, padding: "4px" }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.t3} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-      )}
 
       {/* ═══════ HEADER ═══════ */}
       <header style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: "rgba(10,10,15,0.96)", backdropFilter: "blur(28px) saturate(200%)", borderBottom: `1px solid ${T.border}` }}>
@@ -1642,6 +1780,35 @@ export default function InstitutionDashboard() {
 
         {/* ── BANDEAU PROGRESSION + STATUT YELEN ── */}
         <ProfilProgressionBandeau inst={inst} instId={instId} />
+
+        {/* ── BANDEAU NOUVEAU RDV — se déclenche à chaque INSERT Realtime ── */}
+        {bannerRdv && !showBannerDetail && (
+          <NouveauRdvBanner rdv={bannerRdv} onClose={() => setBannerRdv(null)} onOpen={() => setShowBannerDetail(true)}/>
+        )}
+
+        {/* ── BANDEAU RDV DÉPASSÉS ── */}
+        {rdvsEnRetard.length > 0 && !dismissRetard && (
+          <div style={{ backgroundColor: `${T.purple}18`, borderBottom: `1px solid ${T.purple}35`, padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", animation: "slideDownBanner 0.3s ease" }}>
+            <div style={{ position: "relative", flexShrink: 0, width: "8px", height: "8px" }}>
+              <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: T.purple }}/>
+              <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: T.purple, animation: "ping 1.5s ease-out infinite" }}/>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: T.purple, fontSize: "11px", fontWeight: "800" }}>
+                {rdvsEnRetard.length === 1 ? "1 RDV confirmé a dépassé son heure" : `${rdvsEnRetard.length} RDV confirmés ont dépassé leur heure`} — Pensez à les clôturer
+              </div>
+              <div style={{ color: T.t3, fontSize: "10px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {rdvsEnRetard.slice(0, 3).map(r => `${r.citoyen_nom} (${r.heure_rdv})`).join(" · ")}{rdvsEnRetard.length > 3 ? ` +${rdvsEnRetard.length - 3}` : ""}
+              </div>
+            </div>
+            <button onClick={() => { setTab("rdv"); setRdvFilter("confirme"); setDismissRetard(true); }} className="tap" style={{ backgroundColor: T.purple, color: "#fff", fontSize: "10px", fontWeight: "800", padding: "6px 10px", borderRadius: "8px", border: "none", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+              Voir
+            </button>
+            <button onClick={() => setDismissRetard(true)} style={{ background: "none", border: "none", cursor: "pointer", flexShrink: 0, padding: "4px" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.t3} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        )}
       </header>
 
       {/* ═══════════════════════════════════════════════════════════
@@ -1667,18 +1834,19 @@ export default function InstitutionDashboard() {
           {/* Stats RDV */}
           <div style={{ backgroundColor: T.bgCard, borderRadius: "18px", border: `1px solid ${T.border}`, padding: "14px", marginBottom: "14px" }}>
             <div style={{ color: T.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "12px" }}>Rendez-vous</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: "6px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: "6px" }}>
               {[
-                { label: "Nouveau",  value: stats.nouveau,    color: T.gold,   bg: `${T.gold}15`,   filter: "en attente" },
-                { label: "Attente",  value: stats.pending,    color: T.orange, bg: `${T.orange}12`, filter: "en attente" },
+                { label: "Nouveau",  value: stats.nouveau,    color: T.gold,   bg: `${T.gold}15`,   filter: "nouveau" },
+                { label: "Attente",  value: stats.pending,    color: T.orange, bg: `${T.orange}12`, filter: "en_attente" },
                 { label: "Terminé",  value: stats.done,       color: T.blue,   bg: `${T.blue}12`,   filter: "effectue" },
                 { label: "Annulé",   value: stats.cancelled,  color: T.red,    bg: `${T.red}12`,    filter: "annule" },
+                { label: "Absent",   value: stats.absents,    color: T.orange, bg: `${T.orange}10`, filter: "absent" },
                 { label: "Total",    value: stats.rdv_total,  color: T.t1,     bg: T.bg3,           filter: "tous" },
               ].map(k => (
                 <div key={k.label} onClick={() => { setTab("rdv"); setRdvFilter(k.filter); }} className="tap"
-                  style={{ backgroundColor: k.bg, borderRadius: "12px", padding: "10px 6px", textAlign: "center", cursor: "pointer", border: `1px solid ${k.color}20` }}>
-                  <div style={{ color: k.color, fontSize: "20px", fontWeight: "900", lineHeight: 1 }}>{k.value}</div>
-                  <div style={{ color: k.color, fontSize: "9px", fontWeight: "700", marginTop: "3px", opacity: 0.8 }}>{k.label}</div>
+                  style={{ backgroundColor: k.bg, borderRadius: "12px", padding: "10px 4px", textAlign: "center", cursor: "pointer", border: `1px solid ${k.color}20` }}>
+                  <div style={{ color: k.color, fontSize: "18px", fontWeight: "900", lineHeight: 1 }}>{k.value}</div>
+                  <div style={{ color: k.color, fontSize: "8px", fontWeight: "700", marginTop: "3px", opacity: 0.8 }}>{k.label}</div>
                 </div>
               ))}
             </div>
@@ -1851,7 +2019,13 @@ export default function InstitutionDashboard() {
       ═══════════════════════════════════════════════════════════ */}
       {tab === "rdv" && (
         <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
-          <h1 style={{ color: T.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "14px" }}>Rendez-vous</h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+            <h1 style={{ color: T.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>Rendez-vous</h1>
+            <button onClick={exportCsv} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: T.bgCard, border: `1px solid ${T.border2}`, borderRadius: "10px", padding: "8px 12px", color: T.t2, fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export CSV
+            </button>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: "6px", marginBottom: "12px" }}>
             {[
               { label: "Nouveau", value: stats.nouveau,   color: T.gold },
@@ -1872,11 +2046,13 @@ export default function InstitutionDashboard() {
           </div>
           <div style={{ display: "flex", gap: "7px", marginBottom: "12px", overflowX: "auto" }}>
             {[
-              { key: "tous",       label: "Tous",       count: rdvs.length },
-              { key: "en_attente", label: "En attente", count: stats.pending },
-              { key: "confirme",   label: "Confirmés",  count: stats.confirmed },
-              { key: "effectue",   label: "Effectués",  count: stats.done },
-              { key: "annule",     label: "Annulés",    count: stats.cancelled },
+              { key: "tous",       label: "Tous",        count: rdvs.length },
+              { key: "nouveau",    label: "Nouveaux",    count: stats.nouveau },
+              { key: "en_attente", label: "En attente",  count: stats.pending },
+              { key: "confirme",   label: "Confirmés",   count: stats.confirmed },
+              { key: "effectue",   label: "Effectués",   count: stats.done },
+              { key: "annule",     label: "Annulés",     count: stats.cancelled },
+              { key: "absent",     label: "Absents",     count: stats.absents },
             ].map(f => {
               const active = rdvFilter === f.key;
               const sc = f.key === "tous" ? { c: T.gold, bg: `${T.gold}20` } : stInfo(f.key);
@@ -1908,7 +2084,7 @@ export default function InstitutionDashboard() {
                       </div>
                       <span style={{ backgroundColor: s.bg, color: s.c, fontSize: "9px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px", flexShrink: 0, textTransform: "uppercase" }}>{s.l}</span>
                     </div>
-                    {r.statut === "en_attente" && (
+                    {r.statut === "nouveau" && (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderTop: `1px solid ${T.border}` }}>
                         <button onClick={() => handleRefuse(r.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: "transparent", color: T.red, fontWeight: "800", fontSize: "12px", padding: "10px", border: "none", borderRight: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Refuser
@@ -1918,6 +2094,25 @@ export default function InstitutionDashboard() {
                         </button>
                       </div>
                     )}
+                    {r.statut === "en_attente" && (() => {
+                      const rdvRetard = (() => {
+                        if (!r.date_rdv || !r.heure_rdv) return false;
+                        const [hh, mm] = r.heure_rdv.split(":").map(Number);
+                        return new Date(`${r.date_rdv}T${String(hh).padStart(2,"0")}:${String(mm||0).padStart(2,"0")}:00`) < new Date();
+                      })();
+                      return (
+                        <div style={{ borderTop: `1px solid ${T.border}`, display: "grid", gridTemplateColumns: rdvRetard ? "1fr 1fr" : "1fr" }}>
+                          <button onClick={() => handleTermine(r.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: "transparent", color: T.purple, fontWeight: "800", fontSize: "12px", padding: "10px", border: "none", borderRight: rdvRetard ? `1px solid ${T.border}` : "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.purple} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>Terminé
+                          </button>
+                          {rdvRetard && (
+                            <button onClick={() => handleAbsent(r.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: "transparent", color: T.orange, fontWeight: "800", fontSize: "12px", padding: "10px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.orange} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Absent
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {r.statut === "confirme" && (
                       <div style={{ borderTop: `1px solid ${T.border}` }}>
                         <button onClick={() => handleTermine(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", backgroundColor: "transparent", color: T.purple, fontWeight: "800", fontSize: "12px", padding: "10px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
@@ -1925,6 +2120,141 @@ export default function InstitutionDashboard() {
                         </button>
                       </div>
                     )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* RDV Payants en attente de validation */}
+          {rdvFilter === "tous" && (() => {
+            const payants = rdvs.filter(r =>
+              (r.statut === "en_attente" || r.statut === "nouveau") &&
+              r.objet && r.objet.toLowerCase().includes("[payant]")
+            );
+            if (!payants.length) return null;
+            return (
+              <div style={{ marginTop: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                  <div style={{ width: "3px", height: "16px", background: T.green, borderRadius: "2px" }}/>
+                  <span style={{ color: T.t1, fontSize: "14px", fontWeight: "800" }}>RDV Payants — validation en attente</span>
+                  <span style={{ backgroundColor: T.green, color: "#000", fontSize: "9px", fontWeight: "900", padding: "2px 7px", borderRadius: "20px" }}>{payants.length}</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {payants.map(r => (
+                    <div key={r.id} style={{ backgroundColor: T.bgCard, borderRadius: "14px", border: `1px solid ${T.green}25`, borderLeft: `3px solid ${T.green}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: T.t1, fontSize: "13px", fontWeight: "700" }}>{r.citoyen_nom}</div>
+                        <div style={{ color: T.t2, fontSize: "11px" }}>{r.objet}</div>
+                        <div style={{ color: T.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(r.date_rdv, { day: "numeric", month: "short" })} · {r.heure_rdv}</div>
+                      </div>
+                      <a href="/institution/valider-rdv" style={{ backgroundColor: T.green, color: "#000", fontSize: "11px", fontWeight: "800", padding: "8px 12px", borderRadius: "10px", textDecoration: "none", flexShrink: 0, display: "flex", alignItems: "center", gap: "5px" }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        Valider paiement
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : DEMANDES — nouvelles demandes en attente
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "demandes" && (
+        <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
+            <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `linear-gradient(135deg, ${T.gold}30, ${T.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="2" strokeLinecap="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+            </div>
+            <div>
+              <h1 style={{ color: T.t1, fontSize: "20px", fontWeight: "900", letterSpacing: "-0.4px" }}>Nouvelles demandes</h1>
+              <p style={{ color: T.t3, fontSize: "10px" }}>RDV en attente de traitement — répondez vite</p>
+            </div>
+            {rdvsPending.length > 0 && (
+              <span style={{ marginLeft: "auto", backgroundColor: T.gold, color: "#000", fontSize: "12px", fontWeight: "900", padding: "4px 10px", borderRadius: "20px" }}>{rdvsPending.length}</span>
+            )}
+          </div>
+
+          {rdvsPending.length === 0 ? (
+            <div style={{ backgroundColor: T.bgCard, borderRadius: "20px", padding: "48px 24px", textAlign: "center", border: `1px solid ${T.border}` }}>
+              <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div style={{ color: T.green, fontSize: "15px", fontWeight: "800", marginBottom: "4px" }}>Tout est traité</div>
+              <div style={{ color: T.t3, fontSize: "12px" }}>Aucune nouvelle demande en attente</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {rdvsPending.map((r, idx) => {
+                const recuIl = r.created_at ? Date.now() - new Date(r.created_at).getTime() : 0;
+                const minutesEcoulees = Math.floor(recuIl / 60000);
+                const urgence = minutesEcoulees < 15 ? T.red : minutesEcoulees < 60 ? T.orange : T.gold;
+                return (
+                  <div key={r.id} style={{ backgroundColor: T.bgCard, borderRadius: "18px", border: `2px solid ${urgence}35`, borderLeft: `4px solid ${urgence}`, overflow: "hidden", animation: `fadeUp 0.2s ease ${idx * 0.06}s both` }}>
+                    {/* Badge urgence */}
+                    <div style={{ backgroundColor: `${urgence}12`, padding: "8px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ position: "relative", flexShrink: 0 }}>
+                        <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: urgence }}/>
+                        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: urgence, animation: "ping 1.5s ease-out infinite" }}/>
+                      </div>
+                      <span style={{ color: urgence, fontSize: "10px", fontWeight: "900" }}>
+                        {minutesEcoulees < 1 ? "À l'instant" : minutesEcoulees < 60 ? `Il y a ${minutesEcoulees} min` : `Il y a ${Math.floor(minutesEcoulees/60)}h`}
+                      </span>
+                      <span style={{ marginLeft: "auto", color: T.t3, fontSize: "9px" }}>Demande #{idx + 1}</span>
+                    </div>
+                    {/* Infos citoyen */}
+                    <div style={{ padding: "14px", display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "46px", height: "46px", borderRadius: "13px", background: `linear-gradient(135deg, ${urgence}30, ${urgence}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", fontWeight: "900", color: urgence, flexShrink: 0 }}>
+                        {r.citoyen_nom.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: T.t1, fontSize: "15px", fontWeight: "800" }}>{r.citoyen_nom}</div>
+                        {r.citoyen_phone && <div style={{ color: T.t3, fontSize: "11px" }}>{r.citoyen_phone}</div>}
+                        <div style={{ color: T.t2, fontSize: "11px", marginTop: "3px" }}>{r.objet || "RDV général"}</div>
+                      </div>
+                      {r.citoyen_phone && (
+                        <a href={`tel:${r.citoyen_phone}`} style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        </a>
+                      )}
+                    </div>
+                    {/* Date + heure */}
+                    <div style={{ margin: "0 14px 12px", backgroundColor: T.bg3, borderRadius: "10px", padding: "10px 12px", display: "flex", gap: "16px" }}>
+                      <div>
+                        <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Date</div>
+                        <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800" }}>{formatDate(r.date_rdv, { weekday: "short", day: "numeric", month: "short" })}</div>
+                      </div>
+                      <div style={{ width: "1px", backgroundColor: T.border }}/>
+                      <div>
+                        <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Heure</div>
+                        <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800" }}>{r.heure_rdv || "—"}</div>
+                      </div>
+                    </div>
+                    {/* Actions */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px", padding: "0 14px 14px" }}>
+                      <button
+                        onClick={() => handleRefuse(r.id)}
+                        disabled={!!actionLoading}
+                        className="tap"
+                        style={{ backgroundColor: T.redL, color: T.red, fontWeight: "800", fontSize: "13px", padding: "12px", borderRadius: "12px", border: `1px solid ${T.red}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        Refuser
+                      </button>
+                      <button
+                        onClick={() => handleAccept(r.id)}
+                        disabled={!!actionLoading}
+                        className="tap"
+                        style={{ background: `linear-gradient(135deg, ${T.green}, #009e76)`, color: "#fff", fontWeight: "900", fontSize: "14px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", boxShadow: `0 3px 14px ${T.green}30` }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        {actionLoading === r.id ? "..." : "Accepter"}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -2120,17 +2450,20 @@ export default function InstitutionDashboard() {
 
       <SupportBanner/>
 
-      {/* ═══════ BOTTOM NAVIGATION — 4 onglets ═══════ */}
-      <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200, backgroundColor: "rgba(10,10,15,0.97)", backdropFilter: "blur(32px) saturate(200%)", borderTop: `1px solid ${T.border}`, paddingBottom: "env(safe-area-inset-bottom)", display: "grid", gridTemplateColumns: "repeat(4,1fr)", boxShadow: "0 -12px 40px rgba(0,0,0,0.6)" }}>
+      {/* ═══════ BOTTOM NAVIGATION — 5 onglets (mobile) ═══════ */}
+      </div>{/* fin .yelen-main */}
+      <nav className="yelen-bottom-nav" style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200, backgroundColor: "rgba(10,10,15,0.97)", backdropFilter: "blur(32px) saturate(200%)", borderTop: `1px solid ${T.border}`, paddingBottom: "env(safe-area-inset-bottom)", display: "grid", gridTemplateColumns: "repeat(5,1fr)", boxShadow: "0 -12px 40px rgba(0,0,0,0.6)" }}>
         {([
-          { key: "accueil",    label: "Accueil",  badge: 0,
-            icon: (a: boolean) => <svg width="20" height="20" viewBox="0 0 24 24" fill={a ? T.gold : "none"} stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
-          { key: "rdv",        label: "RDV",      badge: stats.pending,
-            icon: (a: boolean) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-          { key: "analyse",    label: "Analyse",  badge: 0,
-            icon: (a: boolean) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
-          { key: "parametres", label: "Réglages", badge: 0,
-            icon: (a: boolean) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
+          { key: "accueil",    label: "Accueil",   badge: 0,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill={a ? T.gold : "none"} stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
+          { key: "demandes",   label: "Demandes",  badge: rdvsPending.length,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg> },
+          { key: "rdv",        label: "RDV",       badge: 0,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+          { key: "analyse",    label: "Analyse",   badge: 0,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+          { key: "parametres", label: "Réglages",  badge: 0,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
         ] as { key: typeof tab; label: string; badge: number; icon: (a: boolean) => any }[]).map(item => {
           const active = tab === item.key;
           return (

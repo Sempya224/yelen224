@@ -44,7 +44,7 @@ export async function createRdv(payload: {
     date_rdv: payload.dateRdv.trim(),
     heure_rdv: payload.heureRdv.trim(),
     objet,
-    statut: "en attente",
+    statut: "nouveau",
     pour_autre: payload.pourAutre,
     nom_autre: payload.pourAutre ? (payload.nomAutre ?? "").trim() : null,
     phone_autre: payload.pourAutre ? (payload.phoneAutre ?? "").trim() : null,
