@@ -29,6 +29,15 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Html5QrcodeScanner } from "html5-qrcode";
+import { YelenLogo } from "@/components/YelenLogo";
+import { T } from "./theme";
+import { DisponibilitesTab } from "./components/DisponibilitesTab";
+import { ServicesTab } from "./components/ServicesTab";
+import { CommunicationTab } from "./components/CommunicationTab";
+import { CodeQrTab } from "./components/CodeQrTab";
+import { ValiderRdvTab } from "./components/ValiderRdvTab";
+import { ProfilEntrepriseTab } from "./components/ProfilEntrepriseTab";
+import { ProfilResponsableTab } from "./components/ProfilResponsableTab";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -44,6 +53,7 @@ type RDV = {
   notes?: string;
   presence?: boolean;
   presence_status?: string;
+  presence_confirmed_at?: string;
   conversation_terminee?: boolean;
   motif_annulation?: string;
   created_at?: string;
@@ -84,12 +94,21 @@ type Institution = {
   phone?: string;
   email?: string;
   website?: string;
-  site_web?: string;
   created_at?: string;
   statut?: string;
   plan?: string;
   adresse?: string;
   quartier?: string;
+  disponibilites?: unknown;
+  secteur?: string | null;
+  statut_juridique?: string | null;
+  whatsapp?: string;
+  banniere?: string | null;
+  annee_creation?: string;
+  capacite?: string;
+  langue?: string[];
+  services?: string[];
+  horaires?: { jour: string; ouvert: boolean; debut: string; fin: string }[];
 };
 
 type Stats = {
@@ -110,19 +129,6 @@ type Stats = {
 };
 
 // ─── Design Tokens ────────────────────────────────────────────────────
-const T = {
-  gold: "#D4A017", goldL: "#F2C94C", goldD: "#A07810",
-  bg: "#0A0A0F", bgCard: "#111118", bgCard2: "#16161F", bg3: "#1C1C28",
-  border: "rgba(255,255,255,0.07)", border2: "rgba(255,255,255,0.12)",
-  t1: "#FFFFFF", t2: "#9999B3", t3: "#55556A",
-  green: "#00C896", greenL: "rgba(0,200,150,0.12)",
-  red: "#FF4757", redL: "rgba(255,71,87,0.12)",
-  blue: "#4F8EF7", blueL: "rgba(79,142,247,0.12)",
-  purple: "#9B6DFF", purpleL: "rgba(155,109,255,0.12)",
-  orange: "#FF8C42", orangeL: "rgba(255,140,66,0.12)",
-  teal: "#00D4C8", tealL: "rgba(0,212,200,0.12)",
-};
-
 // ─── CSS Global ────────────────────────────────────────────────────────
 const CSS = `
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
@@ -154,7 +160,7 @@ const CSS = `
   @media(min-width:1024px){
     .yelen-shell{display:flex;height:100svh;overflow:hidden}
     .yelen-sidebar{
-      width:264px;min-width:264px;height:100svh;overflow-y:auto;
+      width:264px;min-width:264px;height:100svh;overflow:visible;
       background:${T.bgCard};border-right:1px solid rgba(255,255,255,0.07);
       display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:400
     }
@@ -162,9 +168,16 @@ const CSS = `
     .yelen-bottom-nav{display:none!important}
     .yelen-content{flex:1;overflow-y:auto}
     .yelen-header-inner{padding:0 32px!important}
+    .yelen-account-panel{
+      position:fixed;top:0;bottom:0;width:232px;min-width:232px;height:100svh;
+      background:${T.bgCard2};border-right:1px solid rgba(255,255,255,0.07);
+      display:flex;flex-direction:column;overflow-y:auto;z-index:390;
+      animation:fadeUp 0.16s ease;
+    }
   }
   @media(max-width:1023px){
     .yelen-sidebar{display:none}
+    .yelen-account-panel{display:none!important}
     .yelen-shell{display:block}
     .yelen-main{margin-left:0!important}
   }
@@ -173,20 +186,24 @@ const CSS = `
   }
 `;
 
-// ─── Logo Yelen Soleil-Ampoule ─────────────────────────────────────────
-function YelenLogo({ size = 32, color = T.gold }: { size?: number; color?: string }) {
+// ─── Logo Yelen224 — composant partagé components/YelenLogo.tsx, importé
+// en tête de fichier. Ne plus redéfinir de variante locale ici : c'était
+// la cause de la divergence avec l'icône utilisée sur connexion/inscription.
+
+// ─── Squelette temporaire — onglets nouvellement promus dont le contenu
+// réel arrive dans un lot dédié (réorganisation dashboard, lots 2-7). À
+// retirer au fur et à mesure que chaque onglet reçoit son vrai contenu.
+function TabPlaceholder({ titre, description }: { titre: string; description: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M24 8C17.373 8 12 13.373 12 20c0 4.418 2.239 8.306 5.636 10.636V36a2 2 0 0 0 2 2h8.728a2 2 0 0 0 2-2v-5.364C33.761 28.306 36 24.418 36 20c0-6.627-5.373-12-12-12z" fill={color} opacity="0.9"/>
-      <path d="M20 38h8M21 40.5h6M22.5 43h3" stroke={color} strokeWidth="1.8" strokeLinecap="round"/>
-      <line x1="24" y1="2" x2="24" y2="5" stroke={color} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="38.5" y1="6.5" x2="36.4" y2="8.6" stroke={color} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="44" y1="20" x2="41" y2="20" stroke={color} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="38.5" y1="33.5" x2="36.4" y2="31.4" stroke={color} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="9.5" y1="6.5" x2="11.6" y2="8.6" stroke={color} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="4" y1="20" x2="7" y2="20" stroke={color} strokeWidth="2" strokeLinecap="round"/>
-      <line x1="9.5" y1="33.5" x2="11.6" y2="31.4" stroke={color} strokeWidth="2" strokeLinecap="round"/>
-    </svg>
+    <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
+      <h1 style={{ color: T.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "16px" }}>{titre}</h1>
+      <div style={{ backgroundColor: T.bgCard, borderRadius: "18px", padding: "32px 20px", border: `1px solid ${T.border}`, textAlign: "center" }}>
+        <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `${T.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        </div>
+        <p style={{ color: T.t2, fontSize: "13px", lineHeight: 1.6, maxWidth: "320px", margin: "0 auto" }}>{description}</p>
+      </div>
+    </div>
   );
 }
 
@@ -235,13 +252,24 @@ function buildNom(u: { nom: string | null; prenom: string | null; phone: string 
   const parts = [u.prenom, u.nom].filter(Boolean).join(" ");
   return parts || u.phone || "Citoyen";
 }
+// L'étape "Disponibilités" du bandeau de progression vérifiait !!inst.adresse
+// (un champ sans rapport) au lieu de l'état réel des créneaux enregistrés —
+// gère array direct et JSON string, mêmes formats que parseToRules côté
+// DisponibilitesTab.
+function hasDisponibilites(raw: unknown): boolean {
+  if (Array.isArray(raw)) return raw.length > 0;
+  if (typeof raw === "string") {
+    try { const parsed = JSON.parse(raw); return Array.isArray(parsed) && parsed.length > 0; } catch { return false; }
+  }
+  return false;
+}
 function ProfilProgressionBandeau({ inst, instId }: { inst: Institution | null; instId: string }) {
   if (!inst) return null;
 
   const steps = [
     { id: "photo",  label: "Photo",         done: !!inst.logo },
     { id: "docs",   label: "Documents",     done: !!inst.description && inst.description.length > 10 },
-    { id: "dispo",  label: "Disponibilités",done: !!inst.adresse },
+    { id: "dispo",  label: "Disponibilités",done: hasDisponibilites(inst.disponibilites) },
   ];
   const doneCnt = steps.filter(s => s.done).length;
   const pct     = Math.round((doneCnt / steps.length) * 100);
@@ -1178,7 +1206,16 @@ export default function InstitutionDashboard() {
     ratio_refus: 0, compte_restreint: false, score_sante: 0,
   });
 
-  const [tab, setTab] = useState<"accueil" | "rdv" | "demandes" | "analyse" | "parametres">("accueil");
+  // Nouvelle structure de menu (chantier réorganisation dashboard) : "demandes"
+  // fusionné dans "rdv" (Lot 2, filtre par statut "Nouveaux"). "disponibilites",
+  // "services", "communication" et "scanner" sont de nouveaux onglets de
+  // premier niveau (contenu réel ajouté lots suivants — squelette pour l'instant).
+  const [tab, setTab] = useState<"accueil" | "rdv" | "disponibilites" | "services" | "communication" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "profil-responsable">("accueil");
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+  const [navScrollable, setNavScrollable] = useState(false);
   const [loading, setLoading]               = useState(true);
   const [error, setError]                   = useState<string | null>(null);
   const [refreshing, setRefreshing]         = useState(false);
@@ -1287,17 +1324,18 @@ export default function InstitutionDashboard() {
       setError(null);
       setRefreshing(true);
 
-      const { data: instData } = await supabase
-        .from("institutions")
-        .select("id,name,category,ville,logo,badge_verifie,moyenne_avis,nb_avis,description,phone,email,website,site_web,created_at,statut,plan,adresse,quartier")
-        .eq("id", instId)
-        .maybeSingle();
+      // Route serveur (service role) — RLS anon sur institutions ne couvre
+      // que statut='validee', bloquait sinon l'institution consultant son
+      // propre dashboard tant qu'elle n'est pas validée (406 PGRST116).
+      const instRes = await fetch(`/api/institution/profile?institution_id=${instId}`);
+      const instJson = instRes.ok ? await instRes.json() : null;
+      const instData = instJson?.institution;
       if (instData) setInst(instData as Institution);
       localStorage.setItem("yelen224_institution_id", instId);
 
       const { data: rdvRaw, error: rdvErr } = await supabase
         .from("rdv")
-        .select("id,objet,date_rdv,heure_rdv,statut,citoyen_id,pour_autre,nom_autre,phone_autre,presence,presence_status,conversation_terminee,motif_annulation,created_at")
+        .select("id,objet,date_rdv,heure_rdv,statut,citoyen_id,pour_autre,nom_autre,phone_autre,presence,presence_status,presence_confirmed_at,conversation_terminee,motif_annulation,created_at")
         .eq("institution_id", instId)
         .order("created_at", { ascending: false })
         .limit(300);
@@ -1494,6 +1532,24 @@ export default function InstitutionDashboard() {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { localStorage.setItem('yelen224_dark_mode', String(darkMode)); }, [darkMode]);
+  useEffect(() => { setSidebarCollapsed(localStorage.getItem("yelen224_sidebar_collapsed") === "1"); }, []);
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem("yelen224_sidebar_collapsed", next ? "1" : "0");
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const checkNavOverflow = () => {
+      const el = navRef.current;
+      if (el) setNavScrollable(el.scrollHeight > el.clientHeight + 1);
+    };
+    checkNavOverflow();
+    window.addEventListener("resize", checkNavOverflow);
+    return () => window.removeEventListener("resize", checkNavOverflow);
+  }, [sidebarCollapsed, tab]);
 
   // ── Realtime ──
   useEffect(() => {
@@ -1555,92 +1611,176 @@ export default function InstitutionDashboard() {
     </div>
   );
 
-  // ── Sidebar PC ──────────────────────────────────────────────────
-  const navItems: { key: typeof tab; label: string; icon: React.ReactNode }[] = [
-    { key: "accueil",    label: "Vue d'ensemble",  icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
-    { key: "demandes",   label: "Nouvelles demandes", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg> },
-    { key: "rdv",        label: "Rendez-vous",     icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-    { key: "analyse",    label: "Analyse",         icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+  // ── Sidebar PC — sections avec labels de groupe (Principal / Activité /
+  // Relation citoyenne / Pilotage / Compte), pattern dashboards pro. ──
+  const navSections: { label: string; items: { key: typeof tab; label: string; icon: React.ReactNode }[] }[] = [
+    { label: "Principal", items: [
+      { key: "accueil",    label: "Vue d'ensemble",  icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
+    ]},
+    { label: "Activité", items: [
+      { key: "rdv",        label: "Rendez-vous",     icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+      { key: "disponibilites", label: "Disponibilités", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
+      { key: "services",   label: "Services",        icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
+      { key: "valider-rdv", label: "Valider un RDV", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg> },
+    ]},
+    { label: "Relation citoyenne", items: [
+      { key: "communication", label: "Communication", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+      { key: "scanner",    label: "Scanner QR",      icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg> },
+      { key: "codeqr",     label: "Mon code QR",     icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="21"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="17.5" y2="17.5"/></svg> },
+    ]},
+    { label: "Pilotage", items: [
+      { key: "analyse",    label: "Analyse",         icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+    ]},
+  ];
+
+  // Sous-menu "Compte" — pas dans le menu principal, façon Supabase : on
+  // clique sur la ligne compte (icône + nom) dans le sidebar, ça ouvre ce
+  // petit panneau entre le menu principal (réduit) et la vue courante.
+  const accountItems: { key: typeof tab; label: string; icon: React.ReactNode }[] = [
+    { key: "profil-entreprise", label: "Profil Entreprise",  icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="9" y1="8" x2="9" y2="8"/><line x1="15" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="9" y2="16"/><line x1="15" y1="16" x2="15" y2="16"/></svg> },
+    { key: "profil-responsable", label: "Profil Responsable", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
     { key: "parametres", label: "Paramètres",      icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
   ];
+  const accountTabKeys: (typeof tab)[] = accountItems.map(i => i.key);
+
+  function openAccountMenu() {
+    setAccountMenuOpen(v => {
+      const next = !v;
+      setSidebarCollapsed(next);
+      return next;
+    });
+  }
+  function closeAccountMenu() {
+    setAccountMenuOpen(false);
+    setSidebarCollapsed(false);
+  }
 
   return (
     <div className="yelen-shell" style={{ minHeight: "100svh", backgroundColor: T.bg, fontFamily: "-apple-system,'SF Pro Display','Helvetica Neue',sans-serif", color: T.t1 }}>
       <style>{CSS}</style>
 
       {/* ── SIDEBAR PC (≥1024px) ── */}
-      <aside className="yelen-sidebar">
+      <aside className="yelen-sidebar" style={{ width: sidebarCollapsed ? "76px" : "264px", minWidth: sidebarCollapsed ? "76px" : "264px", transition: "width 0.18s ease" }}>
+        {/* Bouton réduire/étendre le menu, façon Supabase */}
+        <button
+          onClick={toggleSidebarCollapsed}
+          className="tap"
+          title={sidebarCollapsed ? "Étendre le menu" : "Réduire le menu"}
+          style={{ position: "absolute", right: "-12px", top: "72px", width: "24px", height: "24px", borderRadius: "50%", backgroundColor: T.bgCard2, border: `1px solid ${T.border2}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 401, color: T.t2 }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ transform: sidebarCollapsed ? "rotate(180deg)" : "none", transition: "transform 0.18s" }}><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
         {/* Logo + titre */}
-        <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${T.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+        <div style={{ padding: sidebarCollapsed ? "20px 10px 12px" : "20px 16px 12px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", marginBottom: sidebarCollapsed ? 0 : "12px" }}>
             <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `linear-gradient(135deg, ${T.gold}, ${T.goldD})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <YelenLogo size={22} color="#000" />
             </div>
-            <div>
-              <div style={{ color: T.gold, fontSize: "13px", fontWeight: "900", letterSpacing: "0.5px" }}>YELEN224</div>
-              <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", letterSpacing: "0.5px" }}>PRO DASHBOARD</div>
-            </div>
+            {!sidebarCollapsed && (
+              <div>
+                <div style={{ color: T.gold, fontSize: "13px", fontWeight: "900", letterSpacing: "0.5px" }}>YELEN224</div>
+                <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", letterSpacing: "0.5px" }}>PRO DASHBOARD</div>
+              </div>
+            )}
           </div>
-          {inst && (
-            <div style={{ backgroundColor: T.bg3, borderRadius: "12px", padding: "10px 12px", display: "flex", alignItems: "center", gap: "10px" }}>
-              {inst.logo ? (
-                <img src={inst.logo} alt="" style={{ width: "32px", height: "32px", borderRadius: "8px", objectFit: "cover", flexShrink: 0 }}/>
+        </div>
+        {/* Navigation principale — overflowY:auto scope le scroll à ce bloc
+            seul (l'aside parent reste overflow:visible pour ne pas clipper
+            le bouton toggle en bord de sidebar). Barre jaune #F5A623 en
+            bord droit si le contenu dépasse la hauteur visible. */}
+        <nav ref={navRef} style={{ flex: 1, padding: "12px 8px", display: "flex", flexDirection: "column", gap: "2px", overflowY: "auto", position: "relative" }}>
+          {navSections.map((section, si) => (
+            <div key={section.label} style={{ marginTop: si > 0 ? "14px" : 0 }}>
+              {!sidebarCollapsed ? (
+                <div style={{ padding: "0 12px 6px", color: T.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.8px", textTransform: "uppercase" }}>
+                  {section.label}
+                </div>
               ) : (
-                <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: `linear-gradient(135deg, ${T.gold}30, ${T.goldD}15)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <span style={{ color: T.gold, fontSize: "11px", fontWeight: "900" }}>{inst.name.slice(0,2).toUpperCase()}</span>
-                </div>
+                si > 0 && <div style={{ height: "1px", background: T.border, margin: "0 8px 8px" }}/>
               )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst.name}</div>
-                <div style={{ color: T.t3, fontSize: "10px" }}>{inst.category}</div>
-              </div>
-              {/* Indicateur statut en ligne */}
-              <div style={{ display: "flex", alignItems: "center", gap: "4px", backgroundColor: "rgba(0,200,150,0.1)", border: "1px solid rgba(0,200,150,0.2)", borderRadius: "20px", padding: "3px 7px", flexShrink: 0 }}>
-                <div style={{ position: "relative", width: "6px", height: "6px" }}>
-                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: T.green }}/>
-                  <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: T.green, animation: "ping 2s ease-out infinite" }}/>
-                </div>
-                <span style={{ color: T.green, fontSize: "9px", fontWeight: "800" }}>En ligne</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                {section.items.map(item => {
+                  const active = tab === item.key;
+                  const badge = item.key === "rdv" ? rdvsPending.length : 0;
+                  return (
+                    <button key={item.key} onClick={() => { setTab(item.key); if (accountMenuOpen) closeAccountMenu(); }} className="tap" title={sidebarCollapsed ? item.label : undefined} style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "10px" : "10px 12px", borderRadius: "12px", background: active ? `linear-gradient(135deg, ${T.gold}15, ${T.gold}08)` : "transparent", border: `1px solid ${active ? T.gold + "30" : "transparent"}`, color: active ? T.gold : T.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", position: "relative", width: "100%" }}>
+                      <span style={{ color: active ? T.gold : T.t3, flexShrink: 0 }}>{item.icon}</span>
+                      {!sidebarCollapsed && <span style={{ flex: 1 }}>{item.label}</span>}
+                      {badge > 0 && (
+                        <span style={{ backgroundColor: T.gold, color: "#000", fontSize: "9px", fontWeight: "900", borderRadius: "10px", minWidth: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", position: sidebarCollapsed ? "absolute" : "static", top: sidebarCollapsed ? "2px" : undefined, right: sidebarCollapsed ? "2px" : undefined }}>{badge}</span>
+                      )}
+                      {active && <div style={{ position: "absolute", left: 0, top: "20%", bottom: "20%", width: "3px", background: T.gold, borderRadius: "0 2px 2px 0" }}/>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
+          ))}
+          {navScrollable && (
+            <div style={{ position: "absolute", top: "4px", bottom: "4px", right: "2px", width: "3px", borderRadius: "2px", backgroundColor: "#F5A623", opacity: 0.55, pointerEvents: "none" }}/>
           )}
-        </div>
-        {/* Navigation principale */}
-        <nav style={{ flex: 1, padding: "12px 8px", display: "flex", flexDirection: "column", gap: "2px" }}>
-          {navItems.map(item => {
-            const active = tab === item.key;
-            const badge = item.key === "demandes" ? rdvsPending.length : item.key === "rdv" ? 0 : 0;
-            return (
-              <button key={item.key} onClick={() => setTab(item.key)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "12px", background: active ? `linear-gradient(135deg, ${T.gold}15, ${T.gold}08)` : "transparent", border: `1px solid ${active ? T.gold + "30" : "transparent"}`, color: active ? T.gold : T.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", position: "relative" }}>
-                <span style={{ color: active ? T.gold : T.t3, flexShrink: 0 }}>{item.icon}</span>
-                <span style={{ flex: 1 }}>{item.label}</span>
-                {badge > 0 && (
-                  <span style={{ backgroundColor: T.gold, color: "#000", fontSize: "9px", fontWeight: "900", borderRadius: "10px", minWidth: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{badge}</span>
-                )}
-                {active && <div style={{ position: "absolute", left: 0, top: "20%", bottom: "20%", width: "3px", background: T.gold, borderRadius: "0 2px 2px 0" }}/>}
-              </button>
-            );
-          })}
         </nav>
-        {/* Raccourcis bas de sidebar */}
+        {/* Raccourcis bas de sidebar — Scanner QR et Disponibilités retirés :
+            déjà présents dans le menu principal ci-dessus (un seul chemin
+            d'accès par fonctionnalité). Guide Yelen conservé : distinct,
+            aucun équivalent dans le menu principal. */}
         <div style={{ padding: "12px 8px", borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: "4px" }}>
-          <button onClick={() => setShowScanner(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", borderRadius: "10px", background: `linear-gradient(135deg, ${T.gold}15, transparent)`, border: `1px solid ${T.gold}25`, color: T.gold, fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="2" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
-            Scanner QR
+          {/* Ligne "Compte" — icône + nom institution, clic ouvre le sous-menu
+              (Profil Entreprise / Profil Responsable / Paramètres) dans un
+              panneau distinct, façon Supabase. Ne fait pas partie du menu
+              principal : ne change jamais `tab` directement. */}
+          <button onClick={openAccountMenu} className="tap" title={sidebarCollapsed ? "Compte" : undefined} style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "9px" : "9px 10px", borderRadius: "10px", background: accountMenuOpen ? `${T.gold}12` : "transparent", border: `1px solid ${accountMenuOpen ? T.gold + "30" : T.border}`, color: accountMenuOpen ? T.gold : T.t2, cursor: "pointer", width: "100%" }}>
+            {inst?.logo ? (
+              <img src={inst.logo} alt="" style={{ width: "22px", height: "22px", borderRadius: "6px", objectFit: "cover", flexShrink: 0 }}/>
+            ) : (
+              <div style={{ width: "22px", height: "22px", borderRadius: "6px", background: `linear-gradient(135deg, ${T.gold}30, ${T.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <YelenLogo size={13} color={T.gold} />
+              </div>
+            )}
+            {!sidebarCollapsed && (
+              <span style={{ flex: 1, fontSize: "12px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>{inst?.name || "Compte"}</span>
+            )}
+            {!sidebarCollapsed && (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: accountMenuOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}><polyline points="9 18 15 12 9 6"/></svg>
+            )}
           </button>
-          <a href={`/institution/disponibilites`} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", borderRadius: "10px", backgroundColor: "transparent", border: `1px solid ${T.border}`, color: T.t2, fontSize: "12px", fontWeight: "600", textDecoration: "none" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Disponibilités
-          </a>
-          <button onClick={() => setShowGuide(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", borderRadius: "10px", background: "transparent", border: `1px solid ${T.border}`, color: T.t2, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+          <button onClick={() => setShowGuide(true)} className="tap" title={sidebarCollapsed ? "Guide Yelen" : undefined} style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "9px" : "9px 12px", borderRadius: "10px", background: "transparent", border: `1px solid ${T.border}`, color: T.t2, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            Guide Yelen
+            {!sidebarCollapsed && "Guide Yelen"}
           </button>
         </div>
       </aside>
 
+      {/* ── PANNEAU "COMPTE" — entre le sidebar (réduit) et la vue courante,
+          façon Supabase (Project Settings). Desktop uniquement (≥1024px,
+          voir CSS .yelen-account-panel). ── */}
+      {accountMenuOpen && (
+        <div className="yelen-account-panel" style={{ left: sidebarCollapsed ? "76px" : "264px" }}>
+          <div style={{ padding: "16px 14px 12px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: "10px" }}>
+            <button onClick={closeAccountMenu} className="tap" style={{ width: "26px", height: "26px", borderRadius: "8px", background: "transparent", border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.t2, flexShrink: 0 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: T.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst?.name || "Compte"}</div>
+              <div style={{ color: T.t3, fontSize: "10px" }}>Paramètres du compte</div>
+            </div>
+          </div>
+          <div style={{ padding: "10px 8px", display: "flex", flexDirection: "column", gap: "2px" }}>
+            {accountItems.map(item => {
+              const active = tab === item.key;
+              return (
+                <button key={item.key} onClick={() => setTab(item.key)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "12px", background: active ? `linear-gradient(135deg, ${T.gold}15, ${T.gold}08)` : "transparent", border: `1px solid ${active ? T.gold + "30" : "transparent"}`, color: active ? T.gold : T.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                  <span style={{ color: active ? T.gold : T.t3, flexShrink: 0 }}>{item.icon}</span>
+                  <span style={{ flex: 1 }}>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── CONTENU PRINCIPAL ── */}
-      <div className="yelen-main" style={{ paddingBottom: "80px" }}>
+      <div className="yelen-main" style={{ paddingBottom: "80px", marginLeft: `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 232 : 0)}px`, transition: "margin-left 0.18s ease" }}>
 
       {/* ── MODALS ── */}
       {showGuide && <GuideScalingModal onClose={() => setShowGuide(false)}/>}
@@ -1982,17 +2122,25 @@ export default function InstitutionDashboard() {
               <span style={{ color: T.t1, fontSize: "13px", fontWeight: "800" }}>Accès rapides</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}>
-              {[
-                { label: "Annonces",    href: `/institution/annonce`,          icon: T.orange, svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.orange} strokeWidth="1.8" strokeLinecap="round"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg> },
-                { label: "Mes services",href: `/institution/services-payants`, icon: T.blue,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.blue} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
-                { label: "Signalements",href: `/institution/signalements`,     icon: T.red,    svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-                { label: "FAQ",         href: `/faq`,                          icon: T.teal,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-              ].map((item, i) => (
-                <Link key={i} href={item.href} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "14px 8px", textDecoration: "none", borderRight: i < 3 ? `1px solid ${T.border}` : "none" }}>
-                  <div style={{ width: "38px", height: "38px", borderRadius: "11px", backgroundColor: `${item.icon}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>{item.svg}</div>
-                  <span style={{ color: T.t2, fontSize: "9px", fontWeight: "700" }}>{item.label}</span>
-                </Link>
-              ))}
+              {([
+                { label: "Annonces",    tab: "communication", href: undefined, icon: T.orange, svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.orange} strokeWidth="1.8" strokeLinecap="round"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg> },
+                { label: "Mes services",tab: "services",      href: undefined, icon: T.blue,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.blue} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
+                { label: "Signalements",tab: "communication", href: undefined, icon: T.red,    svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+                { label: "FAQ",         tab: undefined,       href: `/faq`,    icon: T.teal,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+              ] as { label: string; tab?: typeof tab; href?: string; icon: string; svg: React.ReactNode }[]).map((item, i) => {
+                const content = (
+                  <>
+                    <div style={{ width: "38px", height: "38px", borderRadius: "11px", backgroundColor: `${item.icon}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>{item.svg}</div>
+                    <span style={{ color: T.t2, fontSize: "9px", fontWeight: "700" }}>{item.label}</span>
+                  </>
+                );
+                const style: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "14px 8px", textDecoration: "none", borderRight: i < 3 ? `1px solid ${T.border}` : "none" };
+                return item.tab ? (
+                  <button key={i} onClick={() => setTab(item.tab!)} className="tap" style={{ ...style, background: "transparent", border: "none", borderRight: i < 3 ? `1px solid ${T.border}` : "none", cursor: "pointer" }}>{content}</button>
+                ) : (
+                  <Link key={i} href={item.href!} style={style}>{content}</Link>
+                );
+              })}
             </div>
           </div>
 
@@ -2064,8 +2212,80 @@ export default function InstitutionDashboard() {
             })}
           </div>
           {filteredRdvs.length === 0 ? (
-            <div style={{ backgroundColor: T.bgCard, borderRadius: "16px", padding: "40px 20px", textAlign: "center", border: `1px solid ${T.border}` }}>
-              <p style={{ color: T.t1, fontSize: "13px", fontWeight: "700" }}>Aucun rendez-vous trouvé</p>
+            rdvFilter === "nouveau" ? (
+              <div style={{ backgroundColor: T.bgCard, borderRadius: "20px", padding: "48px 24px", textAlign: "center", border: `1px solid ${T.border}` }}>
+                <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <div style={{ color: T.green, fontSize: "15px", fontWeight: "800", marginBottom: "4px" }}>Tout est traité</div>
+                <div style={{ color: T.t3, fontSize: "12px" }}>Aucune nouvelle demande en attente</div>
+              </div>
+            ) : (
+              <div style={{ backgroundColor: T.bgCard, borderRadius: "16px", padding: "40px 20px", textAlign: "center", border: `1px solid ${T.border}` }}>
+                <p style={{ color: T.t1, fontSize: "13px", fontWeight: "700" }}>Aucun rendez-vous trouvé</p>
+              </div>
+            )
+          ) : rdvFilter === "nouveau" ? (
+            // Vue "Nouvelles demandes" — cartes avec urgence, appel rapide,
+            // fusionnée ici depuis l'ancien onglet séparé "demandes". Affichée
+            // uniquement pour ce filtre précis, la vue compacte standard couvre
+            // tous les autres statuts juste en dessous.
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {filteredRdvs.map((r, idx) => {
+                const recuIl = r.created_at ? Date.now() - new Date(r.created_at).getTime() : 0;
+                const minutesEcoulees = Math.floor(recuIl / 60000);
+                const urgence = minutesEcoulees < 15 ? T.red : minutesEcoulees < 60 ? T.orange : T.gold;
+                return (
+                  <div key={r.id} style={{ backgroundColor: T.bgCard, borderRadius: "18px", border: `2px solid ${urgence}35`, borderLeft: `4px solid ${urgence}`, overflow: "hidden", animation: `fadeUp 0.2s ease ${idx * 0.06}s both` }}>
+                    <div style={{ backgroundColor: `${urgence}12`, padding: "8px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ position: "relative", flexShrink: 0 }}>
+                        <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: urgence }}/>
+                        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: urgence, animation: "ping 1.5s ease-out infinite" }}/>
+                      </div>
+                      <span style={{ color: urgence, fontSize: "10px", fontWeight: "900" }}>
+                        {minutesEcoulees < 1 ? "À l'instant" : minutesEcoulees < 60 ? `Il y a ${minutesEcoulees} min` : `Il y a ${Math.floor(minutesEcoulees/60)}h`}
+                      </span>
+                      <span style={{ marginLeft: "auto", color: T.t3, fontSize: "9px" }}>Demande #{idx + 1}</span>
+                    </div>
+                    <div style={{ padding: "14px", display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "46px", height: "46px", borderRadius: "13px", background: `linear-gradient(135deg, ${urgence}30, ${urgence}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", fontWeight: "900", color: urgence, flexShrink: 0 }}>
+                        {r.citoyen_nom.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: T.t1, fontSize: "15px", fontWeight: "800" }}>{r.citoyen_nom}</div>
+                        {r.citoyen_phone && <div style={{ color: T.t3, fontSize: "11px" }}>{r.citoyen_phone}</div>}
+                        <div style={{ color: T.t2, fontSize: "11px", marginTop: "3px" }}>{r.objet || "RDV général"}</div>
+                      </div>
+                      {r.citoyen_phone && (
+                        <a href={`tel:${r.citoyen_phone}`} style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        </a>
+                      )}
+                    </div>
+                    <div style={{ margin: "0 14px 12px", backgroundColor: T.bg3, borderRadius: "10px", padding: "10px 12px", display: "flex", gap: "16px" }}>
+                      <div>
+                        <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Date</div>
+                        <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800" }}>{formatDate(r.date_rdv, { weekday: "short", day: "numeric", month: "short" })}</div>
+                      </div>
+                      <div style={{ width: "1px", backgroundColor: T.border }}/>
+                      <div>
+                        <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Heure</div>
+                        <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800" }}>{r.heure_rdv || "—"}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px", padding: "0 14px 14px" }}>
+                      <button onClick={() => handleRefuse(r.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: T.redL, color: T.red, fontWeight: "800", fontSize: "13px", padding: "12px", borderRadius: "12px", border: `1px solid ${T.red}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        Refuser
+                      </button>
+                      <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ background: `linear-gradient(135deg, ${T.green}, #009e76)`, color: "#fff", fontWeight: "900", fontSize: "14px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", boxShadow: `0 3px 14px ${T.green}30` }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        {actionLoading === r.id ? "..." : "Accepter"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -2161,106 +2381,114 @@ export default function InstitutionDashboard() {
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════
-          TAB : DEMANDES — nouvelles demandes en attente
-      ═══════════════════════════════════════════════════════════ */}
-      {tab === "demandes" && (
-        <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-            <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `linear-gradient(135deg, ${T.gold}30, ${T.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="2" strokeLinecap="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
-            </div>
-            <div>
-              <h1 style={{ color: T.t1, fontSize: "20px", fontWeight: "900", letterSpacing: "-0.4px" }}>Nouvelles demandes</h1>
-              <p style={{ color: T.t3, fontSize: "10px" }}>RDV en attente de traitement — répondez vite</p>
-            </div>
-            {rdvsPending.length > 0 && (
-              <span style={{ marginLeft: "auto", backgroundColor: T.gold, color: "#000", fontSize: "12px", fontWeight: "900", padding: "4px 10px", borderRadius: "20px" }}>{rdvsPending.length}</span>
-            )}
-          </div>
+      {/* L'ancien onglet "Nouvelles demandes" est fusionné dans l'onglet
+          Rendez-vous ci-dessus (filtre "Nouveaux") — plus de bloc séparé ici. */}
 
-          {rdvsPending.length === 0 ? (
-            <div style={{ backgroundColor: T.bgCard, borderRadius: "20px", padding: "48px 24px", textAlign: "center", border: `1px solid ${T.border}` }}>
-              <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : DISPONIBILITÉS
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "disponibilites" && inst && (
+        <DisponibilitesTab disponibilites={inst.disponibilites} onSaved={loadData}/>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : SERVICES
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "services" && (
+        <ServicesTab instId={instId}/>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : COMMUNICATION — Annonces (Lot 5a réel), Signalements (Lot 5b à venir)
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "communication" && (
+        <CommunicationTab instId={instId}/>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : SCANNER QR — historique des RDV scannés (présence
+          confirmée via le bouton Scanner du header/sidebar, colonnes
+          réelles presence_status/presence_confirmed_at — confirmé par
+          la lecture de app/api/qr/validate/route.ts, pas les champs
+          qr_valide/qr_scanne_le documentés dans CLAUDE.md, obsolètes).
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "scanner" && (() => {
+        const scanned = rdvs
+          .filter(r => r.presence_status === "present")
+          .sort((a, b) => new Date(b.presence_confirmed_at || b.date_rdv).getTime() - new Date(a.presence_confirmed_at || a.date_rdv).getTime());
+        return (
+          <div style={{ padding: "16px" }}>
+            <h1 style={{ color: T.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Scanner QR</h1>
+            <p style={{ color: T.t2, fontSize: "13px", marginBottom: "16px" }}>Historique des rendez-vous dont la présence a été confirmée par scan.</p>
+
+            {scanned.length === 0 ? (
+              <div style={{ backgroundColor: T.bgCard, border: `1px dashed ${T.border2}`, borderRadius: "16px", padding: "48px 20px", textAlign: "center" }}>
+                <p style={{ color: T.t1, fontSize: "15px", fontWeight: "700", margin: "0 0 8px" }}>Aucun scan pour le moment</p>
+                <p style={{ color: T.t2, fontSize: "13px", margin: 0 }}>Utilisez le bouton Scanner (en-tête ou menu) pour confirmer la présence d'un client à son arrivée.</p>
               </div>
-              <div style={{ color: T.green, fontSize: "15px", fontWeight: "800", marginBottom: "4px" }}>Tout est traité</div>
-              <div style={{ color: T.t3, fontSize: "12px" }}>Aucune nouvelle demande en attente</div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {rdvsPending.map((r, idx) => {
-                const recuIl = r.created_at ? Date.now() - new Date(r.created_at).getTime() : 0;
-                const minutesEcoulees = Math.floor(recuIl / 60000);
-                const urgence = minutesEcoulees < 15 ? T.red : minutesEcoulees < 60 ? T.orange : T.gold;
-                return (
-                  <div key={r.id} style={{ backgroundColor: T.bgCard, borderRadius: "18px", border: `2px solid ${urgence}35`, borderLeft: `4px solid ${urgence}`, overflow: "hidden", animation: `fadeUp 0.2s ease ${idx * 0.06}s both` }}>
-                    {/* Badge urgence */}
-                    <div style={{ backgroundColor: `${urgence}12`, padding: "8px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
-                      <div style={{ position: "relative", flexShrink: 0 }}>
-                        <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: urgence }}/>
-                        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: urgence, animation: "ping 1.5s ease-out infinite" }}/>
-                      </div>
-                      <span style={{ color: urgence, fontSize: "10px", fontWeight: "900" }}>
-                        {minutesEcoulees < 1 ? "À l'instant" : minutesEcoulees < 60 ? `Il y a ${minutesEcoulees} min` : `Il y a ${Math.floor(minutesEcoulees/60)}h`}
-                      </span>
-                      <span style={{ marginLeft: "auto", color: T.t3, fontSize: "9px" }}>Demande #{idx + 1}</span>
+            ) : (
+              <div style={{ backgroundColor: T.bgCard, borderRadius: "16px", border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                {scanned.map((r, i) => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", borderBottom: i < scanned.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
-                    {/* Infos citoyen */}
-                    <div style={{ padding: "14px", display: "flex", alignItems: "center", gap: "12px" }}>
-                      <div style={{ width: "46px", height: "46px", borderRadius: "13px", background: `linear-gradient(135deg, ${urgence}30, ${urgence}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", fontWeight: "900", color: urgence, flexShrink: 0 }}>
-                        {r.citoyen_nom.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ color: T.t1, fontSize: "15px", fontWeight: "800" }}>{r.citoyen_nom}</div>
-                        {r.citoyen_phone && <div style={{ color: T.t3, fontSize: "11px" }}>{r.citoyen_phone}</div>}
-                        <div style={{ color: T.t2, fontSize: "11px", marginTop: "3px" }}>{r.objet || "RDV général"}</div>
-                      </div>
-                      {r.citoyen_phone && (
-                        <a href={`tel:${r.citoyen_phone}`} style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.green} strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                        </a>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: T.t1, fontSize: "13.5px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.citoyen_nom}</div>
+                      <div style={{ color: T.t3, fontSize: "11.5px" }}>{r.objet || "RDV général"} · {formatDate(r.date_rdv, { day: "numeric", month: "short" })} {r.heure_rdv?.slice(0, 5)}</div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <span style={{ backgroundColor: T.greenL, color: T.green, fontSize: "10.5px", fontWeight: "700", padding: "3px 9px", borderRadius: "20px" }}>Présence confirmée</span>
+                      {r.presence_confirmed_at && (
+                        <div style={{ color: T.t3, fontSize: "10px", marginTop: "4px" }}>{formatDate(r.presence_confirmed_at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
                       )}
                     </div>
-                    {/* Date + heure */}
-                    <div style={{ margin: "0 14px 12px", backgroundColor: T.bg3, borderRadius: "10px", padding: "10px 12px", display: "flex", gap: "16px" }}>
-                      <div>
-                        <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Date</div>
-                        <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800" }}>{formatDate(r.date_rdv, { weekday: "short", day: "numeric", month: "short" })}</div>
-                      </div>
-                      <div style={{ width: "1px", backgroundColor: T.border }}/>
-                      <div>
-                        <div style={{ color: T.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Heure</div>
-                        <div style={{ color: T.t1, fontSize: "12px", fontWeight: "800" }}>{r.heure_rdv || "—"}</div>
-                      </div>
-                    </div>
-                    {/* Actions */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px", padding: "0 14px 14px" }}>
-                      <button
-                        onClick={() => handleRefuse(r.id)}
-                        disabled={!!actionLoading}
-                        className="tap"
-                        style={{ backgroundColor: T.redL, color: T.red, fontWeight: "800", fontSize: "13px", padding: "12px", borderRadius: "12px", border: `1px solid ${T.red}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        Refuser
-                      </button>
-                      <button
-                        onClick={() => handleAccept(r.id)}
-                        disabled={!!actionLoading}
-                        className="tap"
-                        style={{ background: `linear-gradient(135deg, ${T.green}, #009e76)`, color: "#fff", fontWeight: "900", fontSize: "14px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", boxShadow: `0 3px 14px ${T.green}30` }}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        {actionLoading === r.id ? "..." : "Accepter"}
-                      </button>
-                    </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : MON CODE QR
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "codeqr" && inst && (
+        <CodeQrTab instId={instId} instName={inst.name}/>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : VALIDER UN RDV PAYANT
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "valider-rdv" && (
+        <ValiderRdvTab instId={instId}/>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : PROFIL ENTREPRISE — distinct de Profil Responsable, accès
+          via le petit menu "Compte" (sidebar), pas dans le menu principal.
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "profil-entreprise" && inst && (
+        <ProfilEntrepriseTab
+          instId={instId}
+          secteur={inst.secteur ?? null}
+          statutJuridique={inst.statut_juridique ?? null}
+          initial={{
+            name: inst.name || "", ville: inst.ville || "", quartier: inst.quartier || "", adresse: inst.adresse || "",
+            description: inst.description || "", phone: inst.phone || "", whatsapp: inst.whatsapp || "",
+            email: inst.email || "", website: inst.website || "", logo: inst.logo || "",
+            banniere: inst.banniere || "", annee_creation: inst.annee_creation || "", capacite: inst.capacite || "",
+            langue: inst.langue || [], services: inst.services || [], horaires: inst.horaires || [],
+          }}
+        />
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB : PROFIL RESPONSABLE — table institution_responsables séparée
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "profil-responsable" && (
+        <ProfilResponsableTab instId={instId}/>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -2450,24 +2678,32 @@ export default function InstitutionDashboard() {
 
       <SupportBanner/>
 
-      {/* ═══════ BOTTOM NAVIGATION — 5 onglets (mobile) ═══════ */}
+      {/* ═══════ BOTTOM NAVIGATION — 4 onglets + "Plus" (mobile) ═══════
+          8-9 onglets ne tiennent plus dans une barre à 5 colonnes égales.
+          On garde ici les 4 actions les plus fréquentes visibles en permanence
+          (Accueil, Rendez-vous, Disponibilités, Scanner — Scanner remonté en
+          priorité comme demandé), le reste (Services, Communication, Analyse,
+          Paramètres) est accessible via "Plus", qui ouvre une feuille. Le
+          sidebar desktop, lui, affiche déjà les 8 onglets sans contrainte
+          d'espace — pas besoin d'y répliquer ce compromis. */}
       </div>{/* fin .yelen-main */}
       <nav className="yelen-bottom-nav" style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200, backgroundColor: "rgba(10,10,15,0.97)", backdropFilter: "blur(32px) saturate(200%)", borderTop: `1px solid ${T.border}`, paddingBottom: "env(safe-area-inset-bottom)", display: "grid", gridTemplateColumns: "repeat(5,1fr)", boxShadow: "0 -12px 40px rgba(0,0,0,0.6)" }}>
         {([
           { key: "accueil",    label: "Accueil",   badge: 0,
             icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill={a ? T.gold : "none"} stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
-          { key: "demandes",   label: "Demandes",  badge: rdvsPending.length,
-            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg> },
-          { key: "rdv",        label: "RDV",       badge: 0,
+          { key: "rdv",        label: "RDV",       badge: rdvsPending.length,
             icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-          { key: "analyse",    label: "Analyse",   badge: 0,
-            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
-          { key: "parametres", label: "Réglages",  badge: 0,
-            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
-        ] as { key: typeof tab; label: string; badge: number; icon: (a: boolean) => any }[]).map(item => {
-          const active = tab === item.key;
+          { key: "disponibilites", label: "Créneaux", badge: 0,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
+          { key: "scanner",    label: "Scanner",   badge: 0,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg> },
+          { key: "__plus__",   label: "Plus",   badge: 0,
+            icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg> },
+        ] as { key: typeof tab | "__plus__"; label: string; badge: number; icon: (a: boolean) => any }[]).map(item => {
+          const overflowTabs: (typeof tab)[] = ["services", "communication", "codeqr", "valider-rdv", "analyse", "parametres", "profil-entreprise", "profil-responsable"];
+          const active = item.key === "__plus__" ? overflowTabs.includes(tab) : tab === item.key;
           return (
-            <button key={item.key} onClick={() => setTab(item.key)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", background: "none", border: "none", padding: "8px 4px 5px", cursor: "pointer", position: "relative" }}>
+            <button key={item.key} onClick={() => item.key === "__plus__" ? setMobileMoreOpen(true) : setTab(item.key as typeof tab)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", background: "none", border: "none", padding: "8px 4px 5px", cursor: "pointer", position: "relative" }}>
               {active && <div style={{ position: "absolute", top: 0, left: "22%", right: "22%", height: "2px", background: `linear-gradient(90deg, ${T.gold}, ${T.goldL})`, borderRadius: "0 0 2px 2px" }}/>}
               <span style={{ position: "relative", display: "inline-flex" }}>
                 {item.icon(active)}
@@ -2482,6 +2718,69 @@ export default function InstitutionDashboard() {
           );
         })}
       </nav>
+
+      {/* ═══════ FEUILLE "PLUS" — onglets restants (mobile uniquement) ═══════
+          Drill-down "Compte" : la ligne Compte ouvre un second écran dans la
+          même feuille (pas un menu principal séparé) listant Profil
+          Entreprise / Profil Responsable / Paramètres — équivalent mobile
+          du panneau desktop .yelen-account-panel. */}
+      {mobileMoreOpen && (
+        <div onClick={() => { setMobileMoreOpen(false); setAccountMenuOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: T.bgCard, borderRadius: "24px 24px 0 0", padding: "12px 12px 24px", width: "100%", maxWidth: "480px", border: `1px solid ${T.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
+            <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: T.t3, margin: "0 auto 16px" }}/>
+
+            {accountMenuOpen ? (
+              <>
+                <button onClick={() => setAccountMenuOpen(false)} className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", border: "none", padding: "6px 4px 14px", cursor: "pointer", color: T.t2, fontSize: "12px", fontWeight: "700" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  {inst?.name || "Compte"}
+                </button>
+                {accountItems.map(item => {
+                  const active = tab === item.key;
+                  return (
+                    <button key={item.key} onClick={() => { setTab(item.key); setMobileMoreOpen(false); setAccountMenuOpen(false); }} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: "14px", padding: "13px 12px", borderRadius: "12px", background: active ? `${T.gold}12` : "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+                      <span style={{ color: active ? T.gold : T.t2, display: "flex" }}>{item.icon}</span>
+                      <span style={{ color: active ? T.gold : T.t1, fontSize: "14px", fontWeight: active ? "800" : "600", flex: 1 }}>{item.label}</span>
+                      {active && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                    </button>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                {([
+                  { key: "services",       label: "Services",        icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
+                  { key: "communication",  label: "Communication",   icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+                  { key: "codeqr",         label: "Mon code QR",     icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="21"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="17.5" y2="17.5"/></svg> },
+                  { key: "valider-rdv",    label: "Valider un RDV",  icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg> },
+                  { key: "analyse",        label: "Analyse",         icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+                ] as { key: typeof tab; label: string; icon: React.ReactNode }[]).map(item => {
+                  const active = tab === item.key;
+                  return (
+                    <button key={item.key} onClick={() => { setTab(item.key); setMobileMoreOpen(false); }} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: "14px", padding: "13px 12px", borderRadius: "12px", background: active ? `${T.gold}12` : "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+                      <span style={{ color: active ? T.gold : T.t2, display: "flex" }}>{item.icon}</span>
+                      <span style={{ color: active ? T.gold : T.t1, fontSize: "14px", fontWeight: active ? "800" : "600", flex: 1 }}>{item.label}</span>
+                      {active && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.gold} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                    </button>
+                  );
+                })}
+                <div style={{ height: "1px", background: T.border, margin: "6px 4px" }}/>
+                <button onClick={() => setAccountMenuOpen(true)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: "14px", padding: "13px 12px", borderRadius: "12px", background: accountTabKeys.includes(tab) ? `${T.gold}12` : "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+                  {inst?.logo ? (
+                    <img src={inst.logo} alt="" style={{ width: "19px", height: "19px", borderRadius: "5px", objectFit: "cover", flexShrink: 0 }}/>
+                  ) : (
+                    <span style={{ color: accountTabKeys.includes(tab) ? T.gold : T.t2, display: "flex" }}>
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg>
+                    </span>
+                  )}
+                  <span style={{ color: accountTabKeys.includes(tab) ? T.gold : T.t1, fontSize: "14px", fontWeight: accountTabKeys.includes(tab) ? "800" : "600", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst?.name || "Compte"}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.t3} strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
