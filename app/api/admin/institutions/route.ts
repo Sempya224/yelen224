@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabaseAdmin
       .from('institutions')
-      .select('id, name, category, ville, statut, created_at, email, phone, badge_verifie, avertissements, plan, document_officiel, description, whatsapp, site_web, adresse, moyenne_avis, nb_avis, logo, quartier')
+      .select('id, name, category, ville, statut, created_at, email, phone, badge_verifie, avertissements, plan, document_officiel, description, whatsapp, website, adresse, moyenne_avis, nb_avis, logo, quartier')
       .order('created_at', { ascending: false })
       .range(page * limit, (page + 1) * limit - 1)
 

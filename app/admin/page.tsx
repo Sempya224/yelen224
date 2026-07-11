@@ -130,7 +130,7 @@ interface Institution {
   document_officiel?: string
   description?: string
   whatsapp?: string
-  site_web?: string
+  website?: string
   adresse?: string
   moyenne_avis?: number
   nb_avis?: number
@@ -700,7 +700,7 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
                   ['Email', selected.email || '—'],
                   ['Téléphone', selected.phone || '—'],
                   ['WhatsApp', selected.whatsapp || '—'],
-                  ['Site web', selected.site_web || '—'],
+                  ['Site web', selected.website || '—'],
                   ['Statut', selected.statut],
                   ['Plan', selected.plan || 'gratuit'],
                   ['Avertissements', String(selected.avertissements || 0)],
