@@ -276,16 +276,15 @@ function ProfilProgressionBandeau({ inst, instId }: { inst: Institution | null; 
   const complet = pct === 100;
 
   const statutCfg: Record<string, { color: string; bg: string; border: string; label: string; ping: boolean }> = {
-    valide:     { color: T.green,  bg: "rgba(0,200,150,0.10)",  border: "rgba(0,200,150,0.25)",  label: "Active",        ping: false },
-    active:     { color: T.green,  bg: "rgba(0,200,150,0.10)",  border: "rgba(0,200,150,0.25)",  label: "Active",        ping: false },
+    validee:    { color: T.green,  bg: "rgba(0,200,150,0.10)",  border: "rgba(0,200,150,0.25)",  label: "Active",        ping: false },
     en_attente: { color: T.gold,   bg: "rgba(212,160,23,0.10)", border: "rgba(212,160,23,0.25)", label: "En attente de validation", ping: true  },
-    refuse:     { color: T.red,    bg: "rgba(255,71,87,0.10)",  border: "rgba(255,71,87,0.25)",  label: "Dossier refusé",           ping: false },
+    refusee:    { color: T.red,    bg: "rgba(255,71,87,0.10)",  border: "rgba(255,71,87,0.25)",  label: "Dossier refusé",           ping: false },
   };
   const sc = statutCfg[inst.statut ?? "en_attente"] ?? statutCfg["en_attente"];
   const barColor = pct === 100 ? T.green : pct >= 60 ? T.gold : T.orange;
 
   // Profil complet ET institution validée → bandeau inutile, laisser la place aux alertes RDV
-  if (complet && (inst.statut === "valide" || inst.statut === "active")) return null;
+  if (complet && inst.statut === "validee") return null;
 
   if (complet) {
     return (
@@ -295,10 +294,10 @@ function ProfilProgressionBandeau({ inst, instId }: { inst: Institution | null; 
           {sc.ping && <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: sc.color, animation: "ping 1.5s ease-out infinite" }}/>}
         </div>
         <span style={{ color: sc.color, fontSize: "11px", fontWeight: "800", flex: 1 }}>{sc.label}</span>
-        {(inst.statut === "valide" || inst.statut === "active") && (
+        {inst.statut === "validee" && (
           <span style={{ backgroundColor: T.green, color: "#fff", fontSize: "9px", fontWeight: "900", padding: "2px 8px", borderRadius: "20px" }}>✓ VÉRIFIÉ</span>
         )}
-        {inst.statut === "refuse" && (
+        {inst.statut === "refusee" && (
           <a href="mailto:support@yelen224.com" style={{ color: T.red, fontSize: "10px", fontWeight: "800", textDecoration: "none" }}>Contacter →</a>
         )}
       </div>
