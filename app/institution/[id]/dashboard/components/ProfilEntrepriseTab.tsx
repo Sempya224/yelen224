@@ -7,7 +7,6 @@
 // les modifier impacte la validation Yelen et les documents requis — écran
 // séparé, à traiter avec "Validation Yelen" plus tard, pas ici.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { T } from "../theme";
 
 const SECTEUR_LABELS: Record<string, string> = {
@@ -81,26 +80,34 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
 
   const fc = (field: keyof EntrepriseForm, value: string) => setForm(f => ({ ...f, [field]: value }));
 
+  // Upload via route service_role — storage.objects n'a pas de policy RLS
+  // pour les institutions (pas de session Supabase Auth), un upload direct
+  // depuis le client échoue avec "new row violates row-level security
+  // policy". Voir api/institution/upload/route.ts.
+  const uploadImage = async (file: File, kind: "logo" | "banniere"): Promise<string | null> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("kind", kind);
+    const res = await fetch("/api/institution/upload", { method: "POST", body: fd });
+    const j = await res.json().catch(() => null);
+    if (!res.ok) { setError(j?.error || "Échec de l'envoi de l'image."); return null; }
+    return j.url as string;
+  };
+
   const handleLogoPick = async (file: File) => {
     setUploadingLogo(true);
     setError(null);
-    const ext = file.name.split(".").pop();
-    const { error: upErr } = await supabase.storage.from("avatars").upload(`logos/${instId}.${ext}`, file, { upsert: true });
+    const url = await uploadImage(file, "logo");
     setUploadingLogo(false);
-    if (upErr) { setError("Échec de l'envoi du logo : " + upErr.message); return; }
-    const { data } = supabase.storage.from("avatars").getPublicUrl(`logos/${instId}.${ext}`);
-    fc("logo", data.publicUrl);
+    if (url) fc("logo", url);
   };
 
   const handleBannierePick = async (file: File) => {
     setUploadingBanniere(true);
     setError(null);
-    const ext = file.name.split(".").pop();
-    const { error: upErr } = await supabase.storage.from("avatars").upload(`bannieres/${instId}.${ext}`, file, { upsert: true });
+    const url = await uploadImage(file, "banniere");
     setUploadingBanniere(false);
-    if (upErr) { setError("Échec de l'envoi de la bannière : " + upErr.message); return; }
-    const { data } = supabase.storage.from("avatars").getPublicUrl(`bannieres/${instId}.${ext}`);
-    fc("banniere", data.publicUrl);
+    if (url) fc("banniere", url);
   };
 
   const toggleLangue = (l: string) => setForm(f => ({
@@ -343,9 +350,11 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
           ))}
         </div>
 
-        <button onClick={handleSave} disabled={saving} className="tap" style={{ width: "100%", backgroundColor: saving ? T.bg3 : T.gold, color: saving ? T.t3 : "#000", border: "none", borderRadius: "14px", padding: "16px", fontSize: "14px", fontWeight: "800", cursor: saving ? "not-allowed" : "pointer", boxShadow: saving ? "none" : `0 4px 20px ${T.gold}40` }}>
-          {saving ? "Sauvegarde…" : "Enregistrer"}
-        </button>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={handleSave} disabled={saving} className="tap" style={{ backgroundColor: saving ? T.bg3 : T.gold, color: saving ? T.t3 : "#000", border: "none", borderRadius: "12px", padding: "13px 28px", fontSize: "13px", fontWeight: "800", cursor: saving ? "not-allowed" : "pointer", boxShadow: saving ? "none" : `0 4px 20px ${T.gold}40` }}>
+            {saving ? "Sauvegarde…" : "Enregistrer"}
+          </button>
+        </div>
       </div>
     </div>
   );
