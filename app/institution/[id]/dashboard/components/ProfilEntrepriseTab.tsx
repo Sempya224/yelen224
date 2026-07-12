@@ -66,9 +66,18 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
   const logoInputRef = useRef<HTMLInputElement>(null);
   const banniereInputRef = useRef<HTMLInputElement>(null);
 
+  // `initial` est reconstruit en ligne par le parent (dashboard/page.tsx) à
+  // chaque render — pas seulement quand `inst` change réellement (ex: chaque
+  // événement Realtime rdv/avis déclenche loadData()). Sans ce garde-fou,
+  // resynchroniser sur toute nouvelle référence de `initial` écrase les
+  // saisies en cours avec les anciennes valeurs serveur. On ne synchronise
+  // donc qu'une fois par instId (montage réel de l'onglet).
+  const syncedInstId = useRef<string | null>(null);
   useEffect(() => {
+    if (syncedInstId.current === instId) return;
+    syncedInstId.current = instId;
     setForm({ ...initial, horaires: initial.horaires.length ? initial.horaires : JOURS_DEFAUT });
-  }, [initial]);
+  }, [instId, initial]);
 
   const fc = (field: keyof EntrepriseForm, value: string) => setForm(f => ({ ...f, [field]: value }));
 
