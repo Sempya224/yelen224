@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       const { data } = await supabaseAdmin
         .from('institutions')
         .select('user_id')
-        .eq('statut', 'active')
+        .eq('statut', 'validee')
       destinataires = (data || []).map(i => i.user_id).filter(Boolean)
     }
 

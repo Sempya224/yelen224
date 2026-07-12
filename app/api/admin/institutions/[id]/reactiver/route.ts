@@ -25,7 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const { error } = await supabaseAdmin
       .from('institutions')
-      .update({ statut: 'active' })
+      .update({ statut: 'validee' })
       .eq('id', id)
 
     if (error) throw error
