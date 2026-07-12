@@ -2469,20 +2469,8 @@ export default function InstitutionDashboard() {
           TAB : PROFIL ENTREPRISE — distinct de Profil Responsable, accès
           via le petit menu "Compte" (sidebar), pas dans le menu principal.
       ═══════════════════════════════════════════════════════════ */}
-      {tab === "profil-entreprise" && inst && (
-        <ProfilEntrepriseTab
-          instId={instId}
-          secteur={inst.secteur ?? null}
-          statutJuridique={inst.statut_juridique ?? null}
-          onToast={showToast}
-          initial={{
-            name: inst.name || "", ville: inst.ville || "", quartier: inst.quartier || "", adresse: inst.adresse || "",
-            description: inst.description || "", phone: inst.phone || "", whatsapp: inst.whatsapp || "",
-            email: inst.email || "", website: inst.website || "", logo: inst.logo || "",
-            banniere: inst.banniere || "", annee_creation: inst.annee_creation || "", capacite: inst.capacite || "",
-            langue: inst.langue || [], services: inst.services || [], horaires: inst.horaires || [],
-          }}
-        />
+      {tab === "profil-entreprise" && (
+        <ProfilEntrepriseTab instId={instId} onToast={showToast}/>
       )}
 
       {/* ═══════════════════════════════════════════════════════════

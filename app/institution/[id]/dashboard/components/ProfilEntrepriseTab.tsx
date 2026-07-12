@@ -52,11 +52,19 @@ type EntrepriseForm = {
   langue: string[]; services: string[]; horaires: Horaire[];
 };
 
-export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial, onToast }: {
-  instId: string; secteur: string | null; statutJuridique: string | null; initial: EntrepriseForm;
-  onToast: (msg: string, color?: string) => void;
+const EMPTY_FORM: EntrepriseForm = {
+  name: "", ville: "", quartier: "", adresse: "", description: "",
+  phone: "", whatsapp: "", email: "", website: "", logo: "", banniere: "",
+  annee_creation: "", capacite: "", langue: [], services: [], horaires: JOURS_DEFAUT,
+};
+
+export function ProfilEntrepriseTab({ instId, onToast }: {
+  instId: string; onToast: (msg: string, color?: string) => void;
 }) {
-  const [form, setForm] = useState<EntrepriseForm>(initial);
+  const [form, setForm] = useState<EntrepriseForm>(EMPTY_FORM);
+  const [secteur, setSecteur] = useState<string | null>(null);
+  const [statutJuridique, setStatutJuridique] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingBanniere, setUploadingBanniere] = useState(false);
@@ -64,18 +72,33 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial,
   const logoInputRef = useRef<HTMLInputElement>(null);
   const banniereInputRef = useRef<HTMLInputElement>(null);
 
-  // `initial` est reconstruit en ligne par le parent (dashboard/page.tsx) à
-  // chaque render — pas seulement quand `inst` change réellement (ex: chaque
-  // événement Realtime rdv/avis déclenche loadData()). Sans ce garde-fou,
-  // resynchroniser sur toute nouvelle référence de `initial` écrase les
-  // saisies en cours avec les anciennes valeurs serveur. On ne synchronise
-  // donc qu'une fois par instId (montage réel de l'onglet).
-  const syncedInstId = useRef<string | null>(null);
+  // Charge ses propres données à chaque montage (comme ProfilResponsableTab),
+  // au lieu de recevoir un `initial` calculé par le parent. Le parent
+  // (dashboard/page.tsx) ne re-fetch `inst` qu'au montage du dashboard et sur
+  // événements Realtime rdv/avis — jamais après une sauvegarde de profil —
+  // donc quitter puis revenir sur cet onglet resynchronisait sur les
+  // anciennes données du parent, écrasant une sauvegarde pourtant réussie
+  // côté serveur. Un fetch propre à l'onglet, dépendant uniquement de
+  // `instId` (stable), élimine ce problème.
   useEffect(() => {
-    if (syncedInstId.current === instId) return;
-    syncedInstId.current = instId;
-    setForm({ ...initial, horaires: initial.horaires.length ? initial.horaires : JOURS_DEFAUT });
-  }, [instId, initial]);
+    (async () => {
+      setLoading(true);
+      const res = await fetch(`/api/institution/profile?institution_id=${instId}`);
+      const j = res.ok ? await res.json().catch(() => null) : null;
+      const inst = j?.institution;
+      setForm({
+        name: inst?.name || "", ville: inst?.ville || "", quartier: inst?.quartier || "", adresse: inst?.adresse || "",
+        description: inst?.description || "", phone: inst?.phone || "", whatsapp: inst?.whatsapp || "",
+        email: inst?.email || "", website: inst?.website || "", logo: inst?.logo || "",
+        banniere: inst?.banniere || "", annee_creation: inst?.annee_creation || "", capacite: inst?.capacite || "",
+        langue: inst?.langue || [], services: inst?.services || [],
+        horaires: (inst?.horaires && inst.horaires.length) ? inst.horaires : JOURS_DEFAUT,
+      });
+      setSecteur(inst?.secteur ?? null);
+      setStatutJuridique(inst?.statut_juridique ?? null);
+      setLoading(false);
+    })();
+  }, [instId]);
 
   const fc = (field: keyof EntrepriseForm, value: string) => setForm(f => ({ ...f, [field]: value }));
 
@@ -145,6 +168,14 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial,
   }, [form, onToast]);
 
   const suggestionsSecteur = secteur ? (SERVICES_PAR_SECTEUR[secteur] || []) : [];
+
+  if (loading) {
+    return (
+      <div style={{ padding: "48px 16px", display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "28px", height: "28px", border: `2px solid ${T.gold}20`, borderTopColor: T.gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
