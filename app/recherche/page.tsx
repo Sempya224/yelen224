@@ -164,7 +164,7 @@ function RechercheInner() {
     let query = supabase
       .from("institutions")
       .select("id,name,category,ville,quartier,moyenne_avis,nb_avis,logo,badge_verifie,description,statut,adresse,latitude,longitude,phone,disponibilites")
-      .eq("statut", "active");
+      .eq("statut", "validee");
     if (filterCat) query = query.eq("category", filterCat);
     if (filterVille) query = query.ilike("ville", `%${filterVille}%`);
     if (filterVerifie) query = query.eq("badge_verifie", true);

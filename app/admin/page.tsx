@@ -544,13 +544,13 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
     }
   
     const statusColor: Record<string, { color: string, bg: string, label: string }> = {
-      active:     { color: D.green,  bg: D.greenDim,  label: 'Active'      },
+      validee:    { color: D.green,  bg: D.greenDim,  label: 'Validée'     },
       en_attente: { color: D.yellow, bg: D.yellowDim, label: 'En attente'  },
       suspendue:  { color: D.red,    bg: D.redDim,    label: 'Suspendue'   },
-      refuse:     { color: D.orange, bg: D.orangeDim, label: 'Refusée'     },
+      refusee:    { color: D.orange, bg: D.orangeDim, label: 'Refusée'     },
     }
-  
-    const FILTERS = ['tous', 'en_attente', 'active', 'suspendue']
+
+    const FILTERS = ['tous', 'en_attente', 'validee', 'suspendue']
   
     return (
       <div>
@@ -598,7 +598,7 @@ function ViewInstitutions({ toast }: { toast: (m: string, t?: ToastItem['type'])
                 border: `1px solid ${filter === f ? D.yellow : D.border}`,
                 cursor: 'pointer', transition: 'all 0.12s',
               }}>
-                {f === 'tous' ? 'Tous' : f === 'en_attente' ? 'En attente' : f === 'active' ? 'Actives' : 'Suspendues'}
+                {f === 'tous' ? 'Tous' : f === 'en_attente' ? 'En attente' : f === 'validee' ? 'Validées' : 'Suspendues'}
               </button>
             ))}
           </div>
