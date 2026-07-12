@@ -35,6 +35,12 @@ export async function GET(req: NextRequest) {
 // site_web retiré (fusionné dans website, colonne supprimée en base).
 const EDITABLE_FIELDS = ["name", "ville", "quartier", "adresse", "description", "logo", "website", "email", "phone", "whatsapp", "banniere", "annee_creation", "capacite", "langue", "services", "horaires"] as const;
 
+// annee_creation et capacite sont des colonnes integer côté base : un champ
+// texte vide envoie "" en JSON, que Postgres rejette pour ce type
+// ("invalid input syntax for type integer"). On convertit en null avant
+// l'UPDATE — même règle appliquée à tout futur champ numérique du formulaire.
+const NUMERIC_FIELDS = new Set(["annee_creation", "capacite"]);
+
 export async function PUT(req: NextRequest) {
   const authInstId = await getAuthenticatedInstitutionId(req);
   if (!authInstId) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
@@ -44,7 +50,12 @@ export async function PUT(req: NextRequest) {
 
   const payload: Record<string, unknown> = {};
   for (const field of EDITABLE_FIELDS) {
-    if (field in body) payload[field] = body[field];
+    if (!(field in body)) continue;
+    let value = body[field];
+    if (NUMERIC_FIELDS.has(field) && typeof value === "string" && value.trim() === "") {
+      value = null;
+    }
+    payload[field] = value;
   }
   if (Object.keys(payload).length === 0) return NextResponse.json({ error: "Aucun champ éditable fourni" }, { status: 400 });
 

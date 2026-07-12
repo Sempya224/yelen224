@@ -217,7 +217,7 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
             </div>
             <div>
               <label style={fieldLabel}>Capacité d'accueil</label>
-              <input value={form.capacite} onChange={e => fc("capacite", e.target.value)} placeholder="Ex: 50 patients/jour" style={fieldInput}/>
+              <input value={form.capacite} onChange={e => fc("capacite", e.target.value)} placeholder="Ex: 50" style={fieldInput}/>
             </div>
           </div>
         </div>
