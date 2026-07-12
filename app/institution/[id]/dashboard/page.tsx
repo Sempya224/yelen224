@@ -2474,6 +2474,7 @@ export default function InstitutionDashboard() {
           instId={instId}
           secteur={inst.secteur ?? null}
           statutJuridique={inst.statut_juridique ?? null}
+          onToast={showToast}
           initial={{
             name: inst.name || "", ville: inst.ville || "", quartier: inst.quartier || "", adresse: inst.adresse || "",
             description: inst.description || "", phone: inst.phone || "", whatsapp: inst.whatsapp || "",
@@ -2488,7 +2489,7 @@ export default function InstitutionDashboard() {
           TAB : PROFIL RESPONSABLE — table institution_responsables séparée
       ═══════════════════════════════════════════════════════════ */}
       {tab === "profil-responsable" && (
-        <ProfilResponsableTab instId={instId}/>
+        <ProfilResponsableTab instId={instId} onToast={showToast}/>
       )}
 
       {/* ═══════════════════════════════════════════════════════════

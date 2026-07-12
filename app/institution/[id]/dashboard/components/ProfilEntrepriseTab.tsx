@@ -52,15 +52,14 @@ type EntrepriseForm = {
   langue: string[]; services: string[]; horaires: Horaire[];
 };
 
-export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial }: {
+export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial, onToast }: {
   instId: string; secteur: string | null; statutJuridique: string | null; initial: EntrepriseForm;
+  onToast: (msg: string, color?: string) => void;
 }) {
   const [form, setForm] = useState<EntrepriseForm>(initial);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingBanniere, setUploadingBanniere] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [serviceCustom, setServiceCustom] = useState("");
   const logoInputRef = useRef<HTMLInputElement>(null);
   const banniereInputRef = useRef<HTMLInputElement>(null);
@@ -90,13 +89,12 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
     fd.append("kind", kind);
     const res = await fetch("/api/institution/upload", { method: "POST", body: fd });
     const j = await res.json().catch(() => null);
-    if (!res.ok) { setError(j?.error || "Échec de l'envoi de l'image."); return null; }
+    if (!res.ok) { onToast(j?.error || "Échec de l'envoi de l'image.", T.red); return null; }
     return j.url as string;
   };
 
   const handleLogoPick = async (file: File) => {
     setUploadingLogo(true);
-    setError(null);
     const url = await uploadImage(file, "logo");
     setUploadingLogo(false);
     if (url) fc("logo", url);
@@ -104,7 +102,6 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
 
   const handleBannierePick = async (file: File) => {
     setUploadingBanniere(true);
-    setError(null);
     const url = await uploadImage(file, "banniere");
     setUploadingBanniere(false);
     if (url) fc("banniere", url);
@@ -130,10 +127,8 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
   };
 
   const handleSave = useCallback(async () => {
-    setError(null);
-    setSaveMsg(null);
-    if (!form.name.trim()) { setError("Le nom de l'institution est requis."); return; }
-    if (!form.ville.trim()) { setError("La ville est requise."); return; }
+    if (!form.name.trim()) { onToast("Le nom de l'institution est requis.", T.red); return; }
+    if (!form.ville.trim()) { onToast("La ville est requise.", T.red); return; }
     setSaving(true);
     const res = await fetch("/api/institution/profile", {
       method: "PUT",
@@ -143,12 +138,11 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
     setSaving(false);
     if (!res.ok) {
       const j = await res.json().catch(() => null);
-      setError(j?.error || "Erreur lors de l'enregistrement.");
+      onToast(j?.error || "Erreur lors de l'enregistrement.", T.red);
       return;
     }
-    setSaveMsg("Profil entreprise enregistré.");
-    setTimeout(() => setSaveMsg(null), 3000);
-  }, [form]);
+    onToast("Profil entreprise enregistré.", T.green);
+  }, [form, onToast]);
 
   const suggestionsSecteur = secteur ? (SERVICES_PAR_SECTEUR[secteur] || []) : [];
 
@@ -159,17 +153,6 @@ export function ProfilEntrepriseTab({ instId, secteur, statutJuridique, initial 
         <p style={{ color: T.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
           Identité publique de votre institution — visible par les citoyens sur Yelen224.
         </p>
-
-        {error && (
-          <div style={{ backgroundColor: T.redL, border: `1px solid ${T.red}25`, borderLeft: `3px solid ${T.red}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
-            <p style={{ color: T.red, fontSize: "13px", margin: 0, fontWeight: "600" }}>{error}</p>
-          </div>
-        )}
-        {saveMsg && (
-          <div style={{ backgroundColor: T.greenL, border: `1px solid ${T.green}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
-            <p style={{ color: T.green, fontSize: "13px", margin: 0, fontWeight: "600" }}>{saveMsg}</p>
-          </div>
-        )}
 
         {/* ── Identité visuelle ── */}
         <SectionLabel>Identité visuelle</SectionLabel>
