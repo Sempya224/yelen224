@@ -10,14 +10,12 @@ import { T } from "../theme";
 
 type ResponsableForm = { prenom: string; nom: string; role: string; phone: string; email: string; photo_url: string };
 
-export function ProfilResponsableTab({ instId }: { instId: string }) {
+export function ProfilResponsableTab({ instId, onToast }: { instId: string; onToast: (msg: string, color?: string) => void }) {
   const [form, setForm] = useState<ResponsableForm>({ prenom: "", nom: "", role: "", phone: "", email: "", photo_url: "" });
   const [baseline, setBaseline] = useState<ResponsableForm | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,22 +43,19 @@ export function ProfilResponsableTab({ instId }: { instId: string }) {
   // policy". Voir api/institution/upload/route.ts.
   const handlePhotoPick = async (file: File) => {
     setUploading(true);
-    setError(null);
     const fd = new FormData();
     fd.append("file", file);
     fd.append("kind", "responsable_photo");
     const res = await fetch("/api/institution/upload", { method: "POST", body: fd });
     const j = await res.json().catch(() => null);
     setUploading(false);
-    if (!res.ok) { setError(j?.error || "Échec de l'envoi de la photo."); return; }
+    if (!res.ok) { onToast(j?.error || "Échec de l'envoi de la photo.", T.red); return; }
     fc("photo_url", j.url as string);
   };
 
   const handleSave = useCallback(async () => {
-    setError(null);
-    setSaveMsg(null);
-    if (!form.prenom.trim()) { setError("Le prénom est requis."); return; }
-    if (!form.nom.trim()) { setError("Le nom est requis."); return; }
+    if (!form.prenom.trim()) { onToast("Le prénom est requis.", T.red); return; }
+    if (!form.nom.trim()) { onToast("Le nom est requis.", T.red); return; }
     setSaving(true);
     const res = await fetch("/api/institution/responsable", {
       method: "PUT",
@@ -70,13 +65,12 @@ export function ProfilResponsableTab({ instId }: { instId: string }) {
     setSaving(false);
     if (!res.ok) {
       const j = await res.json().catch(() => null);
-      setError(j?.error || "Erreur lors de l'enregistrement.");
+      onToast(j?.error || "Erreur lors de l'enregistrement.", T.red);
       return;
     }
-    setSaveMsg("Profil responsable enregistré.");
+    onToast("Profil responsable enregistré.", T.green);
     setBaseline(form);
-    setTimeout(() => setSaveMsg(null), 3000);
-  }, [form]);
+  }, [form, onToast]);
 
   // Bouton : "Enregistrer" tant qu'il y a une saisie en attente (isDirty),
   // "Modifier" une fois sauvegardé et sans changement depuis — état neutre,
@@ -119,17 +113,6 @@ export function ProfilResponsableTab({ instId }: { instId: string }) {
             {form.role && <div style={{ color: T.t3, fontSize: "12px", marginTop: "2px" }}>{form.role}</div>}
           </div>
         </div>
-
-        {error && (
-          <div style={{ backgroundColor: T.redL, border: `1px solid ${T.red}25`, borderLeft: `3px solid ${T.red}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
-            <p style={{ color: T.red, fontSize: "13px", margin: 0, fontWeight: "600" }}>{error}</p>
-          </div>
-        )}
-        {saveMsg && (
-          <div style={{ backgroundColor: T.greenL, border: `1px solid ${T.green}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
-            <p style={{ color: T.green, fontSize: "13px", margin: 0, fontWeight: "600" }}>{saveMsg}</p>
-          </div>
-        )}
 
         <div style={{ backgroundColor: T.bgCard, border: `1px solid ${T.border}`, borderRadius: "16px", padding: "16px", display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
