@@ -6,7 +6,6 @@
 // depuis institutions.responsable_prenom/nom/role (collecté à l'onboarding)
 // pour les institutions déjà inscrites au moment de la migration.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { T } from "../theme";
 
 type ResponsableForm = { prenom: string; nom: string; role: string; phone: string; email: string; photo_url: string };
@@ -40,15 +39,21 @@ export function ProfilResponsableTab({ instId }: { instId: string }) {
 
   const fc = (field: keyof ResponsableForm, value: string) => setForm(f => ({ ...f, [field]: value }));
 
+  // Upload via route service_role — storage.objects n'a pas de policy RLS
+  // pour les institutions (pas de session Supabase Auth), un upload direct
+  // depuis le client échoue avec "new row violates row-level security
+  // policy". Voir api/institution/upload/route.ts.
   const handlePhotoPick = async (file: File) => {
     setUploading(true);
     setError(null);
-    const ext = file.name.split(".").pop();
-    const { error: upErr } = await supabase.storage.from("avatars").upload(`responsables/${instId}.${ext}`, file, { upsert: true });
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("kind", "responsable_photo");
+    const res = await fetch("/api/institution/upload", { method: "POST", body: fd });
+    const j = await res.json().catch(() => null);
     setUploading(false);
-    if (upErr) { setError("Échec de l'envoi de la photo : " + upErr.message); return; }
-    const { data } = supabase.storage.from("avatars").getPublicUrl(`responsables/${instId}.${ext}`);
-    fc("photo_url", data.publicUrl);
+    if (!res.ok) { setError(j?.error || "Échec de l'envoi de la photo."); return; }
+    fc("photo_url", j.url as string);
   };
 
   const handleSave = useCallback(async () => {
@@ -73,7 +78,17 @@ export function ProfilResponsableTab({ instId }: { instId: string }) {
     setTimeout(() => setSaveMsg(null), 3000);
   }, [form]);
 
+  // Bouton : "Enregistrer" tant qu'il y a une saisie en attente (isDirty),
+  // "Modifier" une fois sauvegardé et sans changement depuis — état neutre,
+  // pas désactivé (resoumettre des données identiques est un no-op inoffensif
+  // côté API). Désactivé uniquement quand les champs requis manquent, pas
+  // selon isDirty : sinon un profil déjà sauvegardé dont on efface un champ
+  // requis resterait "cliquable" sans pouvoir réellement enregistrer l'état
+  // invalide.
+  const requiredOk = form.prenom.trim() !== "" && form.nom.trim() !== "";
   const isDirty = baseline !== null && JSON.stringify(form) !== JSON.stringify(baseline);
+  const isSaved = !isDirty && requiredOk;
+  const btnDisabled = saving || !requiredOk;
 
   if (loading) {
     return (
@@ -143,9 +158,18 @@ export function ProfilResponsableTab({ instId }: { instId: string }) {
           </div>
         </div>
 
-        <button onClick={handleSave} disabled={saving || !isDirty} className="tap" style={{ width: "100%", backgroundColor: (saving || !isDirty) ? T.bg3 : T.gold, color: (saving || !isDirty) ? T.t3 : "#000", border: "none", borderRadius: "14px", padding: "16px", fontSize: "14px", fontWeight: "800", cursor: (saving || !isDirty) ? "not-allowed" : "pointer", boxShadow: (saving || !isDirty) ? "none" : `0 4px 20px ${T.gold}40` }}>
-          {saving ? "Sauvegarde…" : isDirty ? "Enregistrer" : "Enregistré"}
-        </button>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={handleSave} disabled={btnDisabled} className="tap" style={{
+            backgroundColor: btnDisabled ? T.bg3 : isSaved ? T.bgCard : T.gold,
+            color: btnDisabled ? T.t3 : isSaved ? T.t1 : "#000",
+            border: isSaved && !btnDisabled ? `1.5px solid ${T.border2}` : "none",
+            borderRadius: "12px", padding: "13px 28px", fontSize: "13px", fontWeight: "800",
+            cursor: btnDisabled ? "not-allowed" : "pointer",
+            boxShadow: (btnDisabled || isSaved) ? "none" : `0 4px 20px ${T.gold}40`,
+          }}>
+            {saving ? "Sauvegarde…" : isSaved ? "Modifier" : "Enregistrer"}
+          </button>
+        </div>
       </div>
     </div>
   );
