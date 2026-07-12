@@ -24,7 +24,7 @@
 // ✅ Bandeau progression profil + statut Yelen intégré sous le header
 // ═══════════════════════════════════════════════════════════════════════
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, Dispatch, SetStateAction } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -38,6 +38,7 @@ import { CodeQrTab } from "./components/CodeQrTab";
 import { ValiderRdvTab } from "./components/ValiderRdvTab";
 import { ProfilEntrepriseTab } from "./components/ProfilEntrepriseTab";
 import { ProfilResponsableTab } from "./components/ProfilResponsableTab";
+import { DocumentsTab } from "./components/DocumentsTab";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -80,6 +81,8 @@ type Client = {
   premiere_visite: string;
   est_nouveau: boolean;
 };
+
+type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "profil-responsable" | "documents";
 
 type Institution = {
   id: string;
@@ -263,7 +266,7 @@ function hasDisponibilites(raw: unknown): boolean {
   }
   return false;
 }
-function ProfilProgressionBandeau({ inst, instId }: { inst: Institution | null; instId: string }) {
+function ProfilProgressionBandeau({ inst, instId, setTab }: { inst: Institution | null; instId: string; setTab: Dispatch<SetStateAction<DashboardTab>> }) {
   if (!inst) return null;
 
   const steps = [
@@ -321,22 +324,27 @@ function ProfilProgressionBandeau({ inst, instId }: { inst: Institution | null; 
         </div>
       </div>
       <div style={{ display: "flex", gap: "6px" }}>
-        {steps.map(s => (
-          <Link
-            key={s.id}
-            href={
-              s.id === "photo" ? `/institution/profil` :
-              s.id === "docs"  ? `/institution/document` :
-              `/institution/disponibilites`
-            }
-            style={{ flex: 1, display: "flex", alignItems: "center", gap: "4px", backgroundColor: s.done ? "rgba(0,200,150,0.08)" : "rgba(255,255,255,0.04)", border: `1px solid ${s.done ? "rgba(0,200,150,0.2)" : T.border}`, borderRadius: "8px", padding: "5px 7px", textDecoration: "none" }}
-          >
-            <div style={{ width: "14px", height: "14px", borderRadius: "50%", backgroundColor: s.done ? T.green : "rgba(255,255,255,0.08)", border: `1.5px solid ${s.done ? T.green : "rgba(255,255,255,0.12)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              {s.done && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
-            </div>
-            <span style={{ color: s.done ? T.green : T.t3, fontSize: "10px", fontWeight: s.done ? "700" : "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
-          </Link>
-        ))}
+        {steps.map(s => {
+          const content = (
+            <>
+              <div style={{ width: "14px", height: "14px", borderRadius: "50%", backgroundColor: s.done ? T.green : "rgba(255,255,255,0.08)", border: `1.5px solid ${s.done ? T.green : "rgba(255,255,255,0.12)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {s.done && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+              </div>
+              <span style={{ color: s.done ? T.green : T.t3, fontSize: "10px", fontWeight: s.done ? "700" : "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
+            </>
+          );
+          const itemStyle: React.CSSProperties = { flex: 1, display: "flex", alignItems: "center", gap: "4px", backgroundColor: s.done ? "rgba(0,200,150,0.08)" : "rgba(255,255,255,0.04)", border: `1px solid ${s.done ? "rgba(0,200,150,0.2)" : T.border}`, borderRadius: "8px", padding: "5px 7px", textDecoration: "none" };
+          // "Documents" est desormais un onglet du dashboard (DocumentsTab),
+          // plus une page separee — bascule d'onglet au lieu d'une navigation.
+          if (s.id === "docs") {
+            return <button key={s.id} onClick={() => setTab("documents")} className="tap" style={{ ...itemStyle, border: `1px solid ${s.done ? "rgba(0,200,150,0.2)" : T.border}`, cursor: "pointer" }}>{content}</button>;
+          }
+          return (
+            <Link key={s.id} href={s.id === "photo" ? `/institution/profil` : `/institution/disponibilites`} style={itemStyle}>
+              {content}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
@@ -1209,7 +1217,7 @@ export default function InstitutionDashboard() {
   // fusionné dans "rdv" (Lot 2, filtre par statut "Nouveaux"). "disponibilites",
   // "services", "communication" et "scanner" sont de nouveaux onglets de
   // premier niveau (contenu réel ajouté lots suivants — squelette pour l'instant).
-  const [tab, setTab] = useState<"accueil" | "rdv" | "disponibilites" | "services" | "communication" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "profil-responsable">("accueil");
+  const [tab, setTab] = useState<DashboardTab>("accueil");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1638,6 +1646,7 @@ export default function InstitutionDashboard() {
   const accountItems: { key: typeof tab; label: string; icon: React.ReactNode }[] = [
     { key: "profil-entreprise", label: "Profil Entreprise",  icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="9" y1="8" x2="9" y2="8"/><line x1="15" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="9" y2="16"/><line x1="15" y1="16" x2="15" y2="16"/></svg> },
     { key: "profil-responsable", label: "Profil Responsable", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
+    { key: "documents", label: "Documents", icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
     { key: "parametres", label: "Paramètres",      icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> },
   ];
   const accountTabKeys: (typeof tab)[] = accountItems.map(i => i.key);
@@ -1918,7 +1927,7 @@ export default function InstitutionDashboard() {
         </div>
 
         {/* ── BANDEAU PROGRESSION + STATUT YELEN ── */}
-        <ProfilProgressionBandeau inst={inst} instId={instId} />
+        <ProfilProgressionBandeau inst={inst} instId={instId} setTab={setTab} />
 
         {/* ── BANDEAU NOUVEAU RDV — se déclenche à chaque INSERT Realtime ── */}
         {bannerRdv && !showBannerDetail && (
@@ -2480,6 +2489,14 @@ export default function InstitutionDashboard() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
+          TAB : DOCUMENTS — vérification institutionnelle, remplace
+          l'ancien /institution/document. Accès via menu Compte.
+      ═══════════════════════════════════════════════════════════ */}
+      {tab === "documents" && (
+        <DocumentsTab instId={instId} onToast={showToast}/>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
           TAB : ANALYSE
       ═══════════════════════════════════════════════════════════ */}
       {tab === "analyse" && (
@@ -2601,7 +2618,6 @@ export default function InstitutionDashboard() {
               titre: "Mon institution",
               items: [
                 { label: "Modifier le profil",     href: `/institution/profil`,      color: T.gold },
-                { label: "Documents officiels",    href: `/institution/document`,   color: T.blue },
                 { label: "Services proposés",      href: `/institution/services-payants`,    color: T.purple },
                 { label: "Créneaux & Horaires",    href: `/institution/disponibilites`,    color: T.green },
                 { label: "Validation Yelen",       href: `/institution/validation`,  color: T.teal },
@@ -2688,7 +2704,7 @@ export default function InstitutionDashboard() {
           { key: "__plus__",   label: "Plus",   badge: 0,
             icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? T.gold : T.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg> },
         ] as { key: typeof tab | "__plus__"; label: string; badge: number; icon: (a: boolean) => any }[]).map(item => {
-          const overflowTabs: (typeof tab)[] = ["services", "communication", "codeqr", "valider-rdv", "analyse", "parametres", "profil-entreprise", "profil-responsable"];
+          const overflowTabs: (typeof tab)[] = ["services", "communication", "codeqr", "valider-rdv", "analyse", "parametres", "profil-entreprise", "profil-responsable", "documents"];
           const active = item.key === "__plus__" ? overflowTabs.includes(tab) : tab === item.key;
           return (
             <button key={item.key} onClick={() => item.key === "__plus__" ? setMobileMoreOpen(true) : setTab(item.key as typeof tab)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", background: "none", border: "none", padding: "8px 4px 5px", cursor: "pointer", position: "relative" }}>
