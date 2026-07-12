@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const settled = await Promise.allSettled([
       // ── INSTITUTIONS ──
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'active'),
+      supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'validee'),
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente'),
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'suspendue'),
       // ── CITOYENS ──
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       supabaseAdmin.from('rdv').select('created_at').gte('created_at', last30Days[0].toISOString()),
       supabaseAdmin.from('users').select('created_at').gte('created_at', last30Days[0].toISOString()),
       supabaseAdmin.from('paiements').select('montant, created_at').gte('created_at', last12Months[0].toISOString()),
-      supabaseAdmin.from('institutions').select('category').eq('statut', 'active'),
+      supabaseAdmin.from('institutions').select('category').eq('statut', 'validee'),
     ])
 
     function getCount(r: typeof settled[number]) { return r.status === 'fulfilled' ? (r.value as { count: number | null }).count || 0 : 0 }

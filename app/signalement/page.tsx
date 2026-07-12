@@ -85,7 +85,7 @@ function SignalementInner() {
     const { data } = await supabase
       .from("institutions")
       .select("id, name, logo")
-      .eq("statut", "active")
+      .eq("statut", "validee")
       .order("name");
     setInstitutions(data || []);
   };
