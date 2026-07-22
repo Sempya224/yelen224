@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { startAuthentication, startRegistration, browserSupportsWebAuthn } from "@simplewebauthn/browser";
@@ -61,7 +61,12 @@ type Step = "unlock" | "phone" | "preview" | "otp" | "setup" | "success" | "dele
 
 type DeletionInfo = { motif: string; scheduled_purge_at: string };
 
-export default function InstitutionConnexion() {
+// useSearchParams() (lignes "expired"/"logged_out"/"deletion_requested")
+// exige une frontière Suspense en App Router, sinon le build échoue au
+// prerendering statique ("Error occurred prerendering page /institution/
+// connexion") — corrigé le 22/07/2026, jamais rencontré avant car aucun
+// build Netlify n'avait été relancé depuis l'écriture de ce chantier.
+function InstitutionConnexionInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionExpired = searchParams.get("expired") === "1";
@@ -1187,5 +1192,18 @@ export default function InstitutionConnexion() {
         <Link href="/contact">Contact</Link>
       </footer>
     </div>
+  );
+}
+
+export default function InstitutionConnexion() {
+  return (
+    <Suspense fallback={
+      <div style={{ height: "100svh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FFFBEB" }}>
+        <div style={{ width: "32px", height: "32px", border: "3px solid rgba(245,166,35,0.2)", borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    }>
+      <InstitutionConnexionInner/>
+    </Suspense>
   );
 }

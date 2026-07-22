@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTheme } from "@/components/ThemeProvider";
@@ -57,7 +57,10 @@ function useHumanDetection() {
 // ─── Honeypot invisible ───────────────────────────────────────────────────────
 // Un champ caché — si rempli → bot détecté
 
-export default function LoginCitoyen() {
+// useSearchParams() exige une frontière Suspense en App Router (voir le
+// meme correctif applique a app/institution/connexion/page.tsx le 22/07/2026
+// - meme bug, jamais detecte avant faute de build Netlify recent).
+function LoginCitoyenInner() {
   const router  = useRouter();
   const searchParams = useSearchParams();
   const [loggedOut, setLoggedOut] = useState(searchParams.get("logged_out") === "1");
@@ -593,6 +596,19 @@ export default function LoginCitoyen() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginCitoyen() {
+  return (
+    <Suspense fallback={
+      <div style={{ height: "100svh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F8F8FB" }}>
+        <div style={{ width: "32px", height: "32px", border: "3px solid rgba(245,166,35,0.2)", borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    }>
+      <LoginCitoyenInner/>
+    </Suspense>
   );
 }
 
