@@ -1717,7 +1717,7 @@ export default function AdminOverview() {
         const [kpisRes, instRes, sigRes, actRes] = await Promise.all([
           fetch('/api/admin/kpis', { cache: 'no-store' }),
           fetch('/api/admin/institutions?statut=en_attente&limit=8'),
-          fetch('/api/admin/signalements?statut=nouveau&limit=8'),
+          fetch('/api/admin/signalements?statut=en_cours&limit=8'),
           fetch('/api/admin/activity?limit=25'),
         ])
         if (kpisRes.ok) setKpis(await kpisRes.json())

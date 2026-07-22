@@ -66,9 +66,21 @@ export async function POST(request: NextRequest) {
     // Récupérer l'admin
     const { data: admin, error: dbError } = await supabaseAdmin
       .from('admin_users')
-      .select('id, email, password_hash, role, nom, is_active')
+      .select('id, email, password_hash, role, nom, is_active, failed_login_attempts, locked_until')
       .eq('email', email.toLowerCase().trim())
       .single()
+
+    // Verrouillage de compte persistant — vérifié avant toute
+    // comparaison de mot de passe, tant qu'il n'a pas expiré. Complète
+    // le rate-limit IP ci-dessus (celui-ci ne survit pas à un
+    // changement d'IP ni à un redémarrage du process).
+    if (admin?.locked_until && new Date(admin.locked_until) > new Date()) {
+      const minutesRestantes = Math.ceil((new Date(admin.locked_until).getTime() - Date.now()) / 60000)
+      return NextResponse.json(
+        { error: `Compte verrouillé suite à plusieurs échecs. Réessayez dans ${minutesRestantes} min.`, code: 'ACCOUNT_LOCKED' },
+        { status: 429 }
+      )
+    }
 
     // Protection timing attack
     const dummyHash = '$2b$12$KIx6TzCxFLkjY8mFbWqH8OqK5LzCxFLkjY8mFbWqH8OqK5LzCxFL'
@@ -76,6 +88,15 @@ export async function POST(request: NextRequest) {
     const passwordValid = await bcrypt.compare(password, hashToCompare)
 
     if (dbError || !admin || !passwordValid) {
+      // Incrémente le compteur d'échecs uniquement si le compte existe
+      // réellement (sinon on révélerait son existence par un effet de
+      // bord en base). Verrouille 30 min au 5e échec consécutif.
+      if (admin) {
+        const attempts = (admin.failed_login_attempts ?? 0) + 1
+        const updates: Record<string, unknown> = { failed_login_attempts: attempts }
+        if (attempts >= 5) updates.locked_until = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+        await supabaseAdmin.from('admin_users').update(updates).eq('id', admin.id)
+      }
       return NextResponse.json(
         { error: 'Email ou mot de passe incorrect', code: 'INVALID_CREDENTIALS' },
         { status: 401 }
@@ -87,6 +108,11 @@ export async function POST(request: NextRequest) {
         { error: 'Compte désactivé. Contactez le super admin.', code: 'ACCOUNT_DISABLED' },
         { status: 403 }
       )
+    }
+
+    // Connexion réussie — remettre le compteur d'échecs à zéro
+    if (admin.failed_login_attempts > 0 || admin.locked_until) {
+      await supabaseAdmin.from('admin_users').update({ failed_login_attempts: 0, locked_until: null }).eq('id', admin.id)
     }
 
     // Générer JWT

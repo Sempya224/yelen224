@@ -2,18 +2,19 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { T } from "@/lib/theme";
+import { type Horaire, JOURS_SEMAINE, parseHoraires, isOuvertNow } from "@/lib/horaires";
+import { SECTEUR_LABELS, SECTEUR_META } from "@/lib/secteurs";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Horaire = { jour: string; ouvert: boolean; debut: string; fin: string; heures?: string };
-type Annonce = { id: string; titre: string; contenu: string; type: string; epingle: boolean; image_url: string | null; created_at: string; date_expiration: string | null };
-type Avis    = { id: string; note: number; commentaire: string | null; created_at: string; nom: string; rdv_confirmed: boolean };
+type Annonce = { id: string; titre: string; contenu: string; type: string; format: string; media_urls: string[] | null; epingle: boolean; image_url: string | null; created_at: string; date_expiration: string | null };
+type Avis    = { id: string; citoyen_id: string; titre: string | null; note: number; commentaire: string | null; reponse_institution: string | null; reponse_le: string | null; created_at: string; nom: string; rdv_confirmed: boolean; utile_count: number };
+type Commentaire = { id: string; annonce_id: string; contenu: string; citoyen_id: string; citoyen_nom: string | null; created_at: string };
 type Institution = {
-  id: string; name: string; category: string; description: string;
+  id: string; name: string; category: string; secteur: string | null; description: string;
   adresse: string; ville: string; quartier: string;
   phone: string; whatsapp?: string; email?: string; site_web?: string;
   logo?: string | null; banniere?: string | null;
@@ -30,25 +31,13 @@ const ANNONCE_TYPES: Record<string, { color: string; bg: string; border: string;
   communique:  { color: "#fbbf24", bg: "rgba(245,166,35,0.1)",  border: "rgba(245,166,35,0.2)",  label: "Communiqué" },
 };
 
-const CAT_META: Record<string, { color: string }> = {
-  "Hopital / Clinique":      { color: "#ef4444" },
-  "Ecole / Universite":      { color: "#3b82f6" },
-  "Mairie / Administration": { color: "#F5A623" },
-  "Banque / Microfinance":   { color: "#22c55e" },
-  "Pharmacie":               { color: "#a855f7" },
-  "Cabinet medical":         { color: "#f97316" },
-  "Tribunal / Justice":      { color: "#f43f5e" },
-  "Transport / Logistique":  { color: "#06b6d4" },
-  "ONG / Association":       { color: "#14b8a6" },
-  "Autre":                   { color: "#8b5cf6" },
-};
-
-const JOURS_SEMAINE = ["Dimanche","Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi"];
+// SECTEUR_LABELS/SECTEUR_META extraites dans lib/secteurs.ts (chantier
+// Favoris citoyen, 18/07/2026) pour être réutilisées ailleurs.
 
 // ─── SVG Icons (plus d'emojis) ────────────────────────────────────────────────
 const Icons = {
   Pin:      () => <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
-  Back:     () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="m15 18-6-6 6-6"/></svg>,
+  Back:     () => <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>,
   Check:    (color = "#22c55e") => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>,
   Shield:   () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   Phone:    () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17v-.08z"/></svg>,
@@ -63,6 +52,8 @@ const Icons = {
   MapPin:   () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
   Info:     () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   Announce: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>,
+  Heart:    (filled: boolean, color = "#ef4444") => <svg width="13" height="13" viewBox="0 0 24 24" fill={filled ? color : "none"} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+  Comment:  () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>,
   Pin2:     () => <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>,
   Whatsapp: () => <svg width="16" height="16" fill="#22c55e" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.890-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>,
   Flag:     () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
@@ -73,19 +64,22 @@ const Icons = {
   CatAdmin:   () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 21h18M4 21V10l8-7 8 7v11M9 21v-6h6v6"/></svg>,
   CatBank:    () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>,
   CatPharma:  () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>,
+  // Tracés repris de SecteurIcon (app/institution/inscription/page.tsx) pour
+  // une identité visuelle cohérente entre l'onboarding et la fiche publique.
+  CatBeaute:     () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.8 5.6L19 10l-5.2 1.4L12 17l-1.8-5.6L5 10l5.2-1.4z"/></svg>,
+  CatCommerce:   () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2l1.5 5M18 2l-1.5 5M3 7h18l-1.4 13a2 2 0 0 1-2 2H6.4a2 2 0 0 1-2-2z"/></svg>,
+  CatArtisanat:  () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.4-3.4a6 6 0 0 1-8 8l-6.6 6.6a2.1 2.1 0 0 1-3-3l6.6-6.6a6 6 0 0 1 8-8z"/></svg>,
 };
 
-const CAT_ICON: Record<string, () => React.ReactElement> = {
-  "Hopital / Clinique":      Icons.CatHealth,
-  "Ecole / Universite":      Icons.CatEdu,
-  "Mairie / Administration": Icons.CatAdmin,
-  "Banque / Microfinance":   Icons.CatBank,
-  "Pharmacie":               Icons.CatPharma,
-  "Cabinet medical":         Icons.CatHealth,
-  "Tribunal / Justice":      Icons.Flag,
-  "Transport / Logistique":  Icons.Globe,
-  "ONG / Association":       Icons.Users,
-  "Autre":                   Icons.Building,
+const SECTEUR_ICON: Record<string, () => React.ReactElement> = {
+  sante:            Icons.CatHealth,
+  administratif:    Icons.CatAdmin,
+  financier:        Icons.CatBank,
+  juridique:        Icons.Flag,
+  beaute_bien_etre: Icons.CatBeaute,
+  commerce:         Icons.CatCommerce,
+  artisanat:        Icons.CatArtisanat,
+  services_divers:  Icons.Building,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -99,38 +93,8 @@ function parseArr(v: unknown): string[] {
   return [];
 }
 
-function parseHoraires(v: unknown): Horaire[] {
-  if (!v) return [];
-  let raw = v;
-  if (typeof v === "string") { try { raw = JSON.parse(v); } catch { return []; } }
-  if (!Array.isArray(raw)) return [];
-  return (raw as any[]).map(item => {
-    if (!item || typeof item !== "object") return null;
-    const o = item as Record<string, any>;
-    if ("ouvert" in o) return { jour: String(o.jour || ""), ouvert: Boolean(o.ouvert), debut: String(o.debut || ""), fin: String(o.fin || "") };
-    const jour = String(o.jour || o.day || "").trim();
-    const heures = String(o.heures || o.hours || "").trim();
-    if (!jour) return null;
-    return { jour, ouvert: !heures.toLowerCase().includes("ferm") && heures !== "", debut: "", fin: "", heures };
-  }).filter((i): i is Horaire => i !== null);
-}
-
 function getInitials(name: string): string {
   return name.split(" ").filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase() ?? "").join("");
-}
-
-function isOuvertNow(horaires: Horaire[]): { ouvert: boolean; horaire: Horaire | null } {
-  const now = new Date();
-  const jourNom = JOURS_SEMAINE[now.getDay()];
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const h = horaires.find(x => x.jour.toLowerCase() === jourNom.toLowerCase());
-  if (!h || !h.ouvert) return { ouvert: false, horaire: h || null };
-  if (h.debut && h.fin) {
-    const [dh, dm] = h.debut.split(":").map(Number);
-    const [fh, fm] = h.fin.split(":").map(Number);
-    return { ouvert: minutes >= dh * 60 + dm && minutes <= fh * 60 + fm, horaire: h };
-  }
-  return { ouvert: true, horaire: h };
 }
 
 function formatHoraire(h: Horaire): string {
@@ -141,10 +105,10 @@ function formatHoraire(h: Horaire): string {
 }
 
 // ─── Logo institution ─────────────────────────────────────────────────────────
-function InstitutionLogo({ logo, name, category, size = 64 }: { logo?: string | null; name: string; category: string; size?: number }) {
+function InstitutionLogo({ logo, name, secteur, size = 64 }: { logo?: string | null; name: string; secteur: string | null; size?: number }) {
   const [err, setErr] = useState(false);
-  const meta = CAT_META[category] || { color: "#F5A623" };
-  const CatIconComp = CAT_ICON[category] || Icons.Building;
+  const meta = SECTEUR_META[secteur ?? ""] || { color: "#F5A623" };
+  const CatIconComp = SECTEUR_ICON[secteur ?? ""] || Icons.Building;
   const initials = getInitials(name);
 
   if (logo && !err) {
@@ -191,6 +155,7 @@ function SectionTitle({ icon, label, count, color = "#F5A623" }: { icon: React.R
 // ─── Page principale ──────────────────────────────────────────────────────────
 export default function InstitutionProfilePage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
   const { theme } = useTheme();
   const C = T[theme];
@@ -202,6 +167,18 @@ export default function InstitutionProfilePage() {
   const [loading, setLoading]   = useState(true);
   const [activeTab, setActiveTab] = useState<"info"|"horaires"|"services"|"avis">("info");
   const [imgBanErr, setImgBanErr] = useState(false);
+  // Lot E2 (engagement citoyen, 16/07/2026)
+  const [citoyenId, setCitoyenId] = useState<string | null>(null);
+  const [likesCount, setLikesCount] = useState<Record<string, number>>({});
+  const [mesLikes, setMesLikes] = useState<Set<string>>(new Set());
+  const [mesUtile, setMesUtile] = useState<Set<string>>(new Set());
+  // Chantier Favoris citoyen (18/07/2026)
+  const [estFavori, setEstFavori] = useState(false);
+  // Lot E3 (engagement citoyen, commentaires, 16/07/2026)
+  const [commentaires, setCommentaires] = useState<Record<string, Commentaire[]>>({});
+  const [commentairesOuverts, setCommentairesOuverts] = useState<Set<string>>(new Set());
+  const [nouveauCommentaire, setNouveauCommentaire] = useState<Record<string, string>>({});
+  const [envoiCommentaire, setEnvoiCommentaire] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -212,6 +189,7 @@ export default function InstitutionProfilePage() {
       setInst({
         id: String(r.id), name: String(r.name ?? r.nom ?? ""),
         category: String(r.category ?? r.categorie ?? "Autre"),
+        secteur: r.secteur ? String(r.secteur) : null,
         description: String(r.description ?? ""),
         adresse: String(r.adresse ?? ""), ville: String(r.ville ?? ""), quartier: String(r.quartier ?? ""),
         phone: String(r.phone ?? r.telephone ?? ""),
@@ -229,24 +207,81 @@ export default function InstitutionProfilePage() {
         langue: r.langue ? (Array.isArray(r.langue) ? r.langue : [String(r.langue)]) : undefined,
       });
 
-      const { data: annData } = await supabase
-        .from("annonces").select("id,titre,contenu,type,epingle,image_url,created_at,date_expiration")
-        .eq("institution_id", id).eq("statut", "publiee")
-        .order("epingle", { ascending: false }).order("created_at", { ascending: false }).limit(6);
-      setAnnonces((annData ?? []).filter((a: any) => !a.date_expiration || new Date(a.date_expiration) > new Date()));
+      const annRes = await fetch(`/api/annonces-publiques?institution_id=${id}`).then(r => r.json()).catch(() => ({ annonces: [] }));
+      const annoncesData: Annonce[] = annRes.annonces ?? [];
+      setAnnonces(annoncesData);
+
+      // Lot E1 (engagement citoyen, 16/07/2026) — une vue = un chargement de la
+      // fiche pour une annonce donnée, dédoublonné par sessionStorage pour ne
+      // pas gonfler le compteur à chaque refresh. citoyen_id = session Supabase
+      // Auth réelle si connecté (pas le localStorage id, pour matcher auth.uid()
+      // exigé par la policy RLS annonce_vues_insert), sinon null (visiteur anonyme).
+      if (annoncesData.length > 0) {
+        const { data: { user } } = await supabase.auth.getUser();
+        setCitoyenId(user?.id ?? null);
+
+        const aVoir = annoncesData.filter(a => {
+          const key = `yelen224_vue_${a.id}`;
+          try {
+            if (sessionStorage.getItem(key)) return false;
+            sessionStorage.setItem(key, "1");
+          } catch { /* navigation privée / storage indisponible : on compte quand même */ }
+          return true;
+        });
+        if (aVoir.length > 0) {
+          supabase.from("annonce_vues").insert(
+            aVoir.map(a => ({ annonce_id: a.id, citoyen_id: user?.id ?? null }))
+          ).then(() => {}, () => {});
+        }
+
+        // Lot E2 (engagement citoyen, 16/07/2026) — lecture directe côté client
+        // (policy annonce_likes_public_read, SELECT ouvert à tous) : compte par
+        // annonce + appartenance au citoyen courant, pas de route dédiée.
+        const ids = annoncesData.map(a => a.id);
+        const { data: likesRows } = await supabase.from("annonce_likes").select("annonce_id, citoyen_id").in("annonce_id", ids);
+        const counts: Record<string, number> = {};
+        const mine = new Set<string>();
+        (likesRows ?? []).forEach((l: any) => {
+          counts[l.annonce_id] = (counts[l.annonce_id] ?? 0) + 1;
+          if (user?.id && l.citoyen_id === user.id) mine.add(l.annonce_id);
+        });
+        setLikesCount(counts);
+        setMesLikes(mine);
+
+        // Lot E3 (engagement citoyen, commentaires, 16/07/2026) — lecture
+        // directe (policy annonce_commentaires_public_read). citoyen_nom est
+        // figé à l'insertion (voir handleSubmitComment) : aucune lecture
+        // publique sur `users` n'existe pour le résoudre après coup.
+        const { data: commentRows } = await supabase
+          .from("annonce_commentaires")
+          .select("id, annonce_id, contenu, citoyen_id, citoyen_nom, created_at")
+          .in("annonce_id", ids)
+          .order("created_at", { ascending: true });
+        const parComm: Record<string, Commentaire[]> = {};
+        (commentRows ?? []).forEach((c: any) => {
+          (parComm[c.annonce_id] ??= []).push(c);
+        });
+        setCommentaires(parComm);
+      }
 
       // ✅ FIX: On récupère TOUS les avis directement depuis la table avis
       // sans filtrage sur le statut du RDV — les données sont déjà en DB
+      // brouillon=false (Lot G) : un brouillon non publié ne doit jamais
+      // apparaître ici. masque filtré ci-dessous après lecture (le citoyen
+      // a choisi de le cacher de sa propre liste, donc du public aussi).
       const { data: avisData } = await supabase
         .from("avis")
-        .select("id,note,commentaire,created_at,citoyen_id")
+        .select("id,titre,note,commentaire,reponse_institution,reponse_le,created_at,citoyen_id,masque")
         .eq("institution_id", id)
+        .eq("brouillon", false)
         .order("created_at", { ascending: false })
         .limit(50);
 
-      if (avisData && avisData.length > 0) {
+      const avisVisibles = (avisData ?? []).filter((a: any) => !a.masque);
+
+      if (avisVisibles.length > 0) {
         // Récupérer les noms des citoyens
-        const ids = [...new Set(avisData.map((a: any) => a.citoyen_id).filter(Boolean))];
+        const ids = [...new Set(avisVisibles.map((a: any) => a.citoyen_id).filter(Boolean))];
         const { data: usersData } = await supabase
           .from("users").select("id,nom,prenom,phone").in("id", ids);
         const uMap: Record<string, string> = {};
@@ -262,38 +297,175 @@ export default function InstitutionProfilePage() {
           .in("statut", ["effectue", "termine", "confirme"]);
         const citoyensVerifies = new Set((rdvData ?? []).map((r: any) => r.citoyen_id));
 
-        setAvis(avisData.map((a: any) => ({
+        // "Utile" (Lot H, chantier Avis + Favoris citoyen) — mirroring
+        // annonce_likes : compte public + mes propres marques.
+        const avisIds = avisVisibles.map((a: any) => a.id);
+        const { data: utileData } = await supabase.from("avis_utile").select("avis_id, citoyen_id").in("avis_id", avisIds);
+        const utileCountMap: Record<string, number> = {};
+        (utileData ?? []).forEach((u: any) => { utileCountMap[u.avis_id] = (utileCountMap[u.avis_id] ?? 0) + 1; });
+        const { data: { user: viewerUser } } = await supabase.auth.getUser();
+        setMesUtile(new Set((utileData ?? []).filter((u: any) => u.citoyen_id === viewerUser?.id).map((u: any) => u.avis_id)));
+
+        setAvis(avisVisibles.map((a: any) => ({
           id: a.id,
+          citoyen_id: a.citoyen_id,
+          titre: a.titre,
           note: a.note,
           commentaire: a.commentaire,
+          reponse_institution: a.reponse_institution,
+          reponse_le: a.reponse_le,
           created_at: a.created_at,
           nom: uMap[a.citoyen_id] || "Citoyen",
           rdv_confirmed: citoyensVerifies.has(a.citoyen_id),
+          utile_count: utileCountMap[a.id] ?? 0,
         })));
+
+        // Vues (Lot H) — un rendu de la fiche = une vue par avis affiché,
+        // dédoublonné par sessionStorage (même pattern que annonce_vues,
+        // Lot E1 engagement citoyen).
+        const aVoirAvis = avisVisibles.filter((a: any) => {
+          const key = `yelen224_vue_avis_${a.id}`;
+          try {
+            if (sessionStorage.getItem(key)) return false;
+            sessionStorage.setItem(key, "1");
+          } catch { /* navigation privée / storage indisponible : on compte quand même */ }
+          return true;
+        });
+        if (aVoirAvis.length > 0) {
+          supabase.from("avis_vues").insert(
+            aVoirAvis.map((a: any) => ({ avis_id: a.id, citoyen_id: viewerUser?.id ?? null }))
+          ).then(() => {}, () => {});
+        }
       }
 
       setLoading(false);
     })();
   }, [id]);
 
+  // Chantier Favoris citoyen (18/07/2026) — effet indépendant de la
+  // logique annonces ci-dessus (qui ne fixe citoyenId que si
+  // annoncesData.length > 0) : le favori doit être vérifiable même sur
+  // une fiche sans aucune annonce. setCitoyenId ici est idempotent avec
+  // l'autre effet (même valeur dérivée de la même session).
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setCitoyenId(prev => prev ?? user.id);
+      const { data } = await supabase.from("citoyen_favoris").select("id").eq("citoyen_id", user.id).eq("institution_id", id).maybeSingle();
+      setEstFavori(!!data);
+    })();
+  }, [id]);
+
+  // RLS favoris_citoyen_own (auth.uid() = citoyen_id) — mirroring
+  // handleToggleLike ci-dessus (annonce_likes), insert/delete direct.
+  const handleToggleFavori = async () => {
+    if (!citoyenId) { router.push("/inscription"); return; }
+    const wasFavori = estFavori;
+    setEstFavori(!wasFavori);
+    const { error } = wasFavori
+      ? await supabase.from("citoyen_favoris").delete().eq("citoyen_id", citoyenId).eq("institution_id", id)
+      : await supabase.from("citoyen_favoris").insert({ citoyen_id: citoyenId, institution_id: id });
+    if (error) setEstFavori(wasFavori);
+  };
+
+  // Lot H (chantier Avis + Favoris citoyen, 18/07/2026) — "utile" sur un
+  // avis, mirroring exact handleToggleLike (annonce_likes) ci-dessous.
+  // Jamais l'auteur de l'avis lui-même (vérifié ici, pas seulement côté
+  // UI — la policy RLS avis_utile_insert_own n'empêche pas un auteur de se
+  // marquer utile, ce garde-fou est donc uniquement applicatif).
+  const handleToggleUtile = async (a: Avis) => {
+    if (!citoyenId) { router.push("/inscription"); return; }
+    if (a.citoyen_id === citoyenId) return;
+    const wasUtile = mesUtile.has(a.id);
+
+    setMesUtile(prev => { const s = new Set(prev); if (wasUtile) s.delete(a.id); else s.add(a.id); return s; });
+    setAvis(prev => prev.map(x => x.id === a.id ? { ...x, utile_count: Math.max(0, x.utile_count + (wasUtile ? -1 : 1)) } : x));
+
+    const { error } = wasUtile
+      ? await supabase.from("avis_utile").delete().eq("avis_id", a.id).eq("citoyen_id", citoyenId)
+      : await supabase.from("avis_utile").insert({ avis_id: a.id, citoyen_id: citoyenId });
+
+    if (error) {
+      setMesUtile(prev => { const s = new Set(prev); if (wasUtile) s.add(a.id); else s.delete(a.id); return s; });
+      setAvis(prev => prev.map(x => x.id === a.id ? { ...x, utile_count: Math.max(0, x.utile_count + (wasUtile ? 1 : -1)) } : x));
+    }
+  };
+
+  // Lot E2 (engagement citoyen, 16/07/2026) — insert/delete direct, RLS
+  // (annonce_likes_insert_own / delete_own) exige auth.uid() = citoyen_id,
+  // donc citoyenId vient forcément de la session Supabase Auth, pas du
+  // localStorage. Visiteur non connecté → redirigé vers /inscription, même
+  // page cible que CitoyenGuard.
+  const handleToggleLike = async (annonceId: string) => {
+    if (!citoyenId) { router.push("/inscription"); return; }
+    const wasLiked = mesLikes.has(annonceId);
+
+    setMesLikes(prev => { const s = new Set(prev); if (wasLiked) s.delete(annonceId); else s.add(annonceId); return s; });
+    setLikesCount(prev => ({ ...prev, [annonceId]: Math.max(0, (prev[annonceId] ?? 0) + (wasLiked ? -1 : 1)) }));
+
+    const { error } = wasLiked
+      ? await supabase.from("annonce_likes").delete().eq("annonce_id", annonceId).eq("citoyen_id", citoyenId)
+      : await supabase.from("annonce_likes").insert({ annonce_id: annonceId, citoyen_id: citoyenId });
+
+    if (error) {
+      setMesLikes(prev => { const s = new Set(prev); if (wasLiked) s.add(annonceId); else s.delete(annonceId); return s; });
+      setLikesCount(prev => ({ ...prev, [annonceId]: Math.max(0, (prev[annonceId] ?? 0) + (wasLiked ? 1 : -1)) }));
+    }
+  };
+
+  const toggleCommentaires = (annonceId: string) => {
+    setCommentairesOuverts(prev => {
+      const s = new Set(prev);
+      if (s.has(annonceId)) s.delete(annonceId); else s.add(annonceId);
+      return s;
+    });
+  };
+
+  // Lot E3 (engagement citoyen, commentaires, 16/07/2026) — citoyen_nom est lu
+  // depuis la propre ligne `users` de l'auteur (seule lecture autorisée par
+  // citoyen_own_profile) et figé sur la ligne du commentaire à l'insertion.
+  const handleSubmitComment = async (annonceId: string) => {
+    if (!citoyenId) { router.push("/inscription"); return; }
+    const contenu = (nouveauCommentaire[annonceId] ?? "").trim();
+    if (!contenu) return;
+
+    setEnvoiCommentaire(annonceId);
+    const { data: profil } = await supabase.from("users").select("nom, prenom").eq("id", citoyenId).maybeSingle();
+    const citoyenNom = profil ? [profil.prenom, profil.nom].filter(Boolean).join(" ") || null : null;
+
+    const { data, error } = await supabase
+      .from("annonce_commentaires")
+      .insert({ annonce_id: annonceId, citoyen_id: citoyenId, contenu, citoyen_nom: citoyenNom })
+      .select("id, annonce_id, contenu, citoyen_id, citoyen_nom, created_at")
+      .single();
+
+    if (!error && data) {
+      setCommentaires(prev => ({ ...prev, [annonceId]: [...(prev[annonceId] ?? []), data as Commentaire] }));
+      setNouveauCommentaire(prev => ({ ...prev, [annonceId]: "" }));
+    }
+    setEnvoiCommentaire(null);
+  };
+
   if (loading) return (
     <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px" }}>
       <div style={{ width: "44px", height: "44px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-      <p style={{ color: C.textSubtle, fontSize: "14px", fontFamily: "-apple-system,sans-serif" }}>Chargement…</p>
+      <p style={{ color: C.textSubtle, fontSize: "14px" }}>Chargement…</p>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 
   if (!inst) return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", textAlign: "center", fontFamily: "-apple-system,sans-serif" }}>
+    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", textAlign: "center" }}>
       <div style={{ fontSize: "48px", marginBottom: "16px", color: C.textSubtle }}><Icons.Building /></div>
       <p style={{ color: C.text, fontSize: "16px", fontWeight: "700", marginBottom: "20px" }}>Institution introuvable</p>
       <Link href="/recherche" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "14px", padding: "12px 24px", borderRadius: "12px", textDecoration: "none" }}>Retour à la recherche</Link>
     </div>
   );
 
-  const meta = CAT_META[inst.category] || { color: "#F5A623" };
-  const CatIconComp = CAT_ICON[inst.category] || Icons.Building;
+  const meta = SECTEUR_META[inst.secteur ?? ""] || { color: "#F5A623" };
+  const CatIconComp = SECTEUR_ICON[inst.secteur ?? ""] || Icons.Building;
   const { ouvert, horaire: horaireAujd } = isOuvertNow(inst.horaires);
   const jourAujd = JOURS_SEMAINE[new Date().getDay()];
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`Bonjour, je souhaite des informations sur ${inst.name} via YELEN224.`)}`;
@@ -313,7 +485,7 @@ export default function InstitutionProfilePage() {
   ] as { key: typeof activeTab; label: string; icon: React.ReactNode; count?: number }[];
 
   return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, fontFamily: "'SF Pro Text',-apple-system,'Helvetica Neue',sans-serif", color: C.text, paddingBottom: "32px", transition: "background-color 0.3s ease" }}>
+    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, color: C.text, paddingBottom: "32px", transition: "background-color 0.3s ease" }}>
       <style>{`
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
         html,body{overflow-x:hidden;background:${C.pageBg}}
@@ -327,36 +499,58 @@ export default function InstitutionProfilePage() {
         a{-webkit-tap-highlight-color:transparent}
       `}</style>
 
-      {/* HEADER */}
-      <header style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${C.borderCard}`, padding: "0 16px" }}>
-        <div style={{ height: "52px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Link href="/recherche" className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", color: C.text }}>
-            <div style={{ width: "32px", height: "32px", borderRadius: "9px", backgroundColor: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icons.Back />
+      {/* HEADER — même bandeau doré que les écrans Compte, façon Booking.
+          Mode sombre volontairement inchangé. */}
+      {(() => {
+        const hBg      = isDark ? "rgba(7,7,22,0.97)" : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)";
+        const hText    = isDark ? C.text : "#080812";
+        const hSub     = isDark ? C.textSubtle : "rgba(8,8,18,0.65)";
+        const hChip    = isDark ? inputBg : "#F5A623";
+        const hChipBrd = isDark ? inputBord : "transparent";
+        const hIcon    = isDark ? C.text : "#fff";
+        const hShadow  = isDark ? "none" : "0 2px 8px rgba(245,166,35,0.35)";
+        return (
+        <header style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, backdropFilter: isDark ? "blur(20px)" : "none", WebkitBackdropFilter: isDark ? "blur(20px)" : "none", borderBottom: isDark ? `1px solid ${C.borderCard}` : "none", padding: "0 16px" }}>
+          {/* Grille 1fr/auto/1fr (au lieu de space-between) — le titre
+              reste centré même si le bloc "Retour" (icône+texte) est plus
+              large que la colonne de droite, vide. */}
+          <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+            <Link href="/recherche" className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", color: hText, minWidth: 0 }}>
+              <div style={{ width: "36px", height: "36px", borderRadius: "9px", backgroundColor: hChip, border: `1px solid ${hChipBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", color: hIcon, flexShrink: 0 }}>
+                <Icons.Back />
+              </div>
+              <span style={{ color: hSub, fontSize: "13px", fontWeight: "700", whiteSpace: "nowrap" }}>Retour</span>
+            </Link>
+            <div style={{ minWidth: 0, maxWidth: "180px", textAlign: "center" }}>
+              <div style={{ color: hText, fontSize: "13px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inst.name}</div>
             </div>
-            <span style={{ color: C.textSubtle, fontSize: "13px", fontWeight: "600" }}>Retour</span>
-          </Link>
-          <div style={{ flex: 1, minWidth: 0, textAlign: "center", padding: "0 12px" }}>
-            <div style={{ color: C.text, fontSize: "13px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inst.name}</div>
+            <div/>
           </div>
-          <ThemeToggle />
-        </div>
-      </header>
+        </header>
+        );
+      })()}
 
-      {/* BANNIÈRE */}
-      {inst.banniere && !imgBanErr ? (
-        <div style={{ width: "100%", height: "180px", overflow: "hidden", position: "relative" }}>
-          <img src={inst.banniere} alt="" onError={() => setImgBanErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
-          <div style={{ position: "absolute", inset: 0, background: isDark ? "linear-gradient(to bottom,transparent 40%,rgba(7,7,22,0.9) 100%)" : "linear-gradient(to bottom,transparent 50%,rgba(242,242,247,0.9) 100%)" }}/>
-        </div>
-      ) : (
-        <div style={{ width: "100%", height: "100px", background: isDark ? `linear-gradient(160deg, ${meta.color}12, ${meta.color}06, transparent)` : `linear-gradient(160deg, ${meta.color}08, ${meta.color}03, transparent)` }}/>
-      )}
+      {/* BANNIÈRE — bouton favori flottant façon Airbnb/Booking (au lieu
+          du header), visible que la bannière soit une vraie image ou le
+          dégradé de secours. */}
+      <div style={{ width: "100%", height: inst.banniere && !imgBanErr ? "180px" : "100px", overflow: "hidden", position: "relative" }}>
+        {inst.banniere && !imgBanErr ? (
+          <>
+            <img src={inst.banniere} alt="" onError={() => setImgBanErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+            <div style={{ position: "absolute", inset: 0, background: isDark ? "linear-gradient(to bottom,transparent 40%,rgba(7,7,22,0.9) 100%)" : "linear-gradient(to bottom,transparent 50%,rgba(242,242,247,0.9) 100%)" }}/>
+          </>
+        ) : (
+          <div style={{ width: "100%", height: "100%", background: isDark ? `linear-gradient(160deg, ${meta.color}12, ${meta.color}06, transparent)` : `linear-gradient(160deg, ${meta.color}08, ${meta.color}03, transparent)` }}/>
+        )}
+        <button onClick={handleToggleFavori} className="tap" aria-label={estFavori ? "Retirer des favoris" : "Ajouter aux favoris"} style={{ position: "absolute", top: "14px", right: "14px", width: "38px", height: "38px", borderRadius: "50%", background: "rgba(255,255,255,0.92)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", border: "none", boxShadow: "0 2px 10px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          {Icons.Heart(estFavori)}
+        </button>
+      </div>
 
       {/* HERO */}
       <div style={{ padding: "0 16px", marginTop: inst.banniere && !imgBanErr ? "-48px" : "-20px", position: "relative", zIndex: 10 }}>
         <div style={{ display: "flex", gap: "14px", alignItems: "flex-end", marginBottom: "14px" }}>
-          <InstitutionLogo logo={inst.logo} name={inst.name} category={inst.category} size={72}/>
+          <InstitutionLogo logo={inst.logo} name={inst.name} secteur={inst.secteur} size={72}/>
           <div style={{ flex: 1, minWidth: 0, paddingBottom: "4px" }}>
             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginBottom: "6px" }}>
               {inst.badge_verifie && (
@@ -364,21 +558,11 @@ export default function InstitutionProfilePage() {
                   <Icons.Shield /> VÉRIFIÉ
                 </span>
               )}
-              {horaireAujd && (
-                <span style={{ background: ouvert ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)", border: `1px solid ${ouvert ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, color: ouvert ? "#22c55e" : "#ef4444", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>
-                  {ouvert ? "● OUVERT" : "● FERMÉ"}
-                </span>
-              )}
-              {annonces.length > 0 && (
-                <span style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", color: "#F5A623", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                  <Icons.Announce /> {annonces.length} annonce{annonces.length > 1 ? "s" : ""}
-                </span>
-              )}
             </div>
             <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 3px", lineHeight: 1.15, letterSpacing: "-0.5px" }}>{inst.name}</h1>
             <div style={{ color: meta.color, fontSize: "11px", fontWeight: "700", marginBottom: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
               <div style={{ color: meta.color }}><CatIconComp /></div>
-              {inst.category}
+              {inst.secteur ? (SECTEUR_LABELS[inst.secteur] || inst.secteur) : "Non renseigné"}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
               <span style={{ color: C.textSubtle }}><Icons.Pin /></span>
@@ -387,13 +571,24 @@ export default function InstitutionProfilePage() {
           </div>
         </div>
 
-        {/* Note globale */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
+        {/* Note globale + statut ouvert/fermé + annonces — regroupés sur
+            une seule ligne (retirés du dessus de la bannière) */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
           <span style={{ fontSize: "26px", fontWeight: "900", color: noteMoyenne >= 4 ? "#22c55e" : noteMoyenne >= 3 ? "#F5A623" : "#ef4444", letterSpacing: "-1px" }}>
             {noteMoyenne > 0 ? noteMoyenne.toFixed(1) : "—"}
           </span>
           <Stars note={noteMoyenne} size={14} isDark={isDark}/>
           <span style={{ color: C.textSubtle, fontSize: "12px", fontWeight: "600" }}>({nbAvis} avis)</span>
+          {horaireAujd && (
+            <span style={{ background: ouvert ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)", border: `1px solid ${ouvert ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, color: ouvert ? "#22c55e" : "#ef4444", fontSize: "9px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>
+              {ouvert ? "● OUVERT" : "● FERMÉ"}
+            </span>
+          )}
+          {annonces.length > 0 && (
+            <span style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", color: "#F5A623", fontSize: "9px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+              <Icons.Announce /> {annonces.length} annonce{annonces.length > 1 ? "s" : ""}
+            </span>
+          )}
         </div>
 
         {/* CTA */}
@@ -442,11 +637,15 @@ export default function InstitutionProfilePage() {
               const t = ANNONCE_TYPES[a.type] || ANNONCE_TYPES.information;
               return (
                 <div key={a.id} style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", border: `1px solid ${t.border}`, borderLeft: `3px solid ${t.color}` }}>
-                  {a.image_url && (
+                  {a.image_url ? (
                     <div style={{ width: "100%", height: "120px", overflow: "hidden" }}>
                       <img src={a.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}/>
                     </div>
-                  )}
+                  ) : a.format === "video" && a.media_urls?.[0] ? (
+                    <div style={{ width: "100%", height: "180px", overflow: "hidden", backgroundColor: "#000" }}>
+                      <video src={a.media_urls[0]} style={{ width: "100%", height: "100%", objectFit: "cover" }} controls playsInline/>
+                    </div>
+                  ) : null}
                   <div style={{ padding: "13px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
                       <span style={{ background: t.bg, border: `1px solid ${t.border}`, color: t.color, fontSize: "10px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{t.label.toUpperCase()}</span>
@@ -459,6 +658,58 @@ export default function InstitutionProfilePage() {
                       <p style={{ color: C.textSubtle, fontSize: "10px", margin: "6px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
                         <Icons.Clock /> Expire le {new Date(a.date_expiration).toLocaleDateString("fr-FR")}
                       </p>
+                    )}
+                    {a.format === "pdf" && a.media_urls?.[0] && (
+                      <a href={a.media_urls[0]} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "#ef4444", fontSize: "11px", fontWeight: "700", textDecoration: "none", marginTop: "8px" }}>
+                        <Icons.Note /> Ouvrir le PDF
+                      </a>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
+                      <button onClick={() => handleToggleLike(a.id)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: mesLikes.has(a.id) ? "rgba(239,68,68,0.1)" : "transparent", border: `1px solid ${mesLikes.has(a.id) ? "rgba(239,68,68,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer" }}>
+                        {Icons.Heart(mesLikes.has(a.id))}
+                        <span style={{ color: mesLikes.has(a.id) ? "#ef4444" : C.textSubtle, fontSize: "11px", fontWeight: "700" }}>{likesCount[a.id] ?? 0}</span>
+                      </button>
+                      <button onClick={() => toggleCommentaires(a.id)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: commentairesOuverts.has(a.id) ? "rgba(96,165,250,0.1)" : "transparent", border: `1px solid ${commentairesOuverts.has(a.id) ? "rgba(96,165,250,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer", color: commentairesOuverts.has(a.id) ? "#60a5fa" : C.textSubtle }}>
+                        <Icons.Comment/>
+                        <span style={{ fontSize: "11px", fontWeight: "700" }}>{(commentaires[a.id] ?? []).length}</span>
+                      </button>
+                    </div>
+
+                    {commentairesOuverts.has(a.id) && (
+                      <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${C.borderCard}` }}>
+                        {(commentaires[a.id] ?? []).length === 0 ? (
+                          <p style={{ color: C.textSubtle, fontSize: "11.5px", margin: "0 0 8px" }}>Aucun commentaire pour l'instant.</p>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "10px" }}>
+                            {(commentaires[a.id] ?? []).map(c => (
+                              <div key={c.id} style={{ backgroundColor: C.pageBg, borderRadius: "10px", padding: "8px 10px" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                                  <span style={{ color: C.text, fontSize: "11.5px", fontWeight: "700" }}>{c.citoyen_id === citoyenId ? "Vous" : (c.citoyen_nom || "Citoyen")}</span>
+                                  <span style={{ color: C.textFaint, fontSize: "10px", flexShrink: 0 }}>{new Date(c.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
+                                </div>
+                                <p style={{ color: C.textMuted, fontSize: "12px", margin: "3px 0 0", lineHeight: 1.5 }}>{c.contenu}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <input
+                            value={nouveauCommentaire[a.id] ?? ""}
+                            onChange={e => setNouveauCommentaire(prev => ({ ...prev, [a.id]: e.target.value }))}
+                            onKeyDown={e => { if (e.key === "Enter") handleSubmitComment(a.id); }}
+                            placeholder={citoyenId ? "Ajouter un commentaire…" : "Connectez-vous pour commenter"}
+                            style={{ flex: 1, backgroundColor: C.pageBg, border: `1px solid ${C.borderCard}`, borderRadius: "10px", padding: "8px 12px", color: C.text, fontSize: "12px", fontFamily: "inherit" }}
+                          />
+                          <button
+                            onClick={() => handleSubmitComment(a.id)}
+                            disabled={envoiCommentaire === a.id || !(nouveauCommentaire[a.id] ?? "").trim()}
+                            className="tap"
+                            style={{ backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "10px", padding: "8px 16px", fontSize: "12px", fontWeight: "700", cursor: "pointer", opacity: envoiCommentaire === a.id ? 0.6 : 1 }}
+                          >
+                            Envoyer
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -734,8 +985,25 @@ export default function InstitutionProfilePage() {
                       {new Date(a.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}
                     </span>
                   </div>
+                  {a.titre && <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", marginBottom: "3px" }}>{a.titre}</div>}
                   {a.commentaire && (
-                    <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: 0, fontStyle: "italic" }}>"{a.commentaire}"</p>
+                    <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: "0 0 8px", fontStyle: "italic" }}>"{a.commentaire}"</p>
+                  )}
+
+                  {a.reponse_institution && (
+                    <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.05)", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "10px", padding: "8px 10px", marginBottom: "8px" }}>
+                      <div style={{ color: "#F5A623", fontSize: "10.5px", fontWeight: "800", marginBottom: "3px" }}>
+                        Réponse de l'établissement{a.reponse_le ? ` · ${new Date(a.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
+                      </div>
+                      <div style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.5 }}>{a.reponse_institution}</div>
+                    </div>
+                  )}
+
+                  {a.citoyen_id !== citoyenId && (
+                    <button onClick={() => handleToggleUtile(a)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: mesUtile.has(a.id) ? "rgba(34,197,94,0.1)" : "transparent", border: `1px solid ${mesUtile.has(a.id) ? "rgba(34,197,94,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill={mesUtile.has(a.id) ? "#22c55e" : "none"} stroke={mesUtile.has(a.id) ? "#22c55e" : C.textSubtle} strokeWidth="2" strokeLinecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                      <span style={{ color: mesUtile.has(a.id) ? "#22c55e" : C.textSubtle, fontSize: "11px", fontWeight: "700" }}>Utile{a.utile_count > 0 ? ` (${a.utile_count})` : ""}</span>
+                    </button>
                   )}
                 </div>
               ))

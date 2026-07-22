@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
-import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
+import { supabase } from "@/lib/supabase";
+import { YELEN224_USER_ID_KEY, YELEN224_OTP_SIMULE } from "@/lib/auth/constants";
+import { VILLES_GUINEE } from "@/lib/villes";
 
 // ─── Anti-bot ─────────────────────────────────────────────────────────────────
 const CHALLENGES = [
@@ -34,8 +35,6 @@ function useIsHuman() {
   }, []);
   return score >= 3;
 }
-
-const VILLES = ["Conakry","Boké","Kindia","Mamou","Labé","Faranah","Kankan","Nzérékoré"];
 
 export default function InscriptionCitoyen() {
   const router   = useRouter();
@@ -118,18 +117,12 @@ export default function InscriptionCitoyen() {
     if (!cleaned || cleaned.length < 8) { setError("Entrez un numéro valide (minimum 8 chiffres)."); return; }
 
     const fullPhone = "+224" + cleaned;
-    setLoading(true);
-    try {
-      const { data: existing } = await supabase.from("users").select("id").eq("phone", fullPhone).maybeSingle();
-      if (existing) { setError("Un compte existe déjà avec ce numéro. Connectez-vous."); return; }
-      localStorage.setItem("inscription_phone",  fullPhone);
-      localStorage.setItem("inscription_prenom", form.prenom.trim());
-      localStorage.setItem("inscription_nom",    form.nom.trim());
-      localStorage.setItem("inscription_ville",  form.ville);
-      setStep("otp");
-      setTimeout(() => otpRefs[0].current?.focus(), 300);
-    } catch { setError("Erreur réseau. Réessayez."); }
-    finally { setLoading(false); }
+    localStorage.setItem("inscription_phone",  fullPhone);
+    localStorage.setItem("inscription_prenom", form.prenom.trim());
+    localStorage.setItem("inscription_nom",    form.nom.trim());
+    localStorage.setItem("inscription_ville",  form.ville);
+    setStep("otp");
+    setTimeout(() => otpRefs[0].current?.focus(), 300);
   };
 
   const handleVerify = async () => {
@@ -137,7 +130,7 @@ export default function InscriptionCitoyen() {
     if (blocked) { setError(`Bloqué. Attendez ${blockTimer}s.`); return; }
     const entered = code.join("");
     if (entered.length < 6) { setError("Entrez les 6 chiffres du code."); return; }
-    if (entered !== "123456") {
+    if (entered !== YELEN224_OTP_SIMULE) {
       const n = attempts + 1; setAttempts(n);
       if (n >= 3) { setBlocked(true); setBlockTimer(60); setError("3 échecs. Bloqué 60 secondes."); }
       else { setError(`Code incorrect. ${3 - n} essai(s) restant(s).`); }
@@ -150,13 +143,26 @@ export default function InscriptionCitoyen() {
       const prenom = localStorage.getItem("inscription_prenom");
       const nom    = localStorage.getItem("inscription_nom");
       const ville  = localStorage.getItem("inscription_ville");
-      const { data, error: err } = await supabase
-        .from("users")
-        .insert({ phone, prenom, nom, name: `${prenom} ${nom}`.trim(), ...(ville ? { ville } : {}) })
-        .select("id").single();
-      if (err) { setError(err.code === "23505" ? "Ce numéro est déjà enregistré." : "Erreur création compte."); return; }
+      const res  = await fetch("/api/citoyen/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code: entered, prenom, nom, ...(ville ? { ville } : {}) }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) { setError(json.code === "ALREADY_REGISTERED" ? "Ce numéro est déjà enregistré." : "Erreur création compte."); return; }
+
+      if (!json.tokenHash) {
+        setError("Impossible d'établir une session sécurisée. Réessayez.");
+        return;
+      }
+      const { error: sessionError } = await supabase.auth.verifyOtp({ token_hash: json.tokenHash, type: "email" });
+      if (sessionError) {
+        setError("Impossible d'établir une session sécurisée. Réessayez.");
+        return;
+      }
+
       ["inscription_phone","inscription_prenom","inscription_nom","inscription_ville"].forEach(k => localStorage.removeItem(k));
-      localStorage.setItem(YELEN224_USER_ID_KEY, (data as any).id);
+      localStorage.setItem(YELEN224_USER_ID_KEY, json.userId);
       router.push("/dashboard");
     } catch { setError("Erreur réseau."); }
     finally { setLoading(false); }
@@ -323,7 +329,7 @@ export default function InscriptionCitoyen() {
                 style={{ width: "100%", background: inputBg, border: `1px solid ${inputBrd}`, borderRadius: "14px", padding: "13px 14px", color: form.ville ? txt1 : txt2, fontSize: "14px", appearance: "none", cursor: "pointer" }}
               >
                 <option value="">Sélectionner une ville (optionnel)</option>
-                {VILLES.map(v => <option key={v} value={v}>{v}</option>)}
+                {VILLES_GUINEE.map(v => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
 
@@ -456,7 +462,7 @@ export default function InscriptionCitoyen() {
 
             <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", background: isDark ? "rgba(245,166,35,0.04)" : "rgba(245,166,35,0.03)", border: "1px solid rgba(245,166,35,0.1)", borderRadius: "10px", marginBottom: "14px" }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              <span style={{ color: txt2, fontSize: "11px" }}>Code de test : <strong style={{ color: "#F5A623" }}>123456</strong></span>
+              <span style={{ color: txt2, fontSize: "11px" }}>Code de test : <strong style={{ color: "#F5A623" }}>{YELEN224_OTP_SIMULE}</strong></span>
             </div>
 
             {error && (

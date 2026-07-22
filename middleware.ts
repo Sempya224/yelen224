@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { jwtVerify } from 'jose'
 
 // Routes publiques admin (pas de protection)
 const PUBLIC_ADMIN_ROUTES = ['/admin/login']
@@ -6,7 +7,26 @@ const PUBLIC_ADMIN_ROUTES = ['/admin/login']
 // Toutes les routes API admin publiques
 const PUBLIC_API_ROUTES = ['/api/admin/auth/login']
 
-export function middleware(request: NextRequest) {
+const ADMIN_JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
+
+// Vérification réelle de signature — avant, le middleware ne contrôlait
+// que le format (3 segments séparés par des points), la vraie
+// vérification n'avait lieu que dans chaque route API individuellement.
+// Un cookie forgé au bon format passait donc jusqu'à la page/route
+// avant d'être rejeté. Durci le 19/07/2026 : même secret/issuer/
+// audience que app/api/admin/auth/login/route.ts.
+async function adminTokenValide(token: string): Promise<boolean> {
+  try {
+    await jwtVerify(token, ADMIN_JWT_SECRET, {
+      issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // ═══════════════════════════════════════════
@@ -46,15 +66,17 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl)
     }
 
-    // Vérifier format basique du token (JWT-like)
-    const parts = adminToken.split('.')
-    if (parts.length !== 3) {
-      const response = NextResponse.redirect(new URL('/admin/login', request.url))
-      response.cookies.delete('yelen224_admin_session')
-      return response
+    // Vérification réelle de la signature JWT (plus un simple contrôle
+    // de format) — un token invalide/expiré/forgé est rejeté ici, avant
+    // d'atteindre la page.
+    if (!(await adminTokenValide(adminToken))) {
+      const loginUrl = new URL('/admin/login', request.url)
+      loginUrl.searchParams.set('redirect', pathname)
+      const redirectResponse = NextResponse.redirect(loginUrl)
+      redirectResponse.cookies.delete('yelen224_admin_session')
+      return redirectResponse
     }
 
-    // Token présent → laisser passer (vérification complète côté API/page)
     return response
   }
 
@@ -72,6 +94,13 @@ export function middleware(request: NextRequest) {
     if (!adminToken) {
       return NextResponse.json(
         { error: 'Non autorisé', code: 'NO_SESSION' },
+        { status: 401 }
+      )
+    }
+
+    if (!(await adminTokenValide(adminToken))) {
+      return NextResponse.json(
+        { error: 'Session invalide ou expirée', code: 'INVALID_SESSION' },
         { status: 401 }
       )
     }

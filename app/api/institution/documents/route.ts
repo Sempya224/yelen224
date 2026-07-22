@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getAuthenticatedInstitutionId } from "@/lib/institutionAuth";
+import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { getRequiredDocuments, MAX_DOCUMENT_SIZE, DOCUMENT_ACCEPTED_MIME } from "@/lib/documentsInstitution";
 
 // Contourne RLS via service role — documents_institution n'a volontairement
@@ -11,8 +12,12 @@ import { getRequiredDocuments, MAX_DOCUMENT_SIZE, DOCUMENT_ACCEPTED_MIME } from 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 export async function GET(req: NextRequest) {
-  const authInstId = await getAuthenticatedInstitutionId(req);
-  if (!authInstId) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  const membre = await getAuthenticatedMembre(req);
+  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (canAccessTab(membre.role, "documents") === "none") {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
+  const authInstId = membre.institutionId;
 
   const { data: inst, error: instErr } = await sb
     .from("institutions")
@@ -51,8 +56,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const authInstId = await getAuthenticatedInstitutionId(req);
-  if (!authInstId) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  const membre = await getAuthenticatedMembre(req);
+  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (!can(membre.role, "documents_institutionnels.write")) {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
+  const authInstId = membre.institutionId;
 
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Corps de requête invalide" }, { status: 400 });

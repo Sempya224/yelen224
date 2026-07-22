@@ -1,5 +1,20 @@
 import { supabase } from "@/lib/supabase";
 
+// ⚠️ Ce module utilise le client Supabase ANONYME du navigateur — sûr
+// uniquement pour un citoyen qui lit/marque ses PROPRES notifications
+// (RLS `notif_destinataire_own` couvre ce cas). Chantier "Yelen Assistant"
+// (20/07/2026) : notifierAnnulation/notifierReport/notifierConfirmation/
+// notifierRdvTermine/notifierRdvDepasse/verifierRdvsDepasses ont été
+// retirés d'ici — ils inséraient des notifications pour l'INSTITUTION
+// depuis ce client anonyme, ce que la seule policy RLS de `notifications`
+// (destinataire_type='citoyen' uniquement) rejette silencieusement (bug
+// documenté dans CLAUDE.md). Leurs équivalents vivent maintenant dans
+// lib/notificationEngine.ts (service_role, serveur uniquement), appelés
+// depuis des Server Actions/routes API (ex: app/mes-rdv/actions.ts pour
+// annuler/reporter). Ce qui reste ici (rappels 24h/30min/heure J via
+// verifierRappels) a le même défaut côté institution — à remplacer par le
+// Lot C (cron planifié) du même chantier.
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type NotifType =
@@ -12,7 +27,8 @@ export type NotifType =
   | "rdv_reporte"
   | "rdv_depasse"
   | "message"
-  | "avis";
+  | "avis"
+  | "rappel_manuel";
 
 export type AuteurType = "citoyen" | "institution" | "system";
 
@@ -63,7 +79,7 @@ function nomCitoyen(rdv: RdvComplet): string {
 export async function envoyerNotification(params: {
   destinataire_id: string;
   destinataire_type: "citoyen" | "institution";
-  rdv_id: string;
+  rdv_id?: string | null;
   type: NotifType;
   titre: string;
   message: string;
@@ -71,7 +87,7 @@ export async function envoyerNotification(params: {
   const { error } = await supabase.from("notifications").insert({
     destinataire_id: params.destinataire_id,
     destinataire_type: params.destinataire_type,
-    rdv_id: params.rdv_id,
+    rdv_id: params.rdv_id ?? null,
     type: params.type,
     titre: params.titre,
     message: params.message,
@@ -103,46 +119,6 @@ export async function logRdvEvent(params: {
     metadata: params.metadata ?? {},
   });
   if (error) console.error("[Event] Erreur log:", error.message);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION 1 — Confirmation après prise de RDV
-// Déclenchement : citoyen prend RDV → institution confirme
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export async function notifierConfirmation(rdv: RdvComplet): Promise<void> {
-  const dateLabel = formatDateFR(rdv.date_rdv);
-  const instName = rdv.institution?.name ?? "l'institution";
-
-  // → Citoyen
-  await envoyerNotification({
-    destinataire_id: rdv.citoyen_id,
-    destinataire_type: "citoyen",
-    rdv_id: rdv.id,
-    type: "confirmation",
-    titre: "✅ Rendez-vous confirmé",
-    message: `Votre RDV chez ${instName} le ${dateLabel} à ${rdv.heure_rdv} est confirmé.`,
-  });
-
-  // → Institution
-  await envoyerNotification({
-    destinataire_id: rdv.institution_id,
-    destinataire_type: "institution",
-    rdv_id: rdv.id,
-    type: "confirmation",
-    titre: "📅 Nouveau RDV confirmé",
-    message: `RDV de ${nomCitoyen(rdv)} le ${dateLabel} à ${rdv.heure_rdv} — ${rdv.objet ?? "Sans objet"}.`,
-  });
-
-  // Audit
-  await logRdvEvent({
-    rdv_id: rdv.id,
-    auteur_id: rdv.institution_id,
-    auteur_type: "institution",
-    action: "confirmation",
-    ancien_statut: "en_attente",
-    nouveau_statut: "confirme",
-  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -232,277 +208,6 @@ export async function notifierHeureRdv(rdv: RdvComplet): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION 5 — RDV terminé (déclenché par le prestataire)
-// + CTA laisser un avis pour le citoyen
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export async function notifierRdvTermine(
-  rdv: RdvComplet,
-  terminePar: string
-): Promise<void> {
-  const instName = rdv.institution?.name ?? "l'institution";
-
-  // → Citoyen : notification + CTA avis
-  await envoyerNotification({
-    destinataire_id: rdv.citoyen_id,
-    destinataire_type: "citoyen",
-    rdv_id: rdv.id,
-    type: "rdv_termine",
-    titre: "✅ RDV terminé — Donnez votre avis !",
-    message: `Votre RDV chez ${instName} est terminé. Partagez votre expérience en laissant un avis.`,
-  });
-
-  // → Institution
-  await envoyerNotification({
-    destinataire_id: rdv.institution_id,
-    destinataire_type: "institution",
-    rdv_id: rdv.id,
-    type: "rdv_termine",
-    titre: "✅ RDV marqué terminé",
-    message: `Le RDV de ${nomCitoyen(rdv)} a été marqué terminé.`,
-  });
-
-  // Marquer avis_demande = true sur le RDV
-  await supabase
-    .from("rdv")
-    .update({
-      statut: "termine",
-      termine_at: new Date().toISOString(),
-      termine_par: terminePar,
-      avis_demande: true,
-    })
-    .eq("id", rdv.id);
-
-  // Audit
-  await logRdvEvent({
-    rdv_id: rdv.id,
-    auteur_id: terminePar,
-    auteur_type: "institution",
-    action: "termine",
-    ancien_statut: "confirme",
-    nouveau_statut: "termine",
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION — RDV annulé (citoyen ou institution)
-// Avec motif obligatoire
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export async function notifierAnnulation(
-  rdv: RdvComplet,
-  annulePar: string,
-  annuleParType: "citoyen" | "institution",
-  motif: string
-): Promise<void> {
-  const instName = rdv.institution?.name ?? "l'institution";
-  const dateLabel = formatDateFR(rdv.date_rdv);
-  const auteurLabel = annuleParType === "citoyen" ? nomCitoyen(rdv) : instName;
-
-  // Notifier l'autre partie
-  const destinataireId =
-    annuleParType === "citoyen" ? rdv.institution_id : rdv.citoyen_id;
-  const destinataireType =
-    annuleParType === "citoyen" ? "institution" : "citoyen";
-
-  await envoyerNotification({
-    destinataire_id: destinataireId,
-    destinataire_type: destinataireType,
-    rdv_id: rdv.id,
-    type: "rdv_annule",
-    titre: "❌ RDV annulé",
-    message: `Le RDV du ${dateLabel} à ${rdv.heure_rdv} a été annulé par ${auteurLabel}. Motif : ${motif}`,
-  });
-
-  // Notifier aussi l'auteur (confirmation)
-  await envoyerNotification({
-    destinataire_id: annulePar,
-    destinataire_type: annuleParType,
-    rdv_id: rdv.id,
-    type: "rdv_annule",
-    titre: "❌ Annulation confirmée",
-    message: `Votre annulation du RDV du ${dateLabel} à ${rdv.heure_rdv} a bien été enregistrée.`,
-  });
-
-  // Update rdv
-  await supabase
-    .from("rdv")
-    .update({ statut: "annule", motif_annulation: motif })
-    .eq("id", rdv.id);
-
-  // Audit
-  await logRdvEvent({
-    rdv_id: rdv.id,
-    auteur_id: annulePar,
-    auteur_type: annuleParType,
-    action: "annulation",
-    ancien_statut: rdv.statut,
-    nouveau_statut: "annule",
-    motif,
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION — RDV reporté (citoyen ou institution)
-// Avec motif obligatoire
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export async function notifierReport(
-  rdv: RdvComplet,
-  reportePar: string,
-  reporteParType: "citoyen" | "institution",
-  motif: string,
-  nouvelleDateRdv: string,
-  nouvelleHeureRdv: string
-): Promise<void> {
-  const instName = rdv.institution?.name ?? "l'institution";
-  const ancienneDateLabel = formatDateFR(rdv.date_rdv);
-  const nouvelleDateLabel = formatDateFR(nouvelleDateRdv);
-  const auteurLabel = reporteParType === "citoyen" ? nomCitoyen(rdv) : instName;
-
-  const destinataireId =
-    reporteParType === "citoyen" ? rdv.institution_id : rdv.citoyen_id;
-  const destinataireType =
-    reporteParType === "citoyen" ? "institution" : "citoyen";
-
-  // → L'autre partie
-  await envoyerNotification({
-    destinataire_id: destinataireId,
-    destinataire_type: destinataireType,
-    rdv_id: rdv.id,
-    type: "rdv_reporte",
-    titre: "🔄 RDV reporté",
-    message: `${auteurLabel} a reporté le RDV du ${ancienneDateLabel} au ${nouvelleDateLabel} à ${nouvelleHeureRdv}. Motif : ${motif}`,
-  });
-
-  // → L'auteur (confirmation)
-  await envoyerNotification({
-    destinataire_id: reportePar,
-    destinataire_type: reporteParType,
-    rdv_id: rdv.id,
-    type: "rdv_reporte",
-    titre: "🔄 Report confirmé",
-    message: `Votre RDV a été reporté au ${nouvelleDateLabel} à ${nouvelleHeureRdv}.`,
-  });
-
-  // Update rdv
-  await supabase
-    .from("rdv")
-    .update({
-      date_rdv: nouvelleDateRdv,
-      heure_rdv: nouvelleHeureRdv,
-      statut: "en_attente",
-      motif_report: motif,
-    })
-    .eq("id", rdv.id);
-
-  // Audit
-  await logRdvEvent({
-    rdv_id: rdv.id,
-    auteur_id: reportePar,
-    auteur_type: reporteParType,
-    action: "report",
-    ancien_statut: rdv.statut,
-    nouveau_statut: "en_attente",
-    motif,
-    metadata: {
-      ancienne_date: rdv.date_rdv,
-      ancienne_heure: rdv.heure_rdv,
-      nouvelle_date: nouvelleDateRdv,
-      nouvelle_heure: nouvelleHeureRdv,
-    },
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// NOTIFICATION — RDV dépassé (+10min après heure de fin)
-// Déclenchement : dashboard institution au chargement
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export async function notifierRdvDepasse(rdv: RdvComplet): Promise<void> {
-  const instName = rdv.institution?.name ?? "l'institution";
-  const dateLabel = formatDateFR(rdv.date_rdv);
-
-  // → Institution : action requise
-  await envoyerNotification({
-    destinataire_id: rdv.institution_id,
-    destinataire_type: "institution",
-    rdv_id: rdv.id,
-    type: "rdv_depasse",
-    titre: "⚠️ RDV dépassé — Action requise",
-    message: `Le RDV de ${nomCitoyen(rdv)} du ${dateLabel} à ${rdv.heure_rdv} a dépassé son délai. Veuillez le marquer comme terminé, absent ou signaler un problème.`,
-  });
-
-  // → Citoyen : information
-  await envoyerNotification({
-    destinataire_id: rdv.citoyen_id,
-    destinataire_type: "citoyen",
-    rdv_id: rdv.id,
-    type: "rdv_depasse",
-    titre: "⚠️ RDV en attente de clôture",
-    message: `Votre RDV chez ${instName} du ${dateLabel} est en attente de confirmation de fin par l'établissement.`,
-  });
-
-  // Marquer depasse_notifie pour ne pas renvoyer
-  await supabase
-    .from("rdv")
-    .update({ depasse_notifie: true })
-    .eq("id", rdv.id);
-
-  // Audit
-  await logRdvEvent({
-    rdv_id: rdv.id,
-    auteur_id: "system",
-    auteur_type: "system",
-    action: "depasse",
-    ancien_statut: rdv.statut,
-    nouveau_statut: rdv.statut,
-    metadata: { heure_rdv: rdv.heure_rdv, date_rdv: rdv.date_rdv },
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// VÉRIFICATION AUTOMATIQUE — RDVs dépassés
-// À appeler au chargement du dashboard institution
-// Vérifie tous les RDV confirmés dont l'heure est dépassée de +10min
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export async function verifierRdvsDepasses(institutionId: string): Promise<void> {
-  const now = new Date();
-  const todayStr = now.toISOString().split("T")[0];
-
-  // Récupérer RDVs confirmés d'aujourd'hui non encore notifiés
-  const { data: rdvsAujourdhui } = await supabase
-    .from("rdv")
-    .select(`
-      id, date_rdv, heure_rdv, statut, citoyen_id, institution_id,
-      depasse_notifie, objet, motif_annulation, motif_report,
-      institution:institutions!rdv_institution_id_fkey(name),
-      citoyen:users!rdv_citoyen_id_fkey(prenom, nom, phone)
-    `)
-    .eq("institution_id", institutionId)
-    .eq("statut", "confirme")
-    .eq("depasse_notifie", false)
-    .eq("date_rdv", todayStr);
-
-  if (!rdvsAujourdhui) return;
-
-  for (const rdv of rdvsAujourdhui) {
-    const [hh, mm] = rdv.heure_rdv.split(":").map(Number);
-
-    // Durée estimée : 30min par défaut (ou calculée via disponibilites)
-    const heureFinEstimee = new Date(rdv.date_rdv);
-    heureFinEstimee.setHours(hh, mm + 30, 0, 0); // +30min par défaut
-
-    const depasseSeuil = new Date(heureFinEstimee.getTime() + 10 * 60 * 1000); // +10min
-
-    if (now >= depasseSeuil) {
-      await notifierRdvDepasse(rdv as unknown as RdvComplet);
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // VÉRIFICATION AUTOMATIQUE — Rappels 24h et 30min
 // À appeler au chargement du dashboard ou via cron
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -585,7 +290,7 @@ export function minutesAvantFin(rdv: { date_rdv: string; heure_rdv: string }, du
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FETCH NOTIFICATIONS — Pour NotificationBell et dashboards
+// FETCH NOTIFICATIONS — pour les écrans citoyen (ex: app/mes-rdv/page.tsx)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function fetchNotifications(destinataireId: string, limit = 20) {

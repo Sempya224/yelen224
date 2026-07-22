@@ -25,7 +25,11 @@ export async function GET(request: NextRequest) {
     await verifyToken(request)
 
     const { searchParams } = new URL(request.url)
-    const statut = searchParams.get('statut') || 'nouveau'
+    // 'nouveau' n'est pas une valeur réelle de l'enum statut_signalement
+    // (ouvert, en_cours, resolu, ignore) — dérive du fait qu'aucun insert
+    // réel n'utilise jamais 'ouvert', seul 'en_cours' est utilisé en
+    // pratique (citoyen, alerte système réputation).
+    const statut = searchParams.get('statut') || 'en_cours'
     const limit = parseInt(searchParams.get('limit') || '20')
     const page = parseInt(searchParams.get('page') || '0')
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getAuthenticatedInstitutionId } from "@/lib/institutionAuth";
+import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { can } from "@/lib/institutionPermissions";
 
 // Upload d'images (logo, bannière, photo responsable) via service role —
 // storage.objects n'a pas de policy RLS pour les institutions (pas de
@@ -19,8 +20,12 @@ const KIND_PREFIXES: Record<string, string> = {
 const MAX_SIZE = 5 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
-  const authInstId = await getAuthenticatedInstitutionId(req);
-  if (!authInstId) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  const membre = await getAuthenticatedMembre(req);
+  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (!can(membre.role, "profil_entreprise.write") && !can(membre.role, "profil_responsable.write")) {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
+  const authInstId = membre.institutionId;
 
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Corps de requête invalide" }, { status: 400 });

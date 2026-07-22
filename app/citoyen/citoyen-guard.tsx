@@ -9,7 +9,8 @@ export function CitoyenGuard({ children }: { children: React.ReactNode }) {
   const [ok, setOk] = useState(false);
 
   useEffect(() => {
-    const id = localStorage.getItem(YELEN224_USER_ID_KEY);
+    let id: string | null = null;
+    try { id = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     if (!id) {
       router.replace("/inscription");
       return;

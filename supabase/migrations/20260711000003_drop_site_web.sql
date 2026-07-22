@@ -1,0 +1,11 @@
+-- Migration 2b : suppression de institutions.site_web (11/07/2026)
+-- Colonne fusionnee dans website (backfill deja fait en migration
+-- 20260709000001 + 20260711 profil entreprise). Code applicatif bascule sur
+-- website dans Lot 2 (ProfilEntrepriseTab, api/institution/profile) et
+-- Lot 3 (app/admin/page.tsx, api/admin/institutions).
+--
+-- ⚠️ NE PAS EXECUTER avant que Lot 3 soit deploye en production ET verifie
+-- (fiche publique, dashboard institution, back-office admin affichent bien
+-- website sans erreur). Execution manuelle via SQL Editor par Bryan
+-- uniquement, comme tout DDL sur ce projet.
+ALTER TABLE institutions DROP COLUMN site_web;

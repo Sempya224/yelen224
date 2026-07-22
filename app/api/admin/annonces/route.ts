@@ -38,7 +38,22 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await q
     if (error) throw error
-    return NextResponse.json(data || [])
+
+    // Aligné sur api/institution/annonces (16/07/2026) — `nb_vues` brut n'est
+    // écrit par personne côté citoyen (RLS n'autorise pas l'UPDATE client sur
+    // `annonces`), donc COUNT(*) réel sur annonce_vues, même principe que côté
+    // dashboard institution.
+    const ids = (data ?? []).map((a) => a.id)
+    const vuesMap: Record<string, number> = {}
+    if (ids.length > 0) {
+      const { data: vuesRows } = await supabaseAdmin.from('annonce_vues').select('annonce_id').in('annonce_id', ids)
+      ;(vuesRows ?? []).forEach((v: { annonce_id: string }) => {
+        vuesMap[v.annonce_id] = (vuesMap[v.annonce_id] ?? 0) + 1
+      })
+    }
+    const enriched = (data ?? []).map((a) => ({ ...a, nb_vues: vuesMap[a.id] ?? 0 }))
+
+    return NextResponse.json(enriched)
   } catch {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
   }

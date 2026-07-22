@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import dynamic from "next/dynamic";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
+import { VILLES_GUINEE } from "@/lib/villes";
 
 const CarteMap = dynamic(() => import("@/components/CarteMap"), { ssr: false });
 
@@ -31,7 +32,6 @@ const CAT_META: Record<string, { short: string; svgPath: string; gradient: strin
   "Autre":                   { gradient: "135deg,#F5A623,#C8940A", short: "Autre",      svgPath: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" },
 };
 
-const VILLES = ["Conakry","Boké","Kindia","Mamou","Labé","Faranah","Kankan","Nzérékoré"];
 const SUGGESTIONS_BASE = ["Hôpital Donka","Banque de Guinée","Mairie de Conakry","École polytechnique","Clinique Pasteur","Tribunal de commerce","Pharmacie centrale"];
 
 function InstitutionLogo({ inst, size = 64 }: { inst: Institution; size?: number }) {
@@ -357,7 +357,7 @@ function RechercheInner() {
           <div style={{ color: t2, fontSize: "9px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "12px" }}>Filtres avancés</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
             {[
-              { label: "Ville", val: filterVille, onChange: (v: string) => setFilterVille(v), options: VILLES, placeholder: "Toutes les villes" },
+              { label: "Ville", val: filterVille, onChange: (v: string) => setFilterVille(v), options: VILLES_GUINEE, placeholder: "Toutes les villes" },
             ].map(f => (
               <div key={f.label}>
                 <div style={{ color: t2, fontSize: "9px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "5px" }}>{f.label}</div>

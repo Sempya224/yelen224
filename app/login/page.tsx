@@ -2,12 +2,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
-import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
+import { supabase } from "@/lib/supabase";
+import { YELEN224_USER_ID_KEY, YELEN224_OTP_SIMULE } from "@/lib/auth/constants";
 
 // ─── Anti-bot : questions mathématiques + logiques ────────────────────────────
 const CHALLENGES = [
@@ -59,6 +59,9 @@ function useHumanDetection() {
 
 export default function LoginCitoyen() {
   const router  = useRouter();
+  const searchParams = useSearchParams();
+  const [loggedOut, setLoggedOut] = useState(searchParams.get("logged_out") === "1");
+  const [sessionExpired, setSessionExpired] = useState(searchParams.get("session_expired") === "1");
   const { theme } = useTheme();
   const C = T[theme];
   const isDark = theme === "dark";
@@ -99,6 +102,18 @@ export default function LoginCitoyen() {
     const idx = Math.floor(Math.random() * CHALLENGES.length);
     setChallenge(CHALLENGES[idx]);
   }, []);
+
+  // Bannières post-déconnexion / session expirée — auto-disparition
+  useEffect(() => {
+    if (!loggedOut) return;
+    const t = setTimeout(() => setLoggedOut(false), 4500);
+    return () => clearTimeout(t);
+  }, [loggedOut]);
+  useEffect(() => {
+    if (!sessionExpired) return;
+    const t = setTimeout(() => setSessionExpired(false), 4500);
+    return () => clearTimeout(t);
+  }, [sessionExpired]);
 
   // Validation challenge (insensible à la casse pour les réponses texte)
   useEffect(() => {
@@ -158,21 +173,21 @@ export default function LoginCitoyen() {
     setLoading(true);
 
     try {
-      const { data } = await supabase
-        .from("users")
-        .select("id, prenom, nom, name")
-        .eq("phone", fullPhone)
-        .maybeSingle();
+      const res = await fetch("/api/citoyen/auth/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: fullPhone }),
+      });
+      const json = await res.json();
 
-      if (!data) {
+      if (!res.ok || !json.success) {
         setError("Aucun compte trouvé avec ce numéro. Créez votre compte.");
         setLoading(false);
         return;
       }
 
-      const r = data as any;
-      const displayName = r.prenom ? `${r.prenom} ${r.nom || ""}`.trim() : (r.name || "Citoyen");
-      setUserId(String(r.id));
+      const displayName = json.user.prenom ? `${json.user.prenom} ${json.user.nom || ""}`.trim() : "Citoyen";
+      setUserId(String(json.user.id));
       setUserName(displayName);
       localStorage.setItem("yelen_login_phone", fullPhone);
       setStep("otp");
@@ -210,10 +225,26 @@ export default function LoginCitoyen() {
     setLoading(true);
     try {
       const storedPhone = localStorage.getItem("yelen_login_phone");
-      const { data } = await supabase.from("users").select("id").eq("phone", storedPhone).single();
-      if (!data) { setError("Compte introuvable."); return; }
+      const res = await fetch("/api/citoyen/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: storedPhone, code: entered }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) { setError("Compte introuvable."); return; }
+
+      if (!json.tokenHash) {
+        setError("Impossible d'établir une session sécurisée. Réessayez.");
+        return;
+      }
+      const { error: sessionError } = await supabase.auth.verifyOtp({ token_hash: json.tokenHash, type: "email" });
+      if (sessionError) {
+        setError("Impossible d'établir une session sécurisée. Réessayez.");
+        return;
+      }
+
       localStorage.removeItem("yelen_login_phone");
-      localStorage.setItem(YELEN224_USER_ID_KEY, (data as any).id);
+      localStorage.setItem(YELEN224_USER_ID_KEY, json.userId);
 
       // Redirect post-login si présent
       const params = new URLSearchParams(window.location.search);
@@ -312,6 +343,19 @@ export default function LoginCitoyen() {
 
       {/* ── FORMULAIRE ── */}
       <div style={{ padding: "24px 20px 40px", maxWidth: "480px", margin: "0 auto", animation: "fadeUp 0.3s ease" }}>
+
+        {loggedOut && step === "phone" && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: isDark ? "rgba(22,163,74,0.12)" : "#DCFCE7", border: "1px solid #16A34A", borderLeft: "3px solid #16A34A", borderRadius: "12px", marginBottom: "18px" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+            <span style={{ color: "#15803D", fontSize: "13px", fontWeight: "700" }}>Vous avez été déconnecté avec succès</span>
+          </div>
+        )}
+        {sessionExpired && step === "phone" && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: "#FFF3CD", border: "1px solid #FFC107", borderLeft: "3px solid #FFC107", borderRadius: "12px", marginBottom: "18px" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#856404" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span style={{ color: "#856404", fontSize: "13px", fontWeight: "700" }}>Votre session est arrivée à expiration pour protéger votre compte. Reconnectez-vous pour continuer.</span>
+          </div>
+        )}
 
         {step === "phone" && (
           <>

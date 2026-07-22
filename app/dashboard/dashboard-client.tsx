@@ -8,6 +8,8 @@ import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
+import { NotifPanel } from "@/components/NotifPanel";
+import { LogoutFlow, CITOYEN_LOGOUT_COPY } from "@/components/LogoutFlow";
 // ─── Types ────────────────────────────────────────────────────────────────────
 type RDV = {
   id: string; date_rdv: string; heure_rdv?: string;
@@ -162,26 +164,37 @@ export function DashboardClient() {
   const [showWelcome, setShowWelcome]   = useState(false);
   const [isFirstVisit, setIsFirstVisit] = useState(false);
   const [alertDismissed, setAlertDismissed] = useState(false);
+  const [logoutOpen, setLogoutOpen]     = useState(false);
   const [showAllPaiements, setShowAllPaiements] = useState(false);
+  // Chantier "Yelen Assistant" (20/07/2026) — header unifié avec le reste
+  // de l'app (cloche + messages réels), demandé par Bryan : cet écran avait
+  // jusqu'ici son propre bandeau simplifié (logo + avatar + déconnexion),
+  // sans cloche ni messagerie, contrairement à app/page.tsx et aux autres
+  // écrans citoyen.
+  const [notifOpen, setNotifOpen]       = useState(false);
+  const [notifCount, setNotifCount]     = useState(0);
+  const [msgCount, setMsgCount]         = useState(0);
 
   // ── Chargement données ─────────────────────────────────────────────────────
   const loadData = useCallback(async (id: string) => {
     setLoading(true);
 
-    // 1. Profil utilisateur
+    // 1. Profil utilisateur — `name` retiré du select : colonne inexistante sur
+    // `users` (jamais créée par migration, contrairement à institutions.name/
+    // rdv.objet ; l'inscription citoyen écrit prenom/nom directement, cf.
+    // api/citoyen/auth/register). La sélectionner faisait échouer toute la
+    // requête (PostgREST rejette un select sur colonne inconnue) → user restait
+    // null en permanence → "Bonjour Citoyen" et carte profil vide pour tout le monde.
     const { data: uRow } = await supabase
       .from("users")
-      .select("prenom,nom,name,phone,email")
+      .select("prenom,nom,phone,email")
       .eq("id", id)
       .maybeSingle();
 
     if (uRow) {
       const r = uRow as any;
-      let prenom = (r.prenom || "").trim(), nom = (r.nom || "").trim();
-      if (!prenom && r.name) {
-        const p = String(r.name).trim().split(/\s+/);
-        prenom = p[0] || ""; nom = p.slice(1).join(" ") || "";
-      }
+      const prenom = (r.prenom || "").trim();
+      const nom = (r.nom || "").trim();
       setUser({ prenom: prenom || r.phone || "Citoyen", nom, phone: r.phone || "", email: r.email || "" });
     }
 
@@ -250,25 +263,36 @@ export function DashboardClient() {
   }, []);
 
   useEffect(() => {
-    const id = localStorage.getItem(YELEN224_USER_ID_KEY);
+    let id: string | null = null;
+    try { id = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     if (!id) { router.replace("/inscription"); return; }
     setAuthorized(true); setUserId(id);
-    const visitKey = `yelen224_visited_${id}`;
-    if (!localStorage.getItem(visitKey)) {
-      setIsFirstVisit(true);
-      localStorage.setItem(visitKey, "1");
-    }
-    // Vérifier si alerte déjà vue
-    const alertKey = `yelen224_alert_annul_${id}`;
-    if (localStorage.getItem(alertKey)) setAlertDismissed(true);
+    try {
+      const visitKey = `yelen224_visited_${id}`;
+      if (!localStorage.getItem(visitKey)) {
+        setIsFirstVisit(true);
+        localStorage.setItem(visitKey, "1");
+      }
+      // Vérifier si alerte déjà vue
+      const alertKey = `yelen224_alert_annul_${id}`;
+      if (localStorage.getItem(alertKey)) setAlertDismissed(true);
+    } catch {}
     void loadData(id);
+    (async () => {
+      try {
+        const [nD, mD] = await Promise.all([
+          supabase.from("notifications").select("*", { count: "exact", head: true }).eq("destinataire_id", id).eq("destinataire_type", "citoyen").eq("lu", false),
+          supabase.from("messages").select("*", { count: "exact", head: true }).eq("destinataire_citoyen_id", id).eq("lu", false),
+        ]);
+        setNotifCount(nD.count ?? 0);
+        setMsgCount(mD.count ?? 0);
+      } catch { /* silencieux — mêmes garanties que app/page.tsx */ }
+    })();
   }, [router, loadData]);
 
   useEffect(() => {
     if (!loading && isFirstVisit && user) setShowWelcome(true);
   }, [loading, isFirstVisit, user]);
-
-  const logout = () => { localStorage.removeItem(YELEN224_USER_ID_KEY); router.replace("/"); };
 
   const dismissAlert = () => {
     setAlertDismissed(true);
@@ -312,19 +336,39 @@ export function DashboardClient() {
     { key: "aide",    label: "Aide",    icon: Ic.Help  },
   ];
   // ── Header ────────────────────────────────────────────────────────────────
+  // Même bandeau doré que les headers simplifiés de app/page.tsx (onglets
+  // Recherche/RDV/Compte) — cohérence demandée par Bryan le 20/07/2026,
+  // cet écran avait jusqu'ici son propre bandeau sombre sans cloche ni
+  // messagerie. Mode sombre volontairement neutre, même convention.
+  const hBg     = isDark ? C.pageBg : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)";
+  const hText   = isDark ? C.text : "#080812";
+  const hChip   = isDark ? C.cardBg : "#F5A623";
+  const hIcon   = isDark ? hText : "#fff";
+  const hBrd    = isDark ? C.border : "transparent";
+  const hShadow = isDark ? "none" : "0 2px 8px rgba(245,166,35,0.35)";
   const Bandeau = () => (
-    <div onClick={() => setTab("accueil")} style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: isDark ? "rgba(8,8,18,0.96)" : "rgba(250,250,252,0.96)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.12)" : "rgba(0,0,0,0.06)"}`, padding: "0 16px", cursor: "pointer" }}>
-      <div style={{ height: "52px", display: "flex", alignItems: "center", gap: "12px" }}>
-        <Logo size={34}/>
+    <div style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, borderBottom: isDark ? `1px solid ${C.border}` : "none" }}>
+      <div onClick={() => setTab("accueil")} style={{ height: "52px", display: "flex", alignItems: "center", gap: "10px", padding: "0 16px", cursor: "pointer" }}>
+        <Logo size={30}/>
         <div style={{ flex: 1 }}/>
-        <Link href="/profil" onClick={e => e.stopPropagation()} style={{ textDecoration: "none" }}>
-          <div className="tap" style={{ width: "32px", height: "32px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "900", color: "#080812", boxShadow: "0 2px 8px rgba(245,166,35,0.25)" }}>
-            {ini}
-          </div>
-        </Link>
-        <button onClick={e => { e.stopPropagation(); logout(); }} className="tap" style={{ width: "32px", height: "32px", borderRadius: "50%", background: isDark ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-          {Ic.Out()}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }} onClick={e => e.stopPropagation()}>
+          <button onClick={() => { setNotifOpen(o => !o); if (!notifOpen) setNotifCount(0); }} className="tap" style={{ position: "relative", width: "34px", height: "34px", borderRadius: "50%", background: hChip, border: `1px solid ${hBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hIcon }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            {notifCount > 0 && <span style={{ position: "absolute", top: "-3px", right: "-3px", backgroundColor: "#ef4444", color: "#fff", fontSize: "9px", fontWeight: "800", borderRadius: "10px", minWidth: "15px", height: "15px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
+          </button>
+          <Link href="/messagerie/citoyen" className="tap" style={{ position: "relative", width: "34px", height: "34px", borderRadius: "50%", background: hChip, border: `1px solid ${hBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", color: hIcon, textDecoration: "none" }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            {msgCount > 0 && <span style={{ position: "absolute", top: "-3px", right: "-3px", backgroundColor: "#ef4444", color: "#fff", fontSize: "9px", fontWeight: "800", borderRadius: "10px", minWidth: "15px", height: "15px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{msgCount > 9 ? "9+" : msgCount}</span>}
+          </Link>
+          <Link href="/profil" style={{ textDecoration: "none" }}>
+            <div className="tap" style={{ width: "34px", height: "34px", borderRadius: "50%", background: isDark ? "linear-gradient(135deg,#F5A623,#C8940A)" : "rgba(0,0,0,0.15)", border: `1px solid ${hBrd}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "900", color: isDark ? "#080812" : hIcon }}>
+              {ini}
+            </div>
+          </Link>
+          <button onClick={() => setLogoutOpen(true)} className="tap" style={{ width: "34px", height: "34px", borderRadius: "50%", background: hChip, border: `1px solid ${hBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            {Ic.Out()}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -355,6 +399,7 @@ export function DashboardClient() {
       {showWelcome && <WelcomeOverlay prenom={greet} onDismiss={() => setShowWelcome(false)}/>}
       <ThemeFloating theme={theme} onToggle={toggleTheme}/>
       <Bandeau/>
+      {notifOpen && <NotifPanel onClose={() => setNotifOpen(false)} t1={C.text} t2={C.textMuted} t3={C.textSubtle} card={C.cardBg} card2={C.sectionAlt} brd={C.border} userId={userId}/>}
 
       <main style={{ padding: "16px 16px 0", animation: "fadeUp 0.25s ease" }}>
 
@@ -792,6 +837,14 @@ export function DashboardClient() {
           );
         })}
       </nav>
+
+      {logoutOpen && (
+        <LogoutFlow
+          onClose={() => setLogoutOpen(false)}
+          redirectTo="/login?logged_out=1"
+          copy={CITOYEN_LOGOUT_COPY}
+        />
+      )}
     </div>
   );
 }

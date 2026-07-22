@@ -19,15 +19,35 @@ async function verifyAdmin(request: NextRequest) {
   return payload
 }
 
+// Whitelist stricte — jamais email/password_hash via cet endpoint
+// générique (mass-assignment corrigé le 19/07/2026 : .update(body) brut
+// permettait auparavant d'injecter n'importe quelle colonne).
+const CHAMPS_MODIFIABLES = ['nom', 'prenom', 'role', 'is_active'] as const
+
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  let admin: Awaited<ReturnType<typeof verifyAdmin>>
   try {
-    const admin = await verifyAdmin(request)
+    admin = await verifyAdmin(request)
+  } catch (e) {
+    const code = e instanceof Error && e.message === 'NO_TOKEN' ? 401 : 403
+    return NextResponse.json({ error: 'Non autorisé' }, { status: code })
+  }
+
+  try {
     const { id } = await params
     const body = await request.json()
 
+    const updates: Record<string, unknown> = {}
+    for (const champ of CHAMPS_MODIFIABLES) {
+      if (champ in body) updates[champ] = body[champ]
+    }
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'Aucun champ modifiable fourni' }, { status: 400 })
+    }
+
     const { error } = await supabaseAdmin
       .from('admin_users')
-      .update(body)
+      .update(updates)
       .eq('id', id)
 
     if (error) throw error
@@ -37,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       action: 'MODIFIER_ADMIN',
       cible_table: 'admin_users',
       cible_id: id,
-      details: body,
+      details: updates,
     })
 
     return NextResponse.json({ ok: true })

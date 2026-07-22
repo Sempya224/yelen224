@@ -1,16 +1,20 @@
 "use client";
 // ═══════════════════════════════════════════════════════════════════════
-// YELEN224 — Prise de RDV + Services Payants
+// YELEN224 — Prise de RDV (Wizard)
 // Path : /app/rdv/[id]/page.tsx
 //
-// ✅ Services payants liés STRICTEMENT à l'institution_id du profil
-// ✅ Créneaux gratuits ET services payants clairement distingués
-// ✅ Paiement sur place — confirmation via code Yelen 6 chiffres
-// ✅ Niveau Stripe/PayPal — UX avancée, mobile first
-// ✅ Données réelles Supabase — paid_services + paid_bookings + rdv
-// ✅ Sécurité : userId via YELEN224_USER_ID_KEY
-// ✅ FIX MAJEUR : "Jeu 08:00", "Lun 09:30"… → résolution automatique
-//    vers la prochaine occurrence YYYY-MM-DD correspondante
+// Refonte Lot D (décision CEO 16/07/2026) : le citoyen ne réserve plus un
+// "rendez-vous" abstrait avec un motif libre — il réserve un SERVICE précis
+// proposé par l'établissement (gratuit, "Offre générale" — institutions.
+// services structuré, Lot A — ou payant, paid_services — réellement
+// fonctionnel dès maintenant, aucun flag de gating : la restriction par
+// abonnement/statut de compte est un mécanisme à concevoir séparément,
+// plus tard, pas une raison de désactiver la fonctionnalité en attendant).
+// Calendrier + créneaux dérivés de institutions.disponibilites +
+// capacite_par_creneau (Lot B, via /api/rdv-disponibilite). Champs
+// complémentaires configurés par service (Lot C) demandés seulement si le
+// service en a. QR + code Yelen générés pour toute réservation (gratuite ou
+// payante) — unifie l'ancienne dualité SuccessGratuit/SuccessPayant.
 // ═══════════════════════════════════════════════════════════════════════
 
 import { supabase } from "@/lib/supabase";
@@ -18,9 +22,11 @@ import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
 import Link from "next/link";
+import QRCode from "qrcode";
 import { notFound, useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createRdv } from "./actions";
+import { createRdv, notifierReservationPayante } from "./actions";
+import { type CreneauSlot, generateSlotsInRange, toISODate } from "@/lib/disponibilites";
 
 // ─── Types ────────────────────────────────────────────────────────────
 type InstitutionRow = {
@@ -36,205 +42,49 @@ type InstitutionRow = {
   description: string | null;
   moyenne_avis: number;
   nb_avis: number;
+  disponibilites: unknown;
+  services: unknown;
+  capacite_par_creneau: number;
 };
 
-type CreneauSlot = {
-  key: string;
-  label: string;
-  dateRdv: string;   // YYYY-MM-DD garanti après résolution
-  heureRdv: string;  // HH:MM
-};
+type ChampComplementaire = { label: string; type: "texte" | "tel" | "numero"; requis: boolean };
 
-type PaidService = {
+type PaidServiceRow = {
   id: string;
-  institution_id: string;
   nom: string;
   prix: number;
   duree_minutes: number;
   description: string | null;
-  is_active: boolean;
+  champs_complementaires: ChampComplementaire[] | null;
 };
 
-// ─── Résolution "Jeu 08:00" → prochain jeudi YYYY-MM-DD ──────────────
-const FR_DAYS: Record<string, number> = {
-  lun: 1, lundi: 1,
-  mar: 2, mardi: 2,
-  mer: 3, mercredi: 3,
-  jeu: 4, jeudi: 4,
-  ven: 5, vendredi: 5,
-  sam: 6, samedi: 6,
-  dim: 0, dimanche: 0,
+// Service unifié — gratuit (Offre générale) ou payant (paid_services),
+// tous deux réservables via le même wizard (principe CEO : "le citoyen
+// réserve un service, jamais un motif abstrait").
+type WizardService = {
+  id: string;
+  nom: string;
+  description: string;
+  duree_minutes: number;
+  payant: boolean;
+  prix: number;
+  champs_complementaires: ChampComplementaire[];
+  serviceIdForBooking?: string;
 };
 
-/**
- * Étant donné un nom de jour français (ex: "Jeu") et une heure (ex: "08:00"),
- * renvoie la prochaine date YYYY-MM-DD correspondante (aujourd'hui inclus si
- * le créneau est encore à venir, sinon la semaine suivante).
- */
-function resolveNextWeekday(dayName: string, heureRdv: string): string {
-  const key = dayName.toLowerCase().trim();
-  const targetDow = FR_DAYS[key];
-  if (targetDow === undefined) return "";
+type Availability = { capacite: number; counts: Record<string, number> };
 
-  const now = new Date();
-  const [hh, mm] = heureRdv.split(":").map(Number);
-  const todayDow = now.getDay(); // 0=dim … 6=sam
+type StepId = "service" | "date" | "heure" | "recap" | "champs";
 
-  let diffDays = (targetDow - todayDow + 7) % 7;
-
-  // Si c'est aujourd'hui mais l'heure est déjà passée → la semaine prochaine
-  if (diffDays === 0) {
-    const slotTime = hh * 60 + mm;
-    const nowTime  = now.getHours() * 60 + now.getMinutes();
-    if (slotTime <= nowTime) diffDays = 7;
-  }
-
-  const target = new Date(now);
-  target.setDate(now.getDate() + diffDays);
-  target.setHours(0, 0, 0, 0);
-
-  const y   = target.getFullYear();
-  const mo  = String(target.getMonth() + 1).padStart(2, "0");
-  const day = String(target.getDate()).padStart(2, "0");
-  return `${y}-${mo}-${day}`;
-}
-
-// ─── Parsing disponibilités ──────────────────────────────────────────
-function institutionDisplayName(row: Record<string, unknown>): string {
-  return String(row.name ?? "").trim();
-}
-
-function parseDisponibilites(raw: unknown): CreneauSlot[] {
-  if (raw === null || raw === undefined) return [];
-  let data: unknown = raw;
-  if (typeof raw === "string") {
-    const t = raw.trim();
-    if (!t) return [];
-    try { data = JSON.parse(t); }
-    catch {
-      return t.split(/[\n,;]/).map(s => s.trim()).filter(Boolean)
-        .map((s, i) => parseStringSlot(s, i)).filter((s): s is CreneauSlot => s !== null);
-    }
-  }
-  if (!Array.isArray(data)) return [];
-  const out: CreneauSlot[] = [];
-  let idx = 0;
-  for (const item of data) {
-    if (typeof item === "string") {
-      const slot = parseStringSlot(item, idx);
-      if (slot) { out.push(slot); idx++; }
-      continue;
-    }
-    if (item && typeof item === "object") {
-      const o = item as Record<string, unknown>;
-      const date  = String(o.date ?? o.date_rdv ?? "").trim();
-      const heure = String(o.heure ?? o.heure_rdv ?? "").trim();
-      if (date && heure) {
-        out.push({ key: `${date}-${heure}-${idx}`, label: `${date} · ${heure}`, dateRdv: date, heureRdv: heure });
-        idx++;
-      }
-    }
-  }
-  return out;
-}
-
-/**
- * parseStringSlot — résout TOUS les formats connus :
- *  • ISO strict         : "2026-04-02T12:30" / "2026-04-02 12:30"
- *  • Date.parse valide  : ex "April 2 2026 08:00"
- *  • Jour FR + heure    : "Jeu 08:00", "Lun 09:30", "Mer 12:00"  ← FIX
- *  • Heure seule        : "08:00"  → date du jour si à venir, sinon demain
- */
-function parseStringSlot(s: string, index: number): CreneauSlot | null {
-  const t = s.trim();
-  if (!t) return null;
-
-  // ── 1. Format ISO strict ──────────────────────────────────────────
-  const mIso = /^(\d{4}-\d{2}-\d{2})[T\s]+(\d{2}:\d{2})/.exec(t);
-  if (mIso) {
-    return { key: `iso-${index}-${t}`, label: t, dateRdv: mIso[1], heureRdv: mIso[2].slice(0, 5) };
-  }
-
-  // ── 2. "Jour HH:MM" → résolution vers la prochaine occurrence ────
-  //    Formats acceptés : "Jeu 08:00", "jeu. 08:00", "Jeudi 08:00"
-  const mDay = /^([A-Za-zÀ-ÿ]+)\.?\s+(\d{1,2}:\d{2})$/.exec(t);
-  if (mDay) {
-    const dayName  = mDay[1];
-    const heureRdv = mDay[2].padStart(5, "0");
-    const dateRdv  = resolveNextWeekday(dayName, heureRdv);
-    if (dateRdv) {
-      const label = formatDateLabel(dateRdv, heureRdv);
-      return { key: `day-${index}-${t}`, label, dateRdv, heureRdv };
-    }
-  }
-
-  // ── 3. "HH:MM" seule → aujourd'hui si à venir, sinon demain ──────
-  const mTime = /^(\d{1,2}:\d{2})$/.exec(t);
-  if (mTime) {
-    const heureRdv = mTime[1].padStart(5, "0");
-    const [hh, mm] = heureRdv.split(":").map(Number);
-    const now      = new Date();
-    const slotTime = hh * 60 + mm;
-    const nowTime  = now.getHours() * 60 + now.getMinutes();
-    const base     = new Date(now);
-    if (slotTime <= nowTime) base.setDate(base.getDate() + 1);
-    base.setHours(0, 0, 0, 0);
-    const dateRdv = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
-    return { key: `time-${index}-${t}`, label: formatDateLabel(dateRdv, heureRdv), dateRdv, heureRdv };
-  }
-
-  // ── 4. Tentative Date.parse générique ────────────────────────────
-  const asDate = Date.parse(t);
-  if (!Number.isNaN(asDate)) {
-    const d   = new Date(asDate);
-    const y   = d.getFullYear();
-    const mo  = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const hh  = String(d.getHours()).padStart(2, "0");
-    const mm2 = String(d.getMinutes()).padStart(2, "0");
-    return {
-      key:      `dp-${index}-${t}`,
-      label:    d.toLocaleString("fr-FR"),
-      dateRdv:  `${y}-${mo}-${day}`,
-      heureRdv: `${hh}:${mm2}`,
-    };
-  }
-
-  // ── 5. Format illisible → on l'exclut silencieusement ────────────
-  //   (plus de slots "⚠ Format invalide" affichés à l'utilisateur)
-  return null;
-}
-
-function groupCreneaux(slots: CreneauSlot[]): { label: string; slots: CreneauSlot[] }[] {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const groups: Record<string, CreneauSlot[]> = {};
-  for (const slot of slots) {
-    let key = "À planifier";
-    try {
-      const d = new Date(slot.dateRdv + "T12:00:00");
-      if (!isNaN(d.getTime())) {
-        const diff = Math.floor((d.getTime() - today.getTime()) / 86400000);
-        if (diff < 0) key = "Passé";
-        else if (diff === 0) key = "Aujourd'hui";
-        else if (diff === 1) key = "Demain";
-        else if (diff < 7) key = "Cette semaine";
-        else if (diff < 14) key = "La semaine prochaine";
-        else key = "Plus tard";
-      }
-    } catch {}
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(slot);
-  }
-  const order = ["Aujourd'hui", "Demain", "Cette semaine", "La semaine prochaine", "Plus tard", "À planifier", "Passé"];
-  return order.filter(k => groups[k]?.length).map(k => ({ label: k, slots: groups[k] }));
-}
+// ─── Utilitaires date ─────────────────────────────────────────────────
+const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const JOURS_FR = ["dim", "lun", "mar", "mer", "jeu", "ven", "sam"];
 
 function formatDateLabel(dateRdv: string, heureRdv: string): string {
   try {
     const d = new Date(`${dateRdv}T${heureRdv || "00:00"}:00`);
     if (isNaN(d.getTime())) return `${dateRdv} ${heureRdv}`.trim();
-    return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
-      + (heureRdv ? ` à ${heureRdv}` : "");
+    return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + (heureRdv ? ` à ${heureRdv}` : "");
   } catch { return `${dateRdv} ${heureRdv}`.trim(); }
 }
 
@@ -244,6 +94,20 @@ function genCode(): string {
 
 function formatPrix(p: number): string {
   return p.toLocaleString("fr-FR") + " FCFA";
+}
+
+function buildIcs(opts: { title: string; description: string; location: string; dateRdv: string; heureRdv: string; durationMinutes: number }): string {
+  const [y, mo, d] = opts.dateRdv.split("-").map(Number);
+  const [hh, mm] = (opts.heureRdv || "00:00").split(":").map(Number);
+  const start = new Date(y, mo - 1, d, hh, mm);
+  const end = new Date(start.getTime() + Math.max(opts.durationMinutes, 15) * 60000);
+  const fmt = (dt: Date) => `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}T${String(dt.getHours()).padStart(2, "0")}${String(dt.getMinutes()).padStart(2, "0")}00`;
+  return [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Yelen224//RDV//FR", "BEGIN:VEVENT",
+    `UID:${Date.now()}@yelen224`, `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
+    `SUMMARY:${opts.title}`, `DESCRIPTION:${opts.description}`, `LOCATION:${opts.location}`,
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
 }
 
 // ─── Métadonnées catégories ───────────────────────────────────────────
@@ -259,12 +123,6 @@ const CAT_META: Record<string, { svgPath: string; color: string }> = {
   "ONG / Association":        { svgPath: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2", color: "#F5A623" },
   "Autre":                    { svgPath: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", color: "#F5A623" },
 };
-
-const MOTIFS_COURANTS = [
-  "Consultation médicale", "Renouvellement de document", "Ouverture de compte",
-  "Demande de visa / passeport", "Inscription scolaire", "Démarche administrative",
-  "Rendez-vous professionnel", "Suivi de dossier", "Urgence médicale", "Autre motif",
-];
 
 // ─── Composant Logo ───────────────────────────────────────────────────
 function InstitutionLogo({ inst, size = 56 }: { inst: InstitutionRow; size?: number }) {
@@ -286,206 +144,164 @@ function InstitutionLogo({ inst, size = 56 }: { inst: InstitutionRow; size?: num
   );
 }
 
-// ─── Carte Service Payant ─────────────────────────────────────────────
-function ServicePayantCard({
-  service, selected, onSelect, isDark, C,
-}: {
-  service: PaidService;
-  selected: boolean;
-  onSelect: () => void;
-  isDark: boolean;
-  C: any;
+// ─── Carte Service unifiée (gratuit ou payant) ────────────────────────
+function ServiceCard({ service, selected, onSelect, isDark, C, premium = false }: {
+  service: WizardService; selected: boolean; onSelect: () => void; isDark: boolean; C: any; premium?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // Le doré reste l'accent dominant sur toute la carte (marque Yelen224),
+  // qu'un service soit gratuit ou payant — seul le petit badge de statut
+  // change de couleur (vert/doré), pour ne pas laisser le vert écraser
+  // l'identité de marque sur un écran où la majorité des services sont
+  // gratuits (retour CEO 16/07/2026).
+  const accent = "#F5A623";
+  const statusColor = service.payant ? "#F5A623" : (isDark ? "#00C896" : "#00875A");
   return (
-    <div style={{ borderRadius: "18px", border: selected ? "2px solid #F5A623" : `1.5px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, background: selected ? isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.05)" : C.cardBg, overflow: "hidden", boxShadow: selected ? "0 0 0 4px rgba(245,166,35,0.12), 0 8px 32px rgba(245,166,35,0.18)" : isDark ? "0 2px 12px rgba(0,0,0,0.3)" : "0 2px 12px rgba(0,0,0,0.06)", transition: "all 0.2s cubic-bezier(0.4,0,0.2,1)" }}>
-      <div style={{ height: "3px", background: selected ? "linear-gradient(90deg,#F5A623,#F2C94C,#F5A623)" : `${isDark ? "rgba(245,166,35,0.2)" : "rgba(245,166,35,0.15)"}` }}/>
+    <div style={{ borderRadius: "18px", border: selected ? `2px solid ${accent}` : `1.5px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)"}`, background: selected ? `${accent}0d` : C.cardBg, overflow: "hidden", boxShadow: selected ? `0 0 0 4px ${accent}1f, 0 8px 32px ${accent}30` : isDark ? "0 2px 12px rgba(0,0,0,0.3)" : "0 2px 12px rgba(0,0,0,0.06)", transition: "all 0.2s" }}>
+      {premium && <div style={{ height: "3px", background: `linear-gradient(90deg,${accent},#F2C94C,${accent})` }}/>}
       <div style={{ padding: "16px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
-          <div style={{ width: "46px", height: "46px", borderRadius: "13px", background: selected ? "rgba(245,166,35,0.15)" : isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.06)", border: `1.5px solid ${selected ? "rgba(245,166,35,0.4)" : "rgba(245,166,35,0.15)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={selected ? "#F5A623" : isDark ? "rgba(245,166,35,0.6)" : "rgba(180,130,20,0.7)"} strokeWidth="1.8" strokeLinecap="round">
-              <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
-            </svg>
+          <div style={{ width: "44px", height: "44px", borderRadius: "13px", background: `${accent}15`, border: `1.5px solid ${accent}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {service.payant
+              ? <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+              : <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: C.text, fontSize: "15px", fontWeight: "800", letterSpacing: "-0.3px", marginBottom: "3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{service.nom}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+              <span style={{ color: C.text, fontSize: "15px", fontWeight: "800", letterSpacing: "-0.3px" }}>{service.nom}</span>
+              <span style={{ background: `${statusColor}18`, color: statusColor, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase" }}>{service.payant ? "Payant" : "Gratuit"}</span>
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <span style={{ color: "#F5A623", fontSize: "17px", fontWeight: "900", letterSpacing: "-0.5px" }}>{formatPrix(service.prix)}</span>
-              <span style={{ color: C.textSubtle, fontSize: "11px" }}>·</span>
-              <span style={{ color: C.textSubtle, fontSize: "12px", fontWeight: "600" }}>{service.duree_minutes} min</span>
+              {service.payant && <span style={{ color: accent, fontSize: "16px", fontWeight: "900" }}>{formatPrix(service.prix)}</span>}
+              {service.duree_minutes > 0 && (
+                <>
+                  {service.payant && <span style={{ color: C.textSubtle, fontSize: "11px" }}>·</span>}
+                  <span style={{ color: C.textSubtle, fontSize: "12px", fontWeight: "600" }}>{service.duree_minutes} min</span>
+                </>
+              )}
             </div>
           </div>
-          <div onClick={onSelect} className="tap" style={{ width: "26px", height: "26px", borderRadius: "50%", border: selected ? "2px solid #F5A623" : `2px solid ${isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)"}`, background: selected ? "#F5A623" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, transition: "all 0.18s", boxShadow: selected ? "0 2px 10px rgba(245,166,35,0.4)" : "none" }}>
+          <div onClick={onSelect} className="tap" style={{ width: "26px", height: "26px", borderRadius: "50%", border: selected ? `2px solid ${accent}` : `2px solid ${isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)"}`, background: selected ? accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
             {selected && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
           </div>
         </div>
         {service.description && (
-          <button onClick={() => setExpanded(e => !e)} style={{ background: "none", border: "none", color: "#F5A623", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "6px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round">
-              {expanded ? <polyline points="18 15 12 9 6 15"/> : <polyline points="6 9 12 15 18 9"/>}
-            </svg>
+          <button onClick={() => setExpanded(e => !e)} style={{ background: "none", border: "none", color: accent, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "8px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.5" strokeLinecap="round">{expanded ? <polyline points="18 15 12 9 6 15"/> : <polyline points="6 9 12 15 18 9"/>}</svg>
             {expanded ? "Masquer les détails" : "Voir les détails"}
           </button>
         )}
         {expanded && service.description && (
-          <div style={{ marginTop: "10px", padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)", borderRadius: "12px", border: "1px solid rgba(245,166,35,0.15)", animation: "fadeUp 0.2s ease" }}>
+          <div style={{ marginTop: "8px", padding: "12px 14px", background: `${accent}0a`, borderRadius: "12px", border: `1px solid ${accent}25`, animation: "fadeUp 0.2s ease" }}>
             <p style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.7, margin: 0 }}>{service.description}</p>
           </div>
         )}
-        <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "6px", padding: "8px 12px", background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.04)", borderRadius: "10px", border: "1px solid rgba(245,166,35,0.12)" }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-          <span style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "600" }}>Paiement <strong style={{ color: "#F5A623" }}>sur place</strong> le jour du RDV · Code Yelen requis</span>
-        </div>
         {!selected && (
-          <button onClick={onSelect} className="tap" style={{ width: "100%", marginTop: "12px", padding: "12px", borderRadius: "12px", border: "1.5px solid rgba(245,166,35,0.35)", background: "transparent", color: "#F5A623", fontWeight: "800", fontSize: "13px", cursor: "pointer", transition: "all 0.15s" }}>
+          <button onClick={onSelect} className="tap" style={{ width: "100%", marginTop: "12px", padding: "12px", borderRadius: "12px", border: `1.5px solid ${accent}50`, background: "transparent", color: accent, fontWeight: "800", fontSize: "13px", cursor: "pointer" }}>
             Choisir ce service
           </button>
-        )}
-        {selected && (
-          <div style={{ marginTop: "12px", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", padding: "11px", borderRadius: "12px", background: "linear-gradient(135deg,rgba(245,166,35,0.15),rgba(245,166,35,0.08))", border: "1.5px solid rgba(245,166,35,0.35)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <span style={{ color: "#F5A623", fontWeight: "800", fontSize: "13px" }}>Service sélectionné</span>
-          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ─── Écran succès RDV payant ──────────────────────────────────────────
-function SuccessPayant({ inst, service, code, dateRdv, heureRdv, C, isDark }: {
-  inst: InstitutionRow; service: PaidService; code: string;
-  dateRdv: string; heureRdv: string; C: any; isDark: boolean;
+// ─── Écran succès (unifié gratuit/payant) ─────────────────────────────
+function SuccessScreen({ inst, service, code, dateRdv, heureRdv, C, isDark }: {
+  inst: InstitutionRow; service: WizardService; code: string; dateRdv: string; heureRdv: string; C: any; isDark: boolean;
 }) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    QRCode.toDataURL(code, { width: 168, margin: 1, color: { dark: "#080812", light: "#FFFFFF" } })
+      .then(setQrDataUrl).catch(() => setQrDataUrl(null));
+  }, [code]);
+
+  function handleCalendar() {
+    const ics = buildIcs({
+      title: `${service.nom} — ${inst.name}`,
+      description: `Réservation Yelen224 — Code ${code}`,
+      location: `${inst.adresse || inst.ville}`,
+      dateRdv, heureRdv, durationMinutes: service.duree_minutes || 30,
+    });
+    const blob = new Blob([ics], { type: "text/calendar" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "rendez-vous-yelen224.ics"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleShare() {
+    const text = `Mon RDV chez ${inst.name} — ${service.nom} — ${formatDateLabel(dateRdv, heureRdv)} — Code Yelen ${code}`;
+    if (navigator.share) { try { await navigator.share({ title: "Mon rendez-vous Yelen224", text }); } catch {} }
+    else { try { await navigator.clipboard.writeText(text); } catch {} }
+  }
+
   return (
     <div style={{ minHeight: "100svh", background: isDark ? "#080812" : "#FFFBF0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
       <div style={{ width: "100%", maxWidth: "420px" }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: "28px" }}>
-          <div style={{ position: "relative", width: "88px", height: "88px" }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "24px" }}>
+          <div style={{ position: "relative", width: "80px", height: "80px" }}>
             <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "rgba(245,166,35,0.08)", border: "2px solid rgba(245,166,35,0.2)", animation: "ping 2s ease-out infinite" }}/>
-            <div style={{ position: "relative", width: "88px", height: "88px", borderRadius: "50%", background: "linear-gradient(135deg,rgba(245,166,35,0.18),rgba(245,166,35,0.06))", border: "2px solid rgba(245,166,35,0.4)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 40px rgba(245,166,35,0.2)" }}>
-              <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <div style={{ position: "relative", width: "80px", height: "80px", borderRadius: "50%", background: "linear-gradient(135deg,rgba(245,166,35,0.18),rgba(245,166,35,0.06))", border: "2px solid rgba(245,166,35,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
           </div>
         </div>
         <div style={{ background: C.cardBg, borderRadius: "24px", border: `1px solid ${isDark ? "rgba(245,166,35,0.2)" : "rgba(245,166,35,0.25)"}`, overflow: "hidden", boxShadow: isDark ? "0 24px 60px rgba(0,0,0,0.5)" : "0 12px 48px rgba(245,166,35,0.12)" }}>
           <div style={{ height: "4px", background: "linear-gradient(90deg,#F5A623,#F2C94C,#F5A623)" }}/>
-          <div style={{ padding: "28px 24px 24px" }}>
-            <div style={{ textAlign: "center", marginBottom: "24px" }}>
-              <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: "800", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "6px" }}>Réservation confirmée</div>
-              <h2 style={{ color: C.text, fontSize: "22px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.6px" }}>{inst.name}</h2>
-              <div style={{ color: C.textSubtle, fontSize: "13px" }}>{inst.ville}{inst.quartier ? ` · ${inst.quartier}` : ""}</div>
+          <div style={{ padding: "24px 22px" }}>
+            <div style={{ textAlign: "center", marginBottom: "20px" }}>
+              <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: "800", letterSpacing: "1.2px", textTransform: "uppercase", marginBottom: "4px" }}>Votre rendez-vous est confirmé</div>
+              <h2 style={{ color: C.text, fontSize: "19px", fontWeight: "900", margin: "0 0 4px" }}>{service.nom}</h2>
+              <div style={{ color: C.textSubtle, fontSize: "12px" }}>{inst.name} · {inst.ville}</div>
             </div>
-            <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.04)", border: "1.5px solid rgba(245,166,35,0.3)", borderRadius: "18px", padding: "20px", marginBottom: "20px", textAlign: "center" }}>
-              <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "10px" }}>Code de confirmation Yelen</div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginBottom: "8px" }}>
-                {[code.slice(0, 3), code.slice(3)].map((part, i) => (
-                  <div key={i} style={{ display: "flex", gap: "4px" }}>
-                    {part.split("").map((char, j) => (
-                      <div key={j} style={{ width: "38px", height: "50px", borderRadius: "10px", background: isDark ? "rgba(245,166,35,0.12)" : "rgba(245,166,35,0.08)", border: "1.5px solid rgba(245,166,35,0.25)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", fontSize: "24px", fontWeight: "900", fontFamily: "monospace" }}>{char}</div>
-                    ))}
-                    {i === 0 && <div style={{ width: "16px", display: "flex", alignItems: "center", justifyContent: "center", color: C.textSubtle, fontSize: "20px", fontWeight: "300" }}>—</div>}
-                  </div>
-                ))}
+
+            {qrDataUrl && (
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
+                <img src={qrDataUrl} alt="QR code" style={{ width: "150px", height: "150px", borderRadius: "14px", border: "1.5px solid rgba(245,166,35,0.3)" }}/>
               </div>
-              <div style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.6 }}>Présentez ce code le jour J pour valider votre RDV</div>
+            )}
+            <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.04)", border: "1.5px solid rgba(245,166,35,0.3)", borderRadius: "16px", padding: "14px", marginBottom: "16px", textAlign: "center" }}>
+              <div style={{ color: C.textSubtle, fontSize: "9px", fontWeight: "700", letterSpacing: "1.2px", textTransform: "uppercase", marginBottom: "6px" }}>Code de confirmation Yelen</div>
+              <div style={{ color: "#F5A623", fontSize: "22px", fontWeight: "900", fontFamily: "monospace", letterSpacing: "3px" }}>{code}</div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "18px" }}>
               {[
-                { label: "Service",           value: service.nom },
-                { label: "Date",              value: formatDateLabel(dateRdv, heureRdv) },
-                { label: "Montant à payer",   value: formatPrix(service.prix) + " (sur place)" },
-                { label: "Durée prévue",      value: `${service.duree_minutes} minutes` },
+                { label: "Date & heure", value: formatDateLabel(dateRdv, heureRdv) },
+                { label: "Prix", value: service.payant ? `${formatPrix(service.prix)} (sur place)` : "Gratuit" },
+                { label: "Durée prévue", value: service.duree_minutes > 0 ? `${service.duree_minutes} minutes` : "—" },
               ].map(row => (
-                <div key={row.label} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", borderRadius: "12px", border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}` }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.5px" }}>{row.label}</div>
-                    <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", marginTop: "1px" }}>{row.value}</div>
-                  </div>
+                <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "9px 12px", background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", borderRadius: "10px" }}>
+                  <span style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "600" }}>{row.label}</span>
+                  <span style={{ color: C.text, fontSize: "12px", fontWeight: "700" }}>{row.value}</span>
                 </div>
               ))}
             </div>
-            {inst.phone && (
-              <div style={{ marginBottom: "20px", padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.04)" : "rgba(245,166,35,0.03)", borderRadius: "12px", border: "1px solid rgba(245,166,35,0.15)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-                <div>
-                  <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Questions ? Contactez</div>
-                  <div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>{inst.phone}</div>
-                </div>
-                <a href={`tel:${inst.phone}`} style={{ display: "flex", alignItems: "center", gap: "6px", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "12px", padding: "9px 14px", borderRadius: "10px", textDecoration: "none" }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                  Appeler
-                </a>
-              </div>
-            )}
-            <div style={{ padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.03)", borderRadius: "12px", border: "1px solid rgba(245,166,35,0.12)", marginBottom: "20px" }}>
-              <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: "800", marginBottom: "5px" }}>À retenir</div>
-              <ul style={{ color: C.textMuted, fontSize: "11px", lineHeight: 1.8, margin: 0, paddingLeft: "14px" }}>
-                <li>Présentez-vous <strong style={{ color: C.textSubtle }}>10 minutes avant</strong> l'heure</li>
-                <li>Paiement en <strong style={{ color: C.textSubtle }}>espèces sur place</strong> — {formatPrix(service.prix)}</li>
-                <li>Ce code est <strong style={{ color: "#F5A623" }}>obligatoire</strong> pour valider votre RDV</li>
-                <li>Sans code Yelen = RDV non reconnu par le système</li>
-              </ul>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <Link href="/mes-rdv" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "16px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
-                Voir mes rendez-vous
-              </Link>
-              <Link href={`/institution/${inst.id}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", color: C.text, fontWeight: "600", fontSize: "14px", padding: "14px", borderRadius: "14px", textDecoration: "none", border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}` }}>
-                Retour à la fiche institution
-              </Link>
-            </div>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginTop: "20px" }}>
-          <div style={{ width: "14px", height: "9px", backgroundColor: "#CE1126", borderRadius: "2px 0 0 2px" }}/>
-          <div style={{ width: "14px", height: "9px", backgroundColor: "#FCD20F" }}/>
-          <div style={{ width: "14px", height: "9px", backgroundColor: "#009A44", borderRadius: "0 2px 2px 0" }}/>
-          <span style={{ color: C.textSubtle, fontSize: "10px", marginLeft: "6px", fontWeight: "600" }}>Yelen224 · République de Guinée</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-// ─── Écran succès RDV gratuit ─────────────────────────────────────────
-function SuccessGratuit({ inst, slot, C, isDark }: { inst: InstitutionRow; slot: CreneauSlot | null; C: any; isDark: boolean }) {
-  const meta = CAT_META[inst.category] || { color: "#F5A623" };
-  return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
-      <div style={{ width: "100%", maxWidth: "420px" }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: "28px" }}>
-          <div style={{ width: "80px", height: "80px", borderRadius: "50%", background: "linear-gradient(135deg,rgba(245,166,35,0.15),rgba(245,166,35,0.05))", border: "2px solid rgba(245,166,35,0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </div>
-        </div>
-        <div style={{ backgroundColor: C.cardBg, borderRadius: "24px", border: `1px solid ${C.borderCard}`, overflow: "hidden" }}>
-          <div style={{ height: "4px", background: `linear-gradient(90deg,${meta.color},${meta.color}66)` }}/>
-          <div style={{ padding: "28px 24px 24px" }}>
-            <div style={{ textAlign: "center", marginBottom: "20px" }}>
-              <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: "800", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "6px" }}>Rendez-vous confirmé</div>
-              <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px" }}>{inst.name}</h2>
-              <div style={{ color: C.textSubtle, fontSize: "13px" }}>{inst.ville}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+              <button onClick={handleCalendar} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", color: C.text, fontWeight: "700", fontSize: "12.5px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Calendrier
+              </button>
+              <button onClick={handleShare} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", color: C.text, fontWeight: "700", fontSize: "12.5px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="10.5" x2="15.4" y2="6.5"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/></svg>
+                Partager
+              </button>
             </div>
-            {slot && (
-              <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "14px", padding: "14px 16px", marginBottom: "20px" }}>
-                <div style={{ color: "#F5A623", fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "4px" }}>Date & heure</div>
-                <div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>{formatDateLabel(slot.dateRdv, slot.heureRdv)}</div>
-              </div>
-            )}
-            <div style={{ padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.03)", borderRadius: "12px", border: "1px solid rgba(245,166,35,0.12)", marginBottom: "20px" }}>
-              <div style={{ color: C.textMuted, fontSize: "11px", lineHeight: 1.7 }}>Votre demande est en attente de confirmation. Vous recevrez une notification dès validation. Présentez-vous 10 min avant l'heure.</div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <Link href="/mes-rdv" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none" }}>Voir mes rendez-vous</Link>
-              <Link href={`/institution/${inst.id}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", color: C.text, fontWeight: "600", fontSize: "14px", padding: "13px", borderRadius: "14px", textDecoration: "none", border: `1px solid ${C.borderCard}` }}>Retour à la fiche</Link>
+            <p style={{ color: C.textSubtle, fontSize: "11.5px", textAlign: "center", margin: "0 0 10px" }}>
+              Retrouvez ce QR et ce code à tout moment dans <strong style={{ color: C.text }}>Mon QR</strong>.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <Link href="/mon-qr" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "15px", borderRadius: "14px", textDecoration: "none" }}>
+                Mon QR
+              </Link>
+              <Link href="/mes-rdv" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", color: C.text, fontWeight: "700", fontSize: "14px", padding: "15px", borderRadius: "14px", textDecoration: "none" }}>
+                Mes RDV
+              </Link>
             </div>
           </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", marginTop: "20px" }}>
-          <div style={{ width: "14px", height: "9px", backgroundColor: "#CE1126", borderRadius: "2px 0 0 2px" }}/>
-          <div style={{ width: "14px", height: "9px", backgroundColor: "#FCD20F" }}/>
-          <div style={{ width: "14px", height: "9px", backgroundColor: "#009A44", borderRadius: "0 2px 2px 0" }}/>
-          <span style={{ color: C.textSubtle, fontSize: "10px", marginLeft: "6px", fontWeight: "600" }}>Yelen224 · République de Guinée</span>
         </div>
       </div>
     </div>
@@ -506,38 +322,25 @@ export default function RdvPage() {
   const id     = Array.isArray(params.id) ? params.id[0] : params.id;
   const router = useRouter();
 
-  const [loading, setLoading]             = useState(true);
-  const [loadError, setLoadError]         = useState<string | null>(null);
-  const [institution, setInstitution]     = useState<InstitutionRow | null>(null);
-  const [creneaux, setCreneaux]           = useState<CreneauSlot[]>([]);
-  const [paidServices, setPaidServices]   = useState<PaidService[]>([]);
-  const [mode, setMode]                   = useState<"choice" | "gratuit" | "payant">("choice");
-  const [stepGratuit, setStepGratuit]     = useState<1 | 2 | 3>(1);
-  const [selectedSlot, setSelectedSlot]   = useState<CreneauSlot | null>(null);
-  const [motifSelectionne, setMotifSelectionne] = useState("");
-  const [visitReason, setVisitReason]     = useState("");
-  const [urgence, setUrgence]             = useState<"normale" | "urgente" | "planifiee">("normale");
-  const [typeVisite, setTypeVisite]       = useState<"presentiel" | "teleconsultation">("presentiel");
-  const [forOtherPerson, setForOtherPerson] = useState(false);
-  const [otherName, setOtherName]         = useState("");
-  const [otherPhone, setOtherPhone]       = useState("");
-  const [documents]                       = useState<string[]>([]);
-  const [stepPayant, setStepPayant]       = useState<1 | 2 | 3>(1);
-  const [selectedService, setSelectedService]     = useState<PaidService | null>(null);
-  const [selectedSlotPayant, setSelectedSlotPayant] = useState<CreneauSlot | null>(null);
-  const [visitReasonPayant, setVisitReasonPayant] = useState("");
-  const [forOtherPayant, setForOtherPayant]       = useState(false);
-  const [otherNamePayant, setOtherNamePayant]     = useState("");
-  const [otherPhonePayant, setOtherPhonePayant]   = useState("");
-  const [submitting, setSubmitting]       = useState(false);
-  const [submitError, setSubmitError]     = useState<string | null>(null);
-  const [successGratuit, setSuccessGratuit] = useState(false);
-  const [successPayant, setSuccessPayant]   = useState<{ code: string; dateRdv: string; heureRdv: string } | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError]     = useState<string | null>(null);
+  const [institution, setInstitution] = useState<InstitutionRow | null>(null);
+  const [paidServicesRaw, setPaidServicesRaw] = useState<PaidServiceRow[]>([]);
+  const [availability, setAvailability] = useState<Availability>({ capacite: 1, counts: {} });
 
-  const meta           = institution ? (CAT_META[institution.category] || { svgPath: "", color: "#F5A623" }) : { svgPath: "", color: "#F5A623" };
-  const groupedCreneaux = useMemo(() => groupCreneaux(creneaux), [creneaux]);
-  const hasCreneaux     = creneaux.length > 0;
-  const hasPaidServices = paidServices.length > 0;
+  const [step, setStep]                     = useState<StepId>("service");
+  const [selectedService, setSelectedService] = useState<WizardService | null>(null);
+  const [calendarMonth, setCalendarMonth]   = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
+  const [selectedDate, setSelectedDate]     = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot]     = useState<CreneauSlot | null>(null);
+  const [forOther, setForOther]             = useState(false);
+  const [otherName, setOtherName]           = useState("");
+  const [otherPhone, setOtherPhone]         = useState("");
+  const [champsReponses, setChampsReponses] = useState<Record<string, string>>({});
+  const [descriptionBesoin, setDescriptionBesoin] = useState("");
+  const [submitting, setSubmitting]         = useState(false);
+  const [submitError, setSubmitError]       = useState<string | null>(null);
+  const [success, setSuccess]               = useState<{ code: string; dateRdv: string; heureRdv: string } | null>(null);
 
   useEffect(() => {
     const userId = typeof window !== "undefined" ? localStorage.getItem(YELEN224_USER_ID_KEY) : null;
@@ -551,30 +354,39 @@ export default function RdvPage() {
     setLoadError(null);
     const { data, error } = await supabase
       .from("institutions")
-      .select("id,name,ville,quartier,adresse,phone,category,badge_verifie,logo,description,moyenne_avis,nb_avis,disponibilites")
+      .select("id,name,ville,quartier,adresse,phone,category,badge_verifie,logo,description,moyenne_avis,nb_avis,disponibilites,services,capacite_par_creneau")
       .eq("id", institutionId)
       .maybeSingle();
     if (error) { setLoadError(error.message); return; }
     if (!data)  { notFound(); return; }
-    const row         = data as Record<string, unknown>;
-    const displayName = institutionDisplayName(row);
-    if (!displayName) { setLoadError("Établissement invalide."); return; }
+    const row = data as Record<string, unknown>;
+    const name = String(row.name ?? "").trim();
+    if (!name) { setLoadError("Établissement invalide."); return; }
     setInstitution({
-      id: String(row.id), name: displayName, ville: String(row.ville ?? "").trim(),
-      quartier: String(row.quartier ?? "").trim(), adresse: String(row.adresse ?? "").trim(),
-      phone: String(row.phone ?? "").trim(), category: String(row.category ?? "Autre").trim(),
+      id: String(row.id), name, ville: String(row.ville ?? "").trim(), quartier: String(row.quartier ?? "").trim(),
+      adresse: String(row.adresse ?? "").trim(), phone: String(row.phone ?? "").trim(), category: String(row.category ?? "Autre").trim(),
       badge_verifie: Boolean(row.badge_verifie), logo: row.logo ? String(row.logo) : null,
       description: row.description ? String(row.description) : null,
       moyenne_avis: Number(row.moyenne_avis ?? 0), nb_avis: Number(row.nb_avis ?? 0),
+      disponibilites: row.disponibilites, services: row.services,
+      capacite_par_creneau: Number(row.capacite_par_creneau ?? 1),
     });
-    setCreneaux(parseDisponibilites(row.disponibilites));
-    const { data: services } = await supabase
+
+    const { data: services, error: servicesErr } = await supabase
       .from("paid_services")
-      .select("id, institution_id, nom, prix, duree_minutes, description, is_active")
+      .select("id, nom, prix, duree_minutes, description, champs_complementaires, is_active")
       .eq("institution_id", institutionId)
       .eq("is_active", true)
       .order("created_at", { ascending: true });
-    setPaidServices(services ?? []);
+    if (servicesErr) console.error("[Yelen] paid_services fetch error:", servicesErr.message);
+    setPaidServicesRaw(services ?? []);
+
+    const from = toISODate(new Date());
+    const toDate = new Date(); toDate.setDate(toDate.getDate() + 27);
+    const to = toISODate(toDate);
+    const res = await fetch(`/api/rdv-disponibilite?institution_id=${institutionId}&date_from=${from}&date_to=${to}`);
+    const j = res.ok ? await res.json().catch(() => null) : null;
+    setAvailability(j ? { capacite: j.capacite ?? 1, counts: j.counts ?? {} } : { capacite: 1, counts: {} });
   }, []);
 
   useEffect(() => {
@@ -582,64 +394,116 @@ export default function RdvPage() {
     (async () => { setLoading(true); await load(id); setLoading(false); })();
   }, [id, load]);
 
-  async function handleSubmitGratuit() {
-    setSubmitError(null);
-    if (!id || !institution || !selectedSlot) return;
-    if (!visitReason.trim()) { setSubmitError("Indiquez l'objet de la visite."); return; }
-    if (forOtherPerson && (!otherName.trim() || !otherPhone.trim())) { setSubmitError("Renseignez le nom et le téléphone."); return; }
-    const userId = typeof window !== "undefined" ? localStorage.getItem(YELEN224_USER_ID_KEY) : null;
-    if (!userId?.trim()) { setSubmitError("Vous devez être connecté."); return; }
-    setSubmitting(true);
-    try {
-      const result = await createRdv({
-        citoyenId: userId.trim(), institutionId: id,
-        dateRdv:   selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv || "00:00",
-        objet: `[${urgence.toUpperCase()}] ${motifSelectionne ? motifSelectionne + " — " : ""}${visitReason}${typeVisite === "teleconsultation" ? " (Téléconsultation)" : ""}${documents.length ? ` | Docs: ${documents.join(", ")}` : ""}`,
-        pourAutre: forOtherPerson, nomAutre: forOtherPerson ? otherName : null, phoneAutre: forOtherPerson ? otherPhone : null,
-      });
-      if (!result.ok) { setSubmitError(result.error); return; }
-      setSuccessGratuit(true);
-    } finally { setSubmitting(false); }
+  const generalServices: WizardService[] = useMemo(() => {
+    const raw = Array.isArray(institution?.services) ? institution!.services : [];
+    return raw.map((s: unknown): WizardService | null => {
+      const nom = typeof s === "string" ? s.trim() : String((s as Record<string, unknown>)?.nom ?? "").trim();
+      if (!nom) return null;
+      const o = typeof s === "object" && s ? (s as Record<string, unknown>) : {};
+      return {
+        id: `offre-${nom}`, nom,
+        description: typeof o.description === "string" ? o.description : "",
+        duree_minutes: typeof o.duree_minutes === "number" ? o.duree_minutes : 0,
+        payant: false, prix: 0,
+        champs_complementaires: Array.isArray(o.champs_complementaires) ? (o.champs_complementaires as ChampComplementaire[]) : [],
+      };
+    }).filter((s): s is WizardService => s !== null);
+  }, [institution]);
+
+  const paidWizardServices: WizardService[] = useMemo(() => {
+    return paidServicesRaw.map(s => ({
+      id: s.id, nom: s.nom, description: s.description ?? "", duree_minutes: s.duree_minutes,
+      payant: true, prix: s.prix, champs_complementaires: s.champs_complementaires ?? [], serviceIdForBooking: s.id,
+    }));
+  }, [paidServicesRaw]);
+
+  const allServices  = useMemo(() => [...generalServices, ...paidWizardServices], [generalServices, paidWizardServices]);
+  const hasPremium   = paidWizardServices.length > 0;
+
+  const allSlots = useMemo(() => institution ? generateSlotsInRange(institution.disponibilites, 28) : [], [institution]);
+  const slotsByDate = useMemo(() => {
+    const m = new Map<string, CreneauSlot[]>();
+    for (const s of allSlots) { if (!m.has(s.dateRdv)) m.set(s.dateRdv, []); m.get(s.dateRdv)!.push(s); }
+    return m;
+  }, [allSlots]);
+
+  function remainingFor(dateRdv: string, heureRdv: string): number {
+    const used = availability.counts[`${dateRdv}|${heureRdv}`] ?? 0;
+    return availability.capacite - used;
+  }
+  function dayStatus(dateRdv: string): "none" | "available" | "complet" {
+    const slots = slotsByDate.get(dateRdv);
+    if (!slots || slots.length === 0) return "none";
+    return slots.some(s => remainingFor(s.dateRdv, s.heureRdv) > 0) ? "available" : "complet";
   }
 
-  async function handleSubmitPayant() {
+  const steps: StepId[] = useMemo(() => [
+    "service", "date", "heure", "recap",
+    ...(selectedService && selectedService.champs_complementaires.length > 0 ? ["champs" as StepId] : []),
+  ], [selectedService]);
+  const stepIndex = steps.indexOf(step);
+
+  function goToService(s: WizardService) {
+    setSelectedService(s); setSelectedDate(null); setSelectedSlot(null);
+    setStep("date");
+  }
+
+  function goToRecapOrConfirm() {
+    if (selectedService && selectedService.champs_complementaires.length > 0) setStep("champs");
+    else void handleConfirm();
+  }
+
+  async function handleConfirm() {
+    if (!id || !institution || !selectedService || !selectedSlot) return;
     setSubmitError(null);
-    if (!id || !institution || !selectedService || !selectedSlotPayant) return;
-    if (!visitReasonPayant.trim()) { setSubmitError("Indiquez l'objet de votre visite."); return; }
-    if (forOtherPayant && (!otherNamePayant.trim() || !otherPhonePayant.trim())) { setSubmitError("Renseignez le nom et le téléphone."); return; }
-    // Sécurité finale — ne devrait jamais déclencher grâce au parsing amélioré
-    if (!selectedSlotPayant.dateRdv || !/^\d{4}-\d{2}-\d{2}$/.test(selectedSlotPayant.dateRdv)) {
-      setSubmitError("Date invalide. Contactez l'institution pour corriger ses disponibilités.");
-      return;
+    if (forOther && (!otherName.trim() || !otherPhone.trim())) { setSubmitError("Renseignez le nom et le téléphone."); return; }
+    for (const c of selectedService.champs_complementaires) {
+      if (c.requis && !(champsReponses[c.label] ?? "").trim()) { setSubmitError(`Le champ "${c.label}" est requis.`); return; }
     }
     const userId = typeof window !== "undefined" ? localStorage.getItem(YELEN224_USER_ID_KEY) : null;
     if (!userId?.trim()) { setSubmitError("Vous devez être connecté."); return; }
+
     setSubmitting(true);
     try {
       const code = genCode();
-      const { error: bkErr } = await supabase.from("paid_bookings").insert({
-        service_id:        selectedService.id,
-        citoyen_id:        userId.trim(),
-        institution_id:    id,
-        date_rdv:          selectedSlotPayant.dateRdv,
-        heure_rdv:         selectedSlotPayant.heureRdv || "00:00",
-        confirmation_code: code,
-        statut:            "en_attente",
-      });
-      if (bkErr) { setSubmitError("Erreur lors de la réservation : " + bkErr.message); return; }
-      await supabase.from("rdv").insert({
-        citoyen_id:     userId.trim(),
-        institution_id: id,
-        date_rdv:       selectedSlotPayant.dateRdv,
-        heure_rdv:      selectedSlotPayant.heureRdv || "00:00",
-        objet:          `[SERVICE PAYANT] ${selectedService.nom} — ${formatPrix(selectedService.prix)} — ${visitReasonPayant}${forOtherPayant ? ` (Pour: ${otherNamePayant})` : ""}`,
-        statut:         "en_attente",
-        pour_autre:     forOtherPayant,
-        nom_autre:      forOtherPayant ? otherNamePayant : null,
-        phone_autre:    forOtherPayant ? otherPhonePayant : null,
-        qr_token:       code,
-      });
-      setSuccessPayant({ code, dateRdv: selectedSlotPayant.dateRdv, heureRdv: selectedSlotPayant.heureRdv });
+      const reponses = selectedService.champs_complementaires.length > 0 ? champsReponses : null;
+      const objet = `[${selectedService.nom}]${selectedService.payant ? ` ${formatPrix(selectedService.prix)} sur place` : ""}${forOther ? ` — Pour ${otherName.trim()} (${otherPhone.trim()})` : ""}`;
+      const dureeMinutes = selectedService.duree_minutes > 0 ? selectedService.duree_minutes : null;
+      const besoin = descriptionBesoin.trim() || null;
+
+      if (selectedService.payant) {
+        const { error: bkErr } = await supabase.from("paid_bookings").insert({
+          service_id: selectedService.serviceIdForBooking, citoyen_id: userId.trim(), institution_id: id,
+          date_rdv: selectedSlot.dateRdv, heure_rdv: selectedSlot.heureRdv || "00:00",
+          confirmation_code: code, statut: "en_attente", champs_complementaires_reponses: reponses,
+        });
+        if (bkErr) { setSubmitError("Erreur lors de la réservation : " + bkErr.message); return; }
+        const { data: rdvInserted, error: rdvErr } = await supabase.from("rdv").insert({
+          citoyen_id: userId.trim(), institution_id: id, date_rdv: selectedSlot.dateRdv, heure_rdv: selectedSlot.heureRdv || "00:00",
+          objet, statut: "en_attente", pour_autre: forOther, nom_autre: forOther ? otherName.trim() : null,
+          phone_autre: forOther ? otherPhone.trim() : null, qr_token: code, champs_complementaires_reponses: reponses,
+          duree_minutes: dureeMinutes, description_besoin: besoin,
+        }).select("id").single();
+        if (rdvErr) { setSubmitError("Erreur : " + rdvErr.message); return; }
+        // Chantier "Yelen Assistant" (20/07/2026), Phase 1 — non-bloquant :
+        // une erreur ici ne doit jamais faire échouer la réservation.
+        if (rdvInserted?.id) {
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.access_token) await notifierReservationPayante({ rdvId: rdvInserted.id, accessToken: session.access_token });
+          } catch (e) { console.error("[rdv] notification réservation payante:", e); }
+        }
+      } else {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) { setSubmitError("Session expirée, reconnectez-vous."); return; }
+        const result = await createRdv({
+          citoyenId: userId.trim(), institutionId: id, dateRdv: selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv || "00:00",
+          objet, pourAutre: forOther, nomAutre: forOther ? otherName.trim() : null, phoneAutre: forOther ? otherPhone.trim() : null,
+          qrToken: code, champsComplementairesReponses: reponses, dureeMinutes, descriptionBesoin: besoin, accessToken: session.access_token,
+        });
+        if (!result.ok) { setSubmitError(result.error); return; }
+      }
+      setSuccess({ code, dateRdv: selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv });
     } finally { setSubmitting(false); }
   }
 
@@ -658,477 +522,271 @@ export default function RdvPage() {
     </div>
   );
 
-  if (successGratuit) return <SuccessGratuit inst={institution} slot={selectedSlot} C={C} isDark={isDark}/>;
-  if (successPayant)  return <SuccessPayant inst={institution} service={selectedService!} code={successPayant.code} dateRdv={successPayant.dateRdv} heureRdv={successPayant.heureRdv} C={C} isDark={isDark}/>;
+  if (success) return <SuccessScreen inst={institution} service={selectedService!} code={success.code} dateRdv={success.dateRdv} heureRdv={success.heureRdv} C={C} isDark={isDark}/>;
 
   const CSS = `
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{overflow-x:hidden;background:${C.pageBg}}
-    ::-webkit-scrollbar{display:none}
-    *{scrollbar-width:none}
+    ::-webkit-scrollbar{display:none} *{scrollbar-width:none}
     @keyframes spin{to{transform:rotate(360deg)}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes ping{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0;transform:scale(2.2)}}
     .tap{transition:opacity .1s,transform .1s;cursor:pointer;touch-action:manipulation}
     .tap:active{opacity:0.65;transform:scale(0.97)}
     textarea,input,select{font-family:inherit}
     input:focus,textarea:focus{outline:none}
-    a{-webkit-tap-highlight-color:transparent}
   `;
 
+  const backButton = (target: StepId) => (
+    <button onClick={() => setStep(target)} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", color: C.textSubtle, fontSize: "12px", fontWeight: "700", cursor: "pointer", padding: "0 0 16px" }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>Retour
+    </button>
+  );
+
   return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, fontFamily: "'SF Pro Text',-apple-system,'Helvetica Neue',sans-serif", color: C.text, paddingBottom: "40px" }}>
+    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, color: C.text, paddingBottom: "40px" }}>
       <style>{CSS}</style>
 
-      {/* ════════ HEADER ════════ */}
-      <div style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: isDark ? "rgba(8,8,15,0.98)" : "rgba(248,248,251,0.98)", backdropFilter: "blur(24px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.12)" : "rgba(245,166,35,0.15)"}` }}>
-        <div style={{ height: "3px", background: isDark ? "rgba(245,166,35,0.1)" : "rgba(245,166,35,0.12)" }}>
-          <div style={{ height: "100%", width: mode === "choice" ? "5%" : mode === "gratuit" ? `${(stepGratuit / 3) * 95 + 5}%` : `${(stepPayant / 3) * 95 + 5}%`, background: "linear-gradient(90deg,#F5A623,#C8940A)", transition: "width 0.4s cubic-bezier(0.4,0,0.2,1)", borderRadius: "0 2px 2px 0" }}/>
-        </div>
-        <div style={{ padding: "10px 16px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div style={{ width: "28px", height: "28px", background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
-              </div>
-              <div>
-                <div style={{ color: C.text, fontSize: "13px", fontWeight: "900", letterSpacing: "0.4px" }}>YELEN224</div>
-                <div style={{ color: "#F5A623", fontSize: "7px", fontWeight: "700", letterSpacing: "1.5px" }}>PRISE DE RDV</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0, margin: "0 12px" }}>
-              <InstitutionLogo inst={institution} size={30}/>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: C.text, fontSize: "12px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{institution.name}</div>
-                {institution.badge_verifie && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    <span style={{ color: "#F5A623", fontSize: "9px", fontWeight: "700" }}>Vérifié</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <Link href={`/institution/${institution.id}`} style={{ color: "#F5A623", fontSize: "11px", fontWeight: "700", textDecoration: "none", flexShrink: 0, display: "flex", alignItems: "center", gap: "3px" }}>
-              Fiche <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round"><path d="m9 18 6-6-6-6"/></svg>
-            </Link>
+      {/* HEADER — même bandeau doré que les écrans Compte, façon Booking.
+          Mode sombre volontairement inchangé. */}
+      {(() => {
+        const hBg    = isDark ? "rgba(8,8,15,0.98)" : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)";
+        const hBrd   = isDark ? `1px solid rgba(245,166,35,0.12)` : "none";
+        const hText  = isDark ? C.text : "#080812";
+        const hSub   = isDark ? "#F5A623" : "rgba(8,8,18,0.65)";
+        const trackBg = isDark ? "rgba(245,166,35,0.1)" : "rgba(0,0,0,0.15)";
+        const fillBg  = isDark ? "linear-gradient(90deg,#F5A623,#C8940A)" : "#ffffff";
+        return (
+        <div style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, backdropFilter: isDark ? "blur(24px)" : "none", borderBottom: hBrd }}>
+          <div style={{ height: "3px", background: trackBg }}>
+            <div style={{ height: "100%", width: `${((stepIndex + 1) / steps.length) * 100}%`, background: fillBg, transition: "width 0.4s ease" }}/>
           </div>
-          {mode !== "choice" && (
-            <div style={{ display: "flex", alignItems: "center" }}>
-              {([
-                { n: 1, label: mode === "payant" ? "Service" : "Créneau" },
-                { n: 2, label: mode === "payant" ? "Créneau & motif" : "Détails" },
-                { n: 3, label: "Confirmation" },
-              ] as { n: 1|2|3; label: string }[]).map((s, i) => {
-                const currentStep = mode === "gratuit" ? stepGratuit : stepPayant;
+          <div style={{ padding: "10px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <InstitutionLogo inst={institution} size={30}/>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: hText, fontSize: "12px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "180px" }}>{institution.name}</div>
+                <div style={{ color: hSub, fontSize: "9px", fontWeight: "700" }}>Étape {stepIndex + 1} / {steps.length}</div>
+              </div>
+            </div>
+            <Link href={`/institution/${institution.id}`} style={{ color: hText, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>Fiche</Link>
+          </div>
+        </div>
+        );
+      })()}
+
+      <div style={{ maxWidth: "520px", margin: "0 auto", padding: "20px 16px 0" }}>
+
+        {/* ═══ ÉTAPE 1 — Choisir un service ═══ */}
+        {step === "service" && (
+          <div style={{ animation: "fadeUp 0.25s ease" }}>
+            <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Que souhaitez-vous faire aujourd'hui ?</h1>
+            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Sélectionnez le service correspondant à votre besoin.</p>
+
+            <div style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "10px" }}>Services de l'établissement</div>
+            {allServices.length === 0 ? (
+              <div style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: `1px dashed ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`, borderRadius: "20px", padding: "28px 20px", textAlign: "center" }}>
+                <div style={{ color: C.text, fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>Aucun service configuré.</div>
+                <div style={{ color: C.textSubtle, fontSize: "12.5px", marginBottom: "16px" }}>Cet établissement ne propose actuellement aucun rendez-vous.</div>
+                <Link href={`/institution/${institution.id}`} style={{ display: "inline-block", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "13px", padding: "10px 20px", borderRadius: "12px", textDecoration: "none" }}>Retour</Link>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: hasPremium ? "28px" : 0 }}>
+                {allServices.map(s => <ServiceCard key={s.id} service={s} selected={selectedService?.id === s.id} onSelect={() => goToService(s)} isDark={isDark} C={C}/>)}
+              </div>
+            )}
+
+            {hasPremium && (
+              <>
+                <h2 style={{ color: C.text, fontSize: "16px", fontWeight: "900", margin: "0 0 4px" }}>Services premium</h2>
+                <p style={{ color: C.textSubtle, fontSize: "12.5px", margin: "0 0 14px" }}>Ces services nécessitent un paiement sur place ou selon les modalités définies par l'établissement.</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  {paidWizardServices.map(s => <ServiceCard key={`premium-${s.id}`} service={s} selected={selectedService?.id === s.id} onSelect={() => goToService(s)} isDark={isDark} C={C} premium/>)}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ═══ ÉTAPE 2 — Choisir une date ═══ */}
+        {step === "date" && selectedService && (
+          <div style={{ animation: "fadeUp 0.25s ease" }}>
+            {backButton("service")}
+            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px" }}>Choisir une date</h2>
+            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Sélectionnez le jour qui vous convient pour <strong style={{ color: C.text }}>{selectedService.nom}</strong>.</p>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+              <button onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() - 1); return d; })} className="tap" style={{ width: "32px", height: "32px", borderRadius: "10px", background: C.cardBg, border: `1px solid ${C.borderCard}`, color: C.text, cursor: "pointer" }}>‹</button>
+              <div style={{ color: C.text, fontSize: "14px", fontWeight: "800", textTransform: "capitalize" }}>{MOIS_FR[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</div>
+              <button onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() + 1); return d; })} className="tap" style={{ width: "32px", height: "32px", borderRadius: "10px", background: C.cardBg, border: `1px solid ${C.borderCard}`, color: C.text, cursor: "pointer" }}>›</button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px", marginBottom: "6px" }}>
+              {JOURS_FR.map((j, i) => <div key={i} style={{ textAlign: "center", color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase" }}>{j}</div>)}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px" }}>
+              {(() => {
+                const first = new Date(calendarMonth);
+                const startOffset = first.getDay();
+                const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+                const cells: (Date | null)[] = [...Array(startOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => new Date(first.getFullYear(), first.getMonth(), i + 1))];
+                const today = new Date(); today.setHours(0, 0, 0, 0);
+                return cells.map((d, i) => {
+                  if (!d) return <div key={i}/>;
+                  const iso = toISODate(d);
+                  const isPast = d < today;
+                  const st = isPast ? "none" : dayStatus(iso);
+                  const disabled = isPast || st === "none" || st === "complet";
+                  const sel = selectedDate === iso;
+                  return (
+                    <button key={i} disabled={disabled} onClick={() => { setSelectedDate(iso); setSelectedSlot(null); setStep("heure"); }} className={disabled ? "" : "tap"}
+                      style={{ aspectRatio: "1", borderRadius: "10px", border: sel ? "2px solid #F5A623" : `1px solid ${C.borderCard}`, background: sel ? "rgba(245,166,35,0.15)" : disabled ? "transparent" : C.cardBg, color: disabled ? C.textSubtle : sel ? "#F5A623" : C.text, fontSize: "12px", fontWeight: sel ? "800" : "600", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.35 : 1, position: "relative" }}>
+                      {d.getDate()}
+                      {st === "available" && !isPast && <div style={{ position: "absolute", bottom: "4px", left: "50%", transform: "translateX(-50%)", width: "4px", height: "4px", borderRadius: "50%", background: sel ? "#F5A623" : "#00C896" }}/>}
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ ÉTAPE 3 — Choisir un horaire ═══ */}
+        {step === "heure" && selectedService && selectedDate && (
+          <div style={{ animation: "fadeUp 0.25s ease" }}>
+            {backButton("date")}
+            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px" }}>Choisir un horaire</h2>
+            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px", textTransform: "capitalize" }}>{new Date(selectedDate + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              {(slotsByDate.get(selectedDate) ?? []).map(slot => {
+                const remaining = remainingFor(slot.dateRdv, slot.heureRdv);
+                const complet = remaining <= 0;
+                const sel = selectedSlot?.key === slot.key;
+                const label = complet ? "Complet" : remaining === 1 ? "Dernières places" : "Disponible";
+                const labelColor = complet ? C.textSubtle : remaining === 1 ? "#F5A623" : "#00C896";
                 return (
-                  <div key={s.n} style={{ display: "flex", alignItems: "center", flex: i < 2 ? 1 : undefined }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "5px", flexShrink: 0 }}>
-                      <div style={{ width: "22px", height: "22px", borderRadius: "50%", background: currentStep > s.n ? "#F5A623" : currentStep === s.n ? "linear-gradient(135deg,#F5A623,#C8940A)" : isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", border: currentStep === s.n ? "2px solid #F5A623" : "2px solid transparent", display: "flex", alignItems: "center", justifyContent: "center", color: currentStep >= s.n ? "#080812" : C.textSubtle, fontSize: "10px", fontWeight: "900", boxShadow: currentStep === s.n ? "0 0 10px rgba(245,166,35,0.4)" : "none", transition: "all 0.3s", flexShrink: 0 }}>
-                        {currentStep > s.n ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg> : s.n}
-                      </div>
-                      <span style={{ color: currentStep === s.n ? "#F5A623" : C.textSubtle, fontSize: "10px", fontWeight: currentStep === s.n ? "800" : "500" }}>{s.label}</span>
-                    </div>
-                    {i < 2 && <div style={{ flex: 1, height: "1px", marginLeft: "6px", background: currentStep > s.n ? "#F5A623" : C.borderSubtle, opacity: currentStep > s.n ? 0.5 : 1, transition: "background 0.3s" }}/>}
-                  </div>
+                  <button key={slot.key} disabled={complet} onClick={() => setSelectedSlot(slot)} className={complet ? "" : "tap"}
+                    style={{ padding: "13px 12px", borderRadius: "14px", border: sel ? "2px solid #F5A623" : `1px solid ${C.borderCard}`, background: sel ? "rgba(245,166,35,0.1)" : complet ? "transparent" : C.cardBg, cursor: complet ? "default" : "pointer", textAlign: "left", opacity: complet ? 0.4 : 1 }}>
+                    <div style={{ color: sel ? "#F5A623" : C.text, fontSize: "15px", fontWeight: "800", marginBottom: "2px" }}>{slot.heureRdv}</div>
+                    <div style={{ color: labelColor, fontSize: "10px", fontWeight: "700" }}>{label}</div>
+                  </button>
                 );
               })}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* ════════ CORPS ════════ */}
-      <div style={{ maxWidth: "520px", margin: "0 auto", padding: "20px 16px 0" }}>
-
-        {/* ── CHOIX ── */}
-        {mode === "choice" && (
-          <div style={{ animation: "fadeUp 0.3s ease" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "24px" }}>
-              <InstitutionLogo inst={institution} size={52}/>
-              <div>
-                <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 3px", letterSpacing: "-0.5px" }}>{institution.name}</h1>
-                <div style={{ color: C.textSubtle, fontSize: "13px" }}>{institution.ville}{institution.quartier ? ` · ${institution.quartier}` : ""}</div>
-                {institution.badge_verifie && (
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: "20px", padding: "2px 8px", marginTop: "4px" }}>
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    <span style={{ color: "#F5A623", fontSize: "9px", fontWeight: "800" }}>Institution vérifiée</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <h2 style={{ color: C.text, fontSize: "18px", fontWeight: "900", margin: "0 0 6px", letterSpacing: "-0.4px" }}>Quel type de rendez-vous ?</h2>
-            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px", lineHeight: 1.6 }}>Choisissez entre un créneau standard ou un service payant disponible dans cet établissement.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "28px" }}>
-              {hasCreneaux ? (
-                <button onClick={() => setMode("gratuit")} className="tap" style={{ background: C.cardBg, border: `1.5px solid ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`, borderRadius: "20px", padding: "20px", textAlign: "left", cursor: "pointer" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                    <div style={{ width: "50px", height: "50px", borderRadius: "14px", background: isDark ? "rgba(0,200,150,0.12)" : "rgba(0,135,90,0.08)", border: `1.5px solid ${isDark ? "rgba(0,200,150,0.25)" : "rgba(0,135,90,0.2)"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isDark ? "#00C896" : "#00875A"} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                        <span style={{ color: C.text, fontSize: "16px", fontWeight: "900" }}>Créneau standard</span>
-                        <span style={{ background: isDark ? "rgba(0,200,150,0.12)" : "rgba(0,135,90,0.08)", color: isDark ? "#00C896" : "#00875A", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>GRATUIT</span>
-                      </div>
-                      <p style={{ color: C.textSubtle, fontSize: "12px", margin: 0 }}>Réservez un créneau disponible — {creneaux.length} créneaux disponibles</p>
-                    </div>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2" strokeLinecap="round"><path d="m9 18 6-6-6-6"/></svg>
-                  </div>
-                </button>
-              ) : (
-                <div style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: `1px dashed ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`, borderRadius: "20px", padding: "20px", opacity: 0.6 }}>
-                  <div style={{ color: C.textSubtle, fontSize: "15px", fontWeight: "700" }}>Aucun créneau disponible pour le moment</div>
-                </div>
-              )}
-              {hasPaidServices ? (
-                <button onClick={() => setMode("payant")} className="tap" style={{ background: isDark ? "rgba(245,166,35,0.04)" : "rgba(245,166,35,0.03)", border: "1.5px solid rgba(245,166,35,0.25)", borderRadius: "20px", padding: "20px", textAlign: "left", cursor: "pointer", boxShadow: "0 4px 20px rgba(245,166,35,0.1)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                    <div style={{ width: "50px", height: "50px", borderRadius: "14px", background: "rgba(245,166,35,0.12)", border: "1.5px solid rgba(245,166,35,0.3)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
-                        <span style={{ color: C.text, fontSize: "16px", fontWeight: "900" }}>Services payants</span>
-                        <span style={{ background: "rgba(245,166,35,0.12)", color: "#F5A623", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", border: "1px solid rgba(245,166,35,0.25)" }}>{paidServices.length} service{paidServices.length > 1 ? "s" : ""}</span>
-                      </div>
-                      <p style={{ color: C.textSubtle, fontSize: "12px", margin: "0 0 8px" }}>Paiement sur place · Code de confirmation Yelen requis</p>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                        {paidServices.slice(0, 3).map(s => (
-                          <span key={s.id} style={{ background: "rgba(245,166,35,0.08)", color: "#F5A623", fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "20px", border: "1px solid rgba(245,166,35,0.15)" }}>{s.nom} · {formatPrix(s.prix)}</span>
-                        ))}
-                        {paidServices.length > 3 && <span style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "600", padding: "3px 6px" }}>+{paidServices.length - 3} autres</span>}
-                      </div>
-                    </div>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><path d="m9 18 6-6-6-6"/></svg>
-                  </div>
-                </button>
-              ) : (
-                <div style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: `1px dashed ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"}`, borderRadius: "20px", padding: "18px 20px", opacity: 0.5 }}>
-                  <div style={{ color: C.textSubtle, fontSize: "13px" }}>Aucun service payant disponible</div>
-                </div>
-              )}
-            </div>
-            {institution.phone && (
-              <div style={{ padding: "14px 16px", background: C.cardBg, borderRadius: "16px", border: `1px solid ${C.borderCard}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Besoin d'aide ?</div>
-                  <div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>{institution.phone}</div>
-                </div>
-                <a href={`tel:${institution.phone}`} style={{ display: "flex", alignItems: "center", gap: "6px", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "12px", padding: "10px 14px", borderRadius: "12px", textDecoration: "none" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                  Appeler
-                </a>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── GRATUIT étape 1 ── */}
-        {mode === "gratuit" && stepGratuit === 1 && (
-          <div style={{ animation: "fadeUp 0.25s ease" }}>
-            <button onClick={() => setMode("choice")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", color: C.textSubtle, fontSize: "12px", fontWeight: "700", cursor: "pointer", padding: "0 0 16px" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>Retour au choix
-            </button>
-            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Choisir un créneau</h2>
-            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Sélectionnez la date et l'heure souhaitées.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {groupedCreneaux.map(group => (
-                <div key={group.label}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                    <div style={{ height: "1px", flex: 1, background: C.borderSubtle }}/>
-                    <span style={{ color: group.label === "Aujourd'hui" || group.label === "Demain" ? "#F5A623" : C.textSubtle, fontSize: "11px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase" }}>{group.label}</span>
-                    <div style={{ height: "1px", flex: 1, background: C.borderSubtle }}/>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                    {group.slots.map(slot => {
-                      const selected = selectedSlot?.key === slot.key;
-                      return (
-                        <button key={slot.key} type="button" onClick={() => setSelectedSlot(slot)} className="tap" style={{ padding: "13px 12px", borderRadius: "14px", border: selected ? `2px solid ${meta.color}` : `1px solid ${C.borderCard}`, background: selected ? `linear-gradient(135deg,${meta.color}18,${meta.color}08)` : C.cardBg, cursor: "pointer", textAlign: "left", boxShadow: selected ? `0 0 16px ${meta.color}25` : "none", transition: "all 0.15s" }}>
-                          <div style={{ color: selected ? meta.color : C.text, fontSize: "15px", fontWeight: "800", marginBottom: "2px" }}>{slot.heureRdv}</div>
-                          <div style={{ color: selected ? meta.color + "bb" : C.textSubtle, fontSize: "10px", fontWeight: "600" }}>
-                            {(() => { try { return new Date(slot.dateRdv + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }); } catch { return slot.dateRdv; } })()}
-                          </div>
-                          {selected && <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "4px" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={meta.color} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg><span style={{ color: meta.color, fontSize: "9px", fontWeight: "800" }}>Sélectionné</span></div>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button onClick={() => selectedSlot && setStepGratuit(2)} disabled={!selectedSlot} className="tap" style={{ width: "100%", marginTop: "24px", padding: "16px", borderRadius: "16px", border: "none", background: selectedSlot ? `linear-gradient(135deg,${meta.color},#F5A623)` : isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", color: selectedSlot ? "#080812" : C.textSubtle, fontSize: "15px", fontWeight: "800", cursor: selectedSlot ? "pointer" : "not-allowed", boxShadow: selectedSlot ? `0 8px 24px ${meta.color}40` : "none", transition: "all 0.2s" }}>
-              {selectedSlot ? `Continuer · ${selectedSlot.heureRdv || selectedSlot.label} →` : "Choisissez un créneau"}
+            <button onClick={() => selectedSlot && setStep("recap")} disabled={!selectedSlot} className="tap" style={{ width: "100%", marginTop: "24px", padding: "16px", borderRadius: "16px", border: "none", background: selectedSlot ? "linear-gradient(135deg,#F5A623,#C8940A)" : isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", color: selectedSlot ? "#080812" : C.textSubtle, fontSize: "15px", fontWeight: "800", cursor: selectedSlot ? "pointer" : "not-allowed" }}>
+              {selectedSlot ? "Continuer →" : "Choisissez un horaire"}
             </button>
           </div>
         )}
 
-        {/* ── GRATUIT étape 2 ── */}
-        {mode === "gratuit" && stepGratuit === 2 && (
+        {/* ═══ ÉTAPE 4 — Récapitulatif ═══ */}
+        {step === "recap" && selectedService && selectedSlot && (
           <div style={{ animation: "fadeUp 0.25s ease" }}>
-            {selectedSlot && (
-              <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "14px", padding: "12px 14px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{ width: "32px", height: "32px", borderRadius: "9px", background: "rgba(245,166,35,0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-                  <div>
-                    <div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>{formatDateLabel(selectedSlot.dateRdv, selectedSlot.heureRdv)}</div>
-                    <div style={{ color: C.textSubtle, fontSize: "10px" }}>{institution.name}</div>
-                  </div>
-                </div>
-                <button onClick={() => setStepGratuit(1)} style={{ background: "none", border: "none", color: "#F5A623", fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>Modifier</button>
-              </div>
-            )}
-            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Détails de la visite</h2>
-            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Ces informations aident l'institution à préparer votre venue.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}` }}>
-                <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "10px" }}>Motif de la visite</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginBottom: "12px" }}>
-                  {MOTIFS_COURANTS.map(motif => (
-                    <button key={motif} type="button" onClick={() => { setMotifSelectionne(motif === motifSelectionne ? "" : motif); if (motif !== "Autre motif") setVisitReason(motif === motifSelectionne ? "" : motif); }} className="tap" style={{ padding: "6px 12px", borderRadius: "20px", border: `1px solid ${motifSelectionne === motif ? "transparent" : inputBord}`, background: motifSelectionne === motif ? `linear-gradient(135deg,${meta.color},${meta.color}cc)` : inputBg, color: motifSelectionne === motif ? "#080812" : C.textSubtle, fontSize: "12px", fontWeight: motifSelectionne === motif ? "800" : "500", cursor: "pointer" }}>
-                      {motif}
-                    </button>
-                  ))}
-                </div>
-                <textarea value={visitReason} onChange={e => setVisitReason(e.target.value)} placeholder="Décrivez votre demande (minimum 5 caractères)…" rows={3} style={{ width: "100%", padding: "12px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "12px", fontSize: "13px", color: C.text, resize: "none", lineHeight: 1.6 }}/>
-                <div style={{ color: visitReason.length < 5 ? "rgba(245,166,35,0.8)" : "#F5A623", fontSize: "10px", marginTop: "5px", textAlign: "right" }}>{visitReason.length} car. {visitReason.length >= 5 ? "✓" : "(min. 5)"}</div>
-              </div>
-              <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}` }}>
-                <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "10px" }}>Urgence</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-                  {([{ k: "normale", label: "Normal" }, { k: "urgente", label: "Urgent" }, { k: "planifiee", label: "Planifié" }] as { k: "normale"|"urgente"|"planifiee"; label: string }[]).map(u => (
-                    <button key={u.k} onClick={() => setUrgence(u.k)} className="tap" style={{ padding: "11px 8px", borderRadius: "12px", cursor: "pointer", textAlign: "center", background: urgence === u.k ? "rgba(245,166,35,0.1)" : inputBg, border: urgence === u.k ? "2px solid rgba(245,166,35,0.5)" : `1px solid ${inputBord}`, color: urgence === u.k ? "#F5A623" : C.textSubtle, fontSize: "12px", fontWeight: urgence === u.k ? "800" : "600" }}>{u.label}</button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}` }}>
-                <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", cursor: "pointer" }}>
-                  <div>
-                    <div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>Pour un tiers</div>
-                    <div style={{ color: C.textSubtle, fontSize: "11px", marginTop: "2px" }}>Parent, enfant, patient sous tutelle…</div>
-                  </div>
-                  <div onClick={() => setForOtherPerson(p => !p)} style={{ width: "44px", height: "24px", borderRadius: "12px", background: forOtherPerson ? meta.color : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                    <div style={{ position: "absolute", top: "2px", left: forOtherPerson ? "22px" : "2px", width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#fff", transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}/>
-                  </div>
-                </label>
-                {forOtherPerson && (
-                  <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <input type="text" value={otherName} onChange={e => setOtherName(e.target.value)} placeholder="Nom complet *" style={{ width: "100%", padding: "11px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "11px", fontSize: "13px", color: C.text }}/>
-                    <input type="tel" value={otherPhone} onChange={e => setOtherPhone(e.target.value)} placeholder="Téléphone * (+224…)" style={{ width: "100%", padding: "11px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "11px", fontSize: "13px", color: C.text }}/>
-                  </div>
-                )}
-              </div>
-            </div>
-            {submitError && <div style={{ marginTop: "12px", padding: "12px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", color: "rgba(245,166,35,0.8)", fontSize: "13px" }}>{submitError}</div>}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "10px", marginTop: "24px" }}>
-              <button onClick={() => setStepGratuit(1)} className="tap" style={{ padding: "15px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, background: C.cardBg, color: C.text, fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>← Retour</button>
-              <button onClick={() => visitReason.trim().length >= 5 && setStepGratuit(3)} disabled={visitReason.trim().length < 5} className="tap" style={{ padding: "15px", borderRadius: "14px", border: "none", background: visitReason.trim().length >= 5 ? `linear-gradient(135deg,${meta.color},#F5A623)` : isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", color: visitReason.trim().length >= 5 ? "#080812" : C.textSubtle, fontSize: "15px", fontWeight: "800", cursor: visitReason.trim().length >= 5 ? "pointer" : "not-allowed" }}>Vérifier & Confirmer →</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── GRATUIT étape 3 ── */}
-        {mode === "gratuit" && stepGratuit === 3 && (
-          <div style={{ animation: "fadeUp 0.25s ease" }}>
-            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Récapitulatif</h2>
+            {backButton("heure")}
+            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px" }}>Récapitulatif</h2>
             <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Vérifiez avant de confirmer.</p>
-            <div style={{ background: C.cardBg, borderRadius: "20px", border: `1px solid ${C.borderCard}`, overflow: "hidden", marginBottom: "16px" }}>
-              <div style={{ height: "4px", background: `linear-gradient(90deg,${meta.color},${meta.color}66)` }}/>
+
+            <div style={{ background: C.cardBg, borderRadius: "20px", border: `1.5px solid ${selectedService.payant ? "rgba(245,166,35,0.25)" : C.borderCard}`, overflow: "hidden", marginBottom: "16px" }}>
+              <div style={{ height: "4px", background: selectedService.payant ? "linear-gradient(90deg,#F5A623,#F2C94C,#F5A623)" : "linear-gradient(90deg,#00C896,#00875A)" }}/>
               <div style={{ padding: "20px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px", paddingBottom: "16px", borderBottom: `1px solid ${C.borderSubtle}`, marginBottom: "16px" }}>
                   <InstitutionLogo inst={institution} size={44}/>
-                  <div>
-                    <div style={{ color: C.text, fontSize: "15px", fontWeight: "800" }}>{institution.name}</div>
-                    <div style={{ color: C.textSubtle, fontSize: "12px" }}>{institution.ville}</div>
-                  </div>
+                  <div><div style={{ color: C.text, fontSize: "15px", fontWeight: "800" }}>{institution.name}</div><div style={{ color: C.textSubtle, fontSize: "12px" }}>{institution.adresse || institution.ville}</div></div>
                 </div>
                 {[
-                  { label: "Date & heure", value: selectedSlot ? formatDateLabel(selectedSlot.dateRdv, selectedSlot.heureRdv) : "—" },
-                  { label: "Motif",         value: visitReason },
-                  { label: "Urgence",       value: urgence === "normale" ? "Normal" : urgence === "urgente" ? "Urgent" : "Planifié" },
-                  { label: "Type",          value: typeVisite === "presentiel" ? "Présentiel" : "Téléconsultation" },
-                  ...(forOtherPerson ? [{ label: "Pour", value: `${otherName} · ${otherPhone}` }] : []),
+                  { label: "Service",      value: selectedService.nom },
+                  { label: "Date & heure", value: formatDateLabel(selectedSlot.dateRdv, selectedSlot.heureRdv) },
+                  ...(selectedService.duree_minutes > 0 ? [{ label: "Durée", value: `${selectedService.duree_minutes} minutes` }] : []),
                 ].map((row, i, arr) => (
-                  <div key={row.label} style={{ display: "flex", gap: "12px", paddingBottom: i < arr.length - 1 ? "12px" : "0", marginBottom: i < arr.length - 1 ? "12px" : "0", borderBottom: i < arr.length - 1 ? `1px solid ${C.borderSubtle}` : "none" }}>
+                  <div key={row.label} style={{ display: "flex", gap: "12px", paddingBottom: i < arr.length - 1 ? "12px" : 0, marginBottom: i < arr.length - 1 ? "12px" : 0, borderBottom: i < arr.length - 1 ? `1px solid ${C.borderSubtle}` : "none" }}>
                     <div style={{ color: C.textSubtle, fontSize: "12px", fontWeight: "600", minWidth: "90px" }}>{row.label}</div>
                     <div style={{ color: C.text, fontSize: "12px", fontWeight: "700", flex: 1 }}>{row.value}</div>
                   </div>
                 ))}
-              </div>
-            </div>
-            <div style={{ padding: "12px 14px", background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: `1px solid ${C.borderSubtle}`, borderRadius: "12px", marginBottom: "16px" }}>
-              <p style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.7, margin: 0 }}>En confirmant, vous acceptez les <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>CGU Yelen224</Link>.</p>
-            </div>
-            {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", color: "rgba(245,166,35,0.8)", fontSize: "13px" }}>{submitError}</div>}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "10px" }}>
-              <button onClick={() => { setSubmitError(null); setStepGratuit(2); }} className="tap" style={{ padding: "15px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, background: C.cardBg, color: C.text, fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>← Modifier</button>
-              <button onClick={handleSubmitGratuit} disabled={submitting} className="tap" style={{ padding: "15px", borderRadius: "14px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : `linear-gradient(135deg,${meta.color},#F5A623)`, color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", boxShadow: submitting ? "none" : `0 8px 24px ${meta.color}40` }}>
-                {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Enregistrement…</> : <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmer le RDV</>}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── PAYANT étape 1 ── */}
-        {mode === "payant" && stepPayant === 1 && (
-          <div style={{ animation: "fadeUp 0.25s ease" }}>
-            <button onClick={() => setMode("choice")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", color: C.textSubtle, fontSize: "12px", fontWeight: "700", cursor: "pointer", padding: "0 0 16px" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>Retour au choix
-            </button>
-            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Choisir un service</h2>
-            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 6px" }}>Services disponibles chez <strong style={{ color: C.text }}>{institution.name}</strong></p>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", marginBottom: "20px" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              <span style={{ color: C.textSubtle, fontSize: "11px" }}>Paiement <strong style={{ color: "#F5A623" }}>sur place uniquement</strong> · Un code de confirmation Yelen sera généré</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {paidServices.map(service => (
-                <ServicePayantCard key={service.id} service={service} selected={selectedService?.id === service.id} onSelect={() => setSelectedService(selectedService?.id === service.id ? null : service)} isDark={isDark} C={C}/>
-              ))}
-            </div>
-            <button onClick={() => selectedService && setStepPayant(2)} disabled={!selectedService} className="tap" style={{ width: "100%", marginTop: "24px", padding: "16px", borderRadius: "16px", border: "none", background: selectedService ? "linear-gradient(135deg,#F5A623,#C8940A)" : isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", color: selectedService ? "#080812" : C.textSubtle, fontSize: "15px", fontWeight: "800", cursor: selectedService ? "pointer" : "not-allowed", boxShadow: selectedService ? "0 8px 28px rgba(245,166,35,0.4)" : "none" }}>
-              {selectedService ? `Continuer · ${selectedService.nom} — ${formatPrix(selectedService.prix)} →` : "Sélectionnez un service"}
-            </button>
-          </div>
-        )}
-
-        {/* ── PAYANT étape 2 ── */}
-        {mode === "payant" && stepPayant === 2 && (
-          <div style={{ animation: "fadeUp 0.25s ease" }}>
-            <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.04)", border: "1.5px solid rgba(245,166,35,0.25)", borderRadius: "16px", padding: "14px 16px", marginBottom: "20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "rgba(245,166,35,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: C.text, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedService?.nom}</div>
-                  <div style={{ color: "#F5A623", fontSize: "12px", fontWeight: "700" }}>{selectedService ? formatPrix(selectedService.prix) : ""} · {selectedService?.duree_minutes} min</div>
+                <div style={{ marginTop: "16px", padding: "14px 16px", background: selectedService.payant ? "rgba(245,166,35,0.08)" : "rgba(0,200,150,0.08)", border: `1.5px solid ${selectedService.payant ? "rgba(245,166,35,0.25)" : "rgba(0,200,150,0.25)"}`, borderRadius: "14px" }}>
+                  <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", marginBottom: "2px" }}>Prix</div>
+                  <div style={{ color: selectedService.payant ? "#F5A623" : "#00C896", fontSize: "20px", fontWeight: "900" }}>{selectedService.payant ? formatPrix(selectedService.prix) : "Gratuit"}</div>
                 </div>
               </div>
-              <button onClick={() => setStepPayant(1)} style={{ background: "none", border: "none", color: "#F5A623", fontSize: "11px", fontWeight: "700", cursor: "pointer", flexShrink: 0 }}>Changer</button>
             </div>
-            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Créneau & motif</h2>
-            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Choisissez un créneau et décrivez votre besoin.</p>
-            {hasCreneaux ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "20px" }}>
-                {groupedCreneaux.map(group => (
-                  <div key={group.label}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                      <div style={{ height: "1px", flex: 1, background: C.borderSubtle }}/>
-                      <span style={{ color: group.label === "Aujourd'hui" || group.label === "Demain" ? "#F5A623" : C.textSubtle, fontSize: "11px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase" }}>{group.label}</span>
-                      <div style={{ height: "1px", flex: 1, background: C.borderSubtle }}/>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                      {group.slots.map(slot => {
-                        const sel = selectedSlotPayant?.key === slot.key;
-                        return (
-                          <button key={slot.key} onClick={() => setSelectedSlotPayant(slot)} className="tap" style={{ padding: "13px 12px", borderRadius: "14px", border: sel ? "2px solid #F5A623" : `1px solid ${C.borderCard}`, background: sel ? "rgba(245,166,35,0.1)" : C.cardBg, cursor: "pointer", textAlign: "left", boxShadow: sel ? "0 0 16px rgba(245,166,35,0.25)" : "none", transition: "all 0.15s" }}>
-                            <div style={{ color: sel ? "#F5A623" : C.text, fontSize: "15px", fontWeight: "800", marginBottom: "2px" }}>{slot.heureRdv}</div>
-                            <div style={{ color: sel ? "rgba(245,166,35,0.7)" : C.textSubtle, fontSize: "10px", fontWeight: "600" }}>
-                              {(() => { try { return new Date(slot.dateRdv + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }); } catch { return slot.dateRdv; } })()}
-                            </div>
-                            {sel && <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "4px" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg><span style={{ color: "#F5A623", fontSize: "9px", fontWeight: "800" }}>Sélectionné</span></div>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ background: C.cardBg, border: `1px dashed ${C.borderCard}`, borderRadius: "14px", padding: "20px", textAlign: "center", marginBottom: "20px" }}>
-                <p style={{ color: C.textSubtle, fontSize: "13px", margin: 0 }}>Aucun créneau disponible — contactez l'institution au {institution.phone}</p>
-              </div>
-            )}
-            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}`, marginBottom: "20px" }}>
-              <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "10px" }}>Motif de la visite *</div>
-              <textarea value={visitReasonPayant} onChange={e => setVisitReasonPayant(e.target.value)} placeholder="Décrivez votre demande pour ce service…" rows={3} style={{ width: "100%", padding: "12px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "12px", fontSize: "13px", color: C.text, resize: "none", lineHeight: 1.6 }}/>
-              <div style={{ color: visitReasonPayant.length < 5 ? "rgba(245,166,35,0.8)" : "#F5A623", fontSize: "10px", marginTop: "5px", textAlign: "right" }}>{visitReasonPayant.length} car. {visitReasonPayant.length >= 5 ? "✓" : "(min. 5)"}</div>
-            </div>
-            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}`, marginBottom: "20px" }}>
+
+            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}`, marginBottom: "16px" }}>
               <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", cursor: "pointer" }}>
-                <div>
-                  <div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>Pour un tiers</div>
-                  <div style={{ color: C.textSubtle, fontSize: "11px", marginTop: "2px" }}>Parent, enfant, patient…</div>
-                </div>
-                <div onClick={() => setForOtherPayant(p => !p)} style={{ width: "44px", height: "24px", borderRadius: "12px", background: forOtherPayant ? "#F5A623" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                  <div style={{ position: "absolute", top: "2px", left: forOtherPayant ? "22px" : "2px", width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#fff", transition: "left 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.3)" }}/>
+                <div><div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>Pour un tiers</div><div style={{ color: C.textSubtle, fontSize: "11px", marginTop: "2px" }}>Parent, enfant…</div></div>
+                <div onClick={() => setForOther(v => !v)} style={{ width: "44px", height: "24px", borderRadius: "12px", background: forOther ? "#F5A623" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", position: "relative", cursor: "pointer" }}>
+                  <div style={{ position: "absolute", top: "2px", left: forOther ? "22px" : "2px", width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#fff", transition: "left 0.2s" }}/>
                 </div>
               </label>
-              {forOtherPayant && (
+              {forOther && (
                 <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                  <input type="text" value={otherNamePayant} onChange={e => setOtherNamePayant(e.target.value)} placeholder="Nom complet *" style={{ width: "100%", padding: "11px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "11px", fontSize: "13px", color: C.text }}/>
-                  <input type="tel" value={otherPhonePayant} onChange={e => setOtherPhonePayant(e.target.value)} placeholder="Téléphone * (+224…)" style={{ width: "100%", padding: "11px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "11px", fontSize: "13px", color: C.text }}/>
+                  <input value={otherName} onChange={e => setOtherName(e.target.value)} placeholder="Nom complet *" style={{ width: "100%", padding: "11px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "11px", fontSize: "13px", color: C.text }}/>
+                  <input type="tel" value={otherPhone} onChange={e => setOtherPhone(e.target.value)} placeholder="Téléphone *" style={{ width: "100%", padding: "11px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "11px", fontSize: "13px", color: C.text }}/>
+                  <div style={{ display: "flex", gap: "8px", padding: "10px 12px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.15)", borderRadius: "10px" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <p style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.6, margin: 0 }}>Votre compte reste <strong style={{ color: C.text }}>seul responsable</strong> de ce rendez-vous, même réservé pour un tiers. Assurez-vous que les informations fournies sont exactes.</p>
+                  </div>
                 </div>
               )}
             </div>
-            {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", color: "rgba(245,166,35,0.8)", fontSize: "13px" }}>{submitError}</div>}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "10px" }}>
-              <button onClick={() => setStepPayant(1)} className="tap" style={{ padding: "15px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, background: C.cardBg, color: C.text, fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>← Retour</button>
-              <button onClick={() => selectedSlotPayant && visitReasonPayant.trim().length >= 5 && setStepPayant(3)} disabled={!selectedSlotPayant || visitReasonPayant.trim().length < 5} className="tap" style={{ padding: "15px", borderRadius: "14px", border: "none", background: (selectedSlotPayant && visitReasonPayant.trim().length >= 5) ? "linear-gradient(135deg,#F5A623,#C8940A)" : isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)", color: (selectedSlotPayant && visitReasonPayant.trim().length >= 5) ? "#080812" : C.textSubtle, fontSize: "15px", fontWeight: "800", cursor: (selectedSlotPayant && visitReasonPayant.trim().length >= 5) ? "pointer" : "not-allowed" }}>Vérifier & Confirmer →</button>
-            </div>
-          </div>
-        )}
 
-        {/* ── PAYANT étape 3 ── */}
-        {mode === "payant" && stepPayant === 3 && (
-          <div style={{ animation: "fadeUp 0.25s ease" }}>
-            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Récapitulatif</h2>
-            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Vérifiez avant de confirmer votre réservation payante.</p>
-            <div style={{ background: C.cardBg, borderRadius: "20px", border: "1.5px solid rgba(245,166,35,0.25)", overflow: "hidden", marginBottom: "16px", boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.4)" : "0 8px 32px rgba(245,166,35,0.1)" }}>
-              <div style={{ height: "4px", background: "linear-gradient(90deg,#F5A623,#F2C94C,#F5A623)" }}/>
-              <div style={{ padding: "20px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px", paddingBottom: "16px", borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`, marginBottom: "16px" }}>
-                  <InstitutionLogo inst={institution} size={44}/>
-                  <div>
-                    <div style={{ color: C.text, fontSize: "15px", fontWeight: "800" }}>{institution.name}</div>
-                    <div style={{ color: C.textSubtle, fontSize: "12px" }}>{institution.ville}</div>
-                  </div>
-                </div>
-                {[
-                  { label: "Service",      value: selectedService?.nom ?? "—" },
-                  { label: "Date & heure", value: selectedSlotPayant ? formatDateLabel(selectedSlotPayant.dateRdv, selectedSlotPayant.heureRdv) : "—" },
-                  { label: "Durée",        value: `${selectedService?.duree_minutes} minutes` },
-                  { label: "Motif",        value: visitReasonPayant },
-                  ...(forOtherPayant ? [{ label: "Pour", value: `${otherNamePayant} · ${otherPhonePayant}` }] : []),
-                ].map((row, i, arr) => (
-                  <div key={row.label} style={{ display: "flex", gap: "12px", paddingBottom: i < arr.length - 1 ? "12px" : "0", marginBottom: i < arr.length - 1 ? "12px" : "0", borderBottom: i < arr.length - 1 ? `1px solid ${isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}` : "none" }}>
-                    <div style={{ color: C.textSubtle, fontSize: "12px", fontWeight: "600", minWidth: "90px" }}>{row.label}</div>
-                    <div style={{ color: C.text, fontSize: "12px", fontWeight: "700", flex: 1 }}>{row.value}</div>
-                  </div>
-                ))}
-                <div style={{ marginTop: "16px", padding: "14px 16px", background: "rgba(245,166,35,0.08)", border: "1.5px solid rgba(245,166,35,0.25)", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div>
-                    <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Montant à payer sur place</div>
-                    <div style={{ color: "#F5A623", fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>{selectedService ? formatPrix(selectedService.prix) : "—"}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", marginBottom: "2px" }}>Mode</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                      <span style={{ color: "#F5A623", fontSize: "12px", fontWeight: "800" }}>Espèces sur place</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}`, marginBottom: "16px" }}>
+              <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", marginBottom: "2px" }}>Description de votre besoin</div>
+              <div style={{ color: C.textSubtle, fontSize: "11px", marginBottom: "10px" }}>Optionnel — aide l'établissement à préparer votre visite.</div>
+              <textarea
+                value={descriptionBesoin}
+                onChange={e => setDescriptionBesoin(e.target.value.slice(0, 500))}
+                placeholder="Ex : Je souhaite ouvrir un compte épargne pour mon enfant…"
+                rows={3}
+                style={{ width: "100%", padding: "11px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "11px", fontSize: "13px", color: C.text, resize: "vertical", minHeight: "72px" }}
+              />
+              <div style={{ color: C.textSubtle, fontSize: "10px", textAlign: "right", marginTop: "4px" }}>{descriptionBesoin.length}/500</div>
             </div>
+
             <div style={{ padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.03)", border: "1px solid rgba(245,166,35,0.15)", borderRadius: "12px", marginBottom: "16px" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                <div style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.7 }}>Un <strong style={{ color: "#F5A623" }}>code de confirmation Yelen à 6 chiffres</strong> sera généré après confirmation. Vous devrez le présenter le jour J pour valider votre RDV et payer.</div>
-              </div>
+              <p style={{ color: C.textSubtle, fontSize: "11.5px", lineHeight: 1.7, margin: 0 }}>
+                {selectedService.payant
+                  ? "Le paiement s'effectue directement auprès de l'établissement. Yelen ne collecte aucun paiement. Une fois votre rendez-vous confirmé, un code de validation Yelen sera généré — présentez-le lors de votre arrivée."
+                  : "Une fois votre rendez-vous confirmé, un code de validation Yelen sera généré — présentez-le lors de votre arrivée."}
+              </p>
             </div>
-            <div style={{ padding: "12px 14px", background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: `1px solid ${C.borderSubtle}`, borderRadius: "12px", marginBottom: "16px" }}>
-              <p style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.7, margin: 0 }}>En confirmant, vous acceptez les <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>CGU Yelen224</Link> et vous engagez à vous présenter au créneau sélectionné.</p>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", marginBottom: "12px" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "600" }}>Réservation sécurisée — traitée par Yelen224</span>
             </div>
             {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", color: "rgba(245,166,35,0.8)", fontSize: "13px" }}>{submitError}</div>}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "10px" }}>
-              <button onClick={() => { setSubmitError(null); setStepPayant(2); }} className="tap" style={{ padding: "15px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, background: C.cardBg, color: C.text, fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>← Modifier</button>
-              <button onClick={handleSubmitPayant} disabled={submitting} className="tap" style={{ padding: "15px", borderRadius: "14px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "linear-gradient(135deg,#F5A623,#C8940A)", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", boxShadow: submitting ? "none" : "0 8px 28px rgba(245,166,35,0.4)" }}>
-                {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Génération du code…</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Confirmer & obtenir mon code</>}
-              </button>
-            </div>
+            <button onClick={goToRecapOrConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "linear-gradient(135deg,#F5A623,#C8940A)", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Confirmation…</> : (selectedService.champs_complementaires.length > 0 ? "Continuer →" : "Confirmer le rendez-vous")}
+            </button>
+            <p style={{ color: C.textSubtle, fontSize: "10.5px", lineHeight: 1.6, textAlign: "center", margin: "10px 0 0" }}>
+              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions Générales d'Utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de Confidentialité</Link>.
+            </p>
           </div>
         )}
 
+        {/* ═══ ÉTAPE 5 — Informations complémentaires (si configurées) ═══ */}
+        {step === "champs" && selectedService && (
+          <div style={{ animation: "fadeUp 0.25s ease" }}>
+            {backButton("recap")}
+            <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px" }}>Informations complémentaires</h2>
+            <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Demandées par {institution.name} pour ce service.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "20px" }}>
+              {selectedService.champs_complementaires.map(c => (
+                <div key={c.label}>
+                  <label style={{ display: "block", color: C.textSubtle, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>{c.label}{c.requis ? " *" : ""}</label>
+                  <input type={c.type === "tel" ? "tel" : c.type === "numero" ? "text" : "text"} value={champsReponses[c.label] ?? ""} onChange={e => setChampsReponses(r => ({ ...r, [c.label]: e.target.value }))} style={{ width: "100%", padding: "12px 14px", background: inputBg, border: `1px solid ${inputBord}`, borderRadius: "12px", fontSize: "13px", color: C.text }}/>
+                </div>
+              ))}
+            </div>
+            {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", color: "rgba(245,166,35,0.8)", fontSize: "13px" }}>{submitError}</div>}
+            <button onClick={handleConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "linear-gradient(135deg,#F5A623,#C8940A)", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Confirmation…</> : "Confirmer le rendez-vous"}
+            </button>
+            <p style={{ color: C.textSubtle, fontSize: "10.5px", lineHeight: 1.6, textAlign: "center", margin: "10px 0 0" }}>
+              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions Générales d'Utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de Confidentialité</Link>.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

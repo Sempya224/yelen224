@@ -220,6 +220,26 @@ export async function POST(request: NextRequest) {
       console.error('[INSTITUTION REGISTER RESPONSABLE INSERT ERROR]', responsableError.code, responsableError.message, responsableError.details, responsableError.hint)
     }
 
+    // Fondation multi-comptes (migration 20260714000001) — chaque nouvelle
+    // institution reçoit son membre Admin principal (se connecte toujours
+    // par téléphone+OTP, pas par identifiant/PIN — colonnes nullable dédiées
+    // à ce cas). Non bloquant : l'institution existe déjà à ce stade.
+    const { data: membrePrincipal, error: membreError } = await supabaseAdmin
+      .from('institution_membres')
+      .insert({
+        institution_id: institution.id,
+        prenom: responsable_prenom.trim(),
+        nom: responsable_nom.trim(),
+        role: 'admin',
+        compte_principal: true,
+        doit_changer_pin: false,
+      })
+      .select('id, role')
+      .single()
+    if (membreError) {
+      console.error('[INSTITUTION REGISTER MEMBRE PRINCIPAL INSERT ERROR]', membreError.code, membreError.message, membreError.details, membreError.hint)
+    }
+
     // Sondage de personnalisation — entièrement optionnel, jamais bloquant :
     // l'institution existe déjà à ce stade, une erreur ici ne doit jamais faire
     // échouer l'inscription.
@@ -240,7 +260,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Établir la session — identique à /verify-otp en flux connexion
-    const token = await new SignJWT({ institutionId: institution.id })
+    const token = await new SignJWT({
+      institutionId: institution.id,
+      ...(membrePrincipal ? { membreId: membrePrincipal.id, role: membrePrincipal.role } : {}),
+    })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(institution.id)
       .setIssuedAt()

@@ -21,7 +21,9 @@ export const T = {
       sectionAlt:   "#f0f0f5",
       cardBg:       "#ffffff",
       footerBg:     "#e8e8f0",
-      text:         "#111111",
+      // Aligné sur le noir utilisé pour les titres dans page.tsx (t1) —
+      // #111111 rendait les titres moins affirmés que le reste de l'app.
+      text:         "#000000",
       textMuted:    "#444444",
       textSubtle:   "#666666",
       textDim:      "#555555",

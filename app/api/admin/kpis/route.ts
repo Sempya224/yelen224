@@ -61,7 +61,10 @@ export async function GET(request: NextRequest) {
       supabaseAdmin.from('paiements').select('montant').gte('created_at', startOfMonth),
       supabaseAdmin.from('paiements').select('montant').gte('created_at', startOfDay),
       // ── SIGNALEMENTS + AVIS ──
-      supabaseAdmin.from('signalements').select('id', { count: 'exact', head: true }).eq('statut', 'nouveau'),
+      // 'nouveau' n'existe pas dans l'enum statut_signalement (ouvert,
+      // en_cours, resolu, ignore) — comptait toujours 0 silencieusement.
+      // 'en_cours' est la seule valeur réellement utilisée à la création.
+      supabaseAdmin.from('signalements').select('id', { count: 'exact', head: true }).eq('statut', 'en_cours'),
       supabaseAdmin.from('avis').select('id, note'),
       supabaseAdmin.from('paiements').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente'),
       // ── GRAPHES ──

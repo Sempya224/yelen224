@@ -1,16 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { AuthSessionWatcher } from "@/components/AuthSessionWatcher";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Police de marque — remplace Geist, chargé jusqu'ici mais jamais appliqué
+// (globals.css et le dashboard institution réécrivaient tous deux un
+// font-family système à la place). Voir audit UI/UX niveau SaaS US,
+// 12/07/2026.
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const viewport: Viewport = {
@@ -42,10 +43,11 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/file.svg" />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${jakarta.variable} antialiased`}
         style={{ margin: 0, padding: 0, height: "100%" }}
       >
         <ThemeProvider>
+          <AuthSessionWatcher/>
           {children}
         </ThemeProvider>
       </body>

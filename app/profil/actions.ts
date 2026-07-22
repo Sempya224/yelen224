@@ -1,35 +1,46 @@
 "use server";
 
-import { supabase } from "@/lib/supabase";
+import { createAuthedSupabaseClient } from "@/lib/supabase";
 
 export type ProfileActionResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Met à jour prenom, nom, name (nom complet) et optionnellement avatar_url.
+ * Met à jour prenom, nom et optionnellement photo_url.
+ * `name` et `avatar_url` retirés : aucune des deux colonnes n'existe sur
+ * `users` (vraies colonnes : prenom, nom, photo_url — cf. CLAUDE.md /schema).
+ * Le payload précédent faisait échouer systématiquement l'update (PostgREST
+ * rejette un UPDATE sur colonne inconnue) — aucune modification de profil
+ * citoyen n'était donc jamais réellement enregistrée, silencieusement.
  */
 export async function updateCitoyenProfile(
   userId: string,
   prenom: string,
   nom: string,
-  avatarUrl?: string | null,
+  accessToken: string,
+  photoUrl?: string | null,
+  ville?: string | null,
 ): Promise<ProfileActionResult> {
   const p = prenom.trim();
   const n = nom.trim();
   if (!p || !n) {
     return { ok: false, error: "Prénom et nom sont obligatoires." };
   }
-
-  const fullName = `${p} ${n}`.trim();
+  if (!accessToken?.trim()) {
+    return { ok: false, error: "Session expirée, reconnectez-vous." };
+  }
 
   const updatePayload: Record<string, unknown> = {
     prenom: p,
     nom: n,
-    name: fullName,
   };
-  if (avatarUrl !== undefined) {
-    updatePayload.avatar_url = avatarUrl;
+  if (photoUrl !== undefined) {
+    updatePayload.photo_url = photoUrl;
+  }
+  if (ville !== undefined) {
+    updatePayload.ville = ville?.trim() || null;
   }
 
+  const supabase = createAuthedSupabaseClient(accessToken);
   const { error } = await supabase
     .from("users")
     .update(updatePayload)
@@ -43,7 +54,11 @@ export async function updateCitoyenProfile(
   return { ok: true };
 }
 
-export async function deleteCitoyenAccount(userId: string): Promise<ProfileActionResult> {
+export async function deleteCitoyenAccount(userId: string, accessToken: string): Promise<ProfileActionResult> {
+  if (!accessToken?.trim()) {
+    return { ok: false, error: "Session expirée, reconnectez-vous." };
+  }
+  const supabase = createAuthedSupabaseClient(accessToken);
   const { error } = await supabase.from("users").delete().eq("id", userId);
 
   if (error) {

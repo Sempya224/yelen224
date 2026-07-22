@@ -74,7 +74,8 @@ function SignalementInner() {
   };
 
   useEffect(() => {
-    const uid = localStorage.getItem(YELEN224_USER_ID_KEY);
+    let uid: string | null = null;
+    try { uid = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     if (!uid) { router.push("/login"); return; }
     setUserId(uid);
     fetchInstitutions();

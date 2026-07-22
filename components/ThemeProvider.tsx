@@ -1,41 +1,54 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
+// mode = préférence choisie par l'utilisateur ('system' = suit l'OS en
+// permanence). theme = valeur résolue ('light'|'dark') que les pages
+// consomment déjà partout via `const { theme } = useTheme(); const C =
+// T[theme];` — signature volontairement conservée pour ne rien casser côté
+// appelants existants. Avant cette évolution, le provider ne connaissait que
+// 'light'|'dark' : il démarrait sur l'OS mais l'oubliait définitivement dès
+// le premier clic sur ThemeToggle, sans moyen de revenir à "Système".
+export type ThemeMode = 'system' | 'light' | 'dark';
 type Theme = 'light' | 'dark';
 
 interface ThemeContextType {
+  mode: ThemeMode;
   theme: Theme;
+  setMode: (mode: ThemeMode) => void;
   toggleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
+  mode: 'system',
   theme: 'light',
+  setMode: () => {},
   toggleTheme: () => {},
 });
 
+const STORAGE_KEY = 'yelen224-theme';
+
+function getSystemTheme(): Theme {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [mode, setModeState] = useState<ThemeMode>('system');
   const [theme, setTheme] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // 1. Lire le override manuel stocké
-    const stored = localStorage.getItem('yelen224-theme') as Theme | null;
-
-    if (stored) {
-      setTheme(stored);
-    } else {
-      // 2. Fallback : préférence OS
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setTheme(prefersDark ? 'dark' : 'light');
-    }
-
+    // Valeurs historiques : seulement 'light'|'dark' (override manuel) ou
+    // rien (= système). 'system' est une valeur explicite ajoutée ici.
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const initialMode: ThemeMode = stored === 'light' || stored === 'dark' ? stored : 'system';
+    setModeState(initialMode);
+    setTheme(initialMode === 'system' ? getSystemTheme() : initialMode);
     setMounted(true);
   }, []);
 
   useEffect(() => {
     if (!mounted) return;
-
     const root = document.documentElement;
     if (theme === 'dark') {
       root.classList.add('dark');
@@ -44,30 +57,37 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [theme, mounted]);
 
-  // Écouter les changements OS en temps réel (si pas de override manuel)
+  // Suit les changements OS en temps réel — uniquement tant que le mode
+  // reste 'system' (un choix explicite Clair/Sombre ne doit plus bouger
+  // tout seul quand l'OS change).
   useEffect(() => {
+    if (mode !== 'system') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent) => {
-      const hasManualOverride = localStorage.getItem('yelen224-theme');
-      if (!hasManualOverride) {
-        setTheme(e.matches ? 'dark' : 'light');
-      }
-    };
+    const handler = (e: MediaQueryListEvent) => setTheme(e.matches ? 'dark' : 'light');
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
+  }, [mode]);
+
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeState(next);
+    if (next === 'system') {
+      localStorage.removeItem(STORAGE_KEY);
+      setTheme(getSystemTheme());
+    } else {
+      localStorage.setItem(STORAGE_KEY, next);
+      setTheme(next);
+    }
   }, []);
 
-  const toggleTheme = () => {
-    const next: Theme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(next);
-    localStorage.setItem('yelen224-theme', next);
-  };
+  const toggleTheme = useCallback(() => {
+    setMode(theme === 'dark' ? 'light' : 'dark');
+  }, [theme, setMode]);
 
   // Évite le flash au chargement
   if (!mounted) return <>{children}</>;
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ mode, theme, setMode, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );
