@@ -235,6 +235,30 @@ réellement les valeurs absent/effectue/honore/nouveau de
 `MesClientsTab.tsx::stColor()` reste à vérifier par SQL avant tout travail
 sur le taux de présence.
 
+## /historique-deploiement — premier commit général + build Netlify (22/07/2026)
+Après 4+ semaines sans commit, commit général de tous les chantiers
+accumulés (330 fichiers) effectué et poussé sur `origin/main` à la demande
+de Bryan/CEO, pour permettre une revue du rendu réel déployé plutôt que de
+continuer à accumuler du code non testé en conditions réelles.
+⚠️ **Bug réel détecté au premier build Netlify depuis longtemps** :
+`app/institution/connexion/page.tsx` et `app/login/page.tsx` utilisaient
+`useSearchParams()` directement dans le composant par défaut, sans
+frontière `<Suspense>` — Next.js App Router exige ce wrapping pour le
+prerendering statique, sinon le build échoue entièrement (`Error occurred
+prerendering page`). Corrigé en renommant chaque composant en
+`XxxInner()` et en ajoutant un wrapper `export default` avec `<Suspense
+fallback=...>`. Les 5 autres pages du projet utilisant `useSearchParams`
+(recherche, signalement, institution/signalements, avis,
+messagerie/citoyen) suivaient déjà correctement ce pattern — vérifié une
+à une avant de repousser.
+**Leçon à retenir** : toute nouvelle page utilisant `useSearchParams()`
+doit être vérifiée avec un `npm run build` local avant de considérer un
+chantier "terminé" — `tsc --noEmit` ne détecte pas ce genre d'erreur de
+prerendering, seul un vrai build Next.js le fait. Un ancien commentaire
+affirmant que `app/login/page.tsx` "fonctionnait déjà ainsi en
+production" était faux (jamais vérifié par un build réel) — encore un
+exemple de note non revérifiée à ne pas prendre pour argent comptant.
+
 ## /backlog-technique — localStorage non protégé
 `localStorage.getItem(...)` peut lever une exception sur mobile (Safari
 navigation privée, etc.) — pattern de protection déjà établi :
