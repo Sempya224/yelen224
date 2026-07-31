@@ -1,18 +1,20 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
 import { type Horaire, JOURS_SEMAINE, parseHoraires, isOuvertNow } from "@/lib/horaires";
 import { SECTEUR_LABELS, SECTEUR_META } from "@/lib/secteurs";
+import { enregistrerInstitutionConsultee } from "@/lib/institutionsRecentes";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Annonce = { id: string; titre: string; contenu: string; type: string; format: string; media_urls: string[] | null; epingle: boolean; image_url: string | null; created_at: string; date_expiration: string | null };
 type Avis    = { id: string; citoyen_id: string; titre: string | null; note: number; commentaire: string | null; reponse_institution: string | null; reponse_le: string | null; created_at: string; nom: string; rdv_confirmed: boolean; utile_count: number };
 type Commentaire = { id: string; annonce_id: string; contenu: string; citoyen_id: string; citoyen_nom: string | null; created_at: string };
+type QuestionInstitution = { id: string; citoyen_id: string; question: string; reponse: string | null; reponse_le: string | null; created_at: string };
 type Institution = {
   id: string; name: string; category: string; secteur: string | null; description: string;
   adresse: string; ville: string; quartier: string;
@@ -21,6 +23,8 @@ type Institution = {
   moyenne_avis: number; nb_avis: number; badge_verifie: boolean;
   horaires: Horaire[]; services: string[];
   annee_creation?: string; capacite?: string; langue?: string[];
+  conditions_entreprise: string | null; informations_importantes: string | null; informations_legales: string | null;
+  conditions_entreprise_le: string | null; informations_importantes_le: string | null; informations_legales_le: string | null;
 };
 
 const ANNONCE_TYPES: Record<string, { color: string; bg: string; border: string; label: string }> = {
@@ -33,6 +37,20 @@ const ANNONCE_TYPES: Record<string, { color: string; bg: string; border: string;
 
 // SECTEUR_LABELS/SECTEUR_META extraites dans lib/secteurs.ts (chantier
 // Favoris citoyen, 18/07/2026) pour être réutilisées ailleurs.
+
+// FAQ de la fiche prestataire (chantier refonte, 24/07/2026) — questions
+// génériques sur le fonctionnement réel de Yelen (réservation, annulation,
+// avis, confidentialité), valables pour n'importe quelle institution.
+// Volontairement aucune question spécifique à l'institution elle-même
+// (horaires réels, politique d'annulation propre) : Yelen ne peut pas
+// garantir un contenu qu'aucune institution n'a renseigné.
+const FAQ_FICHE: { q: string; r: string }[] = [
+  { q: "Comment prendre rendez-vous avec cette institution ?", r: "Appuyez sur \"Prendre RDV\", choisissez un service et un créneau disponible, puis confirmez. Vous recevez une confirmation immédiate dans l'application." },
+  { q: "Puis-je annuler ou reporter mon rendez-vous ?", r: "Oui, depuis l'onglet \"Mes RDV\" de votre compte, jusqu'à l'heure prévue du rendez-vous." },
+  { q: "Comment laisser un avis sur cette institution ?", r: "Seuls les citoyens ayant effectué un rendez-vous avec cette institution peuvent laisser un avis, depuis leurs Activités passées." },
+  { q: "Mes informations sont-elles partagées avec l'institution ?", r: "Seules les informations nécessaires à votre rendez-vous (nom, téléphone) deviennent visibles par l'institution une fois le rendez-vous confirmé." },
+  { q: "Que faire si l'institution ne répond pas ?", r: "Vous pouvez la contacter par téléphone ou WhatsApp directement depuis cette fiche, ou signaler un problème depuis l'application." },
+];
 
 // ─── SVG Icons (plus d'emojis) ────────────────────────────────────────────────
 const Icons = {
@@ -83,11 +101,28 @@ const SECTEUR_ICON: Record<string, () => React.ReactElement> = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+// Ancien format d'un service : simple string. Nouveau format (Lot A
+// refonte wizard RDV, ServicesTab.tsx, type OffreService) : objet
+// structuré {nom, description, duree_minutes, champs_complementaires} —
+// extraire .nom, sinon String(objet) produit littéralement
+// "[object Object]" (bug réel confirmé le 27/07/2026 : nom de service
+// affiché comme "[object Object]" + avertissement React "clés dupliquées"
+// puisque tous les services d'une même institution donnaient la même
+// chaîne).
+function toServiceLabel(entry: unknown): string {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && "nom" in entry) {
+    const nom = (entry as { nom?: unknown }).nom;
+    return typeof nom === "string" ? nom : "";
+  }
+  return "";
+}
+
 function parseArr(v: unknown): string[] {
   if (!v) return [];
-  if (Array.isArray(v)) return v.map(String).filter(Boolean);
+  if (Array.isArray(v)) return v.map(toServiceLabel).filter(Boolean);
   if (typeof v === "string") {
-    try { const p = JSON.parse(v); return Array.isArray(p) ? p.map(String).filter(Boolean) : []; }
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p.map(toServiceLabel).filter(Boolean) : []; }
     catch { return v.split(/[,\n]/).map(s => s.trim()).filter(Boolean); }
   }
   return [];
@@ -152,20 +187,116 @@ function SectionTitle({ icon, label, count, color = "#F5A623" }: { icon: React.R
   );
 }
 
+// Illustration originale du widget de satisfaction — badge dégradé +
+// accents décoratifs, dessinée pour Yelen (pas une reprise d'un visuel
+// d'un autre produit).
+// Badge "vérifié" bleu inline à côté du nom, façon Meta/Instagram — vrai
+// sceau à contour crénelé (pas un simple cercle), même silhouette que le
+// badge vérifié Instagram/X — affiché uniquement si inst.badge_verifie
+// (accordé par un admin Yelen après contrôle des documents, voir
+// api/admin/institutions/[id]/badge). Affiché uniquement dans le header
+// sticky (pas dans le hero, pour éviter le doublon — retour 25/07/2026).
+function MetaVerifiedBadge({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+      <path fill="#0095F6" d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34z"/>
+      <path fill="#fff" d="M9.9 16.2 6 12.3l1.4-1.4 2.5 2.5 6.7-6.7 1.4 1.4z"/>
+    </svg>
+  );
+}
+
+function SatIllustration({ variant }: { variant: "question" | "merci" }) {
+  const isThanks = variant === "merci";
+  return (
+    <div style={{ position: "relative", width: "52px", height: "52px", flexShrink: 0 }}>
+      <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: isThanks ? "linear-gradient(135deg,#22c55e,#4ade80)" : "linear-gradient(135deg,#F5A623,#FBBF24)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 6px 16px ${isThanks ? "rgba(34,197,94,0.35)" : "rgba(245,166,35,0.35)"}` }}>
+        {isThanks ? (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        ) : (
+          <span style={{ color: "#080812", fontSize: "22px", fontWeight: "900", lineHeight: 1 }}>?</span>
+        )}
+      </div>
+      <span style={{ position: "absolute", top: "-3px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", backgroundColor: isThanks ? "#F5A623" : "#60a5fa" }}/>
+      <span style={{ position: "absolute", bottom: "-1px", left: "-5px", width: "7px", height: "7px", borderRadius: "50%", backgroundColor: isThanks ? "#60a5fa" : "#22c55e" }}/>
+    </div>
+  );
+}
+
+function AnnonceImageCarousel({ images, height, dotActiveColor, dotInactiveColor = "rgba(255,255,255,0.45)" }:
+  { images: string[]; height: number; dotActiveColor: string; dotInactiveColor?: string }) {
+  const [active, setActive] = useState(0);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  if (images.length === 0) return null;
+  return (
+    <div style={{ width: "100%", height: `${height}px`, position: "relative", overflow: "hidden" }}>
+      <div
+        ref={scrollerRef}
+        onScroll={() => {
+          const el = scrollerRef.current; if (!el) return;
+          const idx = Math.round(el.scrollLeft / el.clientWidth);
+          setActive(Math.max(0, Math.min(images.length - 1, idx)));
+        }}
+        style={{ display: "flex", width: "100%", height: "100%", overflowX: "auto", scrollSnapType: "x mandatory" }}
+      >
+        {images.map((url, i) => (
+          <img key={i} src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", flexShrink: 0, scrollSnapAlign: "start" }}/>
+        ))}
+      </div>
+      {images.length > 1 && (
+        <div style={{ position: "absolute", bottom: "8px", left: 0, right: 0, display: "flex", justifyContent: "center", gap: "5px" }}>
+          {images.map((_, i) => (
+            <span key={i} style={{
+              width: i === active ? "7px" : "5.5px", height: i === active ? "7px" : "5.5px",
+              borderRadius: "50%", backgroundColor: i === active ? dotActiveColor : dotInactiveColor,
+              boxShadow: "0 1px 2px rgba(0,0,0,0.35)", transition: "width 0.15s, height 0.15s",
+            }}/>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page principale ──────────────────────────────────────────────────────────
-export default function InstitutionProfilePage() {
+// useSearchParams() exige une frontière Suspense en App Router (voir
+// app/login/page.tsx pour le même pattern déjà en place) — sinon le build
+// Netlify échoue au prerendering (bug réel déjà rencontré le 22/07/2026,
+// voir CLAUDE.md /historique-deploiement).
+function InstitutionProfilePageInner() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = params.id as string;
   const { theme } = useTheme();
   const C = T[theme];
   const isDark = theme === "dark";
 
+  // Preuve de valeur du QR "Mon code QR" (retour Bryan 25/07/2026) — mémorise
+  // seulement l'INTENTION du scan pour l'attribuer à la réservation qui
+  // pourrait suivre dans la même session ; n'affecte jamais l'affichage de
+  // cette page elle-même (le QR continue de mener ici, pas à la réservation
+  // directement — décision Bryan : voir les infos avant de réserver reste
+  // important). Best-effort : sessionStorage peut échouer (navigation
+  // privée) sans jamais bloquer la page.
+  useEffect(() => {
+    if (searchParams.get("source") === "qr") {
+      try { sessionStorage.setItem("yelen224_provenance", "qr"); } catch {}
+    }
+  }, [searchParams]);
+
   const [inst, setInst]         = useState<Institution | null>(null);
   const [annonces, setAnnonces] = useState<Annonce[]>([]);
   const [avis, setAvis]         = useState<Avis[]>([]);
   const [loading, setLoading]   = useState(true);
-  const [activeTab, setActiveTab] = useState<"info"|"horaires"|"services"|"avis">("info");
+  // Chantier refonte fiche prestataire (24/07/2026, retour CEO) — Info/
+  // Horaires/Services ne sont plus des onglets qui masquent le reste :
+  // tout le contenu est désormais visible en un seul scroll, ces boutons
+  // deviennent des ancres qui font défiler jusqu'à la section. Avis reste
+  // à part : son bouton ouvre un plein écran dédié façon Booking.
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const infoRef = useRef<HTMLDivElement>(null);
+  const horairesRef = useRef<HTMLDivElement>(null);
+  const servicesRef = useRef<HTMLDivElement>(null);
   const [imgBanErr, setImgBanErr] = useState(false);
   // Lot E2 (engagement citoyen, 16/07/2026)
   const [citoyenId, setCitoyenId] = useState<string | null>(null);
@@ -174,11 +305,148 @@ export default function InstitutionProfilePage() {
   const [mesUtile, setMesUtile] = useState<Set<string>>(new Set());
   // Chantier Favoris citoyen (18/07/2026)
   const [estFavori, setEstFavori] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Indicateur de position de scroll — barre verticale sur le bord droit,
+  // même comportement que app/page.tsx (retour Bryan 25/07/2026 : étendre
+  // ce repère à la fiche établissement jusqu'au récapitulatif du wizard).
+  const [scrollPct, setScrollPct]         = useState(0);
+  const [scrollThumbH, setScrollThumbH]   = useState(0);
+  const [scrollBarShown, setScrollBarShown] = useState(false);
+  const scrollHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // CTA "Prendre RDV" — retenté en position:fixed avec révélation au scroll
+  // vers le haut (retour Bryan 25/07/2026), après un aller-retour sur
+  // `sticky` (bug fixed constaté sur mobile le 24/07/2026, voir commentaire
+  // sur le bandeau CTA plus bas). Décision assumée : Bryan confirme sur son
+  // téléphone si le bug refixed revient avant qu'on généralise le pattern.
+  const [ctaVisible, setCtaVisible] = useState(true);
+  const lastScrollY = useRef(0);
+  useEffect(() => {
+    const onScrollPct = () => {
+      const viewport = window.innerHeight;
+      const total = document.documentElement.scrollHeight;
+      const max = total - viewport;
+      setScrollPct(max > 0 ? Math.min(Math.max(window.scrollY / max, 0), 1) : 0);
+      setScrollThumbH(total > 0 ? Math.min(Math.max(viewport / total, 0.08), 1) : 1);
+      setScrollBarShown(true);
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+      scrollHideTimer.current = setTimeout(() => setScrollBarShown(false), 900);
+
+      const y = window.scrollY;
+      const delta = y - lastScrollY.current;
+      if (y < 40 || delta < -4) setCtaVisible(true);
+      else if (delta > 4) setCtaVisible(false);
+      lastScrollY.current = y;
+    };
+    onScrollPct();
+    window.addEventListener("scroll", onScrollPct, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScrollPct);
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+    };
+  }, []);
+  // FAQ (chantier refonte fiche prestataire, 24/07/2026)
+  const [faqOuverte, setFaqOuverte] = useState<number | null>(null);
   // Lot E3 (engagement citoyen, commentaires, 16/07/2026)
   const [commentaires, setCommentaires] = useState<Record<string, Commentaire[]>>({});
-  const [commentairesOuverts, setCommentairesOuverts] = useState<Set<string>>(new Set());
+  const [commentsOpenId, setCommentsOpenId] = useState<string | null>(null);
+  const [detailOpenId, setDetailOpenId] = useState<string | null>(null);
+  const selectedDetailRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (detailOpenId && selectedDetailRef.current) {
+      selectedDetailRef.current.scrollIntoView({ block: "start" });
+    }
+  }, [detailOpenId]);
   const [nouveauCommentaire, setNouveauCommentaire] = useState<Record<string, string>>({});
   const [envoiCommentaire, setEnvoiCommentaire] = useState<string | null>(null);
+
+  // Widget "Comment on s'en sort ?" (satisfaction plateforme, 24/07/2026) —
+  // clé localStorage globale (pas liée à cette institution) : la question
+  // porte sur Yelen en général, fermer/répondre sur une fiche masque aussi
+  // le widget sur les autres, pendant 30 jours (même pattern que
+  // components/MonAssistant.tsx::ASSISTANT_DISMISS_KEY).
+  const SAT_DISMISS_KEY = "yelen224_satisfaction_dismissed_until";
+  const [satDismissedUntil, setSatDismissedUntil] = useState(0);
+  const [satStep, setSatStep] = useState<1 | 2>(1);
+  const [satReponse, setSatReponse] = useState<string | null>(null);
+  const [satCommentaire, setSatCommentaire] = useState("");
+  const [satSubmitting, setSatSubmitting] = useState(false);
+  const [satSubmitted, setSatSubmitted] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SAT_DISMISS_KEY);
+      if (raw) setSatDismissedUntil(Number(raw) || 0);
+    } catch {}
+  }, []);
+
+  function dismissSatisfaction() {
+    const until = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    try { localStorage.setItem(SAT_DISMISS_KEY, String(until)); } catch {}
+    setSatDismissedUntil(until);
+  }
+
+  async function handleSubmitSatisfaction() {
+    if (!citoyenId || !satReponse) return;
+    setSatSubmitting(true);
+    const { error } = await supabase.from("enquete_satisfaction").insert({
+      citoyen_id: citoyenId,
+      reponse: satReponse,
+      commentaire: satCommentaire.trim() || null,
+      institution_id: inst?.id ?? null,
+    });
+    setSatSubmitting(false);
+    if (!error) {
+      setSatSubmitted(true);
+      dismissSatisfaction();
+    }
+  }
+
+  // "Questions des citoyens" façon Booking "Travelers are asking" (public
+  // pré-RDV, 24/07/2026) — questions_institution, max 2 par citoyen et par
+  // établissement (imposé par trigger serveur, voir migration). Séparé de
+  // la vraie messagerie citoyen↔institution (liée à un RDV).
+  const [questions, setQuestions] = useState<QuestionInstitution[]>([]);
+  const [questionsListOpen, setQuestionsListOpen] = useState(false);
+  // "Conditions & Informations" façon Booking (Property Policies/Important
+  // details/Legal information), 24/07/2026 — remplace le footer de la
+  // fiche. Contenu rempli par l'institution (Mon compte > Conditions &
+  // Informations), popup dédié par section.
+  const [infoOpen, setInfoOpen] = useState<"conditions" | "importantes" | "legales" | null>(null);
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askSubmitting, setAskSubmitting] = useState(false);
+  const mesQuestions = questions.filter(q => q.citoyen_id === citoyenId);
+  const questionsRepondues = questions.filter(q => q.reponse !== null).sort((a, b) => new Date(b.reponse_le ?? b.created_at).getTime() - new Date(a.reponse_le ?? a.created_at).getTime());
+
+  function ouvrirPoserQuestion() {
+    if (!citoyenId) { router.push("/inscription"); return; }
+    setAskQuestion("");
+    setAskOpen(true);
+  }
+
+  async function handleSubmitQuestion() {
+    if (!citoyenId || !inst) return;
+    const question = askQuestion.trim();
+    if (!question) return;
+    setAskSubmitting(true);
+    const { data, error } = await supabase
+      .from("questions_institution")
+      .insert({ institution_id: inst.id, citoyen_id: citoyenId, question })
+      .select("id, citoyen_id, question, reponse, reponse_le, created_at")
+      .single();
+    setAskSubmitting(false);
+    if (!error && data) {
+      setQuestions(prev => [data, ...prev]);
+      setAskOpen(false);
+    }
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -191,6 +459,12 @@ export default function InstitutionProfilePage() {
         category: String(r.category ?? r.categorie ?? "Autre"),
         secteur: r.secteur ? String(r.secteur) : null,
         description: String(r.description ?? ""),
+        conditions_entreprise: r.conditions_entreprise ? String(r.conditions_entreprise) : null,
+        informations_importantes: r.informations_importantes ? String(r.informations_importantes) : null,
+        informations_legales: r.informations_legales ? String(r.informations_legales) : null,
+        conditions_entreprise_le: r.conditions_entreprise_le ? String(r.conditions_entreprise_le) : null,
+        informations_importantes_le: r.informations_importantes_le ? String(r.informations_importantes_le) : null,
+        informations_legales_le: r.informations_legales_le ? String(r.informations_legales_le) : null,
         adresse: String(r.adresse ?? ""), ville: String(r.ville ?? ""), quartier: String(r.quartier ?? ""),
         phone: String(r.phone ?? r.telephone ?? ""),
         whatsapp: r.whatsapp ? String(r.whatsapp) : undefined,
@@ -206,10 +480,27 @@ export default function InstitutionProfilePage() {
         capacite: r.capacite ? String(r.capacite) : undefined,
         langue: r.langue ? (Array.isArray(r.langue) ? r.langue : [String(r.langue)]) : undefined,
       });
+      // "Continuez votre exploration" sur l'Accueil (retour Bryan
+      // 25/07/2026, façon Booking.com "Continue your search") — purement
+      // local, jamais bloquant pour l'affichage de la fiche.
+      enregistrerInstitutionConsultee({
+        id: String(r.id), name: String(r.name ?? r.nom ?? ""),
+        logo: r.logo ?? null, category: String(r.category ?? r.categorie ?? "Autre"), ville: String(r.ville ?? ""),
+      });
 
       const annRes = await fetch(`/api/annonces-publiques?institution_id=${id}`).then(r => r.json()).catch(() => ({ annonces: [] }));
       const annoncesData: Annonce[] = annRes.annonces ?? [];
       setAnnonces(annoncesData);
+
+      // "Questions des citoyens" — RLS renvoie les questions répondues
+      // (publiques) + les propres questions du citoyen connecté même en
+      // attente (questions_institution_read_public/_read_own).
+      const { data: questionsData } = await supabase
+        .from("questions_institution")
+        .select("id, citoyen_id, question, reponse, reponse_le, created_at")
+        .eq("institution_id", id)
+        .order("created_at", { ascending: false });
+      setQuestions(questionsData ?? []);
 
       // Lot E1 (engagement citoyen, 16/07/2026) — une vue = un chargement de la
       // fiche pour une annonce donnée, dédoublonné par sessionStorage pour ne
@@ -367,7 +658,10 @@ export default function InstitutionProfilePage() {
     const { error } = wasFavori
       ? await supabase.from("citoyen_favoris").delete().eq("citoyen_id", citoyenId).eq("institution_id", id)
       : await supabase.from("citoyen_favoris").insert({ citoyen_id: citoyenId, institution_id: id });
-    if (error) setEstFavori(wasFavori);
+    if (error) { setEstFavori(wasFavori); setToast("Une erreur est survenue, réessayez."); }
+    // Confirmation explicite — avant, aucun retour visuel ne confirmait
+    // l'ajout/retrait des favoris (retour CEO 24/07/2026).
+    else setToast(wasFavori ? "Retiré des favoris" : "Ajouté aux favoris");
   };
 
   // Lot H (chantier Avis + Favoris citoyen, 18/07/2026) — "utile" sur un
@@ -415,14 +709,6 @@ export default function InstitutionProfilePage() {
     }
   };
 
-  const toggleCommentaires = (annonceId: string) => {
-    setCommentairesOuverts(prev => {
-      const s = new Set(prev);
-      if (s.has(annonceId)) s.delete(annonceId); else s.add(annonceId);
-      return s;
-    });
-  };
-
   // Lot E3 (engagement citoyen, commentaires, 16/07/2026) — citoyen_nom est lu
   // depuis la propre ligne `users` de l'auteur (seule lecture autorisée par
   // citoyen_own_profile) et figé sur la ligne du commentaire à l'insertion.
@@ -468,7 +754,15 @@ export default function InstitutionProfilePage() {
   const CatIconComp = SECTEUR_ICON[inst.secteur ?? ""] || Icons.Building;
   const { ouvert, horaire: horaireAujd } = isOuvertNow(inst.horaires);
   const jourAujd = JOURS_SEMAINE[new Date().getDay()];
-  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`Bonjour, je souhaite des informations sur ${inst.name} via YELEN224.`)}`;
+  // Utilise le vrai numéro WhatsApp de l'institution s'il est renseigné —
+  // avant, ce bouton du hero ouvrait toujours le compose générique WhatsApp
+  // (sans destinataire) même quand inst.whatsapp existait, alors que la
+  // carte Contacts plus bas l'utilisait déjà correctement (incohérence
+  // corrigée, retour CEO 24/07/2026).
+  const whatsappMsg = `Bonjour, je souhaite des informations sur ${inst.name} via YELEN224.`;
+  const whatsappUrl = inst.whatsapp
+    ? `https://wa.me/${inst.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(whatsappMsg)}`
+    : `https://wa.me/?text=${encodeURIComponent(whatsappMsg)}`;
 
   const inputBg   = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
   const inputBord = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
@@ -477,18 +771,29 @@ export default function InstitutionProfilePage() {
   const noteMoyenne = avis.length > 0 ? avis.reduce((acc, a) => acc + a.note, 0) / avis.length : inst.moyenne_avis;
   const nbAvis = avis.length > 0 ? avis.length : inst.nb_avis;
 
+  // Ancres — Info/Horaires/Services défilent jusqu'à leur section (tout le
+  // contenu est déjà monté dans la page) ; Avis ouvre le plein écran dédié.
+  const scrollToSection = (ref: React.RefObject<HTMLDivElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const TABS = [
-    { key: "info",      label: "Info",      icon: <Icons.Info /> },
-    { key: "horaires",  label: "Horaires",  icon: <Icons.Clock /> },
-    { key: "services",  label: "Services",  icon: <Icons.Note />,  count: inst.services.length },
-    { key: "avis",      label: "Avis",      icon: Icons.Star(true), count: nbAvis },
-  ] as { key: typeof activeTab; label: string; icon: React.ReactNode; count?: number }[];
+    { key: "info",      label: "Info",      icon: <Icons.Info />,  onPress: () => scrollToSection(infoRef) },
+    { key: "horaires",  label: "Horaires",  icon: <Icons.Clock />, onPress: () => scrollToSection(horairesRef) },
+    { key: "services",  label: "Services",  icon: <Icons.Note />,  count: inst.services.length, onPress: () => scrollToSection(servicesRef) },
+    { key: "avis",      label: "Avis",      icon: Icons.Star(true), count: nbAvis, onPress: () => setReviewsOpen(true) },
+  ] as { key: string; label: string; icon: React.ReactNode; count?: number; onPress: () => void }[];
 
   return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, color: C.text, paddingBottom: "32px", transition: "background-color 0.3s ease" }}>
+    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, color: C.text, transition: "background-color 0.3s ease", overflowX: "hidden", paddingBottom: "calc(84px + env(safe-area-inset-bottom))" }}>
       <style>{`
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-        html,body{overflow-x:hidden;background:${C.pageBg}}
+        /* overflow-x sur html/body retiré (23/07/2026, voir globals.css) —
+           casse position:fixed pour tous ses descendants sur WebKit/iOS
+           (nos overlays plein écran, la barre de scroll verticale...).
+           Protection du débordement horizontal déplacée sur le wrapper
+           racine ci-dessus (overflowX:"hidden"), pattern déjà utilisé par
+           app/page.tsx. */
+        html,body{background:${C.pageBg}}
         ::-webkit-scrollbar{display:none}
         *{scrollbar-width:none}
         @keyframes spin{to{transform:rotate(360deg)}}
@@ -499,67 +804,70 @@ export default function InstitutionProfilePage() {
         a{-webkit-tap-highlight-color:transparent}
       `}</style>
 
-      {/* HEADER — même bandeau doré que les écrans Compte, façon Booking.
-          Mode sombre volontairement inchangé. */}
+      {/* HEADER — fond neutre (retour CEO 24/07/2026 : "retire le fond
+          Yelen sur le header de la fiche") au lieu du bandeau doré de
+          marque, le doré restant réservé aux écrans où il porte l'identité
+          Yelen elle-même (Accueil, Compte). Bouton favori déplacé ici
+          depuis la bannière (3e colonne de la grille, à la place du &lt;div/&gt;
+          vide). */}
       {(() => {
-        const hBg      = isDark ? "rgba(7,7,22,0.97)" : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)";
-        const hText    = isDark ? C.text : "#080812";
-        const hSub     = isDark ? C.textSubtle : "rgba(8,8,18,0.65)";
-        const hChip    = isDark ? inputBg : "#F5A623";
-        const hChipBrd = isDark ? inputBord : "transparent";
-        const hIcon    = isDark ? C.text : "#fff";
-        const hShadow  = isDark ? "none" : "0 2px 8px rgba(245,166,35,0.35)";
+        const hBg      = isDark ? "rgba(7,7,22,0.97)" : "rgba(255,255,255,0.97)";
+        const hText    = C.text;
+        const hChip    = inputBg;
+        const hChipBrd = inputBord;
         return (
-        <header style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, backdropFilter: isDark ? "blur(20px)" : "none", WebkitBackdropFilter: isDark ? "blur(20px)" : "none", borderBottom: isDark ? `1px solid ${C.borderCard}` : "none", padding: "0 16px" }}>
-          {/* Grille 1fr/auto/1fr (au lieu de space-between) — le titre
-              reste centré même si le bloc "Retour" (icône+texte) est plus
-              large que la colonne de droite, vide. */}
+        <header style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+          {/* Grille 1fr/auto/1fr (au lieu de space-between) — garde le
+              titre centré indépendamment de la largeur du chip retour. */}
           <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-            <Link href="/recherche" className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", color: hText, minWidth: 0 }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "9px", backgroundColor: hChip, border: `1px solid ${hChipBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", color: hIcon, flexShrink: 0 }}>
+            <Link href="/recherche" className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", textDecoration: "none", color: hText, minWidth: 0 }}>
+              <div style={{ width: "36px", height: "36px", borderRadius: "9px", backgroundColor: hChip, border: `1px solid ${hChipBrd}`, display: "flex", alignItems: "center", justifyContent: "center", color: hText, flexShrink: 0 }}>
                 <Icons.Back />
               </div>
-              <span style={{ color: hSub, fontSize: "13px", fontWeight: "700", whiteSpace: "nowrap" }}>Retour</span>
             </Link>
             <div style={{ minWidth: 0, maxWidth: "180px", textAlign: "center" }}>
-              <div style={{ color: hText, fontSize: "13px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inst.name}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                <div style={{ color: hText, fontSize: "13px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{inst.name}</div>
+                {inst.badge_verifie && <MetaVerifiedBadge size={14}/>}
+              </div>
             </div>
-            <div/>
+            <button onClick={handleToggleFavori} className="tap" aria-label={estFavori ? "Retirer des favoris" : "Ajouter aux favoris"} style={{ justifySelf: "end", width: "36px", height: "36px", borderRadius: "9px", backgroundColor: hChip, border: `1px solid ${hChipBrd}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+              {Icons.Heart(estFavori)}
+            </button>
           </div>
         </header>
         );
       })()}
 
-      {/* BANNIÈRE — bouton favori flottant façon Airbnb/Booking (au lieu
-          du header), visible que la bannière soit une vraie image ou le
-          dégradé de secours. */}
-      <div style={{ width: "100%", height: inst.banniere && !imgBanErr ? "180px" : "100px", overflow: "hidden", position: "relative" }}>
+      {/* BANNIÈRE — courte et large façon bandeau de chaîne YouTube (pas un
+          grand visuel qui domine l'écran), uniquement quand une vraie photo
+          existe ; le dégradé de secours reste tout aussi petit quand il n'y
+          en a pas (retour CEO 24/07/2026 : la première tentative en 230px
+          était trop grande). */}
+      <div style={{ width: "100%", height: inst.banniere && !imgBanErr ? "120px" : "100px", overflow: "hidden", position: "relative" }}>
         {inst.banniere && !imgBanErr ? (
           <>
             <img src={inst.banniere} alt="" onError={() => setImgBanErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
-            <div style={{ position: "absolute", inset: 0, background: isDark ? "linear-gradient(to bottom,transparent 40%,rgba(7,7,22,0.9) 100%)" : "linear-gradient(to bottom,transparent 50%,rgba(242,242,247,0.9) 100%)" }}/>
+            <div style={{ position: "absolute", inset: 0, background: isDark ? "linear-gradient(to bottom,transparent 40%,rgba(7,7,22,0.9) 100%)" : "linear-gradient(to bottom,transparent 45%,rgba(242,242,247,0.9) 100%)" }}/>
           </>
         ) : (
           <div style={{ width: "100%", height: "100%", background: isDark ? `linear-gradient(160deg, ${meta.color}12, ${meta.color}06, transparent)` : `linear-gradient(160deg, ${meta.color}08, ${meta.color}03, transparent)` }}/>
         )}
-        <button onClick={handleToggleFavori} className="tap" aria-label={estFavori ? "Retirer des favoris" : "Ajouter aux favoris"} style={{ position: "absolute", top: "14px", right: "14px", width: "38px", height: "38px", borderRadius: "50%", background: "rgba(255,255,255,0.92)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", border: "none", boxShadow: "0 2px 10px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          {Icons.Heart(estFavori)}
-        </button>
       </div>
 
-      {/* HERO */}
-      <div style={{ padding: "0 16px", marginTop: inst.banniere && !imgBanErr ? "-48px" : "-20px", position: "relative", zIndex: 10 }}>
+      {/* HERO — seul le logo chevauche la bannière (négatif appliqué à lui
+          seul, pas à tout le bloc) : le nom/la catégorie restent toujours
+          sur fond uni, jamais superposés à une photo chargée où ils
+          devenaient illisibles (retour CEO 24/07/2026). */}
+      <div style={{ padding: "10px 16px 0", position: "relative", zIndex: 10 }}>
         <div style={{ display: "flex", gap: "14px", alignItems: "flex-end", marginBottom: "14px" }}>
-          <InstitutionLogo logo={inst.logo} name={inst.name} secteur={inst.secteur} size={72}/>
+          <div style={{ marginTop: inst.banniere && !imgBanErr ? "-40px" : "0", flexShrink: 0 }}>
+            <InstitutionLogo logo={inst.logo} name={inst.name} secteur={inst.secteur} size={72}/>
+          </div>
           <div style={{ flex: 1, minWidth: 0, paddingBottom: "4px" }}>
-            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginBottom: "6px" }}>
-              {inst.badge_verifie && (
-                <span style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", color: "#22c55e", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                  <Icons.Shield /> VÉRIFIÉ
-                </span>
-              )}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", margin: "0 0 3px" }}>
+              <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: 0, lineHeight: 1.15, letterSpacing: "-0.5px" }}>{inst.name}</h1>
             </div>
-            <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 3px", lineHeight: 1.15, letterSpacing: "-0.5px" }}>{inst.name}</h1>
             <div style={{ color: meta.color, fontSize: "11px", fontWeight: "700", marginBottom: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
               <div style={{ color: meta.color }}><CatIconComp /></div>
               {inst.secteur ? (SECTEUR_LABELS[inst.secteur] || inst.secteur) : "Non renseigné"}
@@ -632,15 +940,14 @@ export default function InstitutionProfilePage() {
       {annonces.length > 0 && (
         <div style={{ padding: "16px 16px 0" }}>
           <SectionTitle icon={<Icons.Announce />} label="Annonces officielles" count={annonces.length} color="#F5A623"/>
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ display: "flex", gap: "10px", overflowX: "auto", scrollSnapType: "x mandatory", alignItems: "flex-start", margin: "0 -16px", padding: "2px 16px 8px" }}>
             {annonces.map(a => {
               const t = ANNONCE_TYPES[a.type] || ANNONCE_TYPES.information;
+              const images = a.format === "carrousel" && a.media_urls?.length ? a.media_urls : a.image_url ? [a.image_url] : [];
               return (
-                <div key={a.id} style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", border: `1px solid ${t.border}`, borderLeft: `3px solid ${t.color}` }}>
-                  {a.image_url ? (
-                    <div style={{ width: "100%", height: "120px", overflow: "hidden" }}>
-                      <img src={a.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}/>
-                    </div>
+                <div key={a.id} onClick={() => setDetailOpenId(a.id)} className="tap" style={{ width: "300px", flexShrink: 0, scrollSnapAlign: "start", backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", border: `1px solid ${t.border}`, borderLeft: `3px solid ${t.color}`, boxShadow: isDark ? "0 4px 16px rgba(0,0,0,0.35)" : "0 4px 16px rgba(0,0,0,0.08)", cursor: "pointer" }}>
+                  {images.length > 0 ? (
+                    <AnnonceImageCarousel images={images} height={120} dotActiveColor="#F5A623"/>
                   ) : a.format === "video" && a.media_urls?.[0] ? (
                     <div style={{ width: "100%", height: "180px", overflow: "hidden", backgroundColor: "#000" }}>
                       <video src={a.media_urls[0]} style={{ width: "100%", height: "100%", objectFit: "cover" }} controls playsInline/>
@@ -653,64 +960,32 @@ export default function InstitutionProfilePage() {
                       <span style={{ color: C.textSubtle, fontSize: "10px", marginLeft: "auto" }}>{new Date(a.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
                     </div>
                     <h3 style={{ color: C.text, fontSize: "14px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1.3 }}>{a.titre}</h3>
-                    <p style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.65, margin: 0 }}>{a.contenu}</p>
-                    {a.date_expiration && (
-                      <p style={{ color: C.textSubtle, fontSize: "10px", margin: "6px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
-                        <Icons.Clock /> Expire le {new Date(a.date_expiration).toLocaleDateString("fr-FR")}
-                      </p>
+                    <p style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.65, margin: 0, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{a.contenu}</p>
+                    {a.contenu.length > 130 && (
+                      <button onClick={e => { e.stopPropagation(); setDetailOpenId(a.id); }} className="tap" style={{ background: "none", border: "none", padding: 0, marginTop: "4px", color: "#F5A623", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}>Voir plus</button>
                     )}
                     {a.format === "pdf" && a.media_urls?.[0] && (
-                      <a href={a.media_urls[0]} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "#ef4444", fontSize: "11px", fontWeight: "700", textDecoration: "none", marginTop: "8px" }}>
+                      <a href={a.media_urls[0]} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "#ef4444", fontSize: "11px", fontWeight: "700", textDecoration: "none", marginTop: "8px" }}>
                         <Icons.Note /> Ouvrir le PDF
                       </a>
                     )}
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
-                      <button onClick={() => handleToggleLike(a.id)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: mesLikes.has(a.id) ? "rgba(239,68,68,0.1)" : "transparent", border: `1px solid ${mesLikes.has(a.id) ? "rgba(239,68,68,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer" }}>
-                        {Icons.Heart(mesLikes.has(a.id))}
-                        <span style={{ color: mesLikes.has(a.id) ? "#ef4444" : C.textSubtle, fontSize: "11px", fontWeight: "700" }}>{likesCount[a.id] ?? 0}</span>
-                      </button>
-                      <button onClick={() => toggleCommentaires(a.id)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: commentairesOuverts.has(a.id) ? "rgba(96,165,250,0.1)" : "transparent", border: `1px solid ${commentairesOuverts.has(a.id) ? "rgba(96,165,250,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer", color: commentairesOuverts.has(a.id) ? "#60a5fa" : C.textSubtle }}>
-                        <Icons.Comment/>
-                        <span style={{ fontSize: "11px", fontWeight: "700" }}>{(commentaires[a.id] ?? []).length}</span>
-                      </button>
-                    </div>
-
-                    {commentairesOuverts.has(a.id) && (
-                      <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${C.borderCard}` }}>
-                        {(commentaires[a.id] ?? []).length === 0 ? (
-                          <p style={{ color: C.textSubtle, fontSize: "11.5px", margin: "0 0 8px" }}>Aucun commentaire pour l'instant.</p>
-                        ) : (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "10px" }}>
-                            {(commentaires[a.id] ?? []).map(c => (
-                              <div key={c.id} style={{ backgroundColor: C.pageBg, borderRadius: "10px", padding: "8px 10px" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                                  <span style={{ color: C.text, fontSize: "11.5px", fontWeight: "700" }}>{c.citoyen_id === citoyenId ? "Vous" : (c.citoyen_nom || "Citoyen")}</span>
-                                  <span style={{ color: C.textFaint, fontSize: "10px", flexShrink: 0 }}>{new Date(c.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
-                                </div>
-                                <p style={{ color: C.textMuted, fontSize: "12px", margin: "3px 0 0", lineHeight: 1.5 }}>{c.contenu}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <input
-                            value={nouveauCommentaire[a.id] ?? ""}
-                            onChange={e => setNouveauCommentaire(prev => ({ ...prev, [a.id]: e.target.value }))}
-                            onKeyDown={e => { if (e.key === "Enter") handleSubmitComment(a.id); }}
-                            placeholder={citoyenId ? "Ajouter un commentaire…" : "Connectez-vous pour commenter"}
-                            style={{ flex: 1, backgroundColor: C.pageBg, border: `1px solid ${C.borderCard}`, borderRadius: "10px", padding: "8px 12px", color: C.text, fontSize: "12px", fontFamily: "inherit" }}
-                          />
-                          <button
-                            onClick={() => handleSubmitComment(a.id)}
-                            disabled={envoiCommentaire === a.id || !(nouveauCommentaire[a.id] ?? "").trim()}
-                            className="tap"
-                            style={{ backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "10px", padding: "8px 16px", fontSize: "12px", fontWeight: "700", cursor: "pointer", opacity: envoiCommentaire === a.id ? 0.6 : 1 }}
-                          >
-                            Envoyer
-                          </button>
-                        </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "10px" }}>
+                      {a.date_expiration ? (
+                        <p style={{ color: C.textSubtle, fontSize: "10px", margin: 0, display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+                          <Icons.Clock /> Expire le {new Date(a.date_expiration).toLocaleDateString("fr-FR")}
+                        </p>
+                      ) : <span/>}
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <button onClick={e => { e.stopPropagation(); handleToggleLike(a.id); }} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: mesLikes.has(a.id) ? "rgba(239,68,68,0.1)" : "transparent", border: `1px solid ${mesLikes.has(a.id) ? "rgba(239,68,68,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer" }}>
+                          {Icons.Heart(mesLikes.has(a.id))}
+                          <span style={{ color: mesLikes.has(a.id) ? "#ef4444" : C.textSubtle, fontSize: "11px", fontWeight: "700" }}>{likesCount[a.id] ?? 0}</span>
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setCommentsOpenId(a.id); }} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px solid ${C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer", color: C.textSubtle }}>
+                          <Icons.Comment/>
+                          <span style={{ fontSize: "11px", fontWeight: "700" }}>{(commentaires[a.id] ?? []).length}</span>
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               );
@@ -720,19 +995,19 @@ export default function InstitutionProfilePage() {
       )}
 
       {/* TABS NAV */}
-      <div style={{ position: "sticky", top: "52px", zIndex: 150, backgroundColor: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, marginTop: "16px" }}>
+      <div style={{ position: "sticky", top: "calc(52px + env(safe-area-inset-top))", zIndex: 150, backgroundColor: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, marginTop: "16px" }}>
         <div style={{ overflowX: "auto", padding: "0 16px" }}>
           <div style={{ display: "flex", gap: "2px" }}>
             {TABS.map(tab => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={tab.onPress}
                 className="tap"
                 style={{
                   flexShrink: 0, padding: "12px 14px", border: "none", cursor: "pointer",
-                  background: "transparent", borderBottom: activeTab === tab.key ? `2px solid #F5A623` : "2px solid transparent",
-                  color: activeTab === tab.key ? "#F5A623" : C.textSubtle,
-                  fontSize: "13px", fontWeight: activeTab === tab.key ? "800" : "600",
+                  background: "transparent", borderBottom: "2px solid transparent",
+                  color: C.textSubtle,
+                  fontSize: "13px", fontWeight: "600",
                   display: "flex", alignItems: "center", gap: "5px",
                   transition: "color 0.15s, border-color 0.15s",
                   marginBottom: "-1px",
@@ -741,7 +1016,7 @@ export default function InstitutionProfilePage() {
                 <span style={{ opacity: 0.8 }}>{tab.icon}</span>
                 <span>{tab.label}</span>
                 {tab.count !== undefined && tab.count > 0 && (
-                  <span style={{ background: activeTab === tab.key ? "rgba(245,166,35,0.15)" : inputBg, color: activeTab === tab.key ? "#F5A623" : C.textSubtle, fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px" }}>{tab.count}</span>
+                  <span style={{ background: inputBg, color: C.textSubtle, fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px" }}>{tab.count}</span>
                 )}
               </button>
             ))}
@@ -749,12 +1024,14 @@ export default function InstitutionProfilePage() {
         </div>
       </div>
 
-      {/* CONTENU TABS */}
+      {/* SECTIONS — tout le contenu est monté en permanence désormais (plus
+          de tab masquant les autres) ; les ancres ci-dessus y font défiler.
+          scrollMarginTop compense le header + la barre d'ancres, tous deux
+          sticky, pour que la section ne s'arrête pas cachée dessous. */}
       <div style={{ padding: "16px 16px 0", animation: "fadeUp 0.2s ease" }}>
 
-        {/* TAB INFO */}
-        {activeTab === "info" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        {/* INFO */}
+        <div ref={infoRef} style={{ display: "flex", flexDirection: "column", gap: "14px", scrollMarginTop: "calc(52px + env(safe-area-inset-top) + 64px)" }}>
             {inst.description && (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}` }}>
                 <SectionTitle icon={<Icons.Note />} label="À propos" color={meta.color}/>
@@ -839,25 +1116,10 @@ export default function InstitutionProfilePage() {
                 </div>
               </div>
             )}
+        </div>
 
-            {/* Badge Guinée */}
-            <div style={{ background: "rgba(206,17,38,0.06)", border: "1px solid rgba(206,17,38,0.18)", borderRadius: "14px", padding: "14px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
-              <div style={{ display: "flex", gap: "1px", flexShrink: 0, marginTop: "2px" }}>
-                <div style={{ width: "8px", height: "14px", backgroundColor: "#CE1126", borderRadius: "2px 0 0 2px" }}/>
-                <div style={{ width: "8px", height: "14px", backgroundColor: "#FCD20F" }}/>
-                <div style={{ width: "8px", height: "14px", backgroundColor: "#009A44", borderRadius: "0 2px 2px 0" }}/>
-              </div>
-              <div>
-                <div style={{ color: isDark ? "#fca5a5" : "#dc2626", fontSize: "12px", fontWeight: "800", marginBottom: "4px" }}>Accessible en ambassade</div>
-                <div style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.55 }}>Disponible depuis toutes les représentations diplomatiques guinéennes à l'étranger.</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB HORAIRES */}
-        {activeTab === "horaires" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        {/* HORAIRES */}
+        <div ref={horairesRef} style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "24px", scrollMarginTop: "calc(52px + env(safe-area-inset-top) + 64px)" }}>
             {inst.horaires.length === 0 ? (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center", border: `1px solid ${C.borderCard}` }}>
                 <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}><Icons.Clock /></div>
@@ -892,12 +1154,10 @@ export default function InstitutionProfilePage() {
                 </div>
               </>
             )}
-          </div>
-        )}
+        </div>
 
-        {/* TAB SERVICES */}
-        {activeTab === "services" && (
-          <div>
+        {/* SERVICES */}
+        <div ref={servicesRef} style={{ marginTop: "24px", scrollMarginTop: "calc(52px + env(safe-area-inset-top) + 64px)" }}>
             {inst.services.length === 0 ? (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center", border: `1px solid ${C.borderCard}` }}>
                 <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}><Icons.Note /></div>
@@ -907,7 +1167,7 @@ export default function InstitutionProfilePage() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {inst.services.map((s, i) => (
-                  <Link key={s} href={`/rdv/${inst.id}?service=${encodeURIComponent(s)}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 16px", textDecoration: "none", border: `1px solid ${C.borderCard}`, animation: `fadeUp 0.2s ease ${i * 0.03}s both` }} className="tap">
+                  <Link key={`${s}-${i}`} href={`/rdv/${inst.id}?service=${encodeURIComponent(s)}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 16px", textDecoration: "none", border: `1px solid ${C.borderCard}`, animation: `fadeUp 0.2s ease ${i * 0.03}s both` }} className="tap">
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: meta.color, flexShrink: 0 }}/>
                       <span style={{ color: C.text, fontSize: "14px", fontWeight: "600" }}>{s}</span>
@@ -921,12 +1181,214 @@ export default function InstitutionProfilePage() {
                 <p style={{ color: C.textSubtle, fontSize: "11px", textAlign: "center", marginTop: "8px", fontStyle: "italic" }}>Appuyez sur un service pour prendre rendez-vous directement.</p>
               </div>
             )}
+        </div>
+
+        {/* AVIS — résumé compact façon Booking ("8.3 Very Good — Voir les
+            avis détaillés →") ; le contenu riche (histogramme, liste des
+            avis) est désormais dans le plein écran ReviewsModal plutôt que
+            mélangé au scroll principal, sur demande explicite du 24/07/2026. */}
+        <div style={{ marginTop: "24px" }}>
+          <button onClick={() => setReviewsOpen(true)} className="tap" style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: "16px", backgroundColor: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}`, cursor: "pointer" }}>
+            <div style={{ background: noteMoyenne >= 4 ? "#22c55e" : noteMoyenne >= 3 ? "#F5A623" : "#ef4444", color: "#fff", fontWeight: "900", fontSize: "16px", borderRadius: "10px", padding: "8px 11px", flexShrink: 0, lineHeight: 1 }}>
+              {noteMoyenne > 0 ? noteMoyenne.toFixed(1) : "—"}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: C.text, fontWeight: "800", fontSize: "14px", marginBottom: "2px" }}>
+                {noteMoyenne >= 4.5 ? "Excellent" : noteMoyenne >= 4 ? "Très bien" : noteMoyenne >= 3 ? "Bien" : noteMoyenne > 0 ? "À améliorer" : "Aucun avis"}
+              </div>
+              <div style={{ color: C.textSubtle, fontSize: "12px" }}>{nbAvis > 0 ? `Voir les ${nbAvis} avis détaillés` : "Soyez le premier à laisser un avis"}</div>
+            </div>
+            <span style={{ color: C.textSubtle, flexShrink: 0 }}><Icons.Chevron /></span>
+          </button>
+        </div>
+
+        {/* QUESTIONS DES CITOYENS — façon Booking "Travelers are asking" :
+            questions publiques posées avant un RDV (pas la messagerie liée
+            à un RDV). Affiché si au moins une question répondue existe, ou
+            si le citoyen connecté a lui-même une question en attente. */}
+        {(questionsRepondues.length > 0 || mesQuestions.length > 0) && (
+          <div style={{ marginTop: "24px" }}>
+            <SectionTitle icon={<Icons.Comment />} label="Questions des citoyens" color="#60a5fa"/>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {mesQuestions.filter(q => !q.reponse).map(q => (
+                <div key={q.id} style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 15px", border: `1px solid ${C.borderCard}` }}>
+                  <p style={{ color: C.text, fontSize: "13px", fontWeight: "700", margin: "0 0 6px", lineHeight: 1.5 }}>{q.question}</p>
+                  <span style={{ color: "#60a5fa", fontSize: "11px", fontWeight: "700" }}>En attente de réponse de l&apos;établissement</span>
+                </div>
+              ))}
+              {questionsRepondues.slice(0, 3).map(q => (
+                <div key={q.id} style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 15px", border: `1px solid ${C.borderCard}` }}>
+                  <p style={{ color: C.text, fontSize: "13px", fontWeight: "700", margin: "0 0 8px", lineHeight: 1.5 }}>{q.question}</p>
+                  <div style={{ backgroundColor: C.pageBg, borderRadius: "10px", padding: "10px 12px" }}>
+                    <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", marginBottom: "3px" }}>
+                      Réponse de l&apos;établissement{q.reponse_le ? ` · ${new Date(q.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}
+                    </div>
+                    <p style={{ color: C.textMuted, fontSize: "12.5px", margin: 0, lineHeight: 1.55 }}>{q.reponse}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+              {questionsRepondues.length > 3 && (
+                <button onClick={() => setQuestionsListOpen(true)} className="tap" style={{ flex: 1, background: "transparent", border: `1px solid ${C.borderCard}`, borderRadius: "12px", padding: "11px", color: C.textSubtle, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
+                  Voir toutes les questions ({questionsRepondues.length})
+                </button>
+              )}
+              <button onClick={ouvrirPoserQuestion} className="tap" style={{ flex: 1, background: "transparent", border: "1px solid #60a5fa50", borderRadius: "12px", padding: "11px", color: "#60a5fa", fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
+                Poser une question
+              </button>
+            </div>
+          </div>
+        )}
+        {questionsRepondues.length === 0 && mesQuestions.length === 0 && (
+          <div style={{ marginTop: "24px" }}>
+            <SectionTitle icon={<Icons.Comment />} label="Questions des citoyens" color="#60a5fa"/>
+            <button onClick={ouvrirPoserQuestion} className="tap" style={{ width: "100%", background: C.cardBg, border: `1px dashed ${C.borderCard}`, borderRadius: "14px", padding: "16px", color: C.textSubtle, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>
+              Soyez le premier à poser une question à cet établissement
+            </button>
           </div>
         )}
 
-        {/* ✅ TAB AVIS — affiche TOUS les avis de la DB */}
-        {activeTab === "avis" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {/* CERTIFICATION — réelle (badge_verifie accordé par un admin Yelen
+            après contrôle des documents officiels de l'établissement, voir
+            api/admin/institutions/[id]/badge), pas décorative. Fond dégradé
+            bleu propre à cette section, pour ne pas se confondre avec les
+            autres cartes de la fiche (satisfaction=or, plus d'infos=violet). */}
+        {inst.badge_verifie && (
+          <div style={{ marginTop: "24px", position: "relative", overflow: "hidden", borderRadius: "20px", background: isDark ? "linear-gradient(160deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03))" : "linear-gradient(160deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))", border: `1px solid ${C.borderCard}`, padding: "20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "12px" }}>
+              <div style={{ position: "relative", width: "48px", height: "48px", flexShrink: 0 }}>
+                <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "linear-gradient(135deg,#3b82f6,#60a5fa)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 16px rgba(59,130,246,0.35)" }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                </div>
+              </div>
+              <div>
+                <h3 style={{ color: C.text, fontSize: "15px", fontWeight: "800", margin: "0 0 2px" }}>Établissement vérifié</h3>
+                <p style={{ color: "#3b82f6", fontSize: "11px", fontWeight: "700", margin: 0 }}>Certifié par l'équipe Yelen</p>
+              </div>
+            </div>
+            <p style={{ color: C.textMuted, fontSize: "13px", lineHeight: 1.7, margin: 0 }}>
+              L'identité et les documents officiels de cet établissement ont été contrôlés par l'équipe Yelen avant sa mise en ligne sur la plateforme.
+            </p>
+          </div>
+        )}
+
+        {/* FAQ — questions génériques sur le fonctionnement de Yelen
+            (réservation, annulation, avis, confidentialité), pas de
+            contenu spécifique à l'institution inventé (retour CEO
+            24/07/2026, "un FAQ moderne et explicite après les avis"). */}
+        <div style={{ marginTop: "24px" }}>
+          <SectionTitle icon={<Icons.Info />} label="Questions fréquentes" color="#3b82f6"/>
+          <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", border: `1px solid ${C.borderCard}` }}>
+            {FAQ_FICHE.map((f, i) => {
+              const ouverte = faqOuverte === i;
+              return (
+                <div key={f.q} style={{ borderBottom: i < FAQ_FICHE.length - 1 ? `1px solid ${C.borderSubtle}` : "none" }}>
+                  <button onClick={() => setFaqOuverte(ouverte ? null : i)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", background: "transparent", border: "none", padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
+                    <span style={{ color: C.text, fontSize: "13.5px", fontWeight: "700" }}>{f.q}</span>
+                    <span style={{ color: C.textSubtle, flexShrink: 0, transform: ouverte ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}><Icons.Chevron /></span>
+                  </button>
+                  {ouverte && (
+                    <div style={{ padding: "0 16px 16px" }}>
+                      <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: 0 }}>{f.r}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* SATISFACTION PLATEFORME — "Comment on s'en sort ?" : évalue
+            Yelen en général, pas cette institution. Citoyens connectés
+            uniquement, réapparaît 30 jours après fermeture/réponse.
+            Illustration originale (badge dégradé + accents), carte
+            différenciée du reste de la fiche (fond dégradé propre) pour
+            ne pas se confondre visuellement avec les autres blocs. */}
+        {citoyenId && Date.now() > satDismissedUntil && (
+          <div style={{ marginTop: "24px", position: "relative", overflow: "hidden", borderRadius: "20px", background: isDark ? "linear-gradient(160deg, rgba(245,166,35,0.10), rgba(96,165,250,0.05))" : "linear-gradient(160deg, rgba(245,166,35,0.08), rgba(96,165,250,0.05))", border: `1px solid ${C.borderCard}`, padding: "20px" }}>
+            <button onClick={dismissSatisfaction} className="tap" aria-label="Fermer" style={{ position: "absolute", top: "14px", right: "14px", background: "none", border: "none", padding: "4px", color: C.textSubtle, cursor: "pointer" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+
+            {satSubmitted ? (
+              <div style={{ textAlign: "center", padding: "6px 4px" }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}><SatIllustration variant="merci"/></div>
+                <h3 style={{ color: C.text, fontSize: "15px", fontWeight: "800", margin: "0 0 4px" }}>Merci pour votre retour</h3>
+                <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.6, margin: 0 }}>Ça nous aide à rendre Yelen un peu meilleur chaque jour.</p>
+              </div>
+            ) : satStep === 1 ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+                  <SatIllustration variant="question"/>
+                  <div>
+                    <p style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.3px" }}>1 sur 2</p>
+                    <h3 style={{ color: C.text, fontSize: "15px", fontWeight: "800", margin: 0 }}>Comment on s'en sort ?</h3>
+                  </div>
+                </div>
+                <p style={{ color: C.text, fontSize: "13.5px", fontWeight: "700", margin: "0 0 12px", lineHeight: 1.5 }}>Il est facile de trouver et prendre rendez-vous sur Yelen</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {[
+                    { value: "accord_total", label: "Tout à fait d'accord", color: "#16a34a" },
+                    { value: "accord", label: "D'accord", color: "#22c55e" },
+                    { value: "neutre", label: "Neutre", color: "#94a3b8" },
+                    { value: "desaccord", label: "Pas d'accord", color: "#f97316" },
+                    { value: "desaccord_total", label: "Pas du tout d'accord", color: "#ef4444" },
+                  ].map(opt => (
+                    <button key={opt.value} onClick={() => { setSatReponse(opt.value); setSatStep(2); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "11px", background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.6)", border: `1px solid ${C.borderCard}`, borderRadius: "12px", padding: "11px 14px", cursor: "pointer", textAlign: "left" }}>
+                      <span style={{ width: "12px", height: "12px", borderRadius: "50%", backgroundColor: opt.color, flexShrink: 0 }}/>
+                      <span style={{ color: C.text, fontSize: "13px", fontWeight: "600" }}>{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+                  <SatIllustration variant="question"/>
+                  <div>
+                    <p style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.3px" }}>2 sur 2</p>
+                    <h3 style={{ color: C.text, fontSize: "15px", fontWeight: "800", margin: 0 }}>Presque fini</h3>
+                  </div>
+                </div>
+                <p style={{ color: C.text, fontSize: "13.5px", fontWeight: "700", margin: "0 0 4px", lineHeight: 1.5 }}>Qu'est-ce qui aurait pu rendre votre expérience meilleure aujourd'hui ?</p>
+                <p style={{ color: C.textSubtle, fontSize: "11px", margin: "0 0 10px" }}>(optionnel)</p>
+                <textarea
+                  value={satCommentaire}
+                  onChange={e => setSatCommentaire(e.target.value.slice(0, 300))}
+                  placeholder="Dites-nous en quelques mots…"
+                  rows={3}
+                  style={{ width: "100%", resize: "none", backgroundColor: C.pageBg, border: `1px solid ${C.borderCard}`, borderRadius: "10px", padding: "10px 12px", color: C.text, fontSize: "13px", fontFamily: "inherit", boxSizing: "border-box" }}
+                />
+                <p style={{ color: C.textFaint, fontSize: "10px", margin: "4px 0 12px", textAlign: "right" }}>{satCommentaire.length}/300</p>
+                <button onClick={handleSubmitSatisfaction} disabled={satSubmitting} className="tap" style={{ width: "100%", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "12px", fontSize: "13.5px", fontWeight: "800", cursor: satSubmitting ? "not-allowed" : "pointer", opacity: satSubmitting ? 0.6 : 1 }}>
+                  {satSubmitting ? "Envoi…" : "Envoyer"}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          AVIS — plein écran dédié façon Booking (bouton X, pas de retour
+          de navigation), ouvert par l'ancre "Avis" ou la carte résumé
+          ci-dessus. Contenu repris tel quel de l'ancien onglet Avis.
+      ══════════════════════════════════════════════════════ */}
+      {reviewsOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+            <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+              <button onClick={() => setReviewsOpen(false)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+              <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Avis</div>
+              <div/>
+            </div>
+          </header>
+
+          <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
             {/* Résumé note */}
             <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "18px", border: `1px solid ${C.borderCard}`, display: "flex", alignItems: "center", gap: "20px" }}>
               <div style={{ textAlign: "center", flexShrink: 0 }}>
@@ -1016,30 +1478,367 @@ export default function InstitutionProfilePage() {
               </div>
             )}
           </div>
-        )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          COMMENTAIRES ANNONCE — plein écran (même logique que l'overlay
+          Avis ci-dessus) : avant, les commentaires s'ouvraient en panneau
+          inline dans la carte, ce qui grandissait la carte au milieu de la
+          rangée horizontale d'annonces et cachait le reste de la fiche.
+      ══════════════════════════════════════════════════════ */}
+      {commentsOpenId && (() => {
+        const a = annonces.find(x => x.id === commentsOpenId);
+        if (!a) return null;
+        const liste = commentaires[a.id] ?? [];
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, display: "flex", flexDirection: "column" }}>
+            <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0", flexShrink: 0 }}>
+              <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+                <button onClick={() => setCommentsOpenId(null)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+                <div style={{ color: C.text, fontSize: "14px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "220px" }}>{a.titre}</div>
+                <div/>
+              </div>
+            </header>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+              {liste.length === 0 ? (
+                <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center", border: `1px solid ${C.borderCard}` }}>
+                  <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}><Icons.Comment/></div>
+                  <p style={{ color: C.text, fontSize: "14px", fontWeight: "700", margin: "0 0 6px" }}>Aucun commentaire pour l'instant</p>
+                  <p style={{ color: C.textSubtle, fontSize: "12px", margin: 0 }}>Soyez le premier à réagir à cette annonce.</p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {liste.map(c => (
+                    <div key={c.id} style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "12px 14px", border: `1px solid ${C.borderCard}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                        <span style={{ color: C.text, fontSize: "12.5px", fontWeight: "700" }}>{c.citoyen_id === citoyenId ? "Vous" : (c.citoyen_nom || "Citoyen")}</span>
+                        <span style={{ color: C.textFaint, fontSize: "10px", flexShrink: 0 }}>{new Date(c.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
+                      </div>
+                      <p style={{ color: C.textMuted, fontSize: "12.5px", margin: "4px 0 0", lineHeight: 1.55 }}>{c.contenu}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ position: "sticky", bottom: 0, flexShrink: 0, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderTop: `1px solid ${C.borderCard}`, padding: `10px 16px calc(10px + env(safe-area-inset-bottom))`, display: "flex", gap: "8px" }}>
+              <input
+                value={nouveauCommentaire[a.id] ?? ""}
+                onChange={e => setNouveauCommentaire(prev => ({ ...prev, [a.id]: e.target.value }))}
+                onKeyDown={e => { if (e.key === "Enter") handleSubmitComment(a.id); }}
+                placeholder={citoyenId ? "Ajouter un commentaire…" : "Connectez-vous pour commenter"}
+                style={{ flex: 1, backgroundColor: inputBg, border: `1px solid ${inputBord}`, borderRadius: "12px", padding: "10px 14px", color: C.text, fontSize: "13px", fontFamily: "inherit" }}
+              />
+              <button
+                onClick={() => handleSubmitComment(a.id)}
+                disabled={envoiCommentaire === a.id || !(nouveauCommentaire[a.id] ?? "").trim()}
+                className="tap"
+                style={{ backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "10px 18px", fontSize: "13px", fontWeight: "700", cursor: "pointer", opacity: envoiCommentaire === a.id ? 0.6 : 1, flexShrink: 0 }}
+              >
+                Envoyer
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════
+          DÉTAIL ANNONCES — plein écran (même logique que Avis/Commentaires
+          ci-dessus) : ouvert par "Voir plus" ou un clic sur une carte,
+          montre TOUTES les annonces en entier (média complet, contenu
+          intégral, expiration, lien PDF), pas seulement celle cliquée —
+          on scrolle automatiquement jusqu'à celle-ci à l'ouverture.
+      ══════════════════════════════════════════════════════ */}
+      {detailOpenId && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+            <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+              <button onClick={() => setDetailOpenId(null)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+              <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Annonces officielles</div>
+              <div/>
+            </div>
+          </header>
+
+          <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "14px" }}>
+            {annonces.map(a => {
+              const t = ANNONCE_TYPES[a.type] || ANNONCE_TYPES.information;
+              const images = a.format === "carrousel" && a.media_urls?.length ? a.media_urls : a.image_url ? [a.image_url] : [];
+              return (
+                <div key={a.id} ref={el => { if (a.id === detailOpenId) selectedDetailRef.current = el; }} style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", border: `1px solid ${t.border}`, borderLeft: `3px solid ${t.color}`, outline: a.id === detailOpenId ? `2px solid ${t.color}55` : "none" }}>
+                  {images.length > 0 ? (
+                    <AnnonceImageCarousel images={images} height={220} dotActiveColor="#F5A623"/>
+                  ) : a.format === "video" && a.media_urls?.[0] ? (
+                    <div style={{ width: "100%", height: "220px", overflow: "hidden", backgroundColor: "#000" }}>
+                      <video src={a.media_urls[0]} style={{ width: "100%", height: "100%", objectFit: "cover" }} controls playsInline/>
+                    </div>
+                  ) : null}
+                  <div style={{ padding: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "10px" }}>
+                      <span style={{ background: t.bg, border: `1px solid ${t.border}`, color: t.color, fontSize: "10px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{t.label.toUpperCase()}</span>
+                      {a.epingle && <span style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", color: "#F5A623", fontSize: "10px", fontWeight: "700", padding: "2px 7px", borderRadius: "20px", display: "inline-flex", alignItems: "center", gap: "3px" }}><Icons.Pin2 /> Épinglé</span>}
+                      <span style={{ color: C.textSubtle, fontSize: "10px", marginLeft: "auto" }}>{new Date(a.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}</span>
+                    </div>
+                    <h3 style={{ color: C.text, fontSize: "16px", fontWeight: "800", margin: "0 0 10px", lineHeight: 1.35 }}>{a.titre}</h3>
+                    <p style={{ color: C.textMuted, fontSize: "13px", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{a.contenu}</p>
+                    {a.date_expiration && (
+                      <p style={{ color: C.textSubtle, fontSize: "11px", margin: "12px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <Icons.Clock /> Expire le {new Date(a.date_expiration).toLocaleDateString("fr-FR")}
+                      </p>
+                    )}
+                    {a.format === "pdf" && a.media_urls?.[0] && (
+                      <a href={a.media_urls[0]} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "#ef4444", fontSize: "12px", fontWeight: "700", textDecoration: "none", marginTop: "12px" }}>
+                        <Icons.Note /> Ouvrir le PDF
+                      </a>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "16px", paddingTop: "14px", borderTop: `1px solid ${C.borderCard}` }}>
+                      <button onClick={() => handleToggleLike(a.id)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: mesLikes.has(a.id) ? "rgba(239,68,68,0.1)" : "transparent", border: `1px solid ${mesLikes.has(a.id) ? "rgba(239,68,68,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "6px 14px", cursor: "pointer" }}>
+                        {Icons.Heart(mesLikes.has(a.id))}
+                        <span style={{ color: mesLikes.has(a.id) ? "#ef4444" : C.textSubtle, fontSize: "12px", fontWeight: "700" }}>{likesCount[a.id] ?? 0}</span>
+                      </button>
+                      <button onClick={() => { setDetailOpenId(null); setCommentsOpenId(a.id); }} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "transparent", border: `1px solid ${C.borderCard}`, borderRadius: "20px", padding: "6px 14px", cursor: "pointer", color: C.textSubtle }}>
+                        <Icons.Comment/>
+                        <span style={{ fontSize: "12px", fontWeight: "700" }}>{(commentaires[a.id] ?? []).length}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          POSER UNE QUESTION — plein écran, façon Booking "Ask a
+          question". Limite 2 questions/citoyen/établissement affichée
+          avant envoi (le vrai garde-fou est le trigger serveur sur
+          questions_institution).
+      ══════════════════════════════════════════════════════ */}
+      {askOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+            <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+              <button onClick={() => setAskOpen(false)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+              <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Poser une question</div>
+              <div/>
+            </div>
+          </header>
+
+          <div style={{ padding: "20px 16px" }}>
+            {mesQuestions.length >= 2 ? (
+              <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "22px", border: `1px solid ${C.borderCard}`, textAlign: "center" }}>
+                <p style={{ color: C.text, fontSize: "14px", fontWeight: "700", margin: "0 0 8px" }}>Vous avez déjà posé 2 questions à cet établissement</p>
+                <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 18px" }}>Prenez rendez-vous pour continuer à échanger directement avec l&apos;établissement.</p>
+                <Link href={`/rdv/${inst?.id}`} style={{ display: "inline-block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", textDecoration: "none" }}>Prendre rendez-vous</Link>
+              </div>
+            ) : (
+              <>
+                <p style={{ color: C.textSubtle, fontSize: "11.5px", margin: "0 0 6px" }}>Votre question</p>
+                <textarea
+                  value={askQuestion}
+                  onChange={e => setAskQuestion(e.target.value.slice(0, 150))}
+                  placeholder='Par exemple, "Bonjour, avez-vous des places de parking ?"'
+                  rows={4}
+                  style={{ width: "100%", resize: "none", backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "12px", padding: "12px 14px", color: C.text, fontSize: "13.5px", fontFamily: "inherit", boxSizing: "border-box" }}
+                />
+                <p style={{ color: C.textFaint, fontSize: "10.5px", margin: "4px 0 16px", textAlign: "right" }}>{askQuestion.length}/150</p>
+                <p style={{ color: C.textSubtle, fontSize: "11.5px", lineHeight: 1.6, margin: "0 0 20px" }}>
+                  Votre question sera publiée sur la fiche une fois répondue par l&apos;établissement. N&apos;incluez pas d&apos;informations personnelles (nom, téléphone, etc.).
+                </p>
+                <button onClick={handleSubmitQuestion} disabled={askSubmitting || !askQuestion.trim()} className="tap" style={{ width: "100%", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "13px", fontSize: "14px", fontWeight: "800", cursor: askSubmitting ? "not-allowed" : "pointer", opacity: askSubmitting || !askQuestion.trim() ? 0.6 : 1 }}>
+                  {askSubmitting ? "Envoi…" : "Envoyer la question"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          TOUTES LES QUESTIONS — plein écran (même logique que Avis/
+          Commentaires/Détail annonce ci-dessus).
+      ══════════════════════════════════════════════════════ */}
+      {questionsListOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+            <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+              <button onClick={() => setQuestionsListOpen(false)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+              <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Questions des citoyens</div>
+              <div/>
+            </div>
+          </header>
+
+          <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+            {questionsRepondues.map(q => (
+              <div key={q.id} style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 15px", border: `1px solid ${C.borderCard}` }}>
+                <p style={{ color: C.text, fontSize: "13px", fontWeight: "700", margin: "0 0 8px", lineHeight: 1.5 }}>{q.question}</p>
+                <div style={{ backgroundColor: C.pageBg, borderRadius: "10px", padding: "10px 12px" }}>
+                  <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", marginBottom: "3px" }}>
+                    Réponse de l&apos;établissement{q.reponse_le ? ` · ${new Date(q.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}
+                  </div>
+                  <p style={{ color: C.textMuted, fontSize: "12.5px", margin: 0, lineHeight: 1.55 }}>{q.reponse}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* PLUS D'INFORMATIONS — façon Booking (Property Policies/Important
+          details/Legal information), remplace l'ancien footer de la fiche
+          (déplacé dans app/page.tsx, onglet Accueil). */}
+      <div style={{ margin: "24px 16px 0" }}>
+        <SectionTitle icon={<Icons.Note />} label="Plus d'informations" color="#a855f7"/>
+        <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", border: `1px solid ${C.borderCard}` }}>
+          {[
+            { key: "conditions" as const, label: "Conditions de l'entreprise" },
+            { key: "importantes" as const, label: "Informations importantes" },
+            { key: "legales" as const, label: "Informations légales" },
+          ].map((s, i, arr) => (
+            <button key={s.key} onClick={() => setInfoOpen(s.key)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "none", border: "none", borderBottom: i < arr.length - 1 ? `1px solid ${C.borderCard}` : "none", padding: "15px 16px", cursor: "pointer", textAlign: "left" }}>
+              <span style={{ color: C.text, fontSize: "13.5px", fontWeight: "700" }}>{s.label}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* FOOTER */}
-      <div style={{ margin: "24px 16px 0", padding: "16px", backgroundColor: C.cardBg, borderRadius: "16px", border: `1px solid ${C.borderCard}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px", justifyContent: "center", marginBottom: "10px" }}>
-          <div style={{ display: "flex", gap: "1px" }}>
-            <div style={{ width: "14px", height: "9px", backgroundColor: "#CE1126", borderRadius: "2px 0 0 2px" }}/>
-            <div style={{ width: "14px", height: "9px", backgroundColor: "#FCD20F" }}/>
-            <div style={{ width: "14px", height: "9px", backgroundColor: "#009A44", borderRadius: "0 2px 2px 0" }}/>
+      {/* ══════════════════════════════════════════════════════
+          POPUP CONDITIONS/INFORMATIONS/LÉGALES — même logique que Avis/
+          Commentaires/Questions ci-dessus.
+      ══════════════════════════════════════════════════════ */}
+      {infoOpen && (() => {
+        const meta = {
+          conditions: {
+            titre: "Conditions de l'entreprise", texte: inst?.conditions_entreprise, date: inst?.conditions_entreprise_le, color: "#a855f7",
+            icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l2 2 4-4"/><path d="M20 12a8 8 0 1 1-3.5-6.6"/></svg>,
+          },
+          importantes: {
+            titre: "Informations importantes", texte: inst?.informations_importantes, date: inst?.informations_importantes_le, color: "#60a5fa",
+            icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
+          },
+          legales: {
+            titre: "Informations légales", texte: inst?.informations_legales, date: inst?.informations_legales_le, color: "#94a3b8",
+            icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6z"/></svg>,
+          },
+        }[infoOpen];
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+            <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+              <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+                <button onClick={() => setInfoOpen(null)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+                <div/>
+                <div/>
+              </div>
+            </header>
+            <div style={{ padding: "8px 20px 24px", maxWidth: "560px", margin: "0 auto" }}>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}>
+                <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: `${meta.color}18`, border: `1px solid ${meta.color}35`, display: "flex", alignItems: "center", justifyContent: "center", color: meta.color }}>
+                  {meta.icon}
+                </div>
+              </div>
+              <h1 style={{ color: C.text, fontSize: "19px", fontWeight: "900", textAlign: "center", margin: "0 0 20px", letterSpacing: "-0.3px" }}>{meta.titre}</h1>
+              {meta.texte ? (
+                <div style={{ backgroundColor: C.cardBg, borderRadius: "18px", padding: "22px 20px", border: `1px solid ${C.borderCard}` }}>
+                  <p style={{ color: C.textMuted, fontSize: "14.5px", lineHeight: 1.85, margin: 0, whiteSpace: "pre-wrap" }}>{meta.texte}</p>
+                  <p style={{ color: C.textFaint, fontSize: "11px", margin: "16px 0 0", paddingTop: "14px", borderTop: `1px solid ${C.borderCard}` }}>
+                    Écrit par {inst?.name}{meta.date ? ` · mis à jour le ${new Date(meta.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ backgroundColor: C.cardBg, borderRadius: "18px", padding: "36px 20px", textAlign: "center", border: `1px dashed ${C.borderCard}` }}>
+                  <p style={{ color: C.textSubtle, fontSize: "13px", margin: 0, lineHeight: 1.6 }}>Cet établissement n&apos;a pas encore renseigné cette section.</p>
+                </div>
+              )}
+            </div>
           </div>
-          <span style={{ color: C.textSubtle, fontSize: "10px", marginLeft: "8px", fontWeight: "700" }}>YELEN224 · République de Guinée</span>
+        );
+      })()}
+
+      {/* BANDEAU CTA — façon Booking ("Select rooms" toujours accessible en
+          bas). Repassé de `sticky` à `fixed` (retour Bryan 25/07/2026) pour
+          pouvoir se révéler au scroll vers le haut depuis n'importe où sur
+          la page — impossible avec `sticky`, qui ne s'engage qu'à
+          l'approche de sa position naturelle en fin de flux.
+          ⚠️ Historique : ce même `fixed` avait été abandonné le 24/07/2026
+          suite à un bug réel constaté sur téléphone (Safari iOS ET Chrome
+          Android) — un espace vide de couleur page apparaissait entre le
+          bandeau et le bord réel de l'écran, `fixed; bottom:0` étant ancré à
+          la "layout viewport" qui se désynchronise de la "visual viewport"
+          selon l'état de la barre d'adresse dynamique. Retenté ici après
+          plusieurs correctifs corrigés depuis (overflow-x html/body cassant
+          position:fixed sur WebKit, notamment) qui pouvaient être la vraie
+          cause. À confirmer sur téléphone — si l'espace vide revient,
+          repasser à `sticky` (voir historique git) plutôt que retenter
+          d'autres réglages. */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 240, backgroundColor: C.cardBg, borderRadius: "22px 22px 0 0", boxShadow: isDark ? "0 -10px 32px rgba(0,0,0,0.55)" : "0 -10px 32px rgba(0,0,0,0.14)", padding: `14px 16px calc(14px + env(safe-area-inset-bottom))`, transform: `translateY(${ctaVisible ? "0" : "110%"})`, transition: "transform 0.3s ease" }}>
+        <Link href={`/rdv/${inst.id}`} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+          <Icons.Cal /> Prendre RDV
+        </Link>
+      </div>
+
+      {/* Toast — confirme l'ajout/retrait des favoris (retour CEO
+          24/07/2026 : "tu ajoutes ou décoches, rien, aucun texte ne dit ce
+          qui est fait"). */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: "calc(100px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 600, backgroundColor: isDark ? "#1C1C1E" : "#080812", color: "#fff", fontSize: "13px", fontWeight: "700", padding: "11px 18px", borderRadius: "12px", boxShadow: "0 6px 20px rgba(0,0,0,0.3)", whiteSpace: "nowrap", animation: "fadeUp 0.2s ease" }}>
+          {toast}
         </div>
-        <div style={{ textAlign: "center", marginBottom: "10px" }}>
-          <a href="https://sempya224.com" target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <span style={{ backgroundColor: "#FE2C55", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "7px", letterSpacing: "0.5px" }}>SEMPYA224</span>
-          </a>
-        </div>
-        <div style={{ display: "flex", justifyContent: "center", gap: "16px" }}>
-          <Link href="/cgu" style={{ color: C.textSubtle, fontSize: "11px", textDecoration: "none" }}>CGU</Link>
-          <Link href="/confidentialite" style={{ color: C.textSubtle, fontSize: "11px", textDecoration: "none" }}>Confidentialité</Link>
-          <Link href="/contact" style={{ color: C.textSubtle, fontSize: "11px", textDecoration: "none" }}>Contact</Link>
-        </div>
+      )}
+
+      {/* Indicateur de position de scroll — même composant visuel que
+          app/page.tsx, indépendant du header/CTA sticky (position: fixed),
+          estompé hors défilement. */}
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          top: "calc(env(safe-area-inset-top) + 60px)",
+          bottom: "calc(env(safe-area-inset-bottom) + 76px)",
+          right: "3px",
+          width: "3px",
+          zIndex: 90,
+          pointerEvents: "none",
+          opacity: scrollBarShown ? 1 : 0,
+          transition: "opacity 0.4s ease",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: `${scrollPct * (1 - scrollThumbH) * 100}%`,
+            height: `${scrollThumbH * 100}%`,
+            width: "100%",
+            borderRadius: "3px",
+            background: isDark ? "rgba(245,166,35,0.55)" : "rgba(8,8,18,0.35)",
+          }}
+        />
       </div>
     </div>
+  );
+}
+
+export default function InstitutionProfilePage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100svh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: "32px", height: "32px", border: "3px solid rgba(245,166,35,0.2)", borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    }>
+      <InstitutionProfilePageInner/>
+    </Suspense>
   );
 }

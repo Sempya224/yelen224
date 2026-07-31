@@ -28,6 +28,35 @@ export function rdvEstEnRetard(dateRdv: string, heureRdv: string, maintenant: Da
   return new Date(y, m - 1, d, hh, mm || 0, 0, 0) < maintenant;
 }
 
+// Un RDV cesse d'être "en retard" une fois que la situation est réglée côté
+// établissement : soit marqué "absent" explicitement (presence_status),
+// soit sa journée est entièrement passée sans confirmation de présence
+// (presence === false) et sans avoir été annulé/refusé — même règle que
+// app/mes-rdv/page.tsx::isAbsentRdv(), reprise ici pour que le Hero et
+// l'onglet RDV de app/page.tsx cessent aussi de signaler "en retard"/
+// "manqué à traiter" une fois l'absence actée (retour Bryan 29/07/2026 :
+// avant ce correctif, ces deux écrans ignoraient presence/presence_status
+// et restaient bloqués sur "en retard" indéfiniment).
+export function rdvEstAbsent(dateRdv: string, statut: string, presence: boolean | null | undefined, presenceStatus: string | null | undefined): boolean {
+  if (presenceStatus === "absent") return true;
+  if (statut === "annule" || statut === "refuse") return false;
+  return presence === false && rdvJourneeDejaPassee(dateRdv);
+}
+
+// Une journée de RDV est "passée" une fois 23:59:59 dépassé — même règle que
+// app/mes-rdv/page.tsx::isPasse(), reprise ici pour que le filtre "RDV à
+// venir" de l'onglet RDV de app/page.tsx exclue aussi les dates passées.
+// Avant ce correctif, ce filtre ne vérifiait que le statut (en_attente/
+// confirme), jamais la date — un RDV ancien jamais traité par l'établissement
+// pouvait donc s'afficher comme "Prochain rendez-vous" à la place du vrai
+// prochain RDV (retour Bryan 29/07/2026, incohérent avec l'écran /mes-rdv).
+export function rdvJourneeDejaPassee(dateRdv: string, maintenant: Date = new Date()): boolean {
+  const [y, m, d] = dateRdv.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  const finJournee = new Date(y, m - 1, d, 23, 59, 59, 999);
+  return finJournee < maintenant;
+}
+
 export const RDV_HORS_CRENEAU_MESSAGE = {
   titre: "Impossible de prendre ce rendez-vous en charge",
   message:

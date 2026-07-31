@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
-import { YELEN224_OTP_SIMULE } from '@/lib/auth/constants'
 import { mintCitoyenSessionTokenHash } from '@/lib/auth/citoyenSession'
 
 const supabaseAdmin = createClient(
@@ -111,8 +110,20 @@ export async function POST(request: NextRequest) {
 
     // Revalidation complète du code OTP — ne fait jamais confiance à un état
     // "vérifié" déclaré par le client.
-    // ⚠️ DEV MODE — code OTP simulé, décision assumée de Bryan (voir CLAUDE.md /auth).
-    if (code !== YELEN224_OTP_SIMULE) {
+    // Retour Bryan 25/07/2026 : plus de constante publique en dur ni
+    // affichée à l'écran (app/inscription/page.tsx). Tant qu'aucun
+    // fournisseur SMS n'est branché (voir lib/auth/otp.ts), le code de
+    // secours vit exclusivement dans une variable d'environnement serveur,
+    // jamais committée. Pas de repli silencieux si elle est absente.
+    const otpFallback = process.env.CITOYEN_OTP_FALLBACK
+    if (!otpFallback) {
+      console.error('[CITOYEN REGISTER OTP ERROR] CITOYEN_OTP_FALLBACK manquant')
+      return NextResponse.json(
+        { error: "Inscription impossible pour l'instant. Réessayez plus tard.", code: 'OTP_SEND_ERROR' },
+        { status: 500 }
+      )
+    }
+    if (code !== otpFallback) {
       registerFailure(phone)
       return NextResponse.json(
         { error: 'Code incorrect', code: 'INVALID_CODE' },

@@ -2,21 +2,9 @@
 
 // Écran admin "Feedback" — réception des retours envoyés par les institutions
 // depuis le popover feedback du header dashboard (app/api/institution/feedback,
-// app/api/admin/feedback). Premier écran admin construit hors Vue d'ensemble/login
-// (voir app/admin/page.tsx) : mêmes tokens de couleur, dupliqués localement ici
-// (pas de module de thème admin partagé pour l'instant).
+// app/api/admin/feedback).
 import { useEffect, useState, useCallback } from 'react'
-
-const D = {
-  bg: '#0f0f0f', surface: '#161616', surface2: '#1e1e1e',
-  border: '#2a2a2a', border2: '#333333',
-  text: '#f0f0f0', textSub: '#a0a0a0', textMuted: '#606060',
-  yellow: '#d4a017', yellowDim: 'rgba(212,160,23,0.12)',
-  green: '#22c55e', greenDim: 'rgba(34,197,94,0.10)',
-  red: '#ef4444', redDim: 'rgba(239,68,68,0.10)',
-  blue: '#3b82f6', blueDim: 'rgba(59,130,246,0.10)',
-  purple: '#a855f7', purpleDim: 'rgba(168,85,247,0.10)',
-}
+import { D } from '@/app/admin/adminTheme'
 
 type Feedback = {
   id: string; institution_id: string; institution_nom: string;

@@ -297,7 +297,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
         <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "16px", padding: "16px", marginBottom: "18px", display: "flex", alignItems: "center", gap: "10px" }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" style={{ flexShrink: 0 }}><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
           <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.5, margin: 0 }}>
-            La liste de ce que vous proposez à vos clients se gère maintenant depuis l'onglet <strong style={{ color: C.t1 }}>Services</strong> (section "Offre générale").
+            La liste de ce que vous proposez à vos clients se gère maintenant depuis l'onglet <strong style={{ color: C.t1 }}>Services</strong> (section "Offre gratuite").
           </p>
         </div>
 

@@ -7,6 +7,7 @@ import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader } from "@/components/CompteEcranVide";
 import { SECTEUR_LABELS } from "@/lib/secteurs";
+import { SuivisSection } from "./suivis-section";
 
 // Lot 1 "Mes démarches" (chantier stratégie rétention v2, voir CLAUDE.md
 // /chantier-strategie-retention-v2) — checklist personnelle libre, aucune
@@ -437,9 +438,9 @@ export function MesDemarchesClient() {
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Mes démarches"/>
       <main style={{ padding: "16px 16px 100px", maxWidth: "560px", margin: "0 auto" }}>
-        <div style={{ padding: "4px 4px 16px" }}>
-          <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5 }}>Suivez vos démarches administratives, étape par étape — renouvellement de documents, dossiers en cours, échéances à ne pas oublier. Utile aussi pour vos démarches d'entrepreneur ou de chef d'entreprise (licences, déclarations, fournisseurs…).</p>
-        </div>
+        <SuivisSection isDark={isDark} onCreerDemarche={ouvrirCreationDepuisExemple}/>
+
+        <div id="demarches" style={{ color: t1, fontSize: "15px", fontWeight: 800, marginBottom: "12px", paddingTop: "4px" }}>Vos démarches</div>
 
         {afficherGuide && (
           <div style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: "14px", padding: "14px 16px", marginBottom: "20px", position: "relative" }}>
@@ -590,12 +591,16 @@ export function MesDemarchesClient() {
       </main>
 
       {creationOuverte && (
-        <div onClick={fermerCreation} style={{ position: "fixed", inset: 0, zIndex: 9000, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: card, borderRadius: "24px 24px 0 0", padding: "24px", maxWidth: "480px", width: "100%", border: `1px solid ${brd}`, maxHeight: "88svh", overflowY: "auto" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
-              <div style={{ color: t1, fontSize: "17px", fontWeight: 800 }}>Nouvelle démarche</div>
-              <button onClick={fermerCreation} className="tap" style={{ background: "none", border: "none", color: t3, cursor: "pointer", padding: "4px" }}><Ic.X/></button>
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: bg, overflowY: "auto" }}>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${brd}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+            <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+              <button onClick={fermerCreation} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", color: t1, cursor: "pointer" }}><Ic.X/></button>
+              <div style={{ color: t1, fontSize: "14px", fontWeight: 800 }}>Nouvelle démarche</div>
+              <div/>
             </div>
+          </header>
+
+          <div style={{ padding: "20px 20px calc(env(safe-area-inset-bottom) + 32px)", maxWidth: "560px", margin: "0 auto" }}>
 
             <label style={{ color: t2, fontSize: "12px", fontWeight: 700, display: "block", marginBottom: "6px" }}>Que voulez-vous suivre ?</label>
             <input value={titreForm} onChange={(e) => setTitreForm(e.target.value)} placeholder="Ex. Renouvellement de passeport" style={{ ...inputStyle, marginBottom: "6px" }}/>

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await sb
     .from("institutions")
-    .select("id,name,category,secteur,statut_juridique,ville,logo,badge_verifie,moyenne_avis,nb_avis,description,phone,whatsapp,email,website,created_at,statut,plan,adresse,quartier,disponibilites,banniere,annee_creation,capacite,capacite_par_creneau,langue,services,horaires,conditions_prestataire_acceptees_le")
+    .select("id,name,category,secteur,statut_juridique,ville,logo,badge_verifie,moyenne_avis,nb_avis,description,phone,whatsapp,email,website,created_at,statut,plan,adresse,quartier,disponibilites,banniere,annee_creation,capacite,capacite_par_creneau,langue,services,horaires,conditions_prestataire_acceptees_le,conditions_entreprise,informations_importantes,informations_legales,conditions_entreprise_le,informations_importantes_le,informations_legales_le,partenaire_statut")
     .eq("id", institution_id)
     .maybeSingle();
 
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 // statut_juridique sont gérés séparément ci-dessous (validation stricte des
 // valeurs + verrou sur statut_juridique, cf. commentaire sur PUT).
 // site_web retiré (fusionné dans website, colonne supprimée en base).
-const EDITABLE_FIELDS = ["name", "ville", "quartier", "adresse", "description", "logo", "website", "email", "phone", "whatsapp", "banniere", "annee_creation", "capacite", "capacite_par_creneau", "langue", "services", "horaires"] as const;
+const EDITABLE_FIELDS = ["name", "ville", "quartier", "adresse", "description", "logo", "website", "email", "phone", "whatsapp", "banniere", "annee_creation", "capacite", "capacite_par_creneau", "langue", "services", "horaires", "conditions_entreprise", "informations_importantes", "informations_legales"] as const;
 
 // annee_creation et capacite sont des colonnes integer côté base : un champ
 // texte vide envoie "" en JSON, que Postgres rejette pour ce type
@@ -45,6 +45,16 @@ const EDITABLE_FIELDS = ["name", "ville", "quartier", "adresse", "description", 
 // Postgres si elle arrivait (ne devrait jamais arriver, l'UI ne vide pas ce
 // champ — cf. DisponibilitesTab.tsx).
 const NUMERIC_FIELDS = new Set(["annee_creation", "capacite"]);
+
+// Horodatage automatique par section "Conditions & Informations" —
+// jamais fourni par le client, posé ici à chaque enregistrement de la
+// section correspondante (affiché aux côtés de "Écrit par {établissement}"
+// sur la fiche publique).
+const DATE_STAMP_FIELDS: Record<string, string> = {
+  conditions_entreprise: "conditions_entreprise_le",
+  informations_importantes: "informations_importantes_le",
+  informations_legales: "informations_legales_le",
+};
 
 // Mêmes listes que app/api/institution/auth/register/route.ts — jamais faire
 // confiance aux valeurs envoyées par le client.
@@ -85,6 +95,7 @@ export async function PUT(req: NextRequest) {
       value = null;
     }
     payload[field] = value;
+    if (field in DATE_STAMP_FIELDS) payload[DATE_STAMP_FIELDS[field]] = new Date().toISOString();
   }
 
   if ("secteur" in body) {

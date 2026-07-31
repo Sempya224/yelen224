@@ -26,6 +26,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import React, { useEffect, useState, useCallback, useMemo, useRef, Dispatch, SetStateAction } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -43,11 +44,13 @@ import { CommunicationTab } from "./components/CommunicationTab";
 import { CodeQrTab } from "./components/CodeQrTab";
 import { ValiderRdvTab } from "./components/ValiderRdvTab";
 import { ProfilEntrepriseTab } from "./components/ProfilEntrepriseTab";
+import { ConditionsInformationsTab } from "./components/ConditionsInformationsTab";
 import { ProfilResponsableTab } from "./components/ProfilResponsableTab";
 import { DocumentsTab } from "./components/DocumentsTab";
 import { MesClientsTab } from "./components/MesClientsTab";
 import { AvisReputationTab } from "./components/AvisReputationTab";
 import { MessagerieTab } from "./components/MessagerieTab";
+import { QuestionsClientsTab } from "./components/QuestionsClientsTab";
 import { EquipeTab } from "./components/EquipeTab";
 import { JournalTab } from "./components/JournalTab";
 import { EspaceTravailTab } from "./components/EspaceTravailTab";
@@ -62,6 +65,8 @@ import { FacturationTab } from "./components/FacturationTab";
 import { RapportsTab } from "./components/RapportsTab";
 import { DocumentsFinanciersTab } from "./components/DocumentsFinanciersTab";
 import { DocumentsClientsTab } from "./components/DocumentsClientsTab";
+import { PartenariatTab } from "./components/PartenariatTab";
+import { MesOffresTab } from "./components/MesOffresTab";
 import { LogoutFlow, INSTITUTION_LOGOUT_COPY } from "./components/LogoutFlow";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -119,7 +124,7 @@ type Client = {
   est_nouveau: boolean;
 };
 
-type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil";
+type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres";
 // Item de la liste "Paramètres" — soit un lien externe (href), soit une
 // bascule d'onglet interne au dashboard (onTab), jamais les deux.
 type SettingsItem = { label: string; href: string | null; onTab?: DashboardTab; color: string };
@@ -184,6 +189,7 @@ type Institution = {
   langue?: string[];
   services?: string[];
   horaires?: { jour: string; ouvert: boolean; debut: string; fin: string }[];
+  partenaire_statut?: string;
 };
 
 type Stats = {
@@ -257,6 +263,12 @@ const cssFor = (C: ThemeTokens) => `
     .yelen-account-panel{display:none!important}
     .yelen-shell{display:block}
     .yelen-main{margin-left:0!important}
+    /* min-height:100svh forcé en inline (toujours nécessaire ≥1024px pour
+       la sidebar) créait un grand espace vide entre un contenu court et le
+       menu fixe du bas sur mobile (retour Bryan 29/07/2026) — !important
+       requis ici pour passer devant le style inline, uniquement <1024px,
+       PC totalement inchangé. */
+    .yelen-shell{min-height:auto!important}
   }
   @media(min-width:1024px){
     .yelen-main{padding-bottom:0!important}
@@ -273,6 +285,17 @@ const cssFor = (C: ThemeTokens) => `
   .header-popover-grip{display:block}
   .header-popover-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:499;animation:fadeIn 0.2s ease}
   .header-search-desktop{display:none}
+  /* ── Header mobile : consolidation façon Shopify admin (retour Bryan
+      29/07/2026) — la rangée d'icônes (Partenaires, recherche, RDV entrants,
+      notifications, questions clients, feedback, aide, actualiser) débordait
+      de l'écran sur mobile (9 éléments à largeur fixe sur une seule ligne
+      sans flexWrap). Seuls logo/nom + Scanner + "..." restent visibles en
+      permanence <1024px, le reste rejoint le panneau "..." (voir
+      .yelen-header-more-extra). !important nécessaire car ces boutons ont un
+      display:"flex" inline — même convention que .header-search-icon-mobile
+      ci-dessous. PC entièrement inchangé (≥1024px restaure display:flex). ── */
+  .yelen-header-more-item{display:none!important}
+  .yelen-header-more-extra{display:flex;flex-direction:column}
   @media(min-width:1024px){
     .header-popover-panel{
       position:absolute;left:auto;right:0;bottom:auto;top:calc(100% + 8px);
@@ -282,6 +305,13 @@ const cssFor = (C: ThemeTokens) => `
     .header-popover-grip{display:none}
     .header-popover-overlay{display:none}
     .header-search-desktop{display:flex}
+    .yelen-header-more-item{display:flex!important}
+    .yelen-header-more-extra{display:none}
+    .yelen-header-more-badge{display:none!important}
+    /* ── Doit rester APRÈS .yelen-header-more-item ci-dessus : cette icône
+        cumule les deux classes et doit rester masquée sur PC (recherche
+        desktop = le champ texte, pas cette icône), contrairement aux autres
+        éléments "more-item" qui redeviennent visibles ≥1024px. ── */
     .header-search-icon-mobile{display:none!important}
   }
   /* ── Hiérarchie typographique — niveau SaaS US (audit CEO 12/07/2026) ──
@@ -705,36 +735,51 @@ function NotifEmptyIllustration({ color }: { color: string }) {
 // (recherche, RDV entrant, feedback, aide, "..."). Une seule ouverte à la
 // fois (activePopover au niveau du dashboard). Présentation responsive
 // uniquement via CSS (.header-popover-panel, dropdown ancré ≥1024px / bottom
-// sheet plein écran en dessous), pas de JSX dupliqué par breakpoint. ───
-function HeaderPopover({ id, active, onOpen, onClose, trigger, badge, glow, panelTitle, children }: {
+// sheet plein écran en dessous), pas de JSX dupliqué par breakpoint.
+// ⚠️ Le panneau est rendu via createPortal dans document.body (retour Bryan
+// 29/07/2026, capture à l'appui) : le <header> parent a un backdropFilter,
+// qui crée un containing block pour tout descendant position:fixed (comme
+// filter) — sans le portail, "bottom:10px" se calculait par rapport au bas
+// du header (~100px de haut) au lieu du bas de l'écran, le panneau
+// s'ouvrait donc hors-écran vers le haut. Même pattern déjà utilisé dans
+// components/MonAssistant.tsx pour un problème de contexte d'empilement
+// analogue. panelRef en plus de ref : le panneau n'est plus un descendant
+// DOM du wrapper une fois portalé, donc le clic extérieur doit vérifier
+// les deux. ───
+function HeaderPopover({ id, active, onOpen, onClose, trigger, badge, glow, panelTitle, children, wrapperClassName, badgeClassName }: {
   id: string; active: boolean; onOpen: () => void; onClose: () => void;
   trigger: React.ReactNode; badge?: number; glow?: boolean; panelTitle: string; children: React.ReactNode;
+  wrapperClassName?: string; badgeClassName?: string;
 }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!active) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const target = e.target as Node;
+      const insideTrigger = ref.current && ref.current.contains(target);
+      const insidePanel = panelRef.current && panelRef.current.contains(target);
+      if (!insideTrigger && !insidePanel) onClose();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [active, onClose]);
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={ref} className={wrapperClassName} style={{ position: "relative" }}>
       <button onClick={() => (active ? onClose() : onOpen())} className="tap" title={panelTitle} style={{ position: "relative", background: active ? `${C.gold}15` : C.bgCard2, border: `1px solid ${active ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, animation: glow && !!badge && badge > 0 ? "glow 1.6s ease-in-out infinite" : "none" }}>
         {trigger}
         {!!badge && badge > 0 && (
-          <span style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "9px", fontWeight: "900", minWidth: "17px", height: "17px", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${C.bgCard}`, padding: "0 3px" }}>
+          <span className={badgeClassName} style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "9px", fontWeight: "900", minWidth: "17px", height: "17px", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${C.bgCard}`, padding: "0 3px" }}>
             {badge > 9 ? "9+" : badge}
           </span>
         )}
       </button>
-      {active && (
-        <div className="header-popover-panel" data-popover={id}>
+      {active && typeof document !== "undefined" && createPortal(
+        <div ref={panelRef} className="header-popover-panel" data-popover={id}>
           <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 10px", opacity: 0.5 }} className="header-popover-grip"/>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 4px 12px", borderBottom: `1px solid ${C.border}`, marginBottom: "12px" }}>
             <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{panelTitle}</span>
@@ -743,7 +788,8 @@ function HeaderPopover({ id, active, onOpen, onClose, trigger, badge, glow, pane
             </button>
           </div>
           {children}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -1465,6 +1511,15 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
     } catch { setErrorMsg("Erreur réseau"); setPhase("error"); }
   }
 
+  // stop() de html5-qrcode lève une exception SYNCHRONE ("Cannot stop,
+  // scanner is not running or paused.") quand le scan n'est pas actif —
+  // un simple .catch() ne l'attrape jamais puisque le throw a lieu avant
+  // qu'une Promise existe à chaîner. D'où ce garde-fou sur isScanning.
+  function arreterCameraSiActive(html5QrCode: Html5Qrcode | null) {
+    if (!html5QrCode?.isScanning) return;
+    try { html5QrCode.stop().catch(() => {}); } catch {}
+  }
+
   async function demarrerCamera() {
     setCamPhase("demarrage");
     try {
@@ -1474,7 +1529,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 220, height: 220 } },
         (decodedText: string) => {
-          html5QrCode.stop().catch(() => {});
+          arreterCameraSiActive(html5QrCode);
           void traiterCode(decodedText);
         },
         () => {},
@@ -1486,7 +1541,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
   }
 
   useEffect(() => {
-    return () => { html5QrRef.current?.stop().catch(() => {}); };
+    return () => { arreterCameraSiActive(html5QrRef.current); };
   }, []);
 
   async function confirmer() {
@@ -1513,7 +1568,20 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
         </div>
         {phase === "scan" && (
           <div>
-            <div id="qr-reader-modal" style={{ borderRadius: "16px", overflow: "hidden", backgroundColor: C.bg3, minHeight: camPhase === "actif" ? "260px" : 0, display: camPhase === "actif" ? "block" : "none" }}/>
+            {/* Le conteneur doit déjà avoir des dimensions réelles (pas display:none)
+                dès l'appel à Html5Qrcode.start() en phase "demarrage" — sur iOS Safari,
+                attacher/lire un flux caméra dans un élément caché fait échouer start()
+                silencieusement (rejeté comme une erreur générique, à tort affichée comme
+                un refus de permission alors qu'aucun prompt n'a même pu s'afficher). */}
+            <div style={{ position: "relative", display: (camPhase === "actif" || camPhase === "demarrage") ? "block" : "none" }}>
+              <div id="qr-reader-modal" style={{ borderRadius: "16px", overflow: "hidden", backgroundColor: C.bg3, minHeight: "260px" }}/>
+              {camPhase === "demarrage" && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px", textAlign: "center" }}>
+                  <div style={{ width: "36px", height: "36px", border: `3px solid ${C.gold}25`, borderTopColor: C.gold, borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 14px" }}/>
+                  <div style={{ color: C.t2, fontSize: "13px", fontWeight: "700" }}>Ouverture de la caméra…</div>
+                </div>
+              )}
+            </div>
             {camPhase === "avant" && (
               <div style={{ textAlign: "center", padding: "28px 12px" }}>
                 <div style={{ width: "64px", height: "64px", borderRadius: "18px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, border: `1px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
@@ -1524,12 +1592,6 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
                 <button onClick={demarrerCamera} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>
                   Activer la caméra
                 </button>
-              </div>
-            )}
-            {camPhase === "demarrage" && (
-              <div style={{ textAlign: "center", padding: "40px 12px" }}>
-                <div style={{ width: "36px", height: "36px", border: `3px solid ${C.gold}25`, borderTopColor: C.gold, borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 14px" }}/>
-                <div style={{ color: C.t2, fontSize: "13px", fontWeight: "700" }}>Ouverture de la caméra…</div>
               </div>
             )}
             {camPhase === "refuse" && (
@@ -1638,6 +1700,7 @@ export default function InstitutionDashboard() {
   // premier niveau (contenu réel ajouté lots suivants — squelette pour l'instant).
   const [tab, setTab] = useState<DashboardTab>("accueil");
   const [messagerieUnread, setMessagerieUnread] = useState(0);
+  const [questionsNonRepondues, setQuestionsNonRepondues] = useState(0);
   const [messagerieCitoyenInitial, setMessagerieCitoyenInitial] = useState<string | null>(null);
   function ouvrirMessagerieClient(citoyenId: string) {
     setMessagerieCitoyenInitial(citoyenId);
@@ -1688,7 +1751,7 @@ export default function InstitutionDashboard() {
   const lastRdvCountRef                     = useRef(0);
 
   // ── Header : popovers (recherche, "...", feedback, aide, RDV entrant) ──
-  const [activePopover, setActivePopover]   = useState<"search" | "system" | "feedback" | "help" | "rdv" | "notifications" | null>(null);
+  const [activePopover, setActivePopover]   = useState<"search" | "system" | "feedback" | "help" | "rdv" | "notifications" | "questions" | null>(null);
   const [institutionNotifs, setInstitutionNotifs] = useState<{ id: string; titre: string; message: string; lu: boolean; rdv_id: string | null; created_at: string }[]>([]);
   const [ongletNotif, setOngletNotif] = useState<"utilisateur" | "systeme">("utilisateur");
   const [realtimeStatus, setRealtimeStatus] = useState<"connecte" | "reconnexion" | "hors_ligne">("reconnexion");
@@ -1697,11 +1760,15 @@ export default function InstitutionDashboard() {
   const [feedbackMsg, setFeedbackMsg]       = useState("");
   const [feedbackSending, setFeedbackSending] = useState(false);
   const searchRef                           = useRef<HTMLDivElement>(null);
+  const searchPanelRef                      = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (activePopover !== "search") return;
     const handler = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setActivePopover(null);
+      const target = e.target as Node;
+      const insideTrigger = searchRef.current && searchRef.current.contains(target);
+      const insidePanel = searchPanelRef.current && searchPanelRef.current.contains(target);
+      if (!insideTrigger && !insidePanel) setActivePopover(null);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -2120,6 +2187,15 @@ export default function InstitutionDashboard() {
         setMessagerieUnread((msgJson?.total_non_lus ?? 0) + (yelenJson?.non_lus ?? 0));
       } catch {}
 
+      // Badge "Questions clients" (icône en-tête dédiée) — strictement
+      // séparé de messagerieUnread ci-dessus, ne touche jamais la table
+      // messages ni MessagerieTab.
+      try {
+        const qRes = await fetch("/api/institution/questions?compte=1");
+        const qJson = qRes.ok ? await qRes.json().catch(() => null) : null;
+        setQuestionsNonRepondues(qJson?.non_repondues ?? 0);
+      } catch {}
+
     } catch (e: any) {
       setError(e.message || "Erreur de chargement");
     } finally {
@@ -2330,9 +2406,16 @@ export default function InstitutionDashboard() {
       { key: "documents-financiers", label: "Documents financiers", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
       { key: "documents-clients", label: "Documents clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg> },
     ]},
+    { label: "Partenariat", items: [
+      { key: "partenariat", label: "Partenaires",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg> },
+      // "Mes offres" n'apparaît qu'une fois le partenariat approuvé — filtre
+      // additionnel appliqué juste après (inst?.partenaire_statut), pas
+      // seulement le RBAC générique tabAllowed().
+      { key: "mes-offres", label: "Mes offres",       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
+    ]},
   ];
   const navSections = navSectionsRaw
-    .map(section => ({ ...section, items: section.items.filter(i => tabAllowed(membreRole, i.key)) }))
+    .map(section => ({ ...section, items: section.items.filter(i => tabAllowed(membreRole, i.key) && (i.key !== "mes-offres" || inst?.partenaire_statut === "approuve")) }))
     .filter(section => section.items.length > 0);
 
   // Sous-menu "Compte" — pas dans le menu principal, façon Supabase : on
@@ -2342,11 +2425,13 @@ export default function InstitutionDashboard() {
     { key: "profil", label: "Profil", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
     { key: "mes-clients", label: "Mes clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
     { key: "avis-reputation", label: "Avis & Réputation", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> },
+    { key: "questions-clients", label: "Questions des clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg> },
     { key: "espace-travail", label: "Espace de travail", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> },
     { key: "equipe", label: "Équipe", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
     { key: "journal", label: "Journal d'activité", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
     { key: "rdv-historique", label: "Rendez-vous passés", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/><path d="M3 12a9 9 0 0 1 9-9"/></svg> },
     { key: "profil-entreprise", label: "Profil Entreprise", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="9" y1="8" x2="9" y2="8"/><line x1="15" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="9" y2="16"/><line x1="15" y1="16" x2="15" y2="16"/></svg> },
+    { key: "conditions-informations", label: "Conditions & Informations", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg> },
     { key: "profil-responsable", label: "Profil Responsable", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
     { key: "documents", label: "Documents", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
     { key: "guide", label: "Guide Yelen", onClick: () => setShowGuide(true), icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
@@ -2509,7 +2594,14 @@ export default function InstitutionDashboard() {
       )}
 
       {/* ── CONTENU PRINCIPAL ── */}
-      <div className="yelen-main" style={{ paddingBottom: "80px", marginLeft: `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 232 : 0)}px`, transition: "margin-left 0.18s ease" }}>
+      {/* ── paddingBottom en dur (80px) remplacé par un calc() aligné sur la
+          hauteur réelle de .yelen-bottom-nav (~48px de contenu) + son
+          propre env(safe-area-inset-bottom) : la valeur fixe supposait déjà
+          l'encoche present (safe-area ≈ 32px) et laissait un espace vide
+          au-dessus du menu du bas sur les appareils/navigateurs sans
+          encoche (retour Bryan 29/07/2026, capture à l'appui). ≥1024px
+          continue de forcer 0 via la règle existante, inchangé. ── */}
+      <div className="yelen-main" style={{ paddingBottom: "calc(48px + env(safe-area-inset-bottom))", marginLeft: `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 232 : 0)}px`, transition: "margin-left 0.18s ease" }}>
 
       {/* ── MODALS ── */}
       {showGuide && <GuideScalingModal onClose={() => setShowGuide(false)}/>}
@@ -2808,7 +2900,13 @@ export default function InstitutionDashboard() {
       )}
 
       {/* ═══════ HEADER ═══════ */}
-      <header style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: `${C.bgCard}F5`, backdropFilter: "blur(28px) saturate(200%)", borderBottom: `1px solid ${C.border}` }}>
+      {/* ── paddingTop: env(safe-area-inset-top) — manquait ici (seul header
+          du projet à ne pas l'avoir, cf. dashboard-client.tsx côté citoyen)
+          : sur mobile en PWA standalone (viewportFit:"cover", layout.tsx),
+          la barre de statut du téléphone se superposait au header au lieu
+          de s'afficher au-dessus (retour Bryan 29/07/2026, capture à
+          l'appui). env() vaut 0 sans encoche/PWA, donc PC inchangé. ── */}
+      <header style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: `${C.bgCard}F5`, backdropFilter: "blur(28px) saturate(200%)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top)" }}>
         <div className="yelen-header-inner" style={{ padding: "0 16px" }}>
           <div style={{ height: "56px", display: "flex", alignItems: "center", gap: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}>
@@ -2831,6 +2929,24 @@ export default function InstitutionDashboard() {
               </div>
             </div>
 
+            {/* ── Icône Partenaires (chantier 26/07/2026) — entre le nom et
+                la recherche, demande explicite du CEO. Navigation directe
+                vers l'onglet "partenariat", pas un popover. Un point doré
+                signale un partenariat déjà approuvé. ── */}
+            {tabAllowed(membreRole, "partenariat") && (
+              <button
+                onClick={() => setTab("partenariat")}
+                title="Partenaires"
+                className="tap yelen-header-more-item"
+                style={{ position: "relative", background: tab === "partenariat" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${tab === "partenariat" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: tab === "partenariat" ? C.gold : C.t2 }}
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg>
+                {inst?.partenaire_statut === "approuve" && (
+                  <span style={{ position: "absolute", top: "5px", right: "5px", width: "6px", height: "6px", borderRadius: "50%", background: C.gold }}/>
+                )}
+              </button>
+            )}
+
             {/* ── Recherche — wrapper position:relative commun à l'input
                 desktop, l'icône mobile et le panneau de résultats, pour que
                 la fermeture au clic extérieur et l'ancrage absolu (desktop)
@@ -2847,13 +2963,16 @@ export default function InstitutionDashboard() {
                 />
               </div>
               {/* ── Recherche mobile — icône qui ouvre le même popover ── */}
-              <button onClick={() => setActivePopover(activePopover === "search" ? null : "search")} className="tap header-search-icon-mobile" style={{ background: activePopover === "search" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${activePopover === "search" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              <button onClick={() => setActivePopover(activePopover === "search" ? null : "search")} className="tap header-search-icon-mobile yelen-header-more-item" style={{ background: activePopover === "search" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${activePopover === "search" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
 
-              {/* ── Résultats : navigation + clients ── */}
-              {activePopover === "search" && (
-                <div className="header-popover-panel">
+              {/* ── Résultats : navigation + clients. Portalé dans
+                  document.body pour la même raison que HeaderPopover (le
+                  <header> parent a un backdropFilter qui casse
+                  position:fixed pour ce descendant). ── */}
+              {activePopover === "search" && typeof document !== "undefined" && createPortal(
+                <div ref={searchPanelRef} className="header-popover-panel">
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
                     <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Recherche</span>
                     <button onClick={() => setActivePopover(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.t3, padding: "4px" }}>
@@ -2893,13 +3012,14 @@ export default function InstitutionDashboard() {
                       </>
                     );
                   })()}
-                </div>
+                </div>,
+                document.body
               )}
             </div>
 
             {/* ── RDV entrants — badge = rdvsPending (statut "nouveau"),
                 même définition que le badge du menu latéral ── */}
-            <HeaderPopover id="rdv" active={activePopover === "rdv"} onOpen={() => setActivePopover("rdv")} onClose={() => setActivePopover(null)} badge={rdvsPending.length} glow panelTitle="RDV entrants"
+            <HeaderPopover id="rdv" active={activePopover === "rdv"} onOpen={() => setActivePopover("rdv")} onClose={() => setActivePopover(null)} badge={rdvsPending.length} glow panelTitle="RDV entrants" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
             >
               {rdvsPending.length === 0 ? (
@@ -2926,7 +3046,7 @@ export default function InstitutionDashboard() {
             {/* ── Notifications — n'existait pas avant le chantier "Yelen
                 Assistant" (20/07/2026) ; notifCount était calculé mais
                 jamais affiché. Marque tout comme lu à l'ouverture. ── */}
-            <HeaderPopover id="notifications" active={activePopover === "notifications"} onOpen={ouvrirNotifications} onClose={() => setActivePopover(null)} badge={institutionNotifs.filter(n => !n.lu).length} panelTitle="Notifications"
+            <HeaderPopover id="notifications" active={activePopover === "notifications"} onOpen={ouvrirNotifications} onClose={() => setActivePopover(null)} badge={institutionNotifs.filter(n => !n.lu).length} panelTitle="Notifications" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
             >
               {/* ── Onglets Utilisateur / Système — "Système" n'existe pas
@@ -2982,8 +3102,30 @@ export default function InstitutionDashboard() {
               )}
             </HeaderPopover>
 
+            {/* ── Questions clients — icône dédiée, séparée du badge
+                "Messagerie" du menu latéral (table questions_institution,
+                pas messages). Clic renvoie directement vers le panneau
+                "Mon compte > Questions des clients", pas un fil de
+                discussion ici. ── */}
+            <HeaderPopover id="questions" active={activePopover === "questions"} onOpen={() => setActivePopover("questions")} onClose={() => setActivePopover(null)} badge={questionsNonRepondues} panelTitle="Questions clients" wrapperClassName="yelen-header-more-item"
+              trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg>}
+            >
+              <div style={{ padding: "8px 4px", textAlign: "center" }}>
+                {questionsNonRepondues === 0 ? (
+                  <p style={{ color: C.t3, fontSize: "12px", margin: "12px 0" }}>Aucune nouvelle question pour l&apos;instant.</p>
+                ) : (
+                  <p style={{ color: C.t2, fontSize: "12.5px", margin: "12px 0", lineHeight: 1.6 }}>
+                    {questionsNonRepondues} question{questionsNonRepondues > 1 ? "s" : ""} en attente de réponse, posée{questionsNonRepondues > 1 ? "s" : ""} publiquement par des citoyens avant leur RDV.
+                  </p>
+                )}
+                <button onClick={() => { setActivePopover(null); setTab("questions-clients"); }} className="tap" style={{ width: "100%", backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "10px", fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
+                  Voir toutes les questions
+                </button>
+              </div>
+            </HeaderPopover>
+
             {/* ── Feedback ── */}
-            <HeaderPopover id="feedback" active={activePopover === "feedback"} onOpen={() => setActivePopover("feedback")} onClose={() => setActivePopover(null)} panelTitle="Envoyer un feedback"
+            <HeaderPopover id="feedback" active={activePopover === "feedback"} onOpen={() => setActivePopover("feedback")} onClose={() => setActivePopover(null)} panelTitle="Envoyer un feedback" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>}
             >
               <div style={{ display: "flex", gap: "6px", marginBottom: "10px", flexWrap: "wrap" }}>
@@ -2999,7 +3141,7 @@ export default function InstitutionDashboard() {
 
             {/* ── Aide — liens déjà existants ailleurs (Guide, FAQ, support,
                 CGU, confidentialité), aucune nouvelle page ── */}
-            <HeaderPopover id="help" active={activePopover === "help"} onOpen={() => setActivePopover("help")} onClose={() => setActivePopover(null)} panelTitle="Aide & ressources"
+            <HeaderPopover id="help" active={activePopover === "help"} onOpen={() => setActivePopover("help")} onClose={() => setActivePopover(null)} panelTitle="Aide & ressources" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
@@ -3023,12 +3165,21 @@ export default function InstitutionDashboard() {
             </button>
 
             {/* ── Actualiser — sorti du menu "...", auto-refresh toutes les 30s (cf. useEffect) ── */}
-            <button onClick={() => loadData()} disabled={refreshing} className="tap" title="Actualiser les données" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: "10px", width: "36px", height: "36px", cursor: refreshing ? "default" : "pointer", flexShrink: 0 }}>
+            <button onClick={() => loadData()} disabled={refreshing} className="tap yelen-header-more-item" title="Actualiser les données" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: "10px", width: "36px", height: "36px", cursor: refreshing ? "default" : "pointer", flexShrink: 0 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none" }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             </button>
 
-            {/* ── "..." — état du système + actions rapides ── */}
+            {/* ── "..." — état du système + actions rapides. Sur mobile,
+                regroupe aussi les accès raccourcis retirés de la rangée
+                (recherche, Partenaires, RDV entrants, notifications,
+                questions clients, feedback, aide, actualiser) — voir
+                .yelen-header-more-extra ci-dessus, invisible ≥1024px, donc
+                le panneau PC garde exactement ses 2 items d'origine. Badge
+                agrégé (mobile uniquement, .yelen-header-more-badge) pour ne
+                pas perdre le signal "attention requise" une fois les icônes
+                individuelles masquées. ── */}
             <HeaderPopover id="system" active={activePopover === "system"} onOpen={() => setActivePopover("system")} onClose={() => setActivePopover(null)} panelTitle="État du système"
+              badge={rdvsPending.length + institutionNotifs.filter(n => !n.lu).length + questionsNonRepondues} badgeClassName="yelen-header-more-badge"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px", marginBottom: "10px" }}>
@@ -3043,6 +3194,49 @@ export default function InstitutionDashboard() {
                   <div style={{ color: C.t3, fontSize: "10px" }}>YELEN224 PRO v5.1</div>
                 </div>
               </div>
+
+              {/* ── Accès rapides — mobile uniquement (.yelen-header-more-extra,
+                  masqué ≥1024px). Reprend les 8 actions retirées de la
+                  rangée du header, chaque onClick réutilise le handler déjà
+                  branché sur l'icône d'origine, aucune nouvelle logique. ── */}
+              <div className="yelen-header-more-extra" style={{ gap: "2px", marginBottom: "8px", paddingBottom: "8px", borderBottom: `1px solid ${C.border}` }}>
+                {[
+                  { key: "search", label: "Recherche", badge: 0, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+                    onClick: () => setActivePopover("search") },
+                  ...(tabAllowed(membreRole, "partenariat") ? [{ key: "partenariat", label: "Partenaires", badge: 0, dot: inst?.partenaire_statut === "approuve",
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg>,
+                    onClick: () => { setTab("partenariat"); setActivePopover(null); } }] : []),
+                  { key: "rdv", label: "RDV entrants", badge: rdvsPending.length, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+                    onClick: () => setActivePopover("rdv") },
+                  { key: "notifications", label: "Notifications", badge: institutionNotifs.filter(n => !n.lu).length, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
+                    onClick: ouvrirNotifications },
+                  { key: "questions", label: "Questions clients", badge: questionsNonRepondues, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg>,
+                    onClick: () => setActivePopover("questions") },
+                  { key: "feedback", label: "Envoyer un feedback", badge: 0, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>,
+                    onClick: () => setActivePopover("feedback") },
+                  { key: "help", label: "Aide & ressources", badge: 0, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+                    onClick: () => setActivePopover("help") },
+                  { key: "actualiser", label: "Actualiser les données", badge: 0, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none" }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>,
+                    onClick: () => { loadData(); setActivePopover(null); } },
+                ].map(item => (
+                  <button key={item.key} onClick={item.onClick} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: C.t1, fontSize: "13px", fontWeight: "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                    {item.icon}
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                    {item.badge > 0 && (
+                      <span style={{ backgroundColor: C.red, color: "#fff", fontSize: "10px", fontWeight: "800", minWidth: "18px", height: "18px", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>{item.badge > 9 ? "9+" : item.badge}</span>
+                    )}
+                    {item.dot && <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: C.gold, flexShrink: 0 }}/>}
+                  </button>
+                ))}
+              </div>
+
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <button onClick={() => { setTab("parametres"); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: C.t1, fontSize: "13px", fontWeight: "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -3057,7 +3251,13 @@ export default function InstitutionDashboard() {
           </div>
         </div>
 
-        {activePopover && <div className="header-popover-overlay" onClick={() => setActivePopover(null)}/>}
+        {/* ── Portalé pour la même raison que les panneaux (backdropFilter
+            du <header> cassait position:fixed:inset:0 — le voile ne
+            couvrait que la zone du header au lieu de tout l'écran). ── */}
+        {activePopover && typeof document !== "undefined" && createPortal(
+          <div className="header-popover-overlay" onClick={() => setActivePopover(null)}/>,
+          document.body
+        )}
 
         {/* ── BANDEAU PROGRESSION + STATUT YELEN ── */}
         <ProfilProgressionBandeau inst={inst} instId={instId} setTab={setTab} />
@@ -3913,6 +4113,10 @@ export default function InstitutionDashboard() {
         <ProfilEntrepriseTab instId={instId} onToast={showToast}/>
       )}
 
+      {tab === "conditions-informations" && (
+        <ConditionsInformationsTab instId={instId} onToast={showToast}/>
+      )}
+
       {/* ═══════════════════════════════════════════════════════════
           TAB : AVIS & RÉPUTATION — écran "Santé du compte", accès via
           le menu Compte (pas le menu principal).
@@ -3955,11 +4159,26 @@ export default function InstitutionDashboard() {
       {tab === "rapports" && <RapportsTab instId={instId}/>}
       {tab === "documents-financiers" && <DocumentsFinanciersTab instId={instId} onToast={showToast}/>}
       {tab === "documents-clients" && <DocumentsClientsTab instId={instId} onToast={showToast}/>}
+      {tab === "partenariat" && (
+        <>
+          {tabReadOnly(membreRole, "partenariat") && <ReadOnlyNotice C={C}/>}
+          <PartenariatTab instId={instId} access={tabReadOnly(membreRole, "partenariat") ? "read" : "full"}/>
+        </>
+      )}
+      {tab === "mes-offres" && (
+        <>
+          {tabReadOnly(membreRole, "mes-offres") && <ReadOnlyNotice C={C}/>}
+          <MesOffresTab instId={instId} onToast={showToast} access={tabReadOnly(membreRole, "mes-offres") ? "read" : "full"}/>
+        </>
+      )}
       {tab === "messagerie" && (
         <>
           {tabReadOnly(membreRole, "messagerie") && <ReadOnlyNotice C={C}/>}
           <MessagerieTab onToast={showToast} initialCitoyenId={messagerieCitoyenInitial}/>
         </>
+      )}
+      {tab === "questions-clients" && (
+        <QuestionsClientsTab readOnly={!(membreRole !== null && can(membreRole, "questions.repondre"))} onToast={showToast}/>
       )}
       {tab === "profil" && <ProfilTab onToast={showToast}/>}
 
@@ -4229,8 +4448,20 @@ export default function InstitutionDashboard() {
           du panneau desktop .yelen-account-panel. */}
       {mobileMoreOpen && (
         <div onClick={() => { setMobileMoreOpen(false); setAccountMenuOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
-          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "12px 12px 24px", width: "100%", maxWidth: "480px", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
+          {/* ── maxHeight + overflowY:auto ajoutés (retour Bryan 30/07/2026) —
+              14 items + le bloc "Compte" dépassaient la hauteur de l'écran
+              sans aucun scroll ni limite, le bas de la liste et le fond
+              cliquable (pour fermer) devenaient inatteignables : le menu
+              semblait "figé". Même convention que .client-fiche-panel dans
+              MesClientsTab.tsx (maxHeight + overflowY:auto). X de fermeture
+              ajouté aussi (toujours visible, pas seulement ≥1024px comme
+              .client-fiche-close-x — ce menu n'a pas d'équivalent desktop,
+              la nav du bas qui le déclenche est elle-même masquée ≥1024px). ── */}
+          <div onClick={e => e.stopPropagation()} style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "12px 12px calc(24px + env(safe-area-inset-bottom))", width: "100%", maxWidth: "480px", maxHeight: "82svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
             <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 16px" }}/>
+            <button onClick={() => { setMobileMoreOpen(false); setAccountMenuOpen(false); }} className="tap" style={{ position: "absolute", top: "14px", right: "14px", width: "30px", height: "30px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
 
             {accountMenuOpen ? (
               <>

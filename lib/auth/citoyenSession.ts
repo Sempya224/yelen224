@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import crypto from "crypto";
+import { SignJWT, jwtVerify } from "jose";
 import { extraireContexteRequete } from "@/lib/journalActivite";
 
 /**
@@ -97,4 +98,53 @@ export async function enregistrerConnexionCitoyen(
     return null;
   }
   return { rawToken };
+}
+
+/**
+ * Finalise réellement une connexion citoyen (chantier 2FA TOTP,
+ * 25/07/2026) — extrait de verify/route.ts et webauthn/auth-verify/
+ * route.ts pour n'avoir qu'une seule implémentation, appelée soit
+ * directement (citoyen sans 2FA), soit depuis auth/totp/login-verify
+ * une fois le code TOTP validé. Ne doit JAMAIS être appelée avant que
+ * tous les facteurs requis (OTP ou WebAuthn, puis TOTP si activé)
+ * n'aient réussi — c'est le seul endroit qui mint une vraie session et
+ * pose le cookie "se souvenir de moi".
+ */
+export async function completerConnexionCitoyen(
+  supabaseAdmin: SupabaseClient,
+  citoyenId: string,
+  req?: NextRequest
+): Promise<{ tokenHash: string | null; remember: { rawToken: string } | null }> {
+  const sessionResult = await mintCitoyenSessionTokenHash(supabaseAdmin, citoyenId);
+  const tokenHash = "tokenHash" in sessionResult ? sessionResult.tokenHash : null;
+  if ("error" in sessionResult) {
+    console.error("[CITOYEN COMPLETER CONNEXION] Erreur mint session:", sessionResult.error);
+  }
+  const remember = await enregistrerConnexionCitoyen(supabaseAdmin, citoyenId, req);
+  return { tokenHash, remember };
+}
+
+const TOTP_CHALLENGE_SECRET = new TextEncoder().encode(process.env.CITOYEN_TOTP_CHALLENGE_JWT_SECRET!);
+
+/**
+ * Jeton de défi 2FA (5 min) — émis quand le facteur principal (OTP ou
+ * WebAuthn) réussit mais que totp_enabled est vrai. Secret dédié, jamais
+ * partagé avec CITOYEN_WEBAUTHN_JWT_SECRET ni les secrets admin/institution.
+ */
+export async function mintTotpChallengeToken(citoyenId: string): Promise<string> {
+  return new SignJWT({ citoyenId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .setIssuer("yelen224-citoyen-totp")
+    .sign(TOTP_CHALLENGE_SECRET);
+}
+
+export async function verifyTotpChallengeToken(token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, TOTP_CHALLENGE_SECRET, { issuer: "yelen224-citoyen-totp" });
+    return typeof payload.citoyenId === "string" ? payload.citoyenId : null;
+  } catch {
+    return null;
+  }
 }

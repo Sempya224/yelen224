@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [{ data: citoyen }, { data: credentials }, { data: rememberTokens }] = await Promise.all([
-      supabaseAdmin.from("users").select("pin_hash").eq("id", user.id).single(),
+      supabaseAdmin.from("users").select("pin_hash, totp_enabled").eq("id", user.id).single(),
       supabaseAdmin
         .from("citoyen_webauthn_credentials")
         .select("id, device_label, created_at, last_used_at")
@@ -46,11 +46,13 @@ export async function GET(request: NextRequest) {
 
     const pinConfigure = !!citoyen?.pin_hash;
     const biometrieActive = (credentials ?? []).length > 0;
-    const score = calculerScoreSecurite({ pinConfigure, biometrieActive });
+    const totpActive = !!citoyen?.totp_enabled;
+    const score = calculerScoreSecurite({ pinConfigure, biometrieActive, totpActive });
 
     return NextResponse.json({
       success: true,
       pin_configured: pinConfigure,
+      totp_enabled: totpActive,
       webauthn_credentials: (credentials ?? []).map(c => ({
         id: c.id,
         device_label: c.device_label,

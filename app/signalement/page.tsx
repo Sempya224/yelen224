@@ -211,7 +211,7 @@ function SignalementInner() {
         <header style={{
           backgroundColor: theme === "dark" ? "rgba(8,8,18,0.97)" : "rgba(248,248,251,0.97)",
           borderBottom: `1px solid ${C.borderCard}`,
-          padding: "0 20px",
+          paddingTop: "env(safe-area-inset-top)", paddingRight: "20px", paddingBottom: 0, paddingLeft: "20px",
           position: "sticky", top: 0, zIndex: 100,
           backdropFilter: "blur(16px)",
         }}>

@@ -244,7 +244,7 @@ export function ProfilClient() {
         input:focus{outline:none;border-color:#F5A623 !important}
       `}</style>
 
-      <div style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: isDark ? "rgba(8,8,18,0.96)" : "rgba(250,250,252,0.96)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.12)" : "rgba(0,0,0,0.06)"}`, padding: "0 16px" }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: isDark ? "rgba(8,8,18,0.96)" : "rgba(250,250,252,0.96)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.12)" : "rgba(0,0,0,0.06)"}`, paddingTop: "env(safe-area-inset-top)", paddingRight: "16px", paddingBottom: 0, paddingLeft: "16px" }}>
         <div style={{ height: "52px", display: "flex", alignItems: "center", gap: "12px" }}>
           <button onClick={() => router.back()} className="tap" style={{ width: "32px", height: "32px", borderRadius: "50%", background: cardBg, border: `1px solid ${cardBord}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.text, flexShrink: 0 }}>
             <Ic.Back/>

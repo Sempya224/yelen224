@@ -65,7 +65,7 @@ export default function InstitutionVerification() {
     }
 
     if (entered !== CODE_FICTIF) {
-      setError("Code incorrect. Essayez 123456.");
+      setError("Code incorrect.");
       triggerShake();
       setCode(["", "", "", "", "", ""]);
       setTimeout(() => inputs.current[0]?.focus(), 50);
@@ -288,20 +288,6 @@ export default function InstitutionVerification() {
           font-weight: 400;
         }
 
-        .hint-chip {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          background: rgba(26,26,46,0.08);
-          border-radius: 8px;
-          padding: 6px 10px;
-          margin-bottom: 28px;
-          width: fit-content;
-        }
-
-        .hint-icon { font-size: 14px; }
-        .hint-text { font-size: 12px; color: #1A1A2E; font-weight: 600; }
-        .hint-code { color: #1A1A2E; font-weight: 800; }
 
         /* ─── OTP Inputs ─── */
         .otp-row {
@@ -550,11 +536,6 @@ export default function InstitutionVerification() {
         <div className="body">
           <div className="section-label">Entrez votre code</div>
           <p className="section-sub">Code reçu par SMS sur votre numéro.</p>
-
-          <div className="hint-chip">
-            <span className="hint-icon">💡</span>
-            <span className="hint-text">Code de test : <span className="hint-code">123456</span></span>
-          </div>
 
           {/* Barre de progression */}
           <div className="progress-wrap">

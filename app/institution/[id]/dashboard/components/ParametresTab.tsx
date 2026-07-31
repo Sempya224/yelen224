@@ -18,7 +18,7 @@ import { LogoutFlow, INSTITUTION_LOGOUT_COPY } from "./LogoutFlow";
 
 type WebauthnCredential = { id: string; device_label: string | null; created_at: string; last_used_at: string | null };
 type RememberDevice = { id: string; user_agent: string | null; created_at: string; expires_at: string; is_current_device: boolean };
-type SecurityStatus = { pin_configured: boolean; webauthn_credentials: WebauthnCredential[]; remember_devices: RememberDevice[] };
+type SecurityStatus = { pin_configured: boolean; totp_enabled: boolean; webauthn_credentials: WebauthnCredential[]; remember_devices: RememberDevice[] };
 
 type NotifCategory = "confirmation" | "rappels" | "annulation_report" | "rdv_termine";
 type ChannelPrefs = { inapp: boolean; email: boolean; sms: boolean };
@@ -113,6 +113,19 @@ export function ParametresTab({ instId }: { instId: string }) {
   const [addingDevice, setAddingDevice] = useState(false);
   const [deviceLabelInput, setDeviceLabelInput] = useState("");
   const [showLabelPrompt, setShowLabelPrompt] = useState(false);
+
+  // 2FA TOTP (chantier sécurité institution, 25/07/2026) — par membre
+  // connecté (mirroring citoyen), pas par institution : "Modifier"
+  // affecte uniquement le compte actuellement connecté, pas les autres
+  // membres de l'équipe.
+  const [totpModal, setTotpModal] = useState<null | "activer" | "desactiver">(null);
+  const [totpQr, setTotpQr] = useState<string | null>(null);
+  const [totpSecret, setTotpSecret] = useState<string | null>(null);
+  const [totpConfirmCode, setTotpConfirmCode] = useState("");
+  const [totpDisableCode, setTotpDisableCode] = useState("");
+  const [totpBackupCodes, setTotpBackupCodes] = useState<string[] | null>(null);
+  const [totpError, setTotpError] = useState("");
+  const [totpLoading, setTotpLoading] = useState(false);
 
   // Chantier "Yelen Assistant" (20/07/2026), Lot D — push navigateur.
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -300,6 +313,55 @@ export function ParametresTab({ instId }: { instId: string }) {
     } catch { notify("Erreur réseau", C.red); }
   }
 
+  async function startTotpActivation() {
+    setTotpLoading(true); setTotpError("");
+    try {
+      const res = await fetch("/api/institution/securite/totp/setup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { notify(data.error || "Erreur lors de la préparation.", C.red); setTotpLoading(false); return; }
+      setTotpQr(data.qrDataUrl); setTotpSecret(data.secret); setTotpModal("activer");
+    } catch { notify("Erreur réseau", C.red); }
+    setTotpLoading(false);
+  }
+
+  async function confirmTotpActivation() {
+    setTotpError("");
+    if (!totpConfirmCode.trim()) { setTotpError("Entrez le code affiché par votre application."); return; }
+    setTotpLoading(true);
+    try {
+      const res = await fetch("/api/institution/securite/totp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: totpConfirmCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setTotpError(data.error || "Code invalide."); setTotpLoading(false); return; }
+      setTotpBackupCodes(data.backupCodes);
+      setTotpQr(null); setTotpSecret(null); setTotpConfirmCode("");
+      loadSecurity();
+    } catch { setTotpError("Erreur réseau."); }
+    setTotpLoading(false);
+  }
+
+  async function confirmTotpDisable() {
+    setTotpError("");
+    if (!totpDisableCode.trim()) { setTotpError("Entrez un code TOTP ou de secours."); return; }
+    setTotpLoading(true);
+    try {
+      const res = await fetch("/api/institution/securite/totp/disable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: totpDisableCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setTotpError(data.error || "Code incorrect."); setTotpLoading(false); return; }
+      setTotpModal(null); setTotpDisableCode("");
+      notify("Double authentification désactivée", C.green);
+      loadSecurity();
+    } catch { setTotpError("Erreur réseau."); }
+    setTotpLoading(false);
+  }
+
   return (
     <>
       {msg && (
@@ -359,6 +421,21 @@ export function ParametresTab({ instId }: { instId: string }) {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* 2FA TOTP */}
+        <div style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Double authentification (2FA)</div>
+            <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>
+              {securityLoading ? "Chargement..." : security?.totp_enabled ? "Activée — code demandé à chaque connexion" : "Non activée · protège votre compte personnel"}
+            </div>
+          </div>
+          {!securityLoading && (
+            security?.totp_enabled
+              ? <button onClick={() => { setTotpModal("desactiver"); setTotpDisableCode(""); setTotpError(""); }} className="tap" style={{ background: C.redL, border: `1px solid ${C.red}25`, color: C.red, fontSize: "11px", fontWeight: "700", padding: "7px 11px", borderRadius: "9px", cursor: "pointer", flexShrink: 0 }}>Désactiver</button>
+              : <button onClick={startTotpActivation} disabled={totpLoading} className="tap" style={{ background: `${C.gold}12`, border: `1px solid ${C.gold}30`, color: C.gold, fontSize: "11px", fontWeight: "700", padding: "7px 11px", borderRadius: "9px", cursor: "pointer", flexShrink: 0, opacity: totpLoading ? 0.6 : 1 }}>{totpLoading ? "..." : "Activer"}</button>
           )}
         </div>
 
@@ -467,6 +544,60 @@ export function ParametresTab({ instId }: { instId: string }) {
                 {pinLoading ? "..." : pinModal === "set" ? "Enregistrer" : "Supprimer"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODALE 2FA TOTP ── */}
+      {(totpModal || totpBackupCodes) && (
+        <div onClick={() => { if (!totpBackupCodes) { setTotpModal(null); setTotpQr(null); setTotpSecret(null); setTotpConfirmCode(""); setTotpError(""); } }} style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "480px", border: `1px solid ${C.border2}`, borderBottom: "none", maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }} />
+
+            {totpBackupCodes ? (
+              <>
+                <div style={{ color: C.t1, fontSize: "17px", fontWeight: "900", marginBottom: "8px" }}>Notez vos codes de secours</div>
+                <div style={{ color: C.t3, fontSize: "12px", marginBottom: "14px", lineHeight: 1.5 }}>
+                  Ils ne seront plus jamais affichés. Chacun ne fonctionne qu'une seule fois, en remplacement de votre application si vous la perdez.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
+                  {totpBackupCodes.map(c => (
+                    <code key={c} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "8px 10px", color: C.t1, fontSize: "13px", textAlign: "center" }}>{c}</code>
+                  ))}
+                </div>
+                <button onClick={() => { setTotpBackupCodes(null); setTotpModal(null); notify("Double authentification activée", C.green); }} className="tap" style={{ width: "100%", backgroundColor: `${C.gold}18`, color: C.gold, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${C.gold}30`, cursor: "pointer" }}>
+                  J&apos;ai noté mes codes
+                </button>
+              </>
+            ) : totpModal === "activer" ? (
+              <>
+                <div style={{ color: C.t1, fontSize: "17px", fontWeight: "900", marginBottom: "12px" }}>Activer la 2FA</div>
+                <div style={{ color: C.t3, fontSize: "12px", marginBottom: "14px" }}>Scannez ce QR code avec Google Authenticator, Microsoft Authenticator ou équivalent, ou saisissez le secret manuellement.</div>
+                {totpQr && <img src={totpQr} alt="QR code 2FA" style={{ width: "160px", height: "160px", borderRadius: "10px", border: `1px solid ${C.border2}`, display: "block", margin: "0 auto 14px" }} />}
+                {totpSecret && <code style={{ display: "block", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "8px 10px", color: C.t1, fontSize: "12px", textAlign: "center", wordBreak: "break-all", marginBottom: "14px" }}>{totpSecret}</code>}
+                <input type="text" inputMode="numeric" maxLength={6} value={totpConfirmCode} onChange={e => setTotpConfirmCode(e.target.value.replace(/\D/g, ""))} placeholder="Code à 6 chiffres" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "16px", letterSpacing: "3px", textAlign: "center", color: C.t1, marginBottom: "10px" }} />
+                {totpError && <div style={{ color: C.red, fontSize: "11px", fontWeight: "700", marginBottom: "10px" }}>{totpError}</div>}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px" }}>
+                  <button onClick={() => { setTotpModal(null); setTotpQr(null); setTotpSecret(null); setTotpConfirmCode(""); setTotpError(""); }} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "14px", borderRadius: "14px", cursor: "pointer" }}>Annuler</button>
+                  <button onClick={confirmTotpActivation} disabled={totpLoading} className="tap" style={{ backgroundColor: `${C.gold}18`, color: C.gold, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${C.gold}30`, cursor: "pointer" }}>
+                    {totpLoading ? "..." : "Confirmer"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ color: C.t1, fontSize: "17px", fontWeight: "900", marginBottom: "12px" }}>Désactiver la 2FA</div>
+                <div style={{ color: C.t3, fontSize: "12px", marginBottom: "14px" }}>Entrez un code de votre application (ou un code de secours) pour confirmer.</div>
+                <input type="text" maxLength={9} value={totpDisableCode} onChange={e => setTotpDisableCode(e.target.value.toUpperCase())} placeholder="Code TOTP ou de secours" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "16px", letterSpacing: "3px", textAlign: "center", color: C.t1, marginBottom: "10px" }} />
+                {totpError && <div style={{ color: C.red, fontSize: "11px", fontWeight: "700", marginBottom: "10px" }}>{totpError}</div>}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px" }}>
+                  <button onClick={() => { setTotpModal(null); setTotpDisableCode(""); setTotpError(""); }} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "14px", borderRadius: "14px", cursor: "pointer" }}>Annuler</button>
+                  <button onClick={confirmTotpDisable} disabled={totpLoading} className="tap" style={{ backgroundColor: C.redL, color: C.red, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${C.red}30`, cursor: "pointer" }}>
+                    {totpLoading ? "..." : "Confirmer la désactivation"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

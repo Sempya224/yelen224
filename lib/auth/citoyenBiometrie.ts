@@ -72,8 +72,21 @@ export async function registerBiometrie(userId: string, deviceLabel?: string): P
   }
 }
 
-/** Authentifie via biométrie (empreinte / Face ID) — établit une vraie session Supabase au succès */
-export async function authenticateBiometrie(userId: string): Promise<boolean> {
+export type AuthenticateBiometrieResult =
+  | { ok: true }
+  | { ok: false; requiresTotp: true; totpToken: string }
+  | { ok: false; requiresTotp?: false };
+
+/**
+ * Authentifie via biométrie (empreinte / Face ID) — établit une vraie
+ * session Supabase au succès. Chemin de connexion complet au même titre
+ * que l'OTP téléphone (chantier 2FA TOTP, 25/07/2026) : si le citoyen a
+ * la 2FA activée, ne redeeme PAS de session ici — remonte
+ * `{requiresTotp: true, totpToken}` à l'appelant, qui doit alors afficher
+ * l'étape de saisie du code et appeler /api/citoyen/auth/totp/login-verify
+ * (voir app/login/page.tsx).
+ */
+export async function authenticateBiometrie(userId: string): Promise<AuthenticateBiometrieResult> {
   try {
     const optRes = await fetch("/api/citoyen/securite/webauthn/auth-options", {
       method: "POST",
@@ -81,14 +94,14 @@ export async function authenticateBiometrie(userId: string): Promise<boolean> {
       body: JSON.stringify({ citoyenId: userId }),
     });
     const optData = await optRes.json();
-    if (!optRes.ok) { console.error("WebAuthn auth-options error:", optData.error); return false; }
+    if (!optRes.ok) { console.error("WebAuthn auth-options error:", optData.error); return { ok: false }; }
 
     let assertion;
     try {
       assertion = await startAuthentication({ optionsJSON: optData.options });
     } catch (err) {
       console.error("WebAuthn startAuthentication cancelled/failed:", err);
-      return false;
+      return { ok: false };
     }
 
     const verifyRes = await fetch("/api/citoyen/securite/webauthn/auth-verify", {
@@ -97,14 +110,19 @@ export async function authenticateBiometrie(userId: string): Promise<boolean> {
       body: JSON.stringify({ citoyenId: userId, credential: assertion, challengeToken: optData.challengeToken }),
     });
     const verifyData = await verifyRes.json();
-    if (!verifyRes.ok || !verifyData.tokenHash) { console.error("WebAuthn auth-verify error:", verifyData.error); return false; }
+    if (!verifyRes.ok) { console.error("WebAuthn auth-verify error:", verifyData.error); return { ok: false }; }
+
+    if (verifyData.requiresTotp) {
+      return { ok: false, requiresTotp: true, totpToken: verifyData.totpToken };
+    }
+    if (!verifyData.tokenHash) { console.error("WebAuthn auth-verify: réponse sans tokenHash"); return { ok: false }; }
 
     const { error: sessionError } = await supabase.auth.verifyOtp({ token_hash: verifyData.tokenHash, type: "email" });
-    if (sessionError) { console.error("WebAuthn session redeem error:", sessionError.message); return false; }
+    if (sessionError) { console.error("WebAuthn session redeem error:", sessionError.message); return { ok: false }; }
 
-    return true;
+    return { ok: true };
   } catch (err) {
     console.error("WebAuthn auth error:", err);
-    return false;
+    return { ok: false };
   }
 }

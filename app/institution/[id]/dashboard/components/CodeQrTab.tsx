@@ -50,8 +50,12 @@ function yelenLogoBadgeDataUrl(): string {
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 
+// ?source=qr — repéré par la fiche institution pour mesurer les réservations
+// qui découlent réellement d'un scan (retour Bryan 25/07/2026), sans changer
+// la destination : le QR continue de mener à la fiche, pas directement à la
+// réservation, "important de voir les infos avant réservation".
 async function makeInstitutionQR(instId: string, size: number): Promise<string> {
-  const url = `${APP_URL}/institution/${instId}`;
+  const url = `${APP_URL}/institution/${instId}?source=qr`;
   const qrDataUrl = await QRCode.toDataURL(url, {
     width: size,
     margin: 1,
@@ -86,12 +90,25 @@ export function CodeQrTab({ instId, instName }: { instId: string; instName: stri
   const [qr, setQr] = useState("");
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  // Preuve de valeur du QR (retour Bryan 25/07/2026) — null tant que non
+  // chargé, pour ne jamais afficher "0" par défaut avant d'avoir la vraie
+  // réponse (zéro donnée inventée le temps du chargement).
+  const [qrCount, setQrCount] = useState<number | null>(null);
 
   const generate = useCallback(async () => {
     setLoading(true);
     const url = await makeInstitutionQR(instId, 600);
     setQr(url);
     setLoading(false);
+  }, [instId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/institution/qr-provenance");
+        if (res.ok) { const j = await res.json(); setQrCount(typeof j.count === "number" ? j.count : 0); }
+      } catch {}
+    })();
   }, [instId]);
 
   useEffect(() => { generate(); }, [generate]);
@@ -105,7 +122,7 @@ export function CodeQrTab({ instId, instName }: { instId: string; instName: stri
   }
 
   function copyURL() {
-    navigator.clipboard.writeText(`${APP_URL}/institution/${instId}`);
+    navigator.clipboard.writeText(`${APP_URL}/institution/${instId}?source=qr`);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   }
@@ -113,9 +130,19 @@ export function CodeQrTab({ instId, instName }: { instId: string; instName: stri
   return (
     <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
       <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Mon code QR</h1>
-      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "20px", lineHeight: 1.5 }}>
+      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px", lineHeight: 1.5 }}>
         Les citoyens scannent ce code pour accéder directement à votre profil Yelen224. Affichez-le à l'accueil ou imprimez-le.
       </p>
+
+      {/* Preuve de valeur — combien de réservations viennent réellement de
+          ce QR/lien, pas juste "combien de fois affiché" (retour Bryan
+          25/07/2026). Masqué tant que le chargement n'a pas répondu. */}
+      {qrCount !== null && (
+        <div style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "16px", padding: "14px 16px", marginBottom: "16px", display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ fontSize: "22px", fontWeight: "900", color: C.t1 }}>{qrCount}</div>
+          <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.4 }}>{qrCount <= 1 ? "réservation" : "réservations"} obtenue{qrCount <= 1 ? "" : "s"} grâce à ce QR / ce lien.</div>
+        </div>
+      )}
 
       <div id="print-area-codeqr" style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "22px", padding: "28px 20px", display: "flex", flexDirection: "column", alignItems: "center", marginBottom: "16px" }}>
         <div style={{ width: "min(280px, 100%)", aspectRatio: "1/1", borderRadius: "16px", overflow: "hidden", border: `1.5px solid ${C.border2}`, background: "#fff", marginBottom: "16px" }}>

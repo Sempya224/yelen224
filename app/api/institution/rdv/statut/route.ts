@@ -4,6 +4,7 @@ import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 import { notifierFinPrestation } from "@/lib/notificationEngine";
+import { accorderPoints } from "@/lib/rewardsEngine";
 
 // Sécurise les 4 actions RDV (accepter/refuser/terminer/absent) —
 // auparavant un supabase.from("rdv").update(...) direct depuis le
@@ -70,6 +71,28 @@ export async function PATCH(req: NextRequest) {
 
   const { error } = await sb.from("rdv").update(updates).eq("id", rdvId).eq("institution_id", membre.institutionId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Yelen Rewards Phase 1 (26/07/2026) — seul point d'intégration de la
+  // Phase 1 : rdv_complete (+15) et rdv_no_show (-10), les deux seules
+  // valeurs confirmées par le CEO. citoyen_id vient de la ligne relue
+  // depuis la base (rdvAvant), jamais d'un champ du corps de la requête —
+  // et le montant vient de reward_rules, jamais d'ici. Best-effort :
+  // ne doit jamais faire échouer la réponse de cette route.
+  if (action === "termine") {
+    await accorderPoints({
+      citoyenId: rdvAvant.citoyen_id,
+      sourceType: "rdv",
+      sourceId: rdvId,
+      eventType: "rdv_complete",
+    });
+  } else if (action === "absent") {
+    await accorderPoints({
+      citoyenId: rdvAvant.citoyen_id,
+      sourceType: "rdv",
+      sourceId: rdvId,
+      eventType: "rdv_no_show",
+    });
+  }
 
   // Chantier "Yelen Assistant" (20/07/2026), Phase 8 — remplace l'ancien
   // insert dupliqué (citoyen uniquement, texte générique) par le vrai

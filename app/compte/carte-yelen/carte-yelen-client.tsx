@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
@@ -21,10 +22,14 @@ const Ic = {
   Calendar: () => <svg style={P} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
 };
 
-const ECOSYSTEME = [
+// "Programme de fidélité" et "Badges & niveaux" pointent désormais vers
+// Yelen Rewards (chantier points, 26/07/2026) — plus une simple promesse
+// "Bientôt", la fonctionnalité existe réellement. Les deux autres entrées
+// restent des promesses non construites.
+const ECOSYSTEME: { titre: string; desc: string; icon: () => React.ReactNode; href?: string }[] = [
   { titre: "Authentification rapide chez les partenaires", desc: "Présentez votre Yelen ID pour vous identifier instantanément chez les établissements partenaires.", icon: Ic.Handshake },
-  { titre: "Programme de fidélité", desc: "Cumulez des avantages à chaque rendez-vous honoré sur la plateforme.", icon: Ic.Star },
-  { titre: "Badges & niveaux", desc: "Débloquez des statuts de membre selon votre activité sur Yelen.", icon: Ic.Award },
+  { titre: "Programme de fidélité", desc: "Cumulez des avantages à chaque rendez-vous honoré sur la plateforme.", icon: Ic.Star, href: "/menu/recompenses" },
+  { titre: "Badges & niveaux", desc: "Débloquez des statuts de membre selon votre activité sur Yelen.", icon: Ic.Award, href: "/menu/recompenses" },
   { titre: "Événements exclusifs", desc: "Accédez en avant-première à des événements réservés aux membres Yelen.", icon: Ic.Calendar },
 ];
 
@@ -135,11 +140,10 @@ export function CarteYelenClient() {
   const yelenId = userId ? formatYelenId(userId) : "YL-????-????";
   const headerBg   = isDark ? bg : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)";
   const headerText = isDark ? t1 : "#080812";
-  const headerSub  = isDark ? "rgba(255,255,255,0.55)" : "rgba(8,8,18,0.65)";
   const chipBg     = isDark ? card2 : "#F5A623";
   const chipIcon   = isDark ? headerText : "#fff";
   const chipBrd    = isDark ? brd : "transparent";
-  const chipShadow = isDark ? "none" : "0 2px 8px rgba(245,166,35,0.35)";
+  const chipShadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.1)";
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif", paddingBottom: "40px" }}>
@@ -148,16 +152,15 @@ export function CarteYelenClient() {
       {/* HEADER — même langage visuel que CompteHeader (chip retour à
           gauche, titre centré), bouton droit remplacé par une action QR
           (rond doré) au lieu du "?" générique. */}
-      <header style={{ position: "sticky", top: 0, zIndex: 100, background: headerBg, borderBottom: isDark ? `1px solid ${brd}` : "none" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 100, background: headerBg, borderBottom: isDark ? `1px solid ${brd}` : "none", paddingTop: "env(safe-area-inset-top)" }}>
         <div style={{ padding: "12px 16px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: "12px" }}>
-          <button onClick={() => router.back()} className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", gap: "8px", background: "none", border: "none", padding: 0, cursor: "pointer", color: headerText, minWidth: 0 }}>
+          <button onClick={() => router.back()} className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", color: headerText, minWidth: 0 }}>
             <div style={{ width: "36px", height: "36px", borderRadius: "9px", background: chipBg, border: `1px solid ${chipBrd}`, boxShadow: chipShadow, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0 }}>
               {Ic.Back()}
             </div>
-            <span style={{ color: headerSub, fontSize: "13px", fontWeight: "700", whiteSpace: "nowrap" }}>Retour</span>
           </button>
           <div style={{ color: headerText, fontSize: "16px", fontWeight: "800", minWidth: 0, maxWidth: "180px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Yelen ID</div>
-          <button onClick={() => setQrOpen(true)} className="tap" style={{ justifySelf: "end", width: "36px", height: "36px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", border: "none", boxShadow: "0 2px 8px rgba(245,166,35,0.35)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+          <button onClick={() => setQrOpen(true)} className="tap" style={{ justifySelf: "end", width: "36px", height: "36px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", border: "none", boxShadow: "0 1px 4px rgba(0,0,0,0.18)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
             {Ic.QR()}
           </button>
         </div>
@@ -165,26 +168,26 @@ export function CarteYelenClient() {
 
       <div style={{ padding: "16px" }}>
         {/* CARTE PREMIUM */}
-        <div style={{ borderRadius: "22px", overflow: "hidden", background: "linear-gradient(135deg,#080812 0%,#1a1208 100%)", border: "1px solid rgba(245,166,35,0.2)", boxShadow: "0 8px 32px rgba(0,0,0,0.35)", position: "relative" }}>
-          <div style={{ position: "absolute", top: "-40px", right: "-40px", width: "180px", height: "180px", borderRadius: "50%", background: "radial-gradient(circle,rgba(245,166,35,0.08) 0%,transparent 70%)", pointerEvents: "none" }}/>
+        <div style={{ borderRadius: "22px", overflow: "hidden", background: "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)", border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 4px 14px rgba(0,0,0,0.15)", position: "relative" }}>
+          <div style={{ position: "absolute", top: "-40px", right: "-40px", width: "180px", height: "180px", borderRadius: "50%", background: "radial-gradient(circle,rgba(0,0,0,0.05) 0%,transparent 70%)", pointerEvents: "none" }}/>
 
           <div style={{ padding: "20px 20px 18px", position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "22px" }}>
-              <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <YelenLogo size={17} color="#080812" strokeWidth={2.6}/>
               </div>
-              <div style={{ fontSize: "10px", fontWeight: "800", color: "#F5A623", letterSpacing: "2.5px" }}>YELEN ID</div>
+              <div style={{ fontSize: "10px", fontWeight: "800", color: "#080812", letterSpacing: "2.5px" }}>YELEN ID</div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
               {profil?.photo_url ? (
-                <img src={profil.photo_url} alt="" style={{ width: "56px", height: "56px", borderRadius: "16px", objectFit: "cover", border: "1px solid rgba(245,166,35,0.3)" }}/>
+                <img src={profil.photo_url} alt="" style={{ width: "56px", height: "56px", borderRadius: "16px", objectFit: "cover", border: "1px solid rgba(0,0,0,0.15)" }}/>
               ) : (
-                <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>{initiales}</div>
+                <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>{initiales}</div>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: "#fff", fontSize: "17px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nomComplet}</div>
-                <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "12.5px", marginTop: "2px" }}>{profil?.phone ?? "—"}</div>
+                <div style={{ color: "#080812", fontSize: "17px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nomComplet}</div>
+                <div style={{ color: "rgba(8,8,18,0.6)", fontSize: "12.5px", marginTop: "2px" }}>{profil?.phone ?? "—"}</div>
               </div>
             </div>
 
@@ -194,45 +197,45 @@ export function CarteYelenClient() {
                 hors Yelen (accès restreint à qui elle est montrée — sujet
                 hors de ce chantier). Lignes et cellules à la manière
                 d'une carte d'identité officielle. */}
-            <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: "10px", overflow: "hidden", marginBottom: "18px" }}>
+            <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: "10px", overflow: "hidden", marginBottom: "18px" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-                <div style={{ padding: "9px 12px", borderRight: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Sexe</div>
-                  <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{genreLabel}</div>
+                <div style={{ padding: "9px 12px", borderRight: "1px solid rgba(0,0,0,0.1)", borderBottom: "1px solid rgba(0,0,0,0.1)" }}>
+                  <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Sexe</div>
+                  <div style={{ color: "#080812", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{genreLabel}</div>
                 </div>
-                <div style={{ padding: "9px 12px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Né(e) le</div>
-                  <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{dateNaissanceLabel}</div>
+                <div style={{ padding: "9px 12px", borderBottom: "1px solid rgba(0,0,0,0.1)" }}>
+                  <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Né(e) le</div>
+                  <div style={{ color: "#080812", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{dateNaissanceLabel}</div>
                 </div>
-                <div style={{ padding: "9px 12px", borderRight: "1px solid rgba(255,255,255,0.1)" }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Profession</div>
-                  <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{profil?.profession || "—"}</div>
+                <div style={{ padding: "9px 12px", borderRight: "1px solid rgba(0,0,0,0.1)" }}>
+                  <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Profession</div>
+                  <div style={{ color: "#080812", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{profil?.profession || "—"}</div>
                 </div>
                 <div style={{ padding: "9px 12px" }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Ville</div>
-                  <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{profil?.ville || "—"}</div>
+                  <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Ville</div>
+                  <div style={{ color: "#080812", fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{profil?.ville || "—"}</div>
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-                <div style={{ padding: "9px 12px", borderRight: "1px solid rgba(255,255,255,0.1)", minWidth: 0 }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Email</div>
-                  <div style={{ color: "rgba(255,255,255,0.85)", fontSize: "12.5px", fontWeight: "700", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profil?.email || "—"}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderTop: "1px solid rgba(0,0,0,0.1)" }}>
+                <div style={{ padding: "9px 12px", borderRight: "1px solid rgba(0,0,0,0.1)", minWidth: 0 }}>
+                  <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Email</div>
+                  <div style={{ color: "#080812", fontSize: "12.5px", fontWeight: "700", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profil?.email || "—"}</div>
                 </div>
                 <div style={{ padding: "9px 12px", minWidth: 0 }}>
-                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Identifiant Yelen</div>
-                  <div style={{ color: "#F5A623", fontSize: "12.5px", fontWeight: "700", marginTop: "2px", fontFamily: "monospace", letterSpacing: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{yelenId}</div>
+                  <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Identifiant Yelen</div>
+                  <div style={{ color: "rgba(8,8,18,0.8)", fontSize: "12.5px", fontWeight: "700", marginTop: "2px", fontFamily: "monospace", letterSpacing: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{yelenId}</div>
                 </div>
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "14px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "14px", borderTop: "1px solid rgba(0,0,0,0.1)" }}>
               <div>
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Membre depuis</div>
-                <div style={{ color: "rgba(255,255,255,0.75)", fontSize: "13px", fontWeight: "700", marginTop: "2px" }}>{membreDepuis}</div>
+                <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Membre depuis</div>
+                <div style={{ color: "rgba(8,8,18,0.75)", fontSize: "13px", fontWeight: "700", marginTop: "2px" }}>{membreDepuis}</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Statut</div>
-                <div style={{ color: "rgba(255,255,255,0.75)", fontSize: "13px", fontWeight: "700", marginTop: "2px" }}>Membre actif</div>
+                <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Statut</div>
+                <div style={{ color: "rgba(8,8,18,0.75)", fontSize: "13px", fontWeight: "700", marginTop: "2px" }}>Membre actif</div>
               </div>
             </div>
           </div>
@@ -251,18 +254,24 @@ export function CarteYelenClient() {
         <div style={{ marginTop: "28px" }}>
           <div style={{ color: t3, fontSize: "12px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "10px", paddingLeft: "4px" }}>L&apos;écosystème Yelen arrive</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {ECOSYSTEME.map((item) => (
-              <div key={item.titre} style={{ display: "flex", alignItems: "flex-start", gap: "12px", background: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "14px" }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}>{item.icon()}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
-                    <div style={{ color: t1, fontSize: "13.5px", fontWeight: "700" }}>{item.titre}</div>
-                    <span style={{ flexShrink: 0, background: card2, color: t2, fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>Bientôt</span>
+            {ECOSYSTEME.map((item) => {
+              const contenu = (
+                <>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}>{item.icon()}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
+                      <div style={{ color: t1, fontSize: "13.5px", fontWeight: "700" }}>{item.titre}</div>
+                      {!item.href && <span style={{ flexShrink: 0, background: card2, color: t2, fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>Bientôt</span>}
+                    </div>
+                    <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.5 }}>{item.desc}</div>
                   </div>
-                  <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.5 }}>{item.desc}</div>
-                </div>
-              </div>
-            ))}
+                </>
+              );
+              const style = { display: "flex", alignItems: "flex-start", gap: "12px", background: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "14px", textDecoration: "none" };
+              return item.href
+                ? <Link key={item.titre} href={item.href} className="tap" style={style}>{contenu}</Link>
+                : <div key={item.titre} style={style}>{contenu}</div>;
+            })}
           </div>
         </div>
       </div>
@@ -271,7 +280,7 @@ export function CarteYelenClient() {
           navigation), contenu de fond conservé une fois refermée. */}
       {qrOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 300, backgroundColor: bg, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 16px 12px", backgroundColor: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "calc(16px + env(safe-area-inset-top))", paddingLeft: "16px", paddingRight: "16px", paddingBottom: "12px", backgroundColor: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, flexShrink: 0 }}>
             <div style={{ color: t1, fontSize: "17px", fontWeight: "700" }}>Mon Yelen ID</div>
             <button onClick={() => setQrOpen(false)} className="tap" style={{ background: card2, border: "none", borderRadius: "50%", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", color: t1, cursor: "pointer" }}>{Ic.X()}</button>
           </div>

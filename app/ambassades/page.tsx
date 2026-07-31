@@ -109,7 +109,7 @@ export default function AmbassadesPage() {
       `}</style>
 
       {/* ── HEADER ── */}
-      <header style={{ position: "sticky", top: 0, zIndex: 100, backgroundColor: hdrBg, borderBottom: `1px solid ${cardBrd}`, backdropFilter: "blur(20px)", padding: "0 20px" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 100, backgroundColor: hdrBg, borderBottom: `1px solid ${cardBrd}`, backdropFilter: "blur(20px)", paddingTop: "env(safe-area-inset-top)", paddingRight: "20px", paddingBottom: 0, paddingLeft: "20px" }}>
         <div style={{ maxWidth: "1200px", margin: "0 auto", height: "60px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Link href="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
             <div style={{ width: "36px", height: "36px", backgroundColor: "#F5A623", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center" }}>

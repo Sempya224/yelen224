@@ -33,6 +33,7 @@ const Ic = {
   Trash:  () => <svg style={P} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/></svg>,
   Check:  () => <svg style={P} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>,
   Info:   () => <svg style={P} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+  Shield: () => <svg style={P} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
 };
 
 const CONSEILS_SECURITE = [
@@ -46,6 +47,7 @@ type Credential = { id: string; device_label: string | null; created_at: string;
 type RememberDevice = Credential & { user_agent: string | null; ip: string | null; expires_at: string; is_current_device: boolean };
 type Statut = {
   pin_configured: boolean;
+  totp_enabled: boolean;
   webauthn_credentials: Credential[];
   remember_devices: RememberDevice[];
   score: { valeur: number; niveau: NiveauSecurite; conseils: string[] };
@@ -84,6 +86,18 @@ export function SecuriteClient() {
 
   const [bioForm, setBioForm] = useState<"aucun" | "nommer">("aucun");
   const [bioLabel, setBioLabel] = useState("");
+
+  // 2FA TOTP (chantier sécurité citoyen, 25/07/2026) — mirroring exact du
+  // flux admin (app/admin/security/page.tsx) : préparer → confirmer → codes
+  // de secours affichés une fois ; désactiver demande un code TOTP (pas de
+  // mot de passe côté citoyen, voir /totp/disable).
+  const [totpForm, setTotpForm] = useState<"aucun" | "activer" | "desactiver">("aucun");
+  const [totpQr, setTotpQr] = useState<string | null>(null);
+  const [totpSecret, setTotpSecret] = useState<string | null>(null);
+  const [totpConfirmCode, setTotpConfirmCode] = useState("");
+  const [totpDisableCode, setTotpDisableCode] = useState("");
+  const [totpBackupCodes, setTotpBackupCodes] = useState<string[] | null>(null);
+  const [totpMsg, setTotpMsg] = useState<string | null>(null);
 
   const getAccessToken = useCallback(async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -218,6 +232,61 @@ export function SecuriteClient() {
     setBusy(null);
     if (!res.ok || !json?.success) { setPinMsg(json?.error ?? "Code incorrect."); return; }
     setPinActuel(""); setPinForm("aucun"); setPinMsg(null);
+    await charger();
+  }
+
+  async function handleTotpDemarrer() {
+    setTotpMsg(null);
+    setBusy("totp-demarrer");
+    const accessToken = await getAccessToken();
+    if (!accessToken) { setTotpMsg("Session expirée, reconnectez-vous."); setBusy(null); return; }
+    const res = await fetch("/api/citoyen/securite/totp/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken }),
+    });
+    const json = await res.json().catch(() => null);
+    setBusy(null);
+    if (!res.ok || !json?.qrDataUrl) { setTotpMsg(json?.error ?? "Impossible de préparer la double authentification."); return; }
+    setTotpQr(json.qrDataUrl); setTotpSecret(json.secret); setTotpForm("activer");
+  }
+
+  async function handleTotpConfirmer(e: React.FormEvent) {
+    e.preventDefault();
+    setTotpMsg(null);
+    if (!totpConfirmCode.trim()) { setTotpMsg("Entrez le code affiché par votre application."); return; }
+    setBusy("totp-confirmer");
+    const accessToken = await getAccessToken();
+    if (!accessToken) { setTotpMsg("Session expirée, reconnectez-vous."); setBusy(null); return; }
+    const res = await fetch("/api/citoyen/securite/totp/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken, code: totpConfirmCode.trim() }),
+    });
+    const json = await res.json().catch(() => null);
+    setBusy(null);
+    if (!res.ok || !json?.success) { setTotpMsg(json?.error ?? "Code invalide."); return; }
+    setTotpBackupCodes(json.backupCodes);
+    setTotpForm("aucun"); setTotpQr(null); setTotpSecret(null); setTotpConfirmCode(""); setTotpMsg(null);
+    await charger();
+  }
+
+  async function handleTotpDesactiver(e: React.FormEvent) {
+    e.preventDefault();
+    setTotpMsg(null);
+    if (!totpDisableCode.trim()) { setTotpMsg("Entrez un code TOTP ou de secours."); return; }
+    setBusy("totp-desactiver");
+    const accessToken = await getAccessToken();
+    if (!accessToken) { setTotpMsg("Session expirée, reconnectez-vous."); setBusy(null); return; }
+    const res = await fetch("/api/citoyen/securite/totp/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken, code: totpDisableCode.trim() }),
+    });
+    const json = await res.json().catch(() => null);
+    setBusy(null);
+    if (!res.ok || !json?.success) { setTotpMsg(json?.error ?? "Code incorrect."); return; }
+    setTotpDisableCode(""); setTotpForm("aucun"); setTotpMsg(null);
     await charger();
   }
 
@@ -367,6 +436,71 @@ export function SecuriteClient() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </Section>
+
+            {/* Authentification à deux facteurs (TOTP) */}
+            <Section titre="Authentification à deux facteurs" t1={t1}>
+              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+                {totpBackupCodes ? (
+                  <div>
+                    <div style={{ color: t1, fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Notez vos codes de secours</div>
+                    <div style={{ color: t2, fontSize: "12.5px", marginBottom: "12px", lineHeight: 1.5 }}>
+                      Ils ne seront plus jamais affichés. Chacun ne fonctionne qu'une seule fois, en remplacement de votre application si vous la perdez.
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "14px" }}>
+                      {totpBackupCodes.map(c => (
+                        <code key={c} style={{ backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#f5f5f8", border: `1px solid ${brd}`, borderRadius: "8px", padding: "8px 10px", color: t1, fontSize: "13px", textAlign: "center" }}>{c}</code>
+                      ))}
+                    </div>
+                    <button className="tap" style={btnPrimary} onClick={() => setTotpBackupCodes(null)}>J'ai noté mes codes</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: totpForm !== "aucun" ? "14px" : 0 }}>
+                      <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}><Ic.Shield/></div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: t1, fontSize: "15px", fontWeight: 700, marginBottom: "3px" }}>Application d'authentification</div>
+                        <div style={{ color: t2, fontSize: "12.5px" }}>
+                          {statut.totp_enabled ? "Activée — un code sera demandé à chaque connexion" : "Non activée"}
+                        </div>
+                      </div>
+                      {totpForm === "aucun" && (
+                        statut.totp_enabled
+                          ? <button className="tap" style={btnDanger} onClick={() => { setTotpForm("desactiver"); setTotpMsg(null); }}>Désactiver</button>
+                          : <button disabled={busy === "totp-demarrer"} className="tap" style={{ ...btnPrimary, opacity: busy === "totp-demarrer" ? 0.6 : 1 }} onClick={handleTotpDemarrer}>{busy === "totp-demarrer" ? "Préparation…" : "Activer"}</button>
+                      )}
+                    </div>
+
+                    {totpForm === "activer" && (
+                      <form onSubmit={handleTotpConfirmer} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        <div style={{ color: t2, fontSize: "12.5px" }}>Scannez ce QR code avec Google Authenticator, Microsoft Authenticator ou équivalent, ou saisissez le secret manuellement.</div>
+                        {totpQr && <img src={totpQr} alt="QR code 2FA" style={{ width: "160px", height: "160px", borderRadius: "10px", border: `1px solid ${brd}`, alignSelf: "center" }} />}
+                        {totpSecret && <code style={{ backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#f5f5f8", border: `1px solid ${brd}`, borderRadius: "8px", padding: "8px 10px", color: t1, fontSize: "12px", textAlign: "center", wordBreak: "break-all" }}>{totpSecret}</code>}
+                        <input style={{ ...inputStyle, letterSpacing: "3px" }} type="text" inputMode="numeric" maxLength={6} placeholder="Code à 6 chiffres" value={totpConfirmCode} onChange={e => setTotpConfirmCode(e.target.value.replace(/\D/g, ""))}/>
+                        {totpMsg && <div style={{ color: "#ef4444", fontSize: "12.5px" }}>{totpMsg}</div>}
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button type="submit" disabled={busy === "totp-confirmer"} className="tap" style={{ ...btnPrimary, flex: 1, opacity: busy === "totp-confirmer" ? 0.6 : 1 }}>{busy === "totp-confirmer" ? "Vérification…" : "Confirmer"}</button>
+                          <button type="button" className="tap" style={btnGhost} onClick={() => { setTotpForm("aucun"); setTotpQr(null); setTotpSecret(null); setTotpConfirmCode(""); setTotpMsg(null); }}>Annuler</button>
+                        </div>
+                      </form>
+                    )}
+
+                    {totpForm === "desactiver" && (
+                      <form onSubmit={handleTotpDesactiver} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        <div style={{ color: t2, fontSize: "12.5px" }}>Entrez un code de votre application (ou un code de secours) pour confirmer la désactivation.</div>
+                        <input style={{ ...inputStyle, letterSpacing: "3px" }} type="text" inputMode="text" maxLength={9} placeholder="Code TOTP ou de secours" value={totpDisableCode} onChange={e => setTotpDisableCode(e.target.value.toUpperCase())}/>
+                        {totpMsg && <div style={{ color: "#ef4444", fontSize: "12.5px" }}>{totpMsg}</div>}
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button type="submit" disabled={busy === "totp-desactiver"} className="tap" style={{ ...btnDanger, flex: 1, padding: "10px 16px", opacity: busy === "totp-desactiver" ? 0.6 : 1 }}>{busy === "totp-desactiver" ? "Désactivation…" : "Confirmer la désactivation"}</button>
+                          <button type="button" className="tap" style={btnGhost} onClick={() => { setTotpForm("aucun"); setTotpDisableCode(""); setTotpMsg(null); }}>Annuler</button>
+                        </div>
+                      </form>
+                    )}
+
+                    {totpForm === "aucun" && totpMsg && <div style={{ color: "#ef4444", fontSize: "12.5px", marginTop: "10px" }}>{totpMsg}</div>}
+                  </>
+                )}
               </div>
             </Section>
 

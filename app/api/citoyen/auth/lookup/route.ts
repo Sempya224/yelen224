@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { genererEtEnvoyerOtp } from '@/lib/auth/otp'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,6 +58,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Aucun compte trouvé pour ce numéro', code: 'NOT_FOUND' },
         { status: 404 }
+      )
+    }
+
+    // Génère et stocke le vrai code OTP de cette tentative de connexion
+    // (retour Bryan 25/07/2026) — avant, aucun code n'était réellement émis
+    // ici, la vérification comparait à une constante fixe.
+    const otpResult = await genererEtEnvoyerOtp(supabaseAdmin, user.id, phone)
+    if (!otpResult.ok) {
+      console.error('[CITOYEN LOOKUP OTP ERROR]', otpResult.error)
+      return NextResponse.json(
+        { error: "Envoi du code impossible pour l'instant. Réessayez.", code: 'OTP_SEND_ERROR' },
+        { status: 500 }
       )
     }
 

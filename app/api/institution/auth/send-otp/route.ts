@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
         expires_at: expiresAt,
       })
 
-      return NextResponse.json({ success: true, devMode: true, code: DEV_OTP })
+      return NextResponse.json({ success: true })
     }
 
     // Branche prod — squelette. Fournisseur SMS non branché : le code est
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       expires_at: expiresAt,
     })
 
-    return NextResponse.json({ success: true, devMode: false })
+    return NextResponse.json({ success: true })
 
   } catch (error) {
     console.error('[INSTITUTION OTP SEND ERROR]', error)

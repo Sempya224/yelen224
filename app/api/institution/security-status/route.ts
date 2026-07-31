@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { jwtVerify } from 'jose'
 import crypto from 'crypto'
+import { getAuthenticatedMembre } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,7 +36,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Non authentifié', code: 'NO_SESSION' }, { status: 401 })
     }
 
-    const [{ data: institution }, { data: credentials }, { data: rememberTokens }] = await Promise.all([
+    // 2FA TOTP (chantier sécurité institution 25/07/2026) — par membre, pas
+    // par institution : sessions signées avant la fondation multi-comptes
+    // (migration 20260714000001) n'ont pas de membreId, auquel cas la 2FA
+    // n'est simplement pas affichable pour l'instant (totp_enabled: false),
+    // la session expire naturellement sous 8h.
+    const membre = await getAuthenticatedMembre(request)
+
+    const [{ data: institution }, { data: credentials }, { data: rememberTokens }, membreRow] = await Promise.all([
       supabaseAdmin.from('institutions').select('pin_hash').eq('id', institutionId).single(),
       supabaseAdmin
         .from('institution_webauthn_credentials')
@@ -47,6 +55,9 @@ export async function GET(request: NextRequest) {
         .select('id, token_hash, user_agent, created_at, expires_at')
         .eq('institution_id', institutionId)
         .order('created_at', { ascending: false }),
+      membre
+        ? supabaseAdmin.from('institution_membres').select('totp_enabled').eq('id', membre.membreId).maybeSingle().then(r => r.data)
+        : Promise.resolve(null),
     ])
 
     const currentRememberToken = request.cookies.get('yelen224_institution_remember')?.value
@@ -57,6 +68,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       pin_configured: !!institution?.pin_hash,
+      totp_enabled: !!membreRow?.totp_enabled,
       webauthn_credentials: (credentials ?? []).map(c => ({
         id: c.id,
         device_label: c.device_label,

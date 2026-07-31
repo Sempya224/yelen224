@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { YELEN224_OTP_SIMULE } from '@/lib/auth/constants'
-import { mintCitoyenSessionTokenHash, enregistrerConnexionCitoyen, CITOYEN_REMEMBER_MAX_AGE_S } from '@/lib/auth/citoyenSession'
+import { verifierOtp } from '@/lib/auth/otp'
+import { completerConnexionCitoyen, mintTotpChallengeToken, CITOYEN_REMEMBER_MAX_AGE_S } from '@/lib/auth/citoyenSession'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,7 +12,6 @@ const supabaseAdmin = createClient(
 const PHONE_REGEX = /^\+224\d{8,9}$/
 
 const ipAttempts = new Map<string, { count: number; resetAt: number }>()
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
 
 function checkIpRateLimit(ip: string): boolean {
   const now = Date.now()
@@ -24,25 +23,6 @@ function checkIpRateLimit(ip: string): boolean {
   if (entry.count >= 5) return false
   entry.count++
   return true
-}
-
-function lockedMsRemaining(phone: string): number {
-  const entry = failedAttempts.get(phone)
-  if (!entry) return 0
-  const remaining = entry.lockedUntil - Date.now()
-  return remaining > 0 ? remaining : 0
-}
-
-function registerFailure(phone: string) {
-  const now = Date.now()
-  const entry = failedAttempts.get(phone)
-  const count = entry && entry.lockedUntil === 0 ? entry.count + 1 : 1
-  const lockedUntil = count >= 5 ? now + 5 * 60 * 1000 : 0
-  failedAttempts.set(phone, { count, lockedUntil })
-}
-
-function clearFailures(phone: string) {
-  failedAttempts.delete(phone)
 }
 
 export async function POST(request: NextRequest) {
@@ -75,27 +55,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (lockedMsRemaining(phone) > 0) {
-      return NextResponse.json(
-        { error: 'Trop de tentatives. Réessayez dans quelques minutes.', code: 'LOCKED' },
-        { status: 429 }
-      )
-    }
-
-    // ⚠️ DEV MODE — code OTP simulé, décision assumée de Bryan (voir CLAUDE.md /auth).
-    if (code !== YELEN224_OTP_SIMULE) {
-      registerFailure(phone)
-      return NextResponse.json(
-        { error: 'Code incorrect', code: 'INVALID_CODE' },
-        { status: 401 }
-      )
-    }
-
-    clearFailures(phone)
-
     const { data: user, error: dbError } = await supabaseAdmin
       .from('users')
-      .select('id')
+      .select('id, totp_enabled')
       .eq('phone', phone)
       .maybeSingle()
 
@@ -106,13 +68,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const sessionResult = await mintCitoyenSessionTokenHash(supabaseAdmin, user.id)
-    const tokenHash = 'tokenHash' in sessionResult ? sessionResult.tokenHash : null
-    if ('error' in sessionResult) {
-      console.error('[CITOYEN VERIFY SESSION MINT ERROR]', sessionResult.error)
+    // Vérification réelle contre le code haché stocké pour ce citoyen
+    // (retour Bryan 25/07/2026) — remplace l'ancienne comparaison à une
+    // constante fixe. Le code est consommé qu'il soit juste ou faux : une
+    // seule tentative possible, il faut redemander un code (retour à
+    // l'étape numéro) sinon.
+    const otpResult = await verifierOtp(supabaseAdmin, user.id, code)
+    if (!otpResult.ok) {
+      const messages: Record<typeof otpResult.reason, string> = {
+        aucun_code: 'Aucun code en attente. Redemandez un code.',
+        expire: 'Ce code a expiré. Redemandez un code.',
+        incorrect: 'Code incorrect. Redemandez un code.',
+      }
+      return NextResponse.json(
+        { error: messages[otpResult.reason], code: 'INVALID_CODE', reason: otpResult.reason },
+        { status: 401 }
+      )
     }
 
-    const remember = await enregistrerConnexionCitoyen(supabaseAdmin, user.id, request)
+    // 2FA TOTP (chantier sécurité citoyen 25/07/2026) — le facteur
+    // principal (OTP) vient de réussir, mais on ne finalise la connexion
+    // (mint session + cookie "se souvenir") qu'après validation du code
+    // TOTP, via /api/citoyen/auth/totp/login-verify.
+    if (user.totp_enabled) {
+      const totpToken = await mintTotpChallengeToken(user.id)
+      return NextResponse.json({ requiresTotp: true, totpToken })
+    }
+
+    const { tokenHash, remember } = await completerConnexionCitoyen(supabaseAdmin, user.id, request)
 
     const response = NextResponse.json({ success: true, userId: user.id, tokenHash })
 

@@ -1,21 +1,21 @@
 "use client";
 
 // Panneau de notifications citoyen — extrait de app/page.tsx (20/07/2026)
-// pour être partagé avec app/dashboard/dashboard-client.tsx (chantier
-// "Yelen Assistant" : header unifié demandé par Bryan, ce second accueil
-// citoyen n'avait jusqu'ici ni cloche ni panneau de notifications). Ne
-// peut pas rester exporté depuis app/page.tsx : Next.js App Router
-// restreint les exports autorisés d'un fichier de route (`page.tsx`) à un
-// jeu fixe (default, metadata, generateStaticParams, ...) — tout autre
-// export nommé casse la génération de types (.next/dev/types/app/page.ts).
-
+// pour être partagé avec app/dashboard/dashboard-client.tsx. Passé en
+// plein écran (27/07/2026, retour Bryan : "retire tous les flottants,
+// rends-le premium et plein écran comme la recherche") — même convention
+// header que CompteRechercheOverlay/OffreFicheOverlay (X + titre centré),
+// plus de dropdown flottant sous la cloche. Chaque notification est
+// maintenant une vraie carte (background + bordure), texte tronqué à 2
+// lignes pour rester scannable même quand plusieurs notifications
+// partagent un corps de message très proche (rappels RDV répétés).
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const P = { pointerEvents: "none" as const };
-const IcX     = () => <svg style={P} width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
-const IcNotif = () => <svg style={P} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
+const IcX     = () => <svg style={P} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+const IcNotif = () => <svg style={P} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
 
 type Notif = { id: string; titre: string; message: string; type: "info" | "success" | "warning" | "rdv"; lu: boolean; temps: string; created_at?: string; rdv_id?: string | null };
 
@@ -32,7 +32,7 @@ function NotifEmptyIllustration() {
   );
 }
 
-export function NotifPanel({ onClose, t1, t2, t3, card, card2, brd, userId }: any) {
+export function NotifPanel({ onClose, bg, t1, t2, t3, card, card2, brd, userId }: any) {
   const router = useRouter();
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,55 +88,78 @@ export function NotifPanel({ onClose, t1, t2, t3, card, card2, brd, userId }: an
   const unread = notifs.filter(n => !n.lu).length;
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}>
-      <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "64px", right: "12px", width: "min(380px, calc(100vw - 24px))", backgroundColor: card, borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", border: `1px solid ${brd}`, overflow: "hidden", animation: "notifIn 0.2s cubic-bezier(0.4,0,0.2,1)" }}>
-        <style>{`@keyframes notifIn{from{opacity:0;transform:translateY(-8px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}}`}</style>
-        <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ color: t1, fontSize: "16px", fontWeight: "800" }}>Notifications</div>
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: bg, display: "flex", flexDirection: "column" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 1, background: bg, borderBottom: `1px solid ${brd}`, paddingTop: "env(safe-area-inset-top)", flexShrink: 0 }}>
+        <div style={{ padding: "12px 16px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: "12px" }}>
+          <span />
+          <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+            <div style={{ color: t1, fontSize: "16px", fontWeight: 800, textAlign: "center" }}>Notifications</div>
             {unread > 0 && <span style={{ backgroundColor: "#ef4444", color: "#fff", fontSize: "10px", fontWeight: "800", borderRadius: "10px", padding: "1px 7px" }}>{unread}</span>}
           </div>
-          <button onClick={onClose} style={{ background: card2, border: "none", borderRadius: "50%", width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: t2 }}><IcX/></button>
+          <button
+            onClick={onClose}
+            className="tap"
+            aria-label="Fermer"
+            style={{ justifySelf: "end", width: "36px", height: "36px", borderRadius: "50%", background: card2, border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", color: t1, cursor: "pointer" }}
+          >
+            <IcX/>
+          </button>
         </div>
 
         {/* ── Onglets Utilisateur / Système — le système n'existe pas encore
             (mention "à venir" seulement), demandé par Bryan le 20/07/2026 ── */}
-        <div style={{ display: "flex", gap: "6px", padding: "10px 12px 0" }}>
+        <div style={{ display: "flex", gap: "8px", padding: "0 16px 12px" }}>
           {([{ key: "utilisateur", label: "Mes notifications" }, { key: "systeme", label: "Système" }] as const).map(o => (
-            <button key={o.key} onClick={() => setOngletNotif(o.key)} style={{ flex: 1, background: ongletNotif === o.key ? "#F5A62318" : "transparent", border: `1px solid ${ongletNotif === o.key ? "#F5A62345" : brd}`, borderRadius: "10px", padding: "8px 10px", color: ongletNotif === o.key ? "#F5A623" : t3, fontSize: "12px", fontWeight: "800", cursor: "pointer" }}>
+            <button key={o.key} onClick={() => setOngletNotif(o.key)} className="tap" style={{ flex: 1, background: ongletNotif === o.key ? "#F5A62318" : "transparent", border: `1px solid ${ongletNotif === o.key ? "#F5A62345" : brd}`, borderRadius: "10px", padding: "9px 10px", color: ongletNotif === o.key ? "#F5A623" : t3, fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
               {o.label}
             </button>
           ))}
         </div>
+      </header>
 
-        <div style={{ maxHeight: "400px", overflowY: "auto", padding: "10px 0 0" }}>
-          {ongletNotif === "systeme" ? (
-            <div style={{ padding: "36px 24px", textAlign: "center" }}>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}><NotifEmptyIllustration/></div>
-              <div style={{ color: t1, fontSize: "13.5px", fontWeight: "800", marginBottom: "4px" }}>Bientôt disponible</div>
-              <div style={{ color: t3, fontSize: "12px", lineHeight: 1.6 }}>Les alertes système et informations de la plateforme Yelen apparaîtront ici.</div>
-            </div>
-          ) : loading ? (
-            <div style={{ padding: "32px", textAlign: "center", color: t3 }}>Chargement...</div>
-          ) : notifs.length === 0 ? (
-            <div style={{ padding: "36px 24px", textAlign: "center" }}>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}><NotifEmptyIllustration/></div>
-              <div style={{ color: t1, fontSize: "13.5px", fontWeight: "800", marginBottom: "4px" }}>Vous êtes à jour</div>
-              <div style={{ color: t3, fontSize: "12px", lineHeight: 1.6 }}>Aucune notification pour l'instant — nous vous préviendrons dès qu'il y a du nouveau concernant vos rendez-vous.</div>
-            </div>
-          ) : groupes.map(g => (
-            <div key={g.jour}>
-              <div style={{ color: t3, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", padding: "4px 16px 8px" }}>{g.jour}</div>
+      <main style={{ flex: 1, overflowY: "auto", padding: "16px 16px 40px", width: "100%", maxWidth: "640px", margin: "0 auto", boxSizing: "border-box" }}>
+        {ongletNotif === "systeme" ? (
+          <div style={{ padding: "48px 24px", textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}><NotifEmptyIllustration/></div>
+            <div style={{ color: t1, fontSize: "13.5px", fontWeight: "800", marginBottom: "4px" }}>Bientôt disponible</div>
+            <div style={{ color: t3, fontSize: "12px", lineHeight: 1.6 }}>Les alertes système et informations de la plateforme Yelen apparaîtront ici.</div>
+          </div>
+        ) : loading ? (
+          <div style={{ padding: "48px", textAlign: "center", color: t3 }}>Chargement...</div>
+        ) : notifs.length === 0 ? (
+          <div style={{ padding: "48px 24px", textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}><NotifEmptyIllustration/></div>
+            <div style={{ color: t1, fontSize: "13.5px", fontWeight: "800", marginBottom: "4px" }}>Vous êtes à jour</div>
+            <div style={{ color: t3, fontSize: "12px", lineHeight: 1.6 }}>Aucune notification pour l'instant — nous vous préviendrons dès qu'il y a du nouveau concernant vos rendez-vous.</div>
+          </div>
+        ) : groupes.map(g => (
+          <div key={g.jour} style={{ marginBottom: "20px" }}>
+            <div style={{ color: t3, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px" }}>{g.jour}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {g.items.map(n => (
-                <div key={n.id} onClick={() => handleClickNotif(n)} style={{ margin: "0 10px 8px", padding: "12px 14px", borderRadius: "14px", backgroundColor: n.lu ? "transparent" : `${card2}`, border: `1px solid ${n.lu ? "transparent" : brd}`, display: "flex", gap: "12px", cursor: n.rdv_id ? "pointer" : "default" }}>
+                <div
+                  key={n.id}
+                  onClick={() => handleClickNotif(n)}
+                  className={n.rdv_id ? "tap" : undefined}
+                  style={{
+                    padding: "13px 14px", borderRadius: "16px", background: card,
+                    border: `1px solid ${n.lu ? brd : "rgba(245,166,35,0.3)"}`,
+                    display: "flex", gap: "12px", cursor: n.rdv_id ? "pointer" : "default",
+                    boxShadow: n.lu ? "none" : "0 2px 10px rgba(245,166,35,0.08)",
+                  }}
+                >
                   <div style={{ width: "36px", height: "36px", borderRadius: "11px", background: "linear-gradient(135deg,#F5A62325,#F5A62310)", border: "1px solid #F5A62330", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#F5A623" }}><IcNotif/></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
-                      <div style={{ color: t1, fontSize: "13px", fontWeight: n.lu ? "600" : "800", flex: 1 }}>{n.titre}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
+                      <div style={{ color: t1, fontSize: "13px", fontWeight: n.lu ? "600" : "800", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.titre}</div>
                       {!n.lu && <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: "#F5A623", flexShrink: 0 }}/>}
                     </div>
-                    <div style={{ color: t2, fontSize: "11.5px", lineHeight: 1.5 }}>{n.message}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
+                    {/* Tronqué à 2 lignes — plusieurs notifications de rappel
+                        partagent un corps de message quasi identique,
+                        éviter que chacune prenne 4-5 lignes rend la liste
+                        scannable (retour Bryan 27/07/2026). */}
+                    <div style={{ color: t2, fontSize: "11.5px", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{n.message}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "5px" }}>
                       {n.created_at && <span style={{ color: t3, fontSize: "10px", fontWeight: "700" }}>{new Date(n.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>}
                       <span style={{ color: t3, fontSize: "10px" }}>·</span>
                       <span style={{ color: t3, fontSize: "10px", fontWeight: "600" }}>il y a {n.temps}</span>
@@ -145,9 +168,9 @@ export function NotifPanel({ onClose, t1, t2, t3, card, card2, brd, userId }: an
                 </div>
               ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        ))}
+      </main>
     </div>
   );
 }

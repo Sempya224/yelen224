@@ -386,7 +386,7 @@ export default function PolitiqueCookiesPage() {
       `}</style>
 
       {/* HEADER */}
-      <header style={{ position: "sticky", top: 0, zIndex: 100, backgroundColor: theme === "dark" ? "rgba(8,8,18,0.96)" : "rgba(248,248,251,0.96)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${C.borderCard}`, padding: "0 40px" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 100, backgroundColor: theme === "dark" ? "rgba(8,8,18,0.96)" : "rgba(248,248,251,0.96)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${C.borderCard}`, paddingTop: "env(safe-area-inset-top)", paddingRight: "40px", paddingBottom: 0, paddingLeft: "40px" }}>
         <div style={{ maxWidth: "1100px", margin: "0 auto", height: "64px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Link href="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
             <div style={{ position: "relative", width: "34px", height: "34px" }}>

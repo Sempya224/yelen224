@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthSessionWatcher } from "@/components/AuthSessionWatcher";
+import { SplashScreen } from "@/components/SplashScreen";
 
 // Police de marque — remplace Geist, chargé jusqu'ici mais jamais appliqué
 // (globals.css et le dashboard institution réécrivaient tous deux un
@@ -16,6 +17,7 @@ const jakarta = Plus_Jakarta_Sans({
 
 export const viewport: Viewport = {
   themeColor: "#F5A623",
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {
@@ -40,12 +42,13 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Yelen224" />
-        <link rel="apple-touch-icon" href="/file.svg" />
+        <link rel="apple-touch-icon" href="/icon-512.png" />
       </head>
       <body
         className={`${jakarta.variable} antialiased`}
         style={{ margin: 0, padding: 0, height: "100%" }}
       >
+        <SplashScreen/>
         <ThemeProvider>
           <AuthSessionWatcher/>
           {children}

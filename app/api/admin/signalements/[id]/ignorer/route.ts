@@ -17,6 +17,7 @@ async function verifyToken(request: NextRequest) {
     issuer: 'yelen224-admin',
     audience: 'yelen224-admin-dashboard',
   })
+  if (!['super_admin', 'moderateur', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
   return payload
 }
 

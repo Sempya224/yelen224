@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
 import crypto from 'crypto'
+import { mintInstitutionTotpChallengeToken } from '@/lib/auth/institutionSession'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -132,10 +133,24 @@ export async function POST(request: NextRequest) {
     // role dans le même JWT si le membre Admin principal existe déjà.
     const { data: membrePrincipal } = await supabaseAdmin
       .from('institution_membres')
-      .select('id, role')
+      .select('id, role, totp_enabled')
       .eq('institution_id', institution.id)
       .eq('compte_principal', true)
       .maybeSingle()
+
+    // 2FA TOTP (chantier sécurité institution 25/07/2026) — l'OTP téléphone
+    // vient de réussir, mais on ne finalise la session qu'après validation
+    // du code TOTP, via /api/institution/auth/totp/login-verify. rememberMe
+    // voyage dans le jeton de défi pour être honoré après coup.
+    if (membrePrincipal?.totp_enabled) {
+      const totpToken = await mintInstitutionTotpChallengeToken({
+        institutionId: institution.id,
+        membreId: membrePrincipal.id,
+        role: membrePrincipal.role,
+        rememberMe: rememberMe === true,
+      })
+      return NextResponse.json({ requiresTotp: true, totpToken })
+    }
 
     const token = await new SignJWT({
       institutionId: institution.id,

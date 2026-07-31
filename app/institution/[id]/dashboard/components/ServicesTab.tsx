@@ -622,28 +622,63 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
   const [champs, setChamps]     = useState<ChampComplementaire[]>([]);
   const [err, setErr]           = useState("");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  // Distingue "chargement a échoué" de "vraiment aucune offre" — avant, un
+  // échec de /api/institution/profile (session expirée, etc.) retombait sur
+  // le même écran vide que 0 service réel, rendant invisibles des offres
+  // pourtant configurées et affichées côté citoyen (retour Bryan 25/07/2026).
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
+  const loadServices = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
       const res = await fetch(`/api/institution/profile?institution_id=${instId}`);
-      const j = res.ok ? await res.json().catch(() => null) : null;
-      const raw = Array.isArray(j?.institution?.services) ? j.institution.services : [];
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setLoadError(`${res.status}${body?.error ? ` — ${body.error}` : ""}`);
+        setLoading(false);
+        return;
+      }
+      const j = await res.json().catch(() => null);
+      if (!j?.institution) { setLoadError("réponse vide"); setLoading(false); return; }
+      const raw = Array.isArray(j.institution.services) ? j.institution.services : [];
       setServices(raw.map(toOffreService).filter((s: OffreService | null): s is OffreService => s !== null));
-      setSecteur(j?.institution?.secteur ?? null);
+      setSecteur(j.institution.secteur ?? null);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "erreur réseau");
+    } finally {
       setLoading(false);
-    })();
+    }
   }, [instId]);
 
+  useEffect(() => { loadServices(); }, [loadServices]);
+
+  // Mise à jour optimiste jusqu'ici jamais vérifiée : un échec de la requête
+  // (permission, réseau) laissait l'entrée affichée localement alors qu'elle
+  // n'existait pas en base — elle disparaissait silencieusement au prochain
+  // chargement, sans aucun message. Retour Bryan 25/07/2026 : "je ne les vois
+  // pas encore" après avoir ajouté une offre. On revient en arrière et on
+  // prévient si l'enregistrement échoue.
   async function persist(next: OffreService[]) {
+    const precedent = services;
     setServices(next);
     setSaving(true);
-    await fetch("/api/institution/profile", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ services: next }),
-    });
-    setSaving(false);
+    try {
+      const res = await fetch("/api/institution/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ services: next }),
+      });
+      if (!res.ok) {
+        setServices(precedent);
+        setErr("L'enregistrement a échoué — réessayez.");
+      }
+    } catch {
+      setServices(precedent);
+      setErr("L'enregistrement a échoué — vérifiez votre connexion.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function resetForm() { setNom(""); setDuree(""); setDesc(""); setChamps([]); setErr(""); setEditingIndex(null); }
@@ -680,7 +715,7 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, letterSpacing: "-0.3px" }}>Offre générale</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, letterSpacing: "-0.3px" }}>Offre gratuite</div>
           <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, marginTop: "2px" }}>
             Ce que vous proposez à vos clients — <strong style={{ color: C.t1 }}>toujours gratuit</strong>, réservable par les citoyens et visible sur votre fiche publique. Totalement différent du catalogue <strong style={{ color: C.t1 }}>Services payants</strong>.
           </div>
@@ -690,16 +725,38 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
 
       {loading ? (
         <div style={{ color: C.t3, fontSize: "12px" }}>Chargement…</div>
+      ) : loadError ? (
+        <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "12px", padding: "14px", marginBottom: "18px", display: "flex", alignItems: "flex-start", gap: "10px" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700, marginBottom: "2px" }}>Impossible de charger vos offres existantes</div>
+            <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.5, marginBottom: "4px" }}>Vos offres sont peut-être toujours là (visibles côté citoyen) — c'est le chargement ici qui a échoué. Reconnectez-vous si le problème persiste.</div>
+            <div style={{ color: C.t3, fontSize: "10.5px", fontFamily: "monospace", marginBottom: "8px" }}>{loadError}</div>
+            <button onClick={() => loadServices()} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "7px 14px", color: C.t1, fontSize: "11.5px", fontWeight: 700, cursor: "pointer" }}>Réessayer</button>
+          </div>
+        </div>
       ) : (
         <>
-          {services.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+          {/* Section "déjà ajoutées" séparée du formulaire de création
+              (retour Bryan 25/07/2026 : sans titre, les deux se confondaient
+              et les entrées existantes passaient inaperçues). */}
+          {services.length > 0 ? (
+            <>
+              <div style={{ color: C.t3, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Déjà ajoutées ({services.length})</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "18px" }}>
               {services.map((s, i) => (
                 <div key={i} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "11px 14px", display: "flex", alignItems: "flex-start", gap: "10px" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                       <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>{s.nom}</span>
-                      {s.duree_minutes > 0 && <span style={{ color: C.blue, fontSize: "11px", fontWeight: 700 }}>· {s.duree_minutes} min</span>}
+                      {s.duree_minutes > 0
+                        ? <span style={{ color: C.blue, fontSize: "11px", fontWeight: 700 }}>· {s.duree_minutes} min</span>
+                        // Service créé avant le Lot A (16/07/2026), enregistré en
+                        // simple texte — aucune durée n'a jamais été demandée à
+                        // l'époque. On ne l'invente pas : on incite à la compléter,
+                        // sinon le citoyen ne voit qu'une heure de début sans fin
+                        // dans le wizard de réservation (retour Bryan 25/07/2026).
+                        : <span style={{ color: C.orange, fontSize: "11px", fontWeight: 700 }}>· Durée manquante — à compléter</span>}
                     </div>
                     {s.description && <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.5, marginTop: "3px" }}>{s.description}</div>}
                   </div>
@@ -713,6 +770,11 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
                   </div>
                 </div>
               ))}
+              </div>
+            </>
+          ) : (
+            <div style={{ backgroundColor: C.bg3, border: `1px dashed ${C.border2}`, borderRadius: "12px", padding: "14px", marginBottom: "18px", color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>
+              Aucune offre gratuite ajoutée pour l'instant. Une fois créée avec le formulaire ci-dessous, elle apparaîtra dans cette liste.
             </div>
           )}
 
@@ -726,6 +788,7 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
             </div>
           )}
 
+          <div style={{ color: C.t3, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{editingIndex !== null ? "Modifier l'offre" : "Ajouter une offre"}</div>
           <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
             <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom du service (ex: Ouverture de compte)" style={inputStyle}/>
             <div style={{ display: "flex", gap: "8px" }}>
@@ -972,7 +1035,7 @@ export function ServicesTab({ instId }: { instId: string }) {
           </div>
           <button onClick={() => setOffreOpen(true)} className="tap svc-header-btn" style={{ backgroundColor: C.blueL, border: `1px solid ${C.blue}40`, borderRadius: "14px", padding: "10px 16px", color: C.blue, fontWeight: "800", fontSize: "12.5px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", whiteSpace: "nowrap" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-            Offre générale
+            Offre gratuite
           </button>
           <button onClick={() => setFormTarget("new")} className="tap svc-header-btn" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "900", fontSize: "12.5px", padding: "10px 16px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", whiteSpace: "nowrap" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>

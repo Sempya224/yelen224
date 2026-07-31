@@ -203,7 +203,7 @@ function LaissezAvis() {
         textarea:focus { border-color: rgba(245,166,35,0.4) !important; outline: none; }
       `}</style>
 
-      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(8,8,18,0.95)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(245,166,35,0.12)", padding: "0 24px" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(8,8,18,0.95)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(245,166,35,0.12)", paddingTop: "env(safe-area-inset-top)", paddingRight: "24px", paddingBottom: 0, paddingLeft: "24px" }}>
         <div style={{ maxWidth: "600px", margin: "0 auto", height: "58px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <button onClick={() => router.back()} style={{ backgroundColor: "transparent", border: "none", color: "#555", fontSize: "20px", cursor: "pointer", padding: "4px" }}>&#8592;</button>

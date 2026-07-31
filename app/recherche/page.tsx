@@ -41,13 +41,13 @@ function InstitutionLogo({ inst, size = 64 }: { inst: Institution; size?: number
   const r = Math.round(size * 0.22) + "px";
   if (inst.logo && !err) {
     return (
-      <div style={{ width: size, height: size, borderRadius: r, overflow: "hidden", flexShrink: 0, border: "2px solid rgba(245,166,35,0.2)", boxShadow: "0 2px 12px rgba(245,166,35,0.12)" }}>
+      <div style={{ width: size, height: size, borderRadius: r, overflow: "hidden", flexShrink: 0, border: "1px solid rgba(245,166,35,0.2)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
         <img src={inst.logo} alt={inst.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
       </div>
     );
   }
   return (
-    <div style={{ width: size, height: size, borderRadius: r, flexShrink: 0, background: `linear-gradient(${meta.gradient})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "3px", boxShadow: "0 4px 14px rgba(245,166,35,0.2)", border: "1px solid rgba(245,166,35,0.15)" }}>
+    <div style={{ width: size, height: size, borderRadius: r, flexShrink: 0, background: `linear-gradient(${meta.gradient})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "3px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", border: "1px solid rgba(245,166,35,0.15)" }}>
       <svg width={size * 0.38} height={size * 0.38} viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round">
         <path d={meta.svgPath}/>
       </svg>
@@ -101,7 +101,7 @@ function CardGrille({ inst, C }: { inst: Institution; C: typeof T["dark"] }) {
           <span style={{ color: hasDispos ? "#F5A623" : txt2, fontSize: "9px", fontWeight: "700" }}>{hasDispos ? "Créneaux disponibles" : "Sur demande"}</span>
         </div>
         <div style={{ marginTop: "auto", paddingTop: "8px" }}>
-          <div style={{ width: "100%", padding: "8px", background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", boxShadow: "0 4px 12px rgba(245,166,35,0.25)" }}>
+          <div style={{ width: "100%", padding: "8px", background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             <span style={{ color: "#080812", fontSize: "10px", fontWeight: "900" }}>Prendre RDV</span>
           </div>
@@ -219,12 +219,12 @@ function RechercheInner() {
       `}</style>
 
       {/* ══ HEADER ══ */}
-      <header style={{ position: "sticky", top: 0, zIndex: 300, backgroundColor: isDark ? "rgba(8,8,15,0.98)" : "rgba(248,248,251,0.98)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.1)" : "rgba(245,166,35,0.12)"}` }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 300, backgroundColor: isDark ? "rgba(8,8,15,0.98)" : "rgba(248,248,251,0.98)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.1)" : "rgba(245,166,35,0.12)"}`, paddingTop: "env(safe-area-inset-top)" }}>
 
         {/* Ligne logo + vues + compteur */}
         <div style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: "10px" }}>
           <a href="/" style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", flexShrink: 0 }}>
-            <div style={{ width: "28px", height: "28px", background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(245,166,35,0.3)" }}>
+            <div style={{ width: "28px", height: "28px", background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.15)" }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
             </div>
             <div style={{ lineHeight: 1 }}>
@@ -283,7 +283,7 @@ function RechercheInner() {
                 </button>
               )}
             </div>
-            <button onClick={() => setShowFilters(f => !f)} className="tap" style={{ width: "42px", height: "40px", borderRadius: "12px", flexShrink: 0, background: activeFilters > 0 ? "linear-gradient(135deg,#F5A623,#C8940A)" : iBg, border: activeFilters > 0 ? "none" : `1px solid ${iBrd}`, color: activeFilters > 0 ? "#080812" : t2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", position: "relative", boxShadow: activeFilters > 0 ? "0 4px 12px rgba(245,166,35,0.3)" : "none" }}>
+            <button onClick={() => setShowFilters(f => !f)} className="tap" style={{ width: "42px", height: "40px", borderRadius: "12px", flexShrink: 0, background: activeFilters > 0 ? "linear-gradient(135deg,#F5A623,#C8940A)" : iBg, border: activeFilters > 0 ? "none" : `1px solid ${iBrd}`, color: activeFilters > 0 ? "#080812" : t2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", position: "relative", boxShadow: activeFilters > 0 ? "0 2px 6px rgba(0,0,0,0.15)" : "none" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
               {activeFilters > 0 && <span style={{ position: "absolute", top: "-4px", right: "-4px", width: "15px", height: "15px", borderRadius: "50%", background: "#080812", color: "#F5A623", fontSize: "8px", fontWeight: "900", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${C.pageBg}` }}>{activeFilters}</span>}
             </button>
@@ -309,11 +309,11 @@ function RechercheInner() {
         {/* Chips catégories scrollables */}
         <div className="no-scroll" style={{ overflowX: "auto", paddingBottom: "11px" }}>
           <div style={{ display: "flex", gap: "6px", padding: "0 16px", width: "max-content" }}>
-            <button onClick={() => setFilterCat("")} className="tap" style={{ padding: "6px 13px", borderRadius: "20px", border: "none", background: !filterCat ? "linear-gradient(135deg,#F5A623,#C8940A)" : iBg, color: !filterCat ? "#080812" : t2, fontSize: "11px", fontWeight: !filterCat ? "800" : "600", cursor: "pointer", boxShadow: !filterCat ? "0 3px 10px rgba(245,166,35,0.3)" : "none" }}>
+            <button onClick={() => setFilterCat("")} className="tap" style={{ padding: "6px 13px", borderRadius: "20px", border: "none", background: !filterCat ? "linear-gradient(135deg,#F5A623,#C8940A)" : iBg, color: !filterCat ? "#080812" : t2, fontSize: "11px", fontWeight: !filterCat ? "800" : "600", cursor: "pointer", boxShadow: !filterCat ? "0 2px 5px rgba(0,0,0,0.12)" : "none" }}>
               Tout
             </button>
             {Object.entries(CAT_META).map(([key, val]) => (
-              <button key={key} onClick={() => setFilterCat(filterCat === key ? "" : key)} className="tap" style={{ padding: "6px 12px", borderRadius: "20px", border: "none", background: filterCat === key ? "linear-gradient(135deg,#F5A623,#C8940A)" : iBg, color: filterCat === key ? "#080812" : t2, fontSize: "11px", fontWeight: filterCat === key ? "800" : "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", boxShadow: filterCat === key ? "0 3px 10px rgba(245,166,35,0.3)" : "none", whiteSpace: "nowrap" }}>
+              <button key={key} onClick={() => setFilterCat(filterCat === key ? "" : key)} className="tap" style={{ padding: "6px 12px", borderRadius: "20px", border: "none", background: filterCat === key ? "linear-gradient(135deg,#F5A623,#C8940A)" : iBg, color: filterCat === key ? "#080812" : t2, fontSize: "11px", fontWeight: filterCat === key ? "800" : "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", boxShadow: filterCat === key ? "0 2px 5px rgba(0,0,0,0.12)" : "none", whiteSpace: "nowrap" }}>
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d={val.svgPath}/></svg>
                 {val.short}
               </button>
@@ -479,7 +479,7 @@ function RechercheInner() {
                         <span style={{ color: hasD ? "#F5A623" : t2, fontSize: "9px", fontWeight: "700" }}>{hasD ? "Créneaux dispo" : "Sur demande"}</span>
                       </div>
                       <div style={{ flex: 1 }}/>
-                      <div style={{ padding: "6px 12px", background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: "8px", display: "flex", alignItems: "center", gap: "4px", boxShadow: "0 3px 10px rgba(245,166,35,0.25)" }}>
+                      <div style={{ padding: "6px 12px", background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: "8px", display: "flex", alignItems: "center", gap: "4px", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}>
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                         <span style={{ color: "#080812", fontSize: "10px", fontWeight: "900" }}>RDV</span>
                       </div>

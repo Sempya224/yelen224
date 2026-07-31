@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import { enregistrerAction } from "@/lib/journalActivite";
+import { mintInstitutionTotpChallengeToken } from "@/lib/auth/institutionSession";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     const { data: membre } = await supabaseAdmin
       .from("institution_membres")
-      .select("id,institution_id,pin_hash,role,actif,doit_changer_pin,prenom,nom")
+      .select("id,institution_id,pin_hash,role,actif,doit_changer_pin,prenom,nom,totp_enabled")
       .eq("identifiant", identifiant.trim())
       .maybeSingle();
 
@@ -66,6 +67,22 @@ export async function POST(request: NextRequest) {
     }
 
     clearFailures(identifiant);
+
+    // 2FA TOTP (chantier sécurité institution 25/07/2026) — le PIN vient de
+    // réussir, mais la session n'est établie (et l'action "connexion"
+    // journalisée) qu'après validation du TOTP, via
+    // /api/institution/auth/totp/login-verify — sinon la journalisation
+    // enregistrerait une connexion pas encore réellement terminée.
+    if (membre.totp_enabled) {
+      const totpToken = await mintInstitutionTotpChallengeToken({
+        institutionId: membre.institution_id,
+        membreId: membre.id,
+        role: membre.role,
+        rememberMe: false,
+        membreNom: `${membre.prenom} ${membre.nom}`,
+      });
+      return NextResponse.json({ requiresTotp: true, totpToken });
+    }
 
     await enregistrerAction({
       institutionId: membre.institution_id,

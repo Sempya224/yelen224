@@ -15,12 +15,6 @@ import { T } from "@/lib/theme";
 const GOLD = { gold: "#F5A623", goldD: "#C8940A", goldL: "#FDE68A" };
 
 // ═══════════════════════════════════════════════════════════
-// DEV CONFIG — retirer avant mise en prod
-// ═══════════════════════════════════════════════════════════
-const DEV_MODE = true;          // ← passer à false en production
-const DEV_OTP  = "123456";      // ← code fictif accepté en dev
-
-// ═══════════════════════════════════════════════════════════
 // SECURITY: Math Challenge
 // ═══════════════════════════════════════════════════════════
 
@@ -57,7 +51,7 @@ type InstPreview = {
 
 type RememberedInst = { id: string; name: string };
 
-type Step = "unlock" | "phone" | "preview" | "otp" | "setup" | "success" | "deletion-pending";
+type Step = "unlock" | "phone" | "preview" | "otp" | "totp" | "setup" | "success" | "deletion-pending";
 
 type DeletionInfo = { motif: string; scheduled_purge_at: string };
 
@@ -126,6 +120,18 @@ function InstitutionConnexionInner() {
   const [unlockPin, setUnlockPin]             = useState("");
   const [setupMode, setSetupMode]             = useState<"choice" | "pin">("choice");
   const [setupPin, setSetupPin]               = useState("");
+
+  // ── 2FA TOTP (chantier sécurité institution, 25/07/2026) ──
+  // totpContext distingue le flux OTP téléphone frais (où rememberMe peut
+  // encore mener à l'étape "setup" après la 2FA) du déverrouillage rapide
+  // (PIN/biométrie d'un appareil mémorisé, où le TOTP mène toujours
+  // directement à completeLogin, comme aujourd'hui).
+  const [totpToken, setTotpToken]             = useState("");
+  const [totpContext, setTotpContext]         = useState<"otp" | "unlock">("otp");
+  const [totpCode, setTotpCode]               = useState(["","","","","",""]);
+  const [totpBackupMode, setTotpBackupMode]   = useState(false);
+  const [totpBackupCode, setTotpBackupCode]   = useState("");
+  const totpRefs = useRef<(HTMLInputElement|null)[]>([]);
 
   // ── Compte en cours de suppression (délai de grâce) ──
   const [deletionInfo, setDeletionInfo]       = useState<DeletionInfo | null>(null);
@@ -210,6 +216,19 @@ function InstitutionConnexionInner() {
     setTimeout(() => router.push(`/institution/${id}/dashboard`), 1500);
   }
 
+  // Bascule vers l'étape de saisie du code TOTP — appelée dès qu'une route
+  // primaire (OTP/PIN/WebAuthn) répond requiresTotp. totpToken/totpContext
+  // sont déjà positionnés par l'appelant avant cet appel.
+  function enterTotpStep() {
+    setTotpCode(["","","","","",""]);
+    setTotpBackupMode(false);
+    setTotpBackupCode("");
+    setError("");
+    setLoading(false);
+    setStep("totp");
+    setTimeout(() => totpRefs.current[0]?.focus(), 300);
+  }
+
   async function cancelDeletionAndEnter() {
     if (!pendingLogin) return;
     setCancelLoading(true);
@@ -279,6 +298,13 @@ function InstitutionConnexionInner() {
         return;
       }
 
+      if (verifyData.requiresTotp) {
+        setTotpToken(verifyData.totpToken);
+        setTotpContext("unlock");
+        enterTotpStep();
+        return;
+      }
+
       completeLogin(verifyData.institution.id, verifyData.institution.name);
     } catch {
       setError("Petit souci de connexion. Vérifiez votre réseau et réessayez.");
@@ -305,6 +331,14 @@ function InstitutionConnexionInner() {
         setLoading(false);
         return;
       }
+
+      if (data.requiresTotp) {
+        setTotpToken(data.totpToken);
+        setTotpContext("unlock");
+        enterTotpStep();
+        return;
+      }
+
       completeLogin(data.institution.id, data.institution.name);
     } catch {
       setError("Petit souci de connexion. Vérifiez votre réseau et réessayez.");
@@ -399,11 +433,7 @@ function InstitutionConnexionInner() {
 
       setStep("otp");
       setResendTimer(60);
-      setSuccess(
-        data.devMode
-          ? `[DEV] Code fictif : ${data.code} — SMS désactivé`
-          : `Code envoyé au ${inst!.phone}`
-      );
+      setSuccess(`Code envoyé au ${inst!.phone}`);
     } catch {
       setError("Petit souci de connexion. Vérifiez votre réseau et réessayez.");
     }
@@ -442,6 +472,13 @@ function InstitutionConnexionInner() {
         return;
       }
 
+      if (data.requiresTotp) {
+        setTotpToken(data.totpToken);
+        setTotpContext("otp");
+        enterTotpStep();
+        return;
+      }
+
       // Session posée côté serveur. Si "se souvenir de moi" est coché, on
       // propose de configurer l'accès rapide avant de rejoindre le tableau
       // de bord — sinon rien à configurer, connexion terminée.
@@ -456,6 +493,56 @@ function InstitutionConnexionInner() {
       setLoading(false);
     }
   }
+
+  // ── ÉTAPE 2FA TOTP ──
+  async function handleTotpVerify() {
+    setError("");
+    const entered = totpBackupMode ? totpBackupCode.trim() : totpCode.join("");
+    if (totpBackupMode ? !entered : entered.length < 6) {
+      setError(totpBackupMode ? "Entrez un code de secours." : "Entrez le code à 6 chiffres.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/institution/auth/totp/login-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ totpToken, code: entered }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || "Code invalide.");
+        setTotpCode(["","","","","",""]);
+        setLoading(false);
+        setTimeout(() => totpRefs.current[0]?.focus(), 100);
+        return;
+      }
+
+      // Même règle que handleVerifyOtp : un déverrouillage rapide (PIN/
+      // biométrie) va toujours directement à completeLogin, une connexion
+      // OTP fraîche avec "se souvenir de moi" propose encore la
+      // configuration de l'accès rapide.
+      if (totpContext === "otp" && rememberMe) {
+        setLoading(false);
+        setStep("setup");
+      } else {
+        completeLogin(data.institution.id, data.institution.name);
+      }
+    } catch {
+      setError("Petit souci de connexion. Vérifiez votre réseau et réessayez.");
+      setLoading(false);
+    }
+  }
+
+  const handleTotpChange = (i: number, val: string) => {
+    if (!/^\d*$/.test(val)) return;
+    const n = [...totpCode]; n[i] = val.slice(-1); setTotpCode(n);
+    if (val && i < 5) totpRefs.current[i+1]?.focus();
+    if (n.every(d => d) && n.join("").length === 6) setTimeout(handleTotpVerify, 200);
+  };
+  const handleTotpKey = (i: number, e: React.KeyboardEvent) => {
+    if (e.key === "Backspace" && !totpCode[i] && i > 0) totpRefs.current[i-1]?.focus();
+  };
 
   // ── Configuration de l'accès rapide (proposée une fois, après connexion complète) ──
   async function handleSetupBiometric() {
@@ -635,7 +722,7 @@ function InstitutionConnexionInner() {
       <style>{css}</style>
 
       {/* HEADER */}
-      <header style={{ position: "relative", zIndex: 10, padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, backgroundColor: `${C.white}E6`, backdropFilter: "blur(20px)" }}>
+      <header style={{ position: "relative", zIndex: 10, padding: "calc(16px + env(safe-area-inset-top)) 24px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, backgroundColor: `${C.white}E6`, backdropFilter: "blur(20px)" }}>
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
           <div style={{ width: "36px", height: "36px", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${C.gold}40` }}>
             <YelenLogo size={18} color={C.dark}/>
@@ -752,12 +839,6 @@ function InstitutionConnexionInner() {
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.goldD} strokeWidth="2.5" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 <span style={{ color: C.goldD, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.2px" }}>Connexion sécurisée</span>
               </div>
-              {DEV_MODE && (
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px", padding: "5px 12px", backgroundColor: "#FFF3CD", border: "1px solid #FFC107", borderRadius: "20px", justifyContent: "center" }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#856404" strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                  <span style={{ color: "#856404", fontSize: "10px", fontWeight: "800" }}>MODE DEV — SMS désactivé</span>
-                </div>
-              )}
             </div>
 
             <div className="yelen-login-form">
@@ -958,14 +1039,9 @@ function InstitutionConnexionInner() {
                 </svg>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: C.dark, fontSize: "13px", fontWeight: "700" }}>
-                    {DEV_MODE
-                      ? `[DEV] Code fictif → ${DEV_OTP} (pas de SMS envoyé)`
-                      : `Code envoyé au ${inst.phone.replace(/(\+224)(\d{2})(\d{3})(\d{4})/, "$1 $2•••$4")}`
-                    }
+                    Code envoyé au {inst.phone.replace(/(\+224)(\d{2})(\d{3})(\d{4})/, "$1 $2•••$4")}
                   </div>
-                  <div style={{ color: C.gray, fontSize: "11px" }}>
-                    {DEV_MODE ? "Intégration NIMBA SMS à venir" : "Via SMS sécurisé YELEN224"}
-                  </div>
+                  <div style={{ color: C.gray, fontSize: "11px" }}>Via SMS sécurisé YELEN224</div>
                 </div>
               </div>
             )}
@@ -981,9 +1057,9 @@ function InstitutionConnexionInner() {
               {canContinueLogin && (
                 <button onClick={handleSendOtp} disabled={loading} className="tap"
                   style={{ flex: 2, padding: "14px", borderRadius: "12px", border: "none", background: loading ? C.gray3 : `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: loading ? C.gray : C.dark, fontSize: "14px", fontWeight: "800", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", boxShadow: !loading ? `0 6px 20px ${C.gold}40` : "none" }}>
-                  {loading ? <><Spinner/> Simulation…</> : <>
+                  {loading ? <><Spinner/> Envoi…</> : <>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                    {DEV_MODE ? "Simuler l'envoi du code" : "Envoyer le code SMS"}
+                    Envoyer le code SMS
                   </>}
                 </button>
               )}
@@ -1003,25 +1079,11 @@ function InstitutionConnexionInner() {
               </div>
               <h2 style={{ color: C.dark, fontSize: "22px", fontWeight: "900", marginBottom: "6px" }}>Code de vérification</h2>
               <p style={{ color: C.gray, fontSize: "13px" }}>
-                {DEV_MODE
-                  ? <>Entrez le code fictif <strong style={{ color: C.gold, fontSize: "16px", letterSpacing: "2px" }}>{DEV_OTP}</strong></>
-                  : <>Entrez le code à 6 chiffres envoyé au<br/><strong style={{ color: C.dark }}>{inst?.phone.replace(/(\+224)(\d{2})(\d{3})(\d{4})/, "$1 $2•••$4")}</strong></>
-                }
+                Entrez le code à 6 chiffres envoyé au<br/><strong style={{ color: C.dark }}>{inst?.phone.replace(/(\+224)(\d{2})(\d{3})(\d{4})/, "$1 $2•••$4")}</strong>
               </p>
             </div>
 
-            {/* Bannière DEV */}
-            {DEV_MODE && (
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: "#FFF3CD", border: "1px solid #FFC107", borderLeft: "3px solid #FFC107", borderRadius: "12px", marginBottom: "16px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#856404" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                <div>
-                  <div style={{ color: "#856404", fontSize: "12px", fontWeight: "800" }}>Mode développement</div>
-                  <div style={{ color: "#856404", fontSize: "11px" }}>Code accepté : <strong style={{ letterSpacing: "1px" }}>{DEV_OTP}</strong> — Aucun SMS envoyé</div>
-                </div>
-              </div>
-            )}
-
-            {success && !DEV_MODE && (
+            {success && (
               <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: C.greenL, border: `1px solid ${C.green}30`, borderRadius: "12px", marginBottom: "16px" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
                 <span style={{ color: C.green, fontSize: "13px", fontWeight: "600" }}>{success}</span>
@@ -1070,9 +1132,83 @@ function InstitutionConnexionInner() {
                 <span style={{ color: C.gray, fontSize: "13px" }}>Renvoyer dans {resendTimer}s</span>
               ) : (
                 <button onClick={handleSendOtp} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>
-                  {DEV_MODE ? "Re-simuler l'envoi" : "Renvoyer le code"}
+                  Renvoyer le code
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ STEP: TOTP (2FA) ═══ */}
+        {step === "totp" && (
+          <div style={{ animation: "fadeUp 0.3s ease" }}>
+            <div style={{ textAlign: "center", marginBottom: "28px" }}>
+              <div style={{ width: "68px", height: "68px", borderRadius: "20px", background: `linear-gradient(135deg, ${C.gold}20, ${C.gold}08)`, border: `2px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", boxShadow: C.shadow }}>
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <h2 style={{ color: C.dark, fontSize: "22px", fontWeight: "900", marginBottom: "6px" }}>Double authentification</h2>
+              <p style={{ color: C.gray, fontSize: "13px" }}>Ce compte a activé la 2FA — entrez le code de votre application d&apos;authentification.</p>
+            </div>
+
+            {error && <ErrorBanner msg={error}/>}
+
+            {!totpBackupMode ? (
+              <>
+                <div style={{ display: "flex", gap: "8px", justifyContent: "center", marginBottom: "16px" }}>
+                  {totpCode.map((d, i) => (
+                    <input
+                      key={i}
+                      className="otp-inp"
+                      ref={el => { totpRefs.current[i] = el; }}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={d}
+                      onChange={e => handleTotpChange(i, e.target.value)}
+                      onKeyDown={e => handleTotpKey(i, e)}
+                      style={{ width: "52px", height: "62px", textAlign: "center", fontSize: "24px", fontWeight: "800", backgroundColor: d ? `${C.gold}12` : C.white, border: `2px solid ${d ? C.gold : C.border}`, borderRadius: "14px", color: C.dark, transition: "all 0.15s" }}
+                    />
+                  ))}
+                </div>
+                <div style={{ textAlign: "center", marginBottom: "18px" }}>
+                  <button onClick={() => { setTotpBackupMode(true); setError(""); }} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>Utiliser un code de secours</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ marginBottom: "18px" }}>
+                <input
+                  className="inp"
+                  type="text"
+                  placeholder="XXXX-XXXX"
+                  value={totpBackupCode}
+                  onChange={e => setTotpBackupCode(e.target.value.toUpperCase())}
+                  onKeyDown={e => e.key === "Enter" && handleTotpVerify()}
+                  style={{ width: "100%", padding: "15px 16px", borderRadius: "14px", border: `1.5px solid ${C.border}`, backgroundColor: C.white, color: C.dark, fontSize: "18px", fontWeight: "700", letterSpacing: "3px", textAlign: "center", marginBottom: "12px" }}
+                  autoFocus
+                />
+                <div style={{ textAlign: "center" }}>
+                  <button onClick={() => { setTotpBackupMode(false); setTotpBackupCode(""); setError(""); }} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>Utiliser l&apos;application d&apos;authentification</button>
+                </div>
+              </div>
+            )}
+
+            <button onClick={handleTotpVerify} disabled={loading || (totpBackupMode ? !totpBackupCode.trim() : totpCode.join("").length < 6)} className="tap cta-main"
+              style={{ width: "100%", padding: "16px", borderRadius: "14px", border: "none", background: loading || (totpBackupMode ? !totpBackupCode.trim() : totpCode.join("").length < 6) ? C.gray3 : `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: loading || (totpBackupMode ? !totpBackupCode.trim() : totpCode.join("").length < 6) ? C.gray : C.dark, fontSize: "16px", fontWeight: "800", cursor: loading || (totpBackupMode ? !totpBackupCode.trim() : totpCode.join("").length < 6) ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", boxShadow: !loading ? `0 8px 24px ${C.gold}40` : "none", marginBottom: "14px" }}>
+              {loading ? <><Spinner/> Vérification…</> : <>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                Vérifier
+              </>}
+            </button>
+
+            <div style={{ textAlign: "center" }}>
+              <button
+                onClick={() => {
+                  setTotpToken(""); setTotpCode(["","","","","",""]); setTotpBackupMode(false); setTotpBackupCode(""); setError("");
+                  setStep(totpContext === "unlock" && remembered ? "unlock" : "phone");
+                }}
+                className="tap" style={{ background: "none", border: "none", color: C.gray, fontSize: "12.5px", fontWeight: "600", cursor: "pointer" }}>
+                Annuler la connexion
+              </button>
             </div>
           </div>
         )}

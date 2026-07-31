@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { jwtVerify, SignJWT } from 'jose'
 import { verifyAuthenticationResponse } from '@simplewebauthn/server'
 import type { AuthenticationResponseJSON, WebAuthnCredential } from '@simplewebauthn/server'
+import { mintInstitutionTotpChallengeToken } from '@/lib/auth/institutionSession'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -148,10 +149,21 @@ export async function POST(request: NextRequest) {
     // role dans le même JWT si le membre Admin principal existe déjà.
     const { data: membrePrincipal } = await supabaseAdmin
       .from('institution_membres')
-      .select('id, role')
+      .select('id, role, totp_enabled')
       .eq('institution_id', institution.id)
       .eq('compte_principal', true)
       .maybeSingle()
+
+    // 2FA TOTP (chantier sécurité institution 25/07/2026) — voir verify-otp/route.ts.
+    if (membrePrincipal?.totp_enabled) {
+      const totpToken = await mintInstitutionTotpChallengeToken({
+        institutionId: institution.id,
+        membreId: membrePrincipal.id,
+        role: membrePrincipal.role,
+        rememberMe: false,
+      })
+      return NextResponse.json({ requiresTotp: true, totpToken })
+    }
 
     const token = await new SignJWT({
       institutionId: institution.id,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
 import { SignJWT } from 'jose'
+import { verify as verifyTotp } from 'otplib'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { email, password } = body
+    const { email, password, totp_code: totpCode } = body
 
     if (!email || !password) {
       return NextResponse.json(
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     // Récupérer l'admin
     const { data: admin, error: dbError } = await supabaseAdmin
       .from('admin_users')
-      .select('id, email, password_hash, role, nom, is_active, failed_login_attempts, locked_until')
+      .select('id, email, password_hash, role, nom, is_active, failed_login_attempts, locked_until, totp_enabled, totp_secret, totp_backup_codes')
       .eq('email', email.toLowerCase().trim())
       .single()
 
@@ -108,6 +109,43 @@ export async function POST(request: NextRequest) {
         { error: 'Compte désactivé. Contactez le super admin.', code: 'ACCOUNT_DISABLED' },
         { status: 403 }
       )
+    }
+
+    // 2FA TOTP (chantier "Sécurité" admin, 24/07/2026) — vérifié après le
+    // mot de passe mais avant l'émission du JWT. Sans code fourni, on
+    // redemande une étape supplémentaire (pas une erreur) ; avec un code
+    // fourni mais invalide, même traitement qu'un mot de passe invalide
+    // (compteur d'échecs/verrouillage), pour ne jamais révéler lequel des
+    // deux facteurs a échoué.
+    if (admin.totp_enabled) {
+      if (typeof totpCode !== 'string' || !totpCode) {
+        return NextResponse.json({ requiresTotp: true })
+      }
+
+      let totpValide = admin.totp_secret ? (await verifyTotp({ secret: admin.totp_secret, token: totpCode })).valid : false
+      if (!totpValide && Array.isArray(admin.totp_backup_codes)) {
+        const codes: string[] = admin.totp_backup_codes
+        for (let i = 0; i < codes.length; i++) {
+          if (await bcrypt.compare(totpCode, codes[i])) {
+            totpValide = true
+            const restants = [...codes]
+            restants.splice(i, 1)
+            await supabaseAdmin.from('admin_users').update({ totp_backup_codes: restants }).eq('id', admin.id)
+            break
+          }
+        }
+      }
+
+      if (!totpValide) {
+        const attempts = (admin.failed_login_attempts ?? 0) + 1
+        const updates: Record<string, unknown> = { failed_login_attempts: attempts }
+        if (attempts >= 5) updates.locked_until = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+        await supabaseAdmin.from('admin_users').update(updates).eq('id', admin.id)
+        return NextResponse.json(
+          { error: 'Code de vérification incorrect', code: 'INVALID_CREDENTIALS' },
+          { status: 401 }
+        )
+      }
     }
 
     // Connexion réussie — remettre le compteur d'échecs à zéro

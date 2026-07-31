@@ -100,7 +100,7 @@ const Ic = {
 // ─── Logo ─────────────────────────────────────────────────────────────────────
 function Logo({ size = 36 }: { size?: number }) {
   return (
-    <div style={{ width: size, height: size, background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: Math.round(size * 0.28) + "px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 14px rgba(245,166,35,0.35)", flexShrink: 0 }}>
+    <div style={{ width: size, height: size, background: "linear-gradient(135deg,#F5A623,#C8940A)", borderRadius: Math.round(size * 0.28) + "px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.18)", flexShrink: 0 }}>
       <svg width={size * 0.48} height={size * 0.48} viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.8" strokeLinecap="round">
         <circle cx="12" cy="12" r="3"/>
         <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
@@ -113,7 +113,7 @@ function Logo({ size = 36 }: { size?: number }) {
 function ThemeFloating({ theme, onToggle }: { theme: string; onToggle: () => void }) {
   const isDark = theme === "dark";
   return (
-    <button onClick={onToggle} className="tap" style={{ position: "fixed", bottom: "96px", right: "16px", zIndex: 300, width: "40px", height: "40px", borderRadius: "50%", background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", border: isDark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: isDark ? "#F5A623" : "#6b7280", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", transition: "all 0.2s" }}>
+    <button onClick={onToggle} className="tap" style={{ position: "fixed", bottom: "96px", right: "16px", zIndex: 300, width: "40px", height: "40px", borderRadius: "50%", background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", border: isDark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: isDark ? "#F5A623" : "#6b7280", boxShadow: "0 2px 8px rgba(0,0,0,0.1)", transition: "all 0.2s" }}>
       {isDark ? Ic.Sun() : Ic.Moon()}
     </button>
   );
@@ -342,12 +342,14 @@ export function DashboardClient() {
   // messagerie. Mode sombre volontairement neutre, même convention.
   const hBg     = isDark ? C.pageBg : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)";
   const hText   = isDark ? C.text : "#080812";
-  const hChip   = isDark ? C.cardBg : "#F5A623";
+  // Chip translucide neutre au lieu d'un fond doré plein — retour CEO
+  // 23/07/2026, même traitement que app/page.tsx.
+  const hChip   = isDark ? C.cardBg : "rgba(0,0,0,0.14)";
   const hIcon   = isDark ? hText : "#fff";
-  const hBrd    = isDark ? C.border : "transparent";
-  const hShadow = isDark ? "none" : "0 2px 8px rgba(245,166,35,0.35)";
+  const hBrd    = isDark ? C.border : "rgba(255,255,255,0.18)";
+  const hShadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.1)";
   const Bandeau = () => (
-    <div style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, borderBottom: isDark ? `1px solid ${C.border}` : "none" }}>
+    <div style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, borderBottom: isDark ? `1px solid ${C.border}` : "none", paddingTop: "env(safe-area-inset-top)" }}>
       <div onClick={() => setTab("accueil")} style={{ height: "52px", display: "flex", alignItems: "center", gap: "10px", padding: "0 16px", cursor: "pointer" }}>
         <Logo size={30}/>
         <div style={{ flex: 1 }}/>
@@ -374,10 +376,10 @@ export function DashboardClient() {
   );
 
   return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, color: C.text, fontFamily: "'SF Pro Text',-apple-system,'Helvetica Neue',sans-serif", paddingBottom: "88px", transition: "background-color 0.3s ease" }}>
+    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, color: C.text, fontFamily: "'SF Pro Text',-apple-system,'Helvetica Neue',sans-serif", overflowX: "hidden", paddingBottom: "calc(88px + env(safe-area-inset-bottom))", transition: "background-color 0.3s ease" }}>
       <style>{`
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-        html,body{overflow-x:hidden;background:${C.pageBg}}
+        html,body{background:${C.pageBg}}
         ::-webkit-scrollbar{display:none}
         *{scrollbar-width:none}
         @keyframes spin{to{transform:rotate(360deg)}}
@@ -399,7 +401,7 @@ export function DashboardClient() {
       {showWelcome && <WelcomeOverlay prenom={greet} onDismiss={() => setShowWelcome(false)}/>}
       <ThemeFloating theme={theme} onToggle={toggleTheme}/>
       <Bandeau/>
-      {notifOpen && <NotifPanel onClose={() => setNotifOpen(false)} t1={C.text} t2={C.textMuted} t3={C.textSubtle} card={C.cardBg} card2={C.sectionAlt} brd={C.border} userId={userId}/>}
+      {notifOpen && <NotifPanel onClose={() => setNotifOpen(false)} isDark={isDark} bg={C.pageBg} t1={C.text} t2={C.textMuted} t3={C.textSubtle} card={C.cardBg} card2={C.sectionAlt} brd={C.border} userId={userId}/>}
 
       <main style={{ padding: "16px 16px 0", animation: "fadeUp 0.25s ease" }}>
 
@@ -452,7 +454,7 @@ export function DashboardClient() {
               ) : (
                 <p style={{ color: subText, fontSize: "13px", margin: "0 0 18px", lineHeight: 1.6 }}>Bienvenue. Planifiez vos prochains rendez-vous administratifs en quelques secondes.</p>
               )}
-              <Link href="/recherche" className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", borderRadius: "14px", padding: "12px 20px", fontWeight: "800", fontSize: "13px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+              <Link href="/recherche" className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", borderRadius: "14px", padding: "12px 20px", fontWeight: "800", fontSize: "13px", textDecoration: "none", boxShadow: "0 3px 10px rgba(245,166,35,0.2)" }}>
                 {Ic.Search()} Trouver un service
               </Link>
             </div>
@@ -685,7 +687,7 @@ export function DashboardClient() {
                 </button>
                 <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: 0, letterSpacing: "-0.5px" }}>Mes rendez-vous</h2>
               </div>
-              <Link href="/recherche" className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", borderRadius: "12px", padding: "9px 14px", fontWeight: "800", fontSize: "13px", textDecoration: "none", boxShadow: "0 4px 14px rgba(245,166,35,0.3)" }}>
+              <Link href="/recherche" className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", borderRadius: "12px", padding: "9px 14px", fontWeight: "800", fontSize: "13px", textDecoration: "none", boxShadow: "0 2px 6px rgba(245,166,35,0.18)" }}>
                 {Ic.Plus()} Nouveau
               </Link>
             </div>

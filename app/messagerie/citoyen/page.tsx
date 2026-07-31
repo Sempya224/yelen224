@@ -350,7 +350,7 @@ function MessagerieInner() {
         input:focus{outline:none}
       `}</style>
 
-      <header style={{ position: "sticky", top: 0, zIndex: 200, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, padding: "0 16px" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 200, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, paddingTop: "env(safe-area-inset-top)", paddingRight: "16px", paddingBottom: 0, paddingLeft: "16px" }}>
         <div style={{ height: 56, display: "flex", alignItems: "center", gap: 10 }}>
           <button
             onClick={() => (tab === "etablissements" && selected) ? setSelected(null) : router.back()}

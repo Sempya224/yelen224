@@ -12,6 +12,12 @@ export default function AdminLogin() {
   const [attempts, setAttempts] = useState(0)
   const [blocked, setBlocked] = useState(false)
   const [blockTimer, setBlockTimer] = useState(0)
+  // 2FA (chantier "Sécurité" admin, 24/07/2026) — le mot de passe reste
+  // en mémoire pour la 2e requête (email+password+totp_code), l'API
+  // n'expose jamais si un compte a la 2FA avant d'avoir validé le mot de
+  // passe (voir app/api/admin/auth/login/route.ts).
+  const [totpRequired, setTotpRequired] = useState(false)
+  const [totpCode, setTotpCode] = useState('')
 
   // Countdown si bloqué
   useEffect(() => {
@@ -26,11 +32,21 @@ export default function AdminLogin() {
     }
   }, [blockTimer])
 
+  function retourEtapeMotDePasse() {
+    setTotpRequired(false)
+    setTotpCode('')
+    setError('')
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (blocked) return
-    if (!email || !password) {
+    if (!totpRequired && (!email || !password)) {
       setError('Email et mot de passe requis.')
+      return
+    }
+    if (totpRequired && !totpCode.trim()) {
+      setError('Code de vérification requis.')
       return
     }
 
@@ -41,10 +57,19 @@ export default function AdminLogin() {
       const res = await fetch('/api/admin/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+          ...(totpRequired ? { totp_code: totpCode.trim() } : {}),
+        }),
       })
 
       const data = await res.json()
+
+      if (data?.requiresTotp) {
+        setTotpRequired(true)
+        return
+      }
 
       if (!res.ok) {
         const newAttempts = attempts + 1
@@ -164,77 +189,133 @@ export default function AdminLogin() {
           )}
 
           <form onSubmit={handleSubmit}>
-            {/* Email */}
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{
-                display: 'block',
-                color: '#999',
-                fontSize: '12px',
-                fontWeight: '600',
-                letterSpacing: '0.6px',
-                textTransform: 'uppercase',
-                marginBottom: '8px',
-              }}>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="admin@yelen224.gn"
-                disabled={loading || blocked}
-                autoComplete="email"
-                style={{
-                  width: '100%',
-                  backgroundColor: '#1a1a1a',
-                  border: '1px solid #333',
-                  borderRadius: '10px',
-                  padding: '13px 16px',
-                  color: '#fff',
-                  fontSize: '15px',
-                  outline: 'none',
-                  transition: 'border-color 0.2s',
-                  boxSizing: 'border-box',
-                  opacity: blocked ? 0.5 : 1,
-                }}
-                onFocus={e => e.target.style.borderColor = '#00c896'}
-                onBlur={e => e.target.style.borderColor = '#333'}
-              />
-            </div>
+            {!totpRequired ? (
+              <>
+                {/* Email */}
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#999',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    letterSpacing: '0.6px',
+                    textTransform: 'uppercase',
+                    marginBottom: '8px',
+                  }}>Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="admin@yelen224.gn"
+                    disabled={loading || blocked}
+                    autoComplete="email"
+                    style={{
+                      width: '100%',
+                      backgroundColor: '#1a1a1a',
+                      border: '1px solid #333',
+                      borderRadius: '10px',
+                      padding: '13px 16px',
+                      color: '#fff',
+                      fontSize: '15px',
+                      outline: 'none',
+                      transition: 'border-color 0.2s',
+                      boxSizing: 'border-box',
+                      opacity: blocked ? 0.5 : 1,
+                    }}
+                    onFocus={e => e.target.style.borderColor = '#00c896'}
+                    onBlur={e => e.target.style.borderColor = '#333'}
+                  />
+                </div>
 
-            {/* Password */}
-            <div style={{ marginBottom: '28px' }}>
-              <label style={{
-                display: 'block',
-                color: '#999',
-                fontSize: '12px',
-                fontWeight: '600',
-                letterSpacing: '0.6px',
-                textTransform: 'uppercase',
-                marginBottom: '8px',
-              }}>Mot de passe</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                disabled={loading || blocked}
-                autoComplete="current-password"
-                style={{
-                  width: '100%',
-                  backgroundColor: '#1a1a1a',
-                  border: '1px solid #333',
-                  borderRadius: '10px',
-                  padding: '13px 16px',
-                  color: '#fff',
-                  fontSize: '15px',
-                  outline: 'none',
-                  transition: 'border-color 0.2s',
-                  boxSizing: 'border-box',
-                  opacity: blocked ? 0.5 : 1,
-                }}
-                onFocus={e => e.target.style.borderColor = '#00c896'}
-                onBlur={e => e.target.style.borderColor = '#333'}
-              />
-            </div>
+                {/* Password */}
+                <div style={{ marginBottom: '28px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#999',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    letterSpacing: '0.6px',
+                    textTransform: 'uppercase',
+                    marginBottom: '8px',
+                  }}>Mot de passe</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    disabled={loading || blocked}
+                    autoComplete="current-password"
+                    style={{
+                      width: '100%',
+                      backgroundColor: '#1a1a1a',
+                      border: '1px solid #333',
+                      borderRadius: '10px',
+                      padding: '13px 16px',
+                      color: '#fff',
+                      fontSize: '15px',
+                      outline: 'none',
+                      transition: 'border-color 0.2s',
+                      boxSizing: 'border-box',
+                      opacity: blocked ? 0.5 : 1,
+                    }}
+                    onFocus={e => e.target.style.borderColor = '#00c896'}
+                    onBlur={e => e.target.style.borderColor = '#333'}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Code 2FA */}
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#999',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    letterSpacing: '0.6px',
+                    textTransform: 'uppercase',
+                    marginBottom: '8px',
+                  }}>Code de vérification</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={totpCode}
+                    onChange={e => setTotpCode(e.target.value)}
+                    placeholder="123456 ou XXXX-XXXX"
+                    disabled={loading || blocked}
+                    autoComplete="one-time-code"
+                    autoFocus
+                    style={{
+                      width: '100%',
+                      backgroundColor: '#1a1a1a',
+                      border: '1px solid #333',
+                      borderRadius: '10px',
+                      padding: '13px 16px',
+                      color: '#fff',
+                      fontSize: '15px',
+                      letterSpacing: '2px',
+                      outline: 'none',
+                      transition: 'border-color 0.2s',
+                      boxSizing: 'border-box',
+                      opacity: blocked ? 0.5 : 1,
+                    }}
+                    onFocus={e => e.target.style.borderColor = '#00c896'}
+                    onBlur={e => e.target.style.borderColor = '#333'}
+                  />
+                  <p style={{ color: '#666', fontSize: '11.5px', margin: '8px 0 0', lineHeight: 1.5 }}>
+                    Depuis votre application d&apos;authentification, ou un code de secours si vous n&apos;avez plus accès à l&apos;app.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={retourEtapeMotDePasse}
+                  disabled={loading}
+                  style={{ background: 'none', border: 'none', color: '#666', fontSize: '12.5px', cursor: 'pointer', padding: 0, marginBottom: '20px' }}
+                >
+                  ← Revenir à l&apos;étape précédente
+                </button>
+              </>
+            )}
 
             {/* Bouton */}
             <button
@@ -256,7 +337,7 @@ export default function AdminLogin() {
                 letterSpacing: '0.2px',
               }}
             >
-              {loading ? 'Vérification...' : blocked ? 'Accès bloqué' : 'Accéder au dashboard'}
+              {loading ? 'Vérification...' : blocked ? 'Accès bloqué' : totpRequired ? 'Valider le code' : 'Accéder au dashboard'}
             </button>
           </form>
         </div>

@@ -4,9 +4,11 @@ Plateforme civique de prise de rendez-vous — République de Guinée
 Niveau : Google / Meta / Uber / DoorDash — Zéro amateurisme
 ═══════════════════════════════════════════════════════════════
 
-⚠️ Ce fichier a été compressé le 21/07/2026 : les chantiers **terminés** ont
-été réduits à leur état final + pièges à ne pas reproduire (l'historique
-lot par lot n'est plus détaillé ici — le code fait foi). Les chantiers
+⚠️ Ce fichier a été compressé le 21/07/2026 puis à nouveau le 26/07/2026
+(le pivot rétention v2 était devenu un historique lot par lot de ~250
+lignes pour un chantier déjà clos) : les chantiers **terminés** sont
+réduits à leur état final + pièges à ne pas reproduire (l'historique lot
+par lot n'est plus détaillé ici — le code fait foi). Les chantiers
 **ouverts** gardent tout leur détail. Raison : un CLAUDE.md trop long
 dégrade le contexte utile (signalé par Anthropic). Si un détail manque
 pour un chantier fermé, lire le code directement plutôt que de supposer.
@@ -24,6 +26,13 @@ Bryan       : product owner, seul développeur, exécute tout SQL et
               toutes commandes terminal manuellement
 Claude/CC   : propose, diagnostique, écrit le code — n'exécute JAMAIS
               de SQL ou commande terminal directement sans validation explicite
+
+⚠️ **Règle explicite (24/07/2026) : JAMAIS de `git commit`/`git push` sans
+ordre explicite de Bryan pour CE commit précis.** `main` est en CI/CD Netlify
+(voir /stack) : un commit non demandé part immédiatement en production. Une
+validation donnée pour une tâche (ex. "corrige X") ne vaut pas autorisation
+de commit — Bryan commit lui-même quand il est prêt. Ne jamais committer
+"pour rendre service" après une modification, même petite.
 
 ## /stack — STACK TECHNIQUE
 Frontend    : Next.js 15 (App Router) + TypeScript strict
@@ -438,248 +447,145 @@ notification).
 **Étendu le 22/07/2026** (voir item 5 du plan rétention juste en dessous)
 avec démarches en retard/à échéance proche et documents en attente.
 
-## /chantier-strategie-retention-v2 — pivot stratégique rétention citoyenne (débat du 21/07/2026, DISCUSSION UNIQUEMENT — aucun code écrit)
+## /vision-long-terme-yelenid — architecture identité/confiance/réputation (décision CEO 26/07/2026 — VISION LONG TERME UNIQUEMENT, aucune action immédiate, "on fera ça pas à pas")
 
-**Risque identifié** : Yelen est perçu comme une appli de rendez-vous —
-un citoyen peut ne plus l'ouvrir pendant des semaines entre deux RDV. Débat
-stratégique mené (panel d'experts produit simulé + contre-analyse) pour
-définir comment transformer Yelen en produit ouvert 4-5x/semaine sans
-spam ni gadget hors-sujet (météo/actu/foot explicitement exclus).
+**Positionnement produit à long terme** : Yelen = l'endroit où un citoyen
+guinéen construit sa preuve de confiance — preuve qui peut progressivement
+ouvrir l'accès au crédit, au travail, aux services et aux opportunités.
+"Yelen, la lumière" = rendre visible ce que quelqu'un a réellement fait,
+pas ce qu'il prétend être ou qui il connaît.
 
-**Décisions actées** :
-- Vision produit : Yelen = espace personnel de confiance du citoyen
-  (identité, historique, preuves, établissements, confiance) — pas une
-  super app qui fait tout, reste centré sur la mission civique/institutionnelle.
-- **Jamais de score numérique visible attribué à un citoyen** (risque
-  politique majeur pour une plateforme adossée à l'État en Guinée — trop
-  proche du crédit social). Uniquement des badges factuels ("Identité
-  vérifiée", "X ans d'historique", "0 signalement"). Le score de
-  réputation **institution** (`avis-reputation-institution` ci-dessus)
-  n'est pas concerné, c'est une métrique business normale.
-- Compte famille (gérer les RDV d'un proche) : valeur réelle en Afrique de
-  l'Ouest mais item le plus complexe (consentement, mineurs,
-  confidentialité médicale) — **reporté**, scope étroit (mineurs
-  uniquement) si un jour construit, jamais un graphe familial adulte
-  ouvert d'entrée.
-- Un digest/résumé personnel proactif ("Bonjour {prénom}, aujourd'hui...")
-  ne doit **jamais s'afficher/se pousser sans contenu réel** — silence
-  plutôt que bruit forcé, cohérent avec la discipline déjà en place
-  partout ailleurs dans le projet (zéro donnée inventée).
-- **Constat central** : tout ce qui existe dans Yelen aujourd'hui est en
-  mode consultation (le citoyen reçoit/regarde/répond). Aucune brique ne
-  lui permet de **créer** quelque chose qui vit sur plusieurs sessions —
-  c'est ce mode "investissement" qui manque pour générer des événements de
-  retour indépendants des institutions et des rendez-vous.
-- **Premier chantier concret retenu (pas commencé)** : "Mes démarches" —
-  checklist libre multi-étapes, rédigée par le citoyen lui-même, liée ou
-  non à une institution (ex. suivi d'un dossier universitaire, permis de
-  construire, création d'entreprise, visa). **V1 = zéro modèle pré-rempli
-  par Yelen** (décision explicite de Bryan) : un modèle "officiel" suggéré
-  engagerait la responsabilité éditoriale de Yelen sur une procédure
-  potentiellement fausse/obsolète — risque de confiance direct pour un
-  produit dont l'ADN est la fiabilité. Les échéances de documents
-  (expiration passeport/CNI/assurance) deviennent un cas particulier de
-  démarche, pas un chantier séparé.
-- **Gains à coût quasi nul identifiés pour le démarrage de ce chantier**
-  (infra déjà existante, jamais exploitée) : notifier le citoyen quand le
-  statut d'un `citoyen_documents` change (colonne existe, aucune
-  notification déclenchée aujourd'hui) ; notifier quand un établissement
-  en favori publie une annonce ou ouvre un créneau (trou identifié, rien
-  n'existe).
-- **Bilan périodique** (mensuel/annuel, "il y a 1 an vous rejoigniez
-  Yelen...") retenu comme boucle de retour supplémentaire — entièrement
-  calculable depuis l'historique déjà stocké, zéro nouvelle donnée.
+**Architecture à 4 briques, à séparer complètement l'une de l'autre** :
+1. **YelenID** — qui es-tu ? (identité)
+2. **Yelen Trust** — peut-on te faire confiance dans tes interactions avec
+   Yelen ? (historique comportemental)
+3. **Yelen Points** — quelle valeur as-tu créée dans l'écosystème ?
+   (récompenses)
+4. **Yelen Skills** (plus tard, pas priorisé) — qu'est-ce que tu sais
+   faire et as prouvé ? (réputation professionnelle)
 
-**Item 1 du plan — notifier changement de statut document citoyen (terminé
-le 22/07/2026)** : `citoyen_documents` ne déclenchait jusqu'ici aucune
-notification. `lib/notificationEngine.ts` gagne 3 fonctions
-(`notifierDocumentDemande`, `notifierDocumentEnvoye`,
-`notifierDocumentTeleverse`), réutilisant `envoyerNotification()` générique
-avec le vrai `rdv_id` de `citoyen_documents` (pas de nouveau lien à
-construire).
-- `app/api/institution/documents-citoyen/route.ts` (POST) — notifie le
-  citoyen juste après la création d'une demande ou d'un envoi, best-effort
-  (échec de notification n'empêche jamais la création).
-- `app/api/citoyen/documents/upload/route.ts` (POST) — notifie
-  l'institution quand le citoyen téléverse en réponse à une demande.
-- ⚠️ Limite connue, pas corrigée ici (préexistante, pas une régression) :
-  le clic sur une notification (citoyen comme institution) route toujours
-  de façon générique par présence de `rdv_id` (messagerie côté citoyen,
-  onglet RDV côté institution) — pas de routage spécifique par `type` vers
-  Mes documents/Documents clients. Vrai pour les 8 phases RDV existantes
-  aussi, pas propre à ce correctif.
+Chaîne visée : Identité → Confiance → Réputation → Opportunités → Revenu.
+Exemple produit du CEO : un jeune de 22 ans sans patrimoine ni relations,
+mais avec 2 ans de YelenID actif (RDV honorés, démarches réussies,
+missions pro, 0 fraude), devient lisible et vérifiable par un employeur
+qui ne le connaît pas.
 
-**Item 2 du plan — bilan périodique (terminé le 22/07/2026)** :
-`app/compte/activites/activites-client.tsx` — nouvelle carte "Votre
-bilan" au-dessus du "Résumé" existant : "Membre depuis {X}" (framing
-"il y a {X}, vous rejoigniez Yelen" si ≥1 an) + compteurs "ce mois-ci"
-(RDV créés, avis publiés, documents). **Entièrement calculé côté client**
-depuis les activités déjà chargées par `/api/citoyen/activites` (aucune
-route serveur modifiée, aucune requête supplémentaire) : "membre depuis"
-dérive de l'activité `compte_cree` déjà présente dans la liste, "ce
-mois-ci" est un simple filtre par date sur la même liste. N'inclut pas
-les démarches ("Mes démarches" reste volontairement absent de la
-timeline Activités passées — Lot 3 de ce chantier séparé, pas fait ici).
+⚠️ **Tension à lever avant toute construction** : `/chantier-strategie-
+retention-v2` a explicitement décidé "jamais de score numérique visible
+attribué à un citoyen" (risque crédit social, plateforme adossée à
+l'État). "Yelen Trust"/"Yelen Points" chiffrés semblent aller à
+l'encontre de ce principe si affichés publiquement — à clarifier
+explicitement avec Bryan (piste probable : visible au citoyen lui-même et
+à qui il choisit de le montrer, jamais un classement public/comparatif)
+avant d'écrire la moindre ligne de code sur ces briques.
 
-**Item 5 du plan — "Résumé de mon espace" (terminé le 22/07/2026, réalisé
-en étendant Mon Assistant plutôt qu'un nouveau widget)** : découverte en
-cours de route que `components/MonAssistant.tsx` (voir
-`/chantier-mon-assistant` ci-dessus) couvrait déjà exactement ce rôle —
-construire un second bandeau aurait été redondant. Étendu avec :
-- `app/api/citoyen/assistant/route.ts` — 2 nouvelles requêtes
-  (`citoyen_demarches` statut en_cours, `citoyen_documents` sens=demande +
-  statut=en_attente) + calcul démarches en retard/échéance proche (7
-  jours), même logique que `estEnRetard()` côté client, dupliquée
-  volontairement (pas de module partagé client/serveur existant pour ça).
-- `lib/assistantMessages.ts` — 3 nouveaux messages déterministes
-  (`MESSAGE_DOCUMENT_ATTENTE`, `MESSAGE_DEMARCHE_RETARD`,
-  `MESSAGE_DEMARCHE_ECHEANCE`).
-- `components/MonAssistant.tsx` — 2 nouvelles sections dépliées
-  ("Documents à fournir", "Démarches à surveiller"), priorité du message
-  résumé mise à jour : RDV imminent > documents en attente > démarches en
-  retard > avis à laisser > démarches à échéance proche > annonces.
+**Lien avec le travail actuel** : les chantiers récents (`/chantier-mes-
+demarches`, `/chantier-menu-engagement` ci-dessous) construisent déjà,
+sans le nommer ainsi, la matière première de "Yelen Trust" (comportement
+réel : RDV honorés, démarches suivies, activité financière). À garder en
+tête pour la cohérence des choix futurs, sans sur-construire par
+anticipation.
 
-**Plan rétention v2 — items 1, 2 et 5 terminés.** Item 3 (échéances comme
-cas particulier de démarche) déjà satisfait par le design du Lot 1. Reste
-ouvert, pas commencé : lots internes de "Mes démarches" (rappels
-automatiques, apparition dans Activités passées, pièce jointe, visibilité
-institution optionnelle, modèles Yelen très reportés).
+## /chantier-strategie-retention-v2 — pivot stratégique rétention citoyenne (décisions actées le 21/07/2026)
 
-**Lot 1 — écran "Mes démarches" (code écrit le 22/07/2026, migration PAS
-ENCORE EXÉCUTÉE par Bryan)** :
-- `supabase/migrations/20260724000011_citoyen_demarches.sql` —
-  `citoyen_demarches` (citoyen_id, institution_id nullable, titre,
-  description, date_cible, statut en_cours/terminee, created_at,
-  termine_le) + `citoyen_demarche_etapes` (demarche_id, citoyen_id
-  dénormalisé, libelle, date_echeance, fait, fait_le, ordre). RLS
-  classique `auth.uid() = citoyen_id` sur les deux (mirroring
-  citoyen_favoris — pas le style service_role-only des tables de
-  sécurité). Décision actée le 22/07/2026 : une démarche peut exister
-  sans aucune étape (cas "échéance simple"), `statut` reste un champ
-  stocké et modifiable manuellement pour ce cas.
-- `app/compte/mes-demarches/{page,mes-demarches-client}.tsx` (nouveau,
-  remplace le stub) — écrasement direct via Supabase côté client (RLS
-  suffit, pas de route API dédiée, mirroring `favoris-client.tsx`) :
-  liste avec KPI (total/en cours/terminées/en retard), création (titre +
-  institution optionnelle via recherche `institutions.name` + date cible
-  optionnelle + étapes optionnelles), détail (cocher/ajouter/supprimer une
-  étape, statut terminée automatique quand toutes les étapes existantes
-  sont cochées — et réversible si on décoche ou ajoute une étape après
-  coup —, bouton manuel "Marquer terminée"/"Rouvrir" pour le cas sans
-  étape, suppression de la démarche).
-- Menu (`app/page.tsx`, section "Mon Activité") — entrée "Mes démarches"
-  ajoutée juste après "Activités passées".
-- **Volontairement pas dans ce lot** (additifs plus tard, voir plan de
-  lots ci-dessus) : rappels automatiques sur `date_echeance`, apparition
-  dans "Activités passées", pièce jointe à une étape, édition du
-  titre/institution/date cible après création, visibilité institution.
-- `tsc --noEmit` : 0 erreur.
-- ⚠️ **Action requise de Bryan avant tout test** : exécuter la migration
-  `20260724000011_citoyen_demarches.sql`.
+**Constat** : Yelen perçu comme une appli de rendez-vous seule — un
+citoyen peut ne plus l'ouvrir pendant des semaines entre deux RDV.
 
-**Correctif post-test (22/07/2026)** — retour direct de Bryan après un
-premier test réel (captures d'écran) : l'écran fonctionnait techniquement
-mais était "incompréhensible" — badge "Terminée" affiché en même temps
-qu'une étape non cochée (0/1), aucun texte expliquant la valeur de
-l'écran ou comment s'en servir, actions jugées trop limitées.
-- **Vraie incohérence corrigée** : "Marquer terminée" pouvait clôturer une
-  démarche avec des étapes encore non cochées sans le signaler. Ajout
-  d'une confirmation (`window.confirm`) quand des étapes restent non
-  cochées, et badge distinct **"Clôturée"** (au lieu de "Terminée") sur la
-  carte et dans le détail quand c'est le cas — pour ne plus jamais
-  afficher "Terminée" à côté d'une progression incomplète.
-- Guide "Comment ça marche ?" (3 puces) ajouté sous l'intro de la liste.
-  État vide enrichi avec 4 exemples cliquables (pré-remplissent le titre
-  et ouvrent la création — pas des modèles avec étapes pré-remplies,
-  juste des intitulés, cohérent avec la décision "zéro modèle Yelen").
-  Texte explicatif ajouté quand une démarche n'a aucune étape, et
-  au-dessus du bouton Marquer terminée/Rouvrir pour expliquer la
-  conséquence selon le contexte.
-- **Action débloquée** : édition du titre et de la date cible depuis le
-  détail (bouton "Modifier"). L'édition de l'établissement lié reste
-  différée (pas demandée explicitement, complexité UI plus grande).
-- Erreurs silencieuses corrigées : les mises à jour automatiques de
-  `statut` (bascule terminée/en_cours déclenchée par le cochage ou l'ajout
-  d'une étape) affichent désormais un toast d'erreur si elles échouent,
-  au lieu d'échouer sans retour.
+**Décisions de fond toujours valables** :
+- Yelen = espace personnel de confiance du citoyen, pas une super app.
+- Jamais de score numérique visible attribué à un citoyen (badges
+  factuels seulement) — ne concerne pas le score réputation
+  **institution** (`/chantier-avis-reputation-institution`, métrique
+  business normale). Voir tension avec `/vision-long-terme-yelenid`.
+- Compte famille : reporté, scope non tranché.
+- Digest proactif : jamais sans contenu réel, silence plutôt que bruit forcé.
+- Constat central : Yelen était 100% consultation, rien ne permettait au
+  citoyen de **créer** quelque chose qui vit sur plusieurs sessions — d'où
+  "Mes démarches" (voir `/chantier-mes-demarches`).
 
-**2e correctif post-test (22/07/2026)** — nouveau retour Bryan (capture
-d'écran d'un `window.confirm` natif du navigateur, jugé "nul" visuellement,
-plus demande de contenu explicatif plus poussé) :
-- Les 2 `window.confirm()` restants (clôturer avec étapes non cochées,
-  supprimer une démarche) remplacés par une modale de confirmation stylée
-  cohérente avec le reste de l'écran (overlay + carte, boutons
-  Annuler/Confirmer), au lieu du dialogue générique du navigateur.
-- Guide "Comment ça marche ?" — bouton X ajouté (masque le bloc pour la
-  session en cours ; il réapparaît naturellement à la prochaine ouverture
-  de l'écran, aucune persistance volontaire).
-- Micro-copy ajoutée sous chaque champ du formulaire de création
-  (établissement lié, date cible, étapes) expliquant à quoi sert le champ
-  et ce qu'il faut y mettre — le formulaire n'expliquait rien avant.
-- **FAQ explicite ajoutée en bas de l'écran** (accordéon, 8 questions) —
-  couvre le fonctionnement précis de chaque mécanisme (étapes optionnelles,
-  bascule automatique vs clôture manuelle, différence Terminée/Clôturée,
-  sens du badge En retard, confidentialité vis-à-vis de l'établissement
-  lié, ce qui est modifiable après coup).
-- **Texte de marque Yelen ajouté après la FAQ** (mission/valeur du produit,
-  pas spécifique à cet écran) — même logique qu'un footer d'appli
-  bancaire, demandé explicitement par Bryan.
+**Réalisé depuis (détail dans le code, pas ici)** : bilan périodique
+(`app/compte/activites`) + notifications documents/favoris intégrés à
+`components/MonAssistant.tsx`/`GET /api/citoyen/assistant`.
 
-**Élargissement d'audience (22/07/2026)** — constat de Bryan lui-même en
-testant l'écran : "Mes démarches" fonctionnait déjà techniquement pour un
-usage professionnel (rien n'empêchait de taper un titre business) mais
-rien sur l'écran ne le signalait, ce qui excluait de fait les citoyens
-entrepreneurs/chefs d'entreprise (segment particulièrement pertinent en
-Guinée, économie informelle/PME) — pas un conflit avec le compte
-"institution" existant, toujours un usage citoyen (interaction avec des
-institutions de l'extérieur), pas une gestion d'organisation.
-- `supabase/migrations/20260724000012_citoyen_demarches_categorie.sql` —
-  `citoyen_demarches.categorie` (nullable, CHECK personnel/professionnel,
-  aucun backfill des démarches déjà créées).
-- Sélecteur catégorie optionnel (2 boutons bascule, cliquer sur celui déjà
-  sélectionné le désélectionne) dans la création ET dans l'édition du
-  détail.
-- Nouveau filtre par catégorie (Toutes/Personnel/Professionnel), affiché
-  seulement si au moins une démarche existante a une catégorie renseignée
-  — n'encombre pas l'écran pour un usage 100% personnel.
-- Badge catégorie sur la carte liste et dans le détail (bleu pour
-  Professionnel, neutre pour Personnel).
-- État vide : exemples désormais séparés en deux groupes (Personnel :
-  passeport/université/ordonnance ; Professionnel : RCCM/déclaration
-  fiscale/fournisseur/licence commerciale) — cliquer pré-remplit le titre
-  ET la catégorie avant d'ouvrir la création.
-- Guide "Comment ça marche ?" et FAQ mis à jour pour mentionner les deux
-  audiences ; nouvelle question FAQ dédiée à la catégorie.
+## /chantier-mes-demarches — checklist personnelle + "Suivis" (créé 22/07, refondu 26/07/2026)
 
-**3e correctif post-test (22/07/2026)** — discipline de saisie + vue des
-cartes enrichie + célébration, demandés par Bryan pour éviter un écran
-"fictif" où l'on tape n'importe quoi sans structure :
-- **Champs disciplinés en douceur, pas bloqués en dur** (arbitrage retenu
-  entre les deux options proposées par Bryan — catégorie/date
-  cible/étapes "obligatoires" VS message honnête + choix) : le bouton
-  "Créer la démarche" reste cliquable avec seulement un titre (comme
-  avant), mais si catégorie, date cible ou étapes manquent (établissement
-  volontairement exclu de cette règle), une confirmation liste
-  précisément ce qui manque et pourquoi ("pas de détection en retard
-  fiable, pas de progression visible"), avec le choix de créer quand même
-  ou de revenir compléter.
-- **Confirmation au cochage d'une étape si la date ne correspond pas à
-  aujourd'hui** : cocher une étape dont `date_echeance` est fixée à un
-  autre jour que la date du jour demande confirmation ("elle était prévue
-  pour le X, la marquer terminée aujourd'hui ?") — ne s'applique qu'en
-  cochant (pas en décochant), et seulement si une date est fixée.
-- **Cartes de la liste enrichies** (retour direct : "elles sont nulles et
-  identiques") : démarche en cours affiche désormais "Se termine dans X
-  jours"/"demain"/"aujourd'hui" (calculé sur la prochaine étape non
-  cochée ou la date cible) quand elle n'est pas en retard ; démarche
-  terminée/clôturée affiche "Terminée le {date} à {heure}" (utilise
-  `termine_le`, déjà en base depuis le Lot 1 mais jamais exposé dans le
-  type `Demarche` ni affiché jusqu'ici).
-- **Popup de célébration** ("Bravo !", illustration médaille/ruban SVG
-  trait doré, message félicitant la discipline) déclenché uniquement lors
-  d'une complétion réelle : cochage de la dernière étape restante, ou
-  clôture manuelle sans aucune étape non cochée (0 étape ou toutes déjà
-  faites). Ne se déclenche jamais pour une "Clôturée" (fermeture manuelle
-  avec des étapes encore non cochées) — distinction déjà établie au
-  correctif précédent, réutilisée ici pour ne pas féliciter un abandon
-  partiel comme une réussite.
+`app/compte/mes-demarches/` : `citoyen_demarches` + `citoyen_demarche_etapes`
+(migrations `20260724000011`/`...012`, RLS `auth.uid()=citoyen_id`,
+écriture directe client, pas de route API). V1 = **zéro modèle Yelen
+pré-rempli** (décision explicite, engagerait la responsabilité éditoriale
+de Yelen sur une procédure potentiellement fausse) — juste des intitulés
+d'exemple cliquables, séparés Personnel/Professionnel (élargi aux
+entrepreneurs/chefs d'entreprise le 22/07). Auto-complétion à la dernière
+étape cochée ; badge **"Clôturée"** (pas "Terminée") si fermeture manuelle
+avec étapes non cochées — distinction qui pilote aussi le déclenchement de
+la popup de célébration. Toutes les confirmations passent par une modale
+stylée maison, aucun `window.confirm`. FAQ + guide "Comment ça marche ?"
+intégrés à l'écran.
+
+**Refonte "Suivis" (26/07/2026, décision CEO — écran majeur d'engagement,
+doit devenir la source qui alimentera l'Accueil avec de vraies actions,
+chantier séparé pas commencé)** : nouvelle section "Votre activité" en
+tête d'écran (au-dessus de "Vos démarches"), alimentée par
+`GET /api/citoyen/suivis` (nouvelle route, même discipline zéro-LLM que
+`/api/citoyen/assistant`, logique dupliquée volontairement). Analyse : RDV
+à venir, avis en attente, documents demandés, démarches en retard/
+échéance, **dépense la plus élevée du mois** (`citoyen_depenses` +
+`paid_bookings`), et **un centre d'intérêt sans aucune démarche**
+(`users.centres_interet`, affiché **seulement si le citoyen n'a encore
+aucune démarche** — jamais un "manque" affirmé sans preuve). Chaque suivi
+de type "créer une démarche" réutilise `ouvrirCreationDepuisExemple()`
+existant (titre pré-rempli, jamais un modèle avec étapes imposées).
+Animation de chargement façon radar (pas le spinner générique). Pop-up de
+création converti en plein écran (header X + titre), même pattern que
+`/chantier-menu-engagement` → Mes dépenses.
+
+## /chantier-menu-engagement — menu "conçu pour vous" + écrans finance (25-26/07/2026, décision CEO, inspiré Cash App/MoneyLion)
+
+Logo Yelen de l'onglet Accueil remplacé par un bouton menu (icône 3
+lignes) ouvrant `components/CitoyenMenu.tsx` — overlay plein écran,
+bandeau identité (nom + Yelen ID) en dégradé doré Yelen, 7 entrées à
+badges illustrés sur mesure : Vos centres d'intérêt, Mes dépenses,
+Calculatrice, Leçons d'argent, Vos tendances, Parrainage (stub),
+Nouveautés Yelen (stub). Header général (`CompteHeader` partagé +
+`app/page.tsx`) : icône casque (support) remplace le "?" partout, visible
+sur tous les onglets sauf Accueil.
+
+Tous les écrans de contenu financier utilisent uniquement des données
+réelles sourcées (recherches Perplexity commandées par Bryan le
+25/07/2026 : Banque mondiale, BCRG, Crédit Rural de Guinée, BSIC Guinée,
+Guinéenews, RFI) — jamais un chiffre inventé, chaque fait cite sa source
+cliquable. Catégories/secteurs adaptés à la réalité guinéenne (mobile
+money, tontines, microfinance) plutôt que copiés du modèle américain de
+référence (ex. "score de crédit public" n'existe pas en Guinée — devenu
+une question de quiz plutôt qu'ignoré).
+
+- **`app/menu/lecons-argent/`** (`lib/leconsArgent.ts`) : 6 leçons (une
+  par catégorie : épargne/tontines, mobile money, microfinance/crédit,
+  revenus, budget, fraudes), quiz 2-3 questions chacune, réponses en
+  pilules pleines colorées, feedback vert/rouge sourcé, célébration
+  confettis CSS en fin de leçon.
+- **`app/menu/calculatrice/`** (`lib/calculateurs.ts`) : "Vos outils
+  financiers", 2 outils actifs (microcrédit — amortissement dégressif
+  2-3,5%/mois façon Crédit Rural de Guinée ; épargne — 3 scénarios réels :
+  tontine 0%, OMIG Tik Tak 3%/an, IMF type BSIC 4-4,5%/an), 4 outils
+  "Bientôt disponible" plutôt qu'inventés.
+- **`app/menu/interets/`** (`lib/centresInteret.ts`, migration
+  `users.centres_interet text[]`) : 14 centres d'intérêt réutilisant 1:1
+  les 8 `secteur` d'institutions + les 6 catégories Leçons d'argent (pas
+  une taxonomie inventée, exploitable plus tard pour de vraies
+  recommandations). Bouton "Enregistrer"/"Modifier" actif seulement si la
+  sélection diffère de ce qui est déjà enregistré ; retour bloqué (modale)
+  tant qu'il y a des changements non enregistrés — prop `onBackIntercept`
+  ajoutée à `CompteHeader` (optionnelle, rétrocompatible avec les ~29
+  autres écrans qui ne la passent pas).
+- **`app/menu/depenses/`** (migration `citoyen_depenses`, RLS
+  `auth.uid()=citoyen_id`) : dépenses manuelles + RDV payés
+  (`paid_bookings`, jamais dupliqués en base) combinés. Catégories du mois
+  en cartes horizontales scrollables. Détail au clic (plein écran) :
+  date/heure réelles (`created_at`), établissement/service pour les RDV
+  Yelen. CTA "Organiser un suivi" vers Mes démarches sur la catégorie la
+  plus dépensière.
+
+⚠️ **Migrations pas encore exécutées par Bryan** :
+`20260725000008_users_centres_interet.sql`,
+`20260725000009_citoyen_depenses.sql`.

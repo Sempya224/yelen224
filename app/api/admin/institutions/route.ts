@@ -13,10 +13,14 @@ const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
 async function verifyToken(request: NextRequest) {
   const token = request.cookies.get('yelen224_admin_session')?.value
   if (!token) throw new Error('NO_TOKEN')
-  await jwtVerify(token, JWT_SECRET, {
+  const { payload } = await jwtVerify(token, JWT_SECRET, {
     issuer: 'yelen224-admin',
     audience: 'yelen224-admin-dashboard',
   })
+  // Durcissement rôle (chantier refonte admin 26/07/2026, Lot I) — même
+  // matrice que le filtrage de nav dans app/admin/layout.tsx.
+  if (!['super_admin', 'moderateur', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
+  return payload
 }
 
 export async function GET(request: NextRequest) {

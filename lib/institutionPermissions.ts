@@ -35,11 +35,12 @@ export const ROLE_DESCRIPTIONS: Record<MembreRole, string> = {
 export const TAB_KEYS = [
   "accueil", "rdv", "disponibilites", "services", "valider-rdv",
   "communication", "scanner", "codeqr", "analyse", "parametres",
-  "profil-entreprise", "profil-responsable", "documents", "mes-clients",
-  "avis-reputation", "messagerie",
+  "profil-entreprise", "conditions-informations", "profil-responsable", "documents", "mes-clients",
+  "avis-reputation", "messagerie", "questions-clients",
   "rdv-historique", "equipe", "journal", "espace-travail",
   "paiements", "transactions", "historique-financier", "facturation",
   "rapports", "documents-financiers", "documents-clients", "profil",
+  "partenariat", "mes-offres",
 ] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
 
@@ -58,22 +59,24 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
   admin: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
     "valider-rdv": "full", communication: "full", scanner: "full", codeqr: "full",
-    analyse: "full", parametres: "full", "profil-entreprise": "full",
+    analyse: "full", parametres: "full", "profil-entreprise": "full", "conditions-informations": "full",
     "profil-responsable": "full", documents: "full", "mes-clients": "full",
-    "avis-reputation": "full", messagerie: "full",
+    "avis-reputation": "full", messagerie: "full", "questions-clients": "full",
     "rdv-historique": "full", equipe: "full", journal: "full", "espace-travail": "full",
     paiements: "full", transactions: "full", "historique-financier": "full",
     facturation: "full", rapports: "full", "documents-financiers": "full", "documents-clients": "full", profil: "full",
+    partenariat: "full", "mes-offres": "full",
   },
   agent: {
     accueil: "full", rdv: "full", disponibilites: "read", services: "none",
     "valider-rdv": "full", communication: "read", scanner: "full", codeqr: "full",
-    analyse: "none", parametres: "none", "profil-entreprise": "none",
+    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "full",
-    "avis-reputation": "full", messagerie: "full",
+    "avis-reputation": "full", messagerie: "full", "questions-clients": "full",
     "rdv-historique": "none", equipe: "none", journal: "none", "espace-travail": "full",
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "none", profil: "full",
+    partenariat: "none", "mes-offres": "none",
   },
   // Menu strictement financier — décision CEO 22/07/2026 : le comptable
   // n'est plus lecteur des écrans des autres rôles (communication, analyse,
@@ -81,32 +84,35 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
   comptable: {
     accueil: "full", rdv: "none", disponibilites: "none", services: "full",
     "valider-rdv": "none", communication: "none", scanner: "none", codeqr: "none",
-    analyse: "none", parametres: "none", "profil-entreprise": "none",
+    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "none",
-    "avis-reputation": "none", messagerie: "none",
+    "avis-reputation": "none", messagerie: "none", "questions-clients": "none",
     "rdv-historique": "none", equipe: "none", journal: "none", "espace-travail": "none",
     paiements: "full", transactions: "full", "historique-financier": "full",
     facturation: "full", rapports: "full", "documents-financiers": "full", "documents-clients": "full", profil: "full",
+    partenariat: "none", "mes-offres": "none",
   },
   superviseur: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
     "valider-rdv": "none", communication: "full", scanner: "none", codeqr: "none",
-    analyse: "full", parametres: "none", "profil-entreprise": "none",
+    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "full",
-    "avis-reputation": "full", messagerie: "full",
+    "avis-reputation": "full", messagerie: "full", "questions-clients": "full",
     "rdv-historique": "full", equipe: "none", journal: "full", "espace-travail": "full",
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "full", profil: "full",
+    partenariat: "full", "mes-offres": "full",
   },
   dirigeant: {
     accueil: "full", rdv: "read", disponibilites: "none", services: "none",
     "valider-rdv": "none", communication: "read", scanner: "none", codeqr: "none",
-    analyse: "full", parametres: "none", "profil-entreprise": "none",
+    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
     "profil-responsable": "read", documents: "read", "mes-clients": "none",
-    "avis-reputation": "read", messagerie: "none",
+    "avis-reputation": "read", messagerie: "none", "questions-clients": "none",
     "rdv-historique": "read", equipe: "read", journal: "read", "espace-travail": "full",
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "none", profil: "full",
+    partenariat: "read", "mes-offres": "read",
   },
 };
 
@@ -121,12 +127,14 @@ export type ActionKey =
   | "services.write"
   | "mes_clients.write" | "mes_clients.delete"
   | "avis.repondre"
+  | "questions.repondre"
   | "communication.publish_annonce"
   | "espace_travail.write_projet"
   | "profil_entreprise.write" | "profil_responsable.write"
   | "documents_institutionnels.write"
   | "compte.delete_request"
-  | "paiements.rembourser" | "facturation.write";
+  | "paiements.rembourser" | "facturation.write"
+  | "offres.write" | "offres.submit";
 
 const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   "equipe.write": { admin: true },
@@ -144,6 +152,9 @@ const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   // Mêmes rôles que mes_clients.write — répondre à un avis est une action
   // de front office au même titre qu'une note client.
   "avis.repondre": { admin: true, agent: true, superviseur: true },
+  // Mêmes rôles que avis.repondre — répondre à une question publique est
+  // la même nature d'action de front office.
+  "questions.repondre": { admin: true, agent: true, superviseur: true },
   "communication.publish_annonce": { admin: true, superviseur: true },
   "espace_travail.write_projet": { admin: true, superviseur: true },
   "profil_entreprise.write": { admin: true },
@@ -156,6 +167,11 @@ const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   // Le comptable, lui, n'est jamais soumis à ce check supplémentaire.
   "paiements.rembourser": { admin: true, comptable: true },
   "facturation.write": { admin: true, comptable: true },
+  // Rédaction/soumission d'offres partenaire — même paire de rôles que
+  // communication.publish_annonce (front commercial/marketing de
+  // l'institution), pas le domaine de l'agent ni du comptable.
+  "offres.write": { admin: true, superviseur: true },
+  "offres.submit": { admin: true, superviseur: true },
 };
 
 export function canAccessTab(role: MembreRole, tab: TabKey): TabAccess {

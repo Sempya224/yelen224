@@ -21,6 +21,7 @@ export async function createRdv(payload: {
   champsComplementairesReponses: Record<string, string> | null;
   dureeMinutes: number | null;
   descriptionBesoin: string | null;
+  provenance: string | null;
   accessToken: string;
 }): Promise<CreateRdvResult> {
   const c = payload.citoyenId?.trim();
@@ -64,14 +65,18 @@ export async function createRdv(payload: {
     champs_complementaires_reponses: payload.champsComplementairesReponses,
     duree_minutes: payload.dureeMinutes,
     description_besoin: payload.descriptionBesoin?.trim() || null,
+    provenance: payload.provenance,
   };
 
   const supabase = createAuthedSupabaseClient(payload.accessToken);
   const { data: inserted, error } = await supabase.from("rdv").insert(row).select("id").single();
 
   if (error) {
+    // Message humanisé — le texte brut de l'erreur Postgres ne doit jamais
+    // remonter au citoyen (retour Bryan 25/07/2026), seul le detail en
+    // console sert au diagnostic.
     console.error("[rdv] insert:", error.message);
-    return { ok: false, error: error.message };
+    return { ok: false, error: "Une erreur est survenue pendant la réservation. Réessayez dans un instant." };
   }
 
   // Chantier "Yelen Assistant" (20/07/2026), Phase 1 — insert non-bloquant :

@@ -29,6 +29,13 @@ export function MembreLoginSection() {
   const [nouveauPin, setNouveauPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
 
+  // 2FA TOTP (chantier sécurité institution, 25/07/2026) — ce composant
+  // gère sa propre connexion de bout en bout (pas de "setup" d'accès rapide
+  // ici, contrairement au flux principal), donc son propre sous-état TOTP.
+  const [totpToken, setTotpToken] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpBackupMode, setTotpBackupMode] = useState(false);
+
   // Verrouille le scroll de la page derrière l'overlay et mesure la hauteur
   // réelle du header pour ne jamais le recouvrir sur mobile.
   useEffect(() => {
@@ -61,8 +68,23 @@ export function MembreLoginSection() {
     const j = await res.json().catch(() => null);
     setLoading(false);
     if (!res.ok) { setError(j?.error || "Erreur de connexion"); return; }
+    if (j.requiresTotp) { setTotpToken(j.totpToken); setTotpCode(""); setTotpBackupMode(false); setError(""); return; }
     if (j.doitChangerPin) { setDoitChangerPin({ institutionId: j.institutionId, membreId: j.membreId }); return; }
     router.push(`/institution/${j.institutionId}/dashboard`);
+  }
+
+  async function verifierTotp() {
+    if (!totpToken || !totpCode.trim()) return;
+    setLoading(true); setError("");
+    const res = await fetch("/api/institution/auth/totp/login-verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ totpToken, code: totpCode.trim() }),
+    });
+    const j = await res.json().catch(() => null);
+    setLoading(false);
+    if (!res.ok || !j?.success) { setError(j?.error || "Code invalide"); return; }
+    router.push(`/institution/${j.institution.id}/dashboard`);
   }
 
   async function changerPin() {
@@ -123,7 +145,7 @@ export function MembreLoginSection() {
           <div className="membre-modal-sheet" role="dialog" aria-modal="true" aria-label="Connexion membre de l'équipe">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <span style={{ color: C.dark2, fontSize: "12px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase" }}>
-                {doitChangerPin ? "Premier accès" : "Accès membre"}
+                {doitChangerPin ? "Premier accès" : totpToken ? "Double authentification" : "Accès membre"}
               </span>
               <button onClick={close} className="tap" aria-label="Fermer" style={{ width: "32px", height: "32px", borderRadius: "10px", border: "none", background: C.gray3, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -131,7 +153,41 @@ export function MembreLoginSection() {
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", padding: "28px 24px", minHeight: 0 }}>
-              {!doitChangerPin ? (
+              {totpToken ? (
+                <div style={{ animation: "membreFadeIn .2s ease" }}>
+                  <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, border: `2px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  </div>
+                  <h2 style={{ color: C.dark, fontSize: "19px", fontWeight: "900", textAlign: "center", marginBottom: "4px" }}>Code de vérification</h2>
+                  <p style={{ color: C.gray, fontSize: "12.5px", textAlign: "center", marginBottom: "20px" }}>
+                    {totpBackupMode ? "Entrez un code de secours" : "Entrez le code de votre application d'authentification"}
+                  </p>
+
+                  {error && <div style={{ backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px", textAlign: "center" }}>{error}</div>}
+
+                  <input
+                    type="text"
+                    inputMode={totpBackupMode ? "text" : "numeric"}
+                    maxLength={totpBackupMode ? 9 : 6}
+                    placeholder={totpBackupMode ? "XXXX-XXXX" : "6 chiffres"}
+                    value={totpCode}
+                    onChange={e => setTotpCode(totpBackupMode ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, ""))}
+                    onKeyDown={e => e.key === "Enter" && verifierTotp()}
+                    style={{ ...inputStyle, fontSize: "18px", letterSpacing: "4px", textAlign: "center" }}
+                    autoFocus
+                  />
+
+                  <button onClick={verifierTotp} disabled={loading || !totpCode.trim()} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "12px", border: "none", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.dark, fontWeight: "800", fontSize: "14.5px", cursor: "pointer", opacity: loading || !totpCode.trim() ? 0.5 : 1, boxShadow: `0 6px 20px ${C.gold}35`, marginTop: "4px", marginBottom: "12px" }}>
+                    {loading ? "…" : "Vérifier"}
+                  </button>
+
+                  <div style={{ textAlign: "center" }}>
+                    <button onClick={() => { setTotpBackupMode(v => !v); setTotpCode(""); setError(""); }} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
+                      {totpBackupMode ? "Utiliser l'application d'authentification" : "Utiliser un code de secours"}
+                    </button>
+                  </div>
+                </div>
+              ) : !doitChangerPin ? (
                 <div style={{ animation: "membreFadeIn .2s ease" }}>
                   <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, border: `2px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.6" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>

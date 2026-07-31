@@ -183,6 +183,44 @@ function Thumbnail({ a, C }: { a: Annonce; C: ThemeTokens }) {
       {a.epingle && (
         <div style={{ position: "absolute", top: "6px", left: "6px", backgroundColor: C.gold, borderRadius: "6px", padding: "2px 6px", fontSize: "9px", fontWeight: "800", color: "#000" }}>ÉPINGLÉE</div>
       )}
+      {a.format === "carrousel" && (a.media_urls?.length ?? 0) > 1 && (
+        <div style={{ position: "absolute", top: "6px", right: "6px", backgroundColor: "rgba(0,0,0,0.6)", borderRadius: "6px", padding: "2px 6px", fontSize: "9px", fontWeight: "800", color: "#fff" }}>×{a.media_urls!.length}</div>
+      )}
+    </div>
+  );
+}
+
+function AnnonceImageCarousel({ images, height, dotActiveColor, dotInactiveColor = "rgba(255,255,255,0.45)" }:
+  { images: string[]; height: number; dotActiveColor: string; dotInactiveColor?: string }) {
+  const [active, setActive] = useState(0);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  if (images.length === 0) return null;
+  return (
+    <div style={{ width: "100%", height: `${height}px`, position: "relative", overflow: "hidden" }}>
+      <div
+        ref={scrollerRef}
+        onScroll={() => {
+          const el = scrollerRef.current; if (!el) return;
+          const idx = Math.round(el.scrollLeft / el.clientWidth);
+          setActive(Math.max(0, Math.min(images.length - 1, idx)));
+        }}
+        style={{ display: "flex", width: "100%", height: "100%", overflowX: "auto", scrollSnapType: "x mandatory" }}
+      >
+        {images.map((url, i) => (
+          <img key={i} src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", flexShrink: 0, scrollSnapAlign: "start" }}/>
+        ))}
+      </div>
+      {images.length > 1 && (
+        <div style={{ position: "absolute", bottom: "8px", left: 0, right: 0, display: "flex", justifyContent: "center", gap: "5px" }}>
+          {images.map((_, i) => (
+            <span key={i} style={{
+              width: i === active ? "7px" : "5.5px", height: i === active ? "7px" : "5.5px",
+              borderRadius: "50%", backgroundColor: i === active ? dotActiveColor : dotInactiveColor,
+              boxShadow: "0 1px 2px rgba(0,0,0,0.35)", transition: "width 0.15s, height 0.15s",
+            }}/>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -488,11 +526,14 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
         <div onClick={() => setPreviewAnnonce(null)} style={{ position: "fixed", inset: 0, zIndex: 600, backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
           <div onClick={e => e.stopPropagation()} style={{ maxWidth: "420px", width: "100%" }}>
             <div style={{ backgroundColor: C.bgCard, border: `1px solid ${getType(previewAnnonce.type).color}40`, borderLeft: `4px solid ${getType(previewAnnonce.type).color}`, borderRadius: "14px", overflow: "hidden" }}>
-              {previewAnnonce.image_url ? (
-                <div style={{ width: "100%", height: "180px", overflow: "hidden" }}><img src={previewAnnonce.image_url} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt=""/></div>
-              ) : previewAnnonce.format === "video" && previewAnnonce.media_urls?.[0] ? (
-                <div style={{ width: "100%", height: "180px", overflow: "hidden", backgroundColor: "#000" }}><video src={previewAnnonce.media_urls[0]} style={{ width: "100%", height: "100%", objectFit: "cover" }} controls playsInline/></div>
-              ) : null}
+              {(() => {
+                const images = previewAnnonce.format === "carrousel" && previewAnnonce.media_urls?.length ? previewAnnonce.media_urls : previewAnnonce.image_url ? [previewAnnonce.image_url] : [];
+                return images.length > 0 ? (
+                  <AnnonceImageCarousel images={images} height={180} dotActiveColor={C.gold}/>
+                ) : previewAnnonce.format === "video" && previewAnnonce.media_urls?.[0] ? (
+                  <div style={{ width: "100%", height: "180px", overflow: "hidden", backgroundColor: "#000" }}><video src={previewAnnonce.media_urls[0]} style={{ width: "100%", height: "100%", objectFit: "cover" }} controls playsInline/></div>
+                ) : null;
+              })()}
               <div style={{ padding: "18px" }}>
                 {previewAnnonce.epingle && <div style={{ marginBottom: "8px" }}><span style={{ color: C.gold, fontSize: "10.5px", fontWeight: "700" }}>ANNONCE ÉPINGLÉE</span></div>}
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
@@ -1019,10 +1060,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               <div style={{ backgroundColor: C.bgCard, border: `1px solid ${getType(form.type).color}40`, borderLeft: `4px solid ${getType(form.type).color}`, borderRadius: "14px", overflow: "hidden" }}>
                 {form.format === "image" && coverPreview && <div style={{ width: "100%", height: "160px", overflow: "hidden" }}><img src={coverPreview} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt=""/></div>}
                 {form.format === "carrousel" && carrouselItems.length > 0 && (
-                  <div style={{ width: "100%", height: "160px", overflow: "hidden", position: "relative" }}>
-                    <img src={carrouselItems[0].url} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt=""/>
-                    {carrouselItems.length > 1 && <span style={{ position: "absolute", bottom: "8px", right: "8px", backgroundColor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "10px" }}>1/{carrouselItems.length}</span>}
-                  </div>
+                  <AnnonceImageCarousel images={carrouselItems.map(i => i.url)} height={160} dotActiveColor={C.gold}/>
                 )}
                 {form.format === "pdf" && pdfItem && (
                   <div style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", gap: "10px", backgroundColor: C.bg3 }}>

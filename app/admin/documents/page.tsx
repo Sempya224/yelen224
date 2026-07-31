@@ -6,16 +6,7 @@
 // gestion reste la responsabilité opérationnelle de l'institution
 // (app/institution/[id]/dashboard/components/DocumentsClientsTab.tsx).
 import { useEffect, useState, useCallback } from 'react'
-
-const D = {
-  bg: '#0f0f0f', surface: '#161616', surface2: '#1e1e1e',
-  border: '#2a2a2a', border2: '#333333',
-  text: '#f0f0f0', textSub: '#a0a0a0', textMuted: '#606060',
-  yellow: '#d4a017', yellowDim: 'rgba(212,160,23,0.12)',
-  green: '#22c55e', greenDim: 'rgba(34,197,94,0.10)',
-  red: '#ef4444', redDim: 'rgba(239,68,68,0.10)',
-  blue: '#3b82f6', blueDim: 'rgba(59,130,246,0.10)',
-}
+import { D } from '@/app/admin/adminTheme'
 
 type DocumentCitoyen = {
   id: string; institution_nom: string; citoyen_nom: string;

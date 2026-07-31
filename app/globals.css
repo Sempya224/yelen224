@@ -27,8 +27,13 @@ body {
   font-family: var(--font-jakarta), -apple-system, "Segoe UI", Arial, sans-serif;
   margin: 0;
   padding: 0;
-  /* ⚠️ padding-top: env(safe-area-inset-top) SUPPRIMÉ — décalait les zones cliquables */
-  padding-bottom: env(safe-area-inset-bottom);
+  /* ⚠️ padding-top ET padding-bottom: env(safe-area-inset-*) SUPPRIMÉS —
+     décalaient les zones cliquables (le top avait déjà été retiré ; le
+     bottom causait le même bug une fois viewportFit:"cover" activé le
+     23/07/2026, qui a rendu cette valeur non nulle). Chaque écran gère
+     déjà sa propre marge de sécurité (header, nav, conteneur de page) —
+     une valeur globale sur body en plus était redondante et cassait le
+     positionnement du menu du bas. */
 }
 
 /* ============================================
@@ -40,8 +45,18 @@ body {
 }
 
 html, body {
-  overflow-x: hidden;
   max-width: 100vw;
+  /* Empêche le rebond élastique iOS/Android (pull-to-refresh, bounce en
+     haut/bas de page) d'entraîner les éléments position:fixed (headers)
+     avec lui — standard cross-navigateur, cf. retour CEO 23/07/2026 :
+     le header doit rester totalement immobile, comme les apps natives. */
+  overscroll-behavior-y: none;
+  /* ⚠️ overflow-x: hidden retiré le 23/07/2026 — bug WebKit/iOS connu :
+     un overflow non-visible sur html/body casse position:fixed pour TOUS
+     ses descendants (ils défilent avec la page au lieu de rester fixes),
+     ce qui décalait le menu du bas et le header sur mobile. Chaque écran
+     protège déjà son propre débordement horizontal via overflowX:"hidden"
+     sur son wrapper interne (page.tsx, dashboard-client.tsx, etc.). */
 }
 
 html {

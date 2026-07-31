@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
@@ -42,7 +43,10 @@ const Ic = {
   Clock:    () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>,
   Sparkle:  ({ size = 40 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.5 6.5l2 2M15.5 15.5l2 2M6.5 17.5l2-2M15.5 8.5l2-2"/><circle cx="12" cy="12" r="3"/></svg>,
   Chev:     () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>,
+  X:        () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
 };
+
+const ASSISTANT_DISMISS_KEY = "yelen224_assistant_dismissed_until";
 
 function InstitutionAvatar({ logo, name, size = 22 }: { logo: string | null | undefined; name: string; size?: number }) {
   const initiales = name.split(" ").slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("") || "?";
@@ -86,6 +90,27 @@ export function MonAssistant({ userId }: { userId: string | null }) {
   const [loaded, setLoaded] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  // X + popup explicatif (retour Bryan 23/07/2026) — fermer n'efface pas
+  // définitivement le bandeau, ça ouvre d'abord un message expliquant sa
+  // valeur ; seul le bouton "Masquer 24h" du popup le cache réellement,
+  // et seulement temporairement (localStorage, pas de compte à rebours
+  // serveur nécessaire pour ce genre de préférence purement locale).
+  const [showInfoPopup, setShowInfoPopup] = useState(false);
+  const [dismissedUntil, setDismissedUntil] = useState(0);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ASSISTANT_DISMISS_KEY);
+      if (raw) setDismissedUntil(Number(raw) || 0);
+    } catch {}
+  }, []);
+
+  function handleMasquer24h() {
+    const until = Date.now() + 24 * 60 * 60 * 1000;
+    try { localStorage.setItem(ASSISTANT_DISMISS_KEY, String(until)); } catch {}
+    setDismissedUntil(until);
+    setShowInfoPopup(false);
+  }
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef<{ startY: number; startH: number } | null>(null);
@@ -161,6 +186,7 @@ export function MonAssistant({ userId }: { userId: string | null }) {
   const onGripTap = () => setExpanded((v) => !v);
 
   if (!userId || !loaded) return null;
+  if (dismissedUntil > nowTick) return null;
 
   // ── Message contextuel de la position réduite ──
   const now = new Date(nowTick);
@@ -215,16 +241,44 @@ export function MonAssistant({ userId }: { userId: string | null }) {
       >
         <Ic.Grip/>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
-          <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: "#fff", border: `1px solid ${brd}`, color: "#080812", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Ic.Sparkle size={16}/>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.4px", textTransform: "uppercase" }}>Mon Assistant</div>
             <div style={{ color: t1, fontSize: "13px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sommaire}</div>
           </div>
+          <button onClick={(e) => { e.stopPropagation(); setShowInfoPopup(true); }} className="tap" style={{ background: "none", border: "none", padding: "6px", margin: "-6px", cursor: "pointer", color: t3, flexShrink: 0, display: "flex" }}><Ic.X/></button>
           <div style={{ transform: expanded ? "rotate(90deg)" : "rotate(-90deg)", transition: "transform 0.25s", color: t3, flexShrink: 0 }}><Ic.Chev/></div>
         </div>
       </div>
+
+      {/* Popup explicatif — ouvert par le X, explique la valeur avant de
+          proposer de masquer (retour Bryan 23/07/2026). Rendu via portail
+          dans document.body : le panneau racine de Mon Assistant est en
+          position:fixed avec son propre z-index (90), ce qui crée un
+          contexte d'empilement local — un enfant fixed à l'intérieur ne
+          peut jamais dépasser visuellement la nav du bas (z-index 100,
+          en dehors de ce contexte) même avec un z-index élevé sur lui-même.
+          Le portail sort le popup de ce contexte, comme les autres modales
+          de l'app (BiometrieModal, NotifPanel, LogoutFlow) qui n'ont pas
+          ce problème car rendues directement au niveau de HomePage. */}
+      {showInfoPopup && createPortal(
+        <div onClick={() => setShowInfoPopup(false)} style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: card, borderRadius: "24px 24px 0 0", padding: "28px 20px calc(20px + env(safe-area-inset-bottom))", width: "100%", maxWidth: "480px" }}>
+            <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "#fff", border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", color: "#080812" }}>
+              <Ic.Sparkle size={28}/>
+            </div>
+            <div style={{ color: t1, fontSize: "17px", fontWeight: "800", textAlign: "center", marginBottom: "8px" }}>Mon Assistant</div>
+            <div style={{ color: t2, fontSize: "13.5px", lineHeight: 1.6, textAlign: "center", marginBottom: "22px" }}>
+              C'est votre assistant personnel pour ne rien manquer sur Yelen : rappels de rendez-vous, documents à fournir, avis à laisser et démarches à surveiller — au bon moment, sans avoir à y penser.
+            </div>
+            <button onClick={() => setShowInfoPopup(false)} className="tap" style={{ width: "100%", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "13px", borderRadius: "12px", border: "none", cursor: "pointer", marginBottom: "10px" }}>Compris, le garder affiché</button>
+            <button onClick={handleMasquer24h} className="tap" style={{ width: "100%", background: "none", color: t2, fontWeight: "700", fontSize: "13px", padding: "10px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Masquer pendant 24h</button>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Contenu déplié — scrollable, jamais responsable de la hauteur du panneau */}
       <div style={{ flex: 1, overflowY: "auto", padding: "4px 16px 20px", display: "flex", flexDirection: "column", gap: "18px" }}>

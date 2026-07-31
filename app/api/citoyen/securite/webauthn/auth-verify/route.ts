@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { jwtVerify } from "jose";
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type { AuthenticationResponseJSON, WebAuthnCredential } from "@simplewebauthn/server";
-import { mintCitoyenSessionTokenHash, enregistrerConnexionCitoyen, CITOYEN_REMEMBER_MAX_AGE_S } from "@/lib/auth/citoyenSession";
+import { completerConnexionCitoyen, mintTotpChallengeToken, CITOYEN_REMEMBER_MAX_AGE_S } from "@/lib/auth/citoyenSession";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -134,15 +134,27 @@ export async function POST(request: NextRequest) {
       .update({ counter: newCounter, last_used_at: new Date().toISOString() })
       .eq("id", credRow.id);
 
-    const sessionResult = await mintCitoyenSessionTokenHash(supabaseAdmin, citoyenId);
-    if ("error" in sessionResult) {
-      console.error("[CITOYEN WEBAUTHN AUTH VERIFY SESSION MINT ERROR]", sessionResult.error);
+    // 2FA TOTP (chantier sécurité citoyen 25/07/2026) — le WebAuthn est un
+    // chemin de connexion complet au même titre que l'OTP téléphone, donc
+    // soumis à la même règle : pas de session tant que le TOTP (si activé)
+    // n'est pas validé via /api/citoyen/auth/totp/login-verify.
+    const { data: userRow } = await supabaseAdmin
+      .from("users")
+      .select("totp_enabled")
+      .eq("id", citoyenId)
+      .maybeSingle();
+
+    if (userRow?.totp_enabled) {
+      const totpToken = await mintTotpChallengeToken(citoyenId);
+      return NextResponse.json({ requiresTotp: true, totpToken });
+    }
+
+    const { tokenHash, remember } = await completerConnexionCitoyen(supabaseAdmin, citoyenId, request);
+    if (!tokenHash) {
       return NextResponse.json({ error: "Impossible d'établir la session", code: "SESSION_ERROR" }, { status: 500 });
     }
 
-    const remember = await enregistrerConnexionCitoyen(supabaseAdmin, citoyenId, request);
-
-    const response = NextResponse.json({ success: true, tokenHash: sessionResult.tokenHash });
+    const response = NextResponse.json({ success: true, tokenHash });
 
     if (remember) {
       response.cookies.set("yelen224_citoyen_remember", remember.rawToken, {

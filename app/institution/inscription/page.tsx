@@ -8,12 +8,6 @@ import { YelenLogo } from "@/components/YelenLogo";
 import { VILLES_GUINEE } from "@/lib/villes";
 
 // ═══════════════════════════════════════════════════════════
-// DEV CONFIG — retirer avant mise en prod
-// ═══════════════════════════════════════════════════════════
-const DEV_MODE = true;         // ← false en production
-const DEV_OTP  = "123456";     // ← code fictif accepté en dev
-
-// ═══════════════════════════════════════════════════════════
 // DESIGN TOKENS
 // ═══════════════════════════════════════════════════════════
 const C = {
@@ -227,11 +221,7 @@ export default function InstitutionInscription() {
 
       setStep("otp");
       setResendTimer(60);
-      setSuccess(
-        data.devMode
-          ? `[DEV] Code fictif : ${data.code} — SMS désactivé`
-          : `Code envoyé au ${fullPhone}`
-      );
+      setSuccess(`Code envoyé au ${fullPhone}`);
     } catch {
       setError("Erreur réseau. Réessayez.");
     }
@@ -482,7 +472,7 @@ export default function InstitutionInscription() {
       <div style={{position:"fixed",bottom:"-60px",left:"-60px",width:"280px",height:"280px",borderRadius:"50%",background:`radial-gradient(circle,${C.gold}10 0%,transparent 65%)`,pointerEvents:"none",zIndex:0}}/>
 
       {/* HEADER */}
-      <header style={{position:"relative",zIndex:10,padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,backgroundColor:"rgba(255,251,235,0.85)",backdropFilter:"blur(20px)"}}>
+      <header style={{position:"relative",zIndex:10,padding:"calc(16px + env(safe-area-inset-top)) 24px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}`,backgroundColor:"rgba(255,251,235,0.85)",backdropFilter:"blur(20px)"}}>
         <Link href="/" style={{display:"flex",alignItems:"center",gap:"10px",textDecoration:"none"}}>
           <div style={{width:"36px",height:"36px",background:`linear-gradient(135deg,${C.gold},${C.goldD})`,borderRadius:"10px",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 12px ${C.gold}40`}}>
             <YelenLogo size={18} color={C.dark}/>
@@ -531,12 +521,6 @@ export default function InstitutionInscription() {
             <div style={{textAlign:"center",marginBottom:"28px"}}>
               <h1 style={{color:C.dark,fontSize:"26px",fontWeight:"900",letterSpacing:"-0.5px",marginBottom:"6px"}}>Créer un compte</h1>
               <p style={{color:C.gray,fontSize:"14px"}}>Inscrivez votre institution sur YELEN224</p>
-              {DEV_MODE && (
-                <div style={{display:"inline-flex",alignItems:"center",gap:"6px",marginTop:"10px",padding:"5px 12px",backgroundColor:"#FFF3CD",border:"1px solid #FFC107",borderRadius:"20px"}}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#856404" strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                  <span style={{color:"#856404",fontSize:"10px",fontWeight:"800"}}>MODE DEV — SMS désactivé</span>
-                </div>
-              )}
             </div>
 
             {/* Téléphone */}
@@ -616,7 +600,7 @@ export default function InstitutionInscription() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                   <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
                 </svg>
-                {DEV_MODE ? "Simuler l'envoi du code" : "Recevoir le code SMS"}
+                Recevoir le code SMS
               </>}
             </button>
 
@@ -639,29 +623,11 @@ export default function InstitutionInscription() {
               </div>
               <h2 style={{color:C.dark,fontSize:"22px",fontWeight:"900",marginBottom:"6px"}}>Code de vérification</h2>
               <p style={{color:C.gray,fontSize:"13px"}}>
-                {DEV_MODE
-                  ? <>Entrez le code fictif <strong style={{color:C.gold,fontSize:"16px",letterSpacing:"2px"}}>{DEV_OTP}</strong></>
-                  : <>Code envoyé au{" "}<strong style={{color:C.dark}}>{localStorage.getItem("yelen_reg_phone")?.replace(/(\+224)(\d{2})(\d{3})(\d{4})/,"$1 $2•••$4")}</strong></>
-                }
+                Code envoyé au{" "}<strong style={{color:C.dark}}>{localStorage.getItem("yelen_reg_phone")?.replace(/(\+224)(\d{2})(\d{3})(\d{4})/,"$1 $2•••$4")}</strong>
               </p>
             </div>
 
-            {/* Bannière DEV */}
-            {DEV_MODE && (
-              <div style={{display:"flex",alignItems:"center",gap:"10px",padding:"12px 16px",backgroundColor:"#FFF3CD",border:"1px solid #FFC107",borderLeft:"3px solid #FFC107",borderRadius:"12px",marginBottom:"16px"}}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#856404" strokeWidth="2.5" strokeLinecap="round" style={{flexShrink:0}}>
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                </svg>
-                <div>
-                  <div style={{color:"#856404",fontSize:"12px",fontWeight:"800"}}>Mode développement</div>
-                  <div style={{color:"#856404",fontSize:"11px"}}>Code accepté : <strong style={{letterSpacing:"1px"}}>{DEV_OTP}</strong> — Aucun SMS envoyé</div>
-                </div>
-              </div>
-            )}
-
-            {/* Banner succès (prod uniquement) */}
-            {success && !DEV_MODE && (
+            {success && (
               <div style={{display:"flex",alignItems:"center",gap:"10px",padding:"12px 16px",backgroundColor:C.greenL,border:`1px solid ${C.green}30`,borderRadius:"12px",marginBottom:"16px"}}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" style={{flexShrink:0}}><polyline points="20 6 9 17 4 12"/></svg>
                 <span style={{color:C.green,fontSize:"13px",fontWeight:"600"}}>{success}</span>
@@ -694,7 +660,7 @@ export default function InstitutionInscription() {
               {resendTimer > 0
                 ? <span style={{color:C.gray,fontSize:"13px"}}>Renvoyer dans {resendTimer}s</span>
                 : <button onClick={handlePhoneSubmit} className="tap" style={{background:"none",border:"none",color:C.gold,fontSize:"13px",fontWeight:"700",cursor:"pointer"}}>
-                    {DEV_MODE ? "Re-simuler l'envoi" : "Renvoyer le code"}
+                    Renvoyer le code
                   </button>
               }
             </div>
