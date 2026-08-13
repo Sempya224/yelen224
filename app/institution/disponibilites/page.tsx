@@ -4,9 +4,14 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Inter } from "next/font/google";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { T } from "@/lib/theme";
+
+// Auto-hébergée (Lot 1.5, 13/08/2026) — voir app/ambassades/page.tsx pour
+// le raisonnement complet.
+const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800", "900"], variable: "--font-inter" });
+import { YelenLoader } from "@/components/YelenLoader";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -97,7 +102,6 @@ function countSlots(rules: Record<DayKey, DayRule>, key: DayKey): number {
 export default function InstitutionDisponibilitesPage() {
   const router = useRouter();
   const { theme } = useTheme();
-  const C = T[theme];
   const isDark = theme === "dark";
 
   const [institutionId, setInstitutionId] = useState<string | null>(null);
@@ -164,15 +168,13 @@ export default function InstitutionDisponibilitesPage() {
 
   if (loading) return (
     <div style={{ minHeight: "100vh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ width: "36px", height: "36px", border: `3px solid ${cardBrd}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <YelenLoader size={36}/>
     </div>
   );
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: bg, color: txt1, fontFamily: "'Inter',-apple-system,sans-serif", transition: "background-color 0.3s" }}>
+    <div className={inter.variable} style={{ minHeight: "100vh", backgroundColor: bg, color: txt1, fontFamily: "var(--font-inter),-apple-system,sans-serif", transition: "background-color 0.3s" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         *{box-sizing:border-box}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -222,7 +224,7 @@ export default function InstitutionDisponibilitesPage() {
             Disponibilités
           </h1>
           <p style={{ color: txt2, fontSize: "13px", margin: 0 }}>
-            Configurez vos jours et heures d'ouverture. Les citoyens pourront réserver uniquement sur ces créneaux.
+            Configurez vos jours et heures d&apos;ouverture. Les citoyens pourront réserver uniquement sur ces créneaux.
           </p>
         </div>
 
@@ -305,7 +307,7 @@ export default function InstitutionDisponibilitesPage() {
                       {/* Début */}
                       <div>
                         <label style={{ color: txt3, fontSize: "11px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: "8px" }}>
-                          Heure d'ouverture
+                          Heure d&apos;ouverture
                         </label>
                         <input
                           type="time"
@@ -380,9 +382,9 @@ export default function InstitutionDisponibilitesPage() {
           <button
             onClick={handleSave}
             disabled={saving}
-            style={{ width: "100%", backgroundColor: saving ? (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)") : "#F5A623", color: saving ? txt3 : "#080812", border: "none", borderRadius: "14px", padding: "17px", fontSize: "15px", fontWeight: "800", cursor: saving ? "not-allowed" : "pointer", boxShadow: saving ? "none" : "0 4px 24px rgba(245,166,35,0.4)", transition: "all 0.2s", letterSpacing: "0.3px" }}
+            style={{ width: "100%", backgroundColor: saving ? (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)") : "#F5A623", color: saving ? txt3 : "#080812", border: "none", borderRadius: "14px", padding: "17px", fontSize: "15px", fontWeight: "800", cursor: saving ? "not-allowed" : "pointer", boxShadow: saving ? "none" : "0 4px 24px rgba(245,166,35,0.4)", transition: "all 0.2s", letterSpacing: "0.3px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
           >
-            {saving ? "⏳ Sauvegarde en cours..." : `✅ Sauvegarder — ${totalSlots} créneaux`}
+            {saving ? <><YelenLoader size={16} color={txt3}/>Sauvegarde en cours…</> : `Sauvegarder — ${totalSlots} créneaux`}
           </button>
         </div>
       </main>

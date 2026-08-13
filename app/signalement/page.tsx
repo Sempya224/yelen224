@@ -2,10 +2,18 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
+import { Inter } from "next/font/google";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
+
+// Auto-hébergée (Lot 1.5, 13/08/2026) — voir app/ambassades/page.tsx pour
+// le raisonnement complet.
+const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800", "900"], variable: "--font-inter" });
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
+import { YelenLoader } from "@/components/YelenLoader";
+import { SIGNALEMENT_STATUTS, SIGNALEMENT_STATUT_LABELS } from "@/lib/signalementsConstants";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,11 +39,25 @@ const MOTIFS_CITOYEN = [
   { value: "autre",                      label: "📝 Autre",                      desc: "Autre motif non listé ci-dessus" },
 ];
 
-const STATUT_CFG: Record<string, { label: string; color: string; bg: string; border: string; icon: string }> = {
-  en_cours: { label: "En cours d'examen", color: "#F5A623", bg: "rgba(245,166,35,0.08)", border: "rgba(245,166,35,0.25)", icon: "⏳" },
-  traite:   { label: "Traité",            color: "#22c55e", bg: "rgba(34,197,94,0.08)",   border: "rgba(34,197,94,0.25)",   icon: "✅" },
-  rejete:   { label: "Rejeté",            color: "#ef4444", bg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.25)",   icon: "❌" },
-};
+// Clés/libellés sourcés de lib/signalementsConstants.ts (source unique du
+// lifecycle, Lot 1 case management 08/08/2026) — avant cette correction,
+// cet objet n'avait que 3 clés à la main (en_cours/traite/rejete) qui ne
+// reconnaissaient jamais les vraies valeurs écrites par l'admin
+// (resolu/ignore), affichant "En cours d'examen" indéfiniment après
+// traitement. Couleurs/icônes restent propres à cet écran (cosmétique).
+const STATUT_CFG: Record<string, { label: string; color: string; bg: string; border: string; icon: string }> =
+  Object.fromEntries(SIGNALEMENT_STATUTS.map(s => {
+    const traite = s === "resolu" || s === "cloture";
+    const ecarte = s === "rejete" || s === "doublon";
+    const color = traite ? "#22c55e" : ecarte ? "#ef4444" : "#F5A623";
+    return [s, {
+      label: SIGNALEMENT_STATUT_LABELS[s],
+      color,
+      bg: traite ? "rgba(34,197,94,0.08)" : ecarte ? "rgba(239,68,68,0.08)" : "rgba(245,166,35,0.08)",
+      border: traite ? "rgba(34,197,94,0.25)" : ecarte ? "rgba(239,68,68,0.25)" : "rgba(245,166,35,0.25)",
+      icon: traite ? "✅" : ecarte ? "❌" : "⏳",
+    }];
+  }));
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
@@ -79,7 +101,7 @@ function SignalementInner() {
     if (!uid) { router.push("/login"); return; }
     setUserId(uid);
     fetchInstitutions();
-    fetchHistorique(uid);
+    fetchHistorique();
   }, []);
 
   const fetchInstitutions = async () => {
@@ -91,23 +113,13 @@ function SignalementInner() {
     setInstitutions(data || []);
   };
 
-  const fetchHistorique = async (uid: string) => {
+  const fetchHistorique = async () => {
     setLoadingHist(true);
-    const { data } = await supabase
-      .from("signalements")
-      .select("id, motif, description, preuve_url, statut, created_at, institution_id")
-      .eq("citoyen_id", uid)
-      .eq("type_signaleur", "citoyen")
-      .order("created_at", { ascending: false });
-
-    if (data) {
-      const enriched = await Promise.all(data.map(async (s) => {
-        const { data: inst } = await supabase
-          .from("institutions").select("name, logo").eq("id", s.institution_id).single();
-        return { ...s, institution_name: inst?.name || "Institution", institution_logo: inst?.logo || null };
-      }));
-      setHistorique(enriched);
-    }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) { setLoadingHist(false); return; }
+    const res = await fetch(`/api/citoyen/signalements?accessToken=${encodeURIComponent(session.access_token)}`);
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.signalements) setHistorique(json.signalements);
     setLoadingHist(false);
   };
 
@@ -120,45 +132,24 @@ function SignalementInner() {
 
     setLoading(true);
     try {
-      let preuveUrl: string | null = null;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setError("Session expirée, reconnectez-vous."); setLoading(false); return; }
 
-      if (imageFile) {
-        const ext = imageFile.name.split(".").pop();
-        const path = `signalements/${userId}/${Date.now()}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("documents").upload(path, imageFile, { upsert: true });
-        if (!uploadError) {
-          const { data: urlData } = supabase.storage.from("documents").getPublicUrl(path);
-          preuveUrl = urlData.publicUrl;
-        }
-      }
+      const form = new FormData();
+      form.set("accessToken", session.access_token);
+      form.set("institution_id", institutionId);
+      form.set("motif", motif);
+      form.set("description", description.trim());
+      if (rdvIdParam) form.set("rdv_id", rdvIdParam);
+      if (imageFile) form.set("file", imageFile);
 
-      const { error: insertError } = await supabase.from("signalements").insert({
-        citoyen_id: userId,
-        institution_id: institutionId,
-        type_signaleur: "citoyen",
-        type_cible: "institution",
-        motif,
-        description: description.trim(),
-        preuve_url: preuveUrl,
-        rdv_id: rdvIdParam || null,
-        statut: "en_cours",
-      });
-
-      if (insertError) { setError("Erreur lors de l'envoi. Réessayez."); setLoading(false); return; }
-
-      await supabase.from("notifications").insert({
-        destinataire_id: institutionId,
-        destinataire_type: "institution",
-        rdv_id: rdvIdParam || null,
-        type: "signalement",
-        titre: "🚨 Nouveau signalement reçu",
-        message: `Un citoyen a signalé votre institution pour : ${MOTIFS_CITOYEN.find(m => m.value === motif)?.label || motif}`,
-      });
+      const res = await fetch("/api/citoyen/signalements", { method: "POST", body: form });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) { setError(json?.error || "Erreur lors de l'envoi. Réessayez."); setLoading(false); return; }
 
       setSuccess(true);
       showToast("Signalement envoyé avec succès.");
-      fetchHistorique(userId);
+      fetchHistorique();
       setMotif(""); setDescription(""); setImageFile(null); setImagePreview(null);
       setTimeout(() => setSuccess(false), 4000);
     } catch {
@@ -194,7 +185,6 @@ function SignalementInner() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -205,7 +195,7 @@ function SignalementInner() {
         .tab-btn { transition: all 0.15s ease; }
       `}</style>
 
-      <div style={{ minHeight: "100vh", backgroundColor: C.pageBg, color: C.text, fontFamily: "'Inter', -apple-system, sans-serif", paddingBottom: "60px", transition: "background-color 0.3s ease, color 0.3s ease" }}>
+      <div className={inter.variable} style={{ minHeight: "100vh", backgroundColor: C.pageBg, color: C.text, fontFamily: "var(--font-inter), -apple-system, sans-serif", paddingBottom: "60px", transition: "background-color 0.3s ease, color 0.3s ease" }}>
 
         {/* ── HEADER ── */}
         <header style={{
@@ -343,6 +333,8 @@ function SignalementInner() {
                 <label style={labelStyle}>Preuve photo (optionnel)</label>
                 {imagePreview ? (
                   <div style={{ position: "relative", display: "inline-block" }}>
+                    {/* IMG-EXCEPTION: reason=aperçu blob local (URL.createObjectURL) avant envoi, non fetchable par l'optimiseur next/image | reviewed=2026-08-08 */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={imagePreview} style={{ height: "80px", borderRadius: "8px", objectFit: "cover", border: `1px solid ${C.borderCard}` }} alt="" />
                     <button
                       onClick={() => { setImageFile(null); setImagePreview(null); }}
@@ -355,7 +347,7 @@ function SignalementInner() {
                     style={{ width: "100%", backgroundColor: C.cardBg, border: `1px dashed ${C.borderCard}`, borderRadius: "10px", padding: "20px", color: C.textSubtle, fontSize: "13px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}
                   >
                     <span style={{ fontSize: "24px" }}>📎</span>
-                    <span>Ajouter une capture d'écran ou photo</span>
+                    <span>Ajouter une capture d&apos;écran ou photo</span>
                     <span style={{ fontSize: "11px", color: C.textFaint }}>JPG, PNG — max 5MB</span>
                   </button>
                 )}
@@ -387,14 +379,14 @@ function SignalementInner() {
                 style={{ width: "100%", backgroundColor: loading ? "rgba(239,68,68,0.2)" : "#ef4444", border: "none", borderRadius: "12px", padding: "14px", color: "#fff", fontSize: "15px", fontWeight: "700", cursor: loading ? "not-allowed" : "pointer", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
               >
                 {loading
-                  ? <><div style={{ width: "18px", height: "18px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> Envoi en cours...</>
+                  ? <><YelenLoader size={18} color="#fff"/> Envoi en cours…</>
                   : "🚨 Envoyer le signalement"
                 }
               </button>
 
               {/* Info légale */}
               <p style={{ fontSize: "11px", color: C.textFaint, textAlign: "center", lineHeight: "1.6" }}>
-                En soumettant ce signalement, vous acceptez nos <a href="/cgu" style={{ color: "#F5A623", textDecoration: "none" }}>CGU</a> et confirmez l'exactitude des informations fournies.
+                En soumettant ce signalement, vous acceptez nos <a href="/cgu" style={{ color: "#F5A623", textDecoration: "none" }}>CGU</a> et confirmez l&apos;exactitude des informations fournies.
               </p>
             </div>
           )}
@@ -437,10 +429,12 @@ function SignalementInner() {
                           </p>
                         )}
                         {s.preuve_url && (
-                          <img
+                          <Image
                             src={s.preuve_url}
+                            width={240}
+                            height={80}
                             onClick={() => window.open(s.preuve_url!, "_blank")}
-                            style={{ height: "60px", borderRadius: "8px", objectFit: "cover", cursor: "pointer", border: `1px solid ${C.borderCard}`, marginBottom: "8px" }}
+                            style={{ height: "60px", width: "auto", borderRadius: "8px", objectFit: "cover", cursor: "pointer", border: `1px solid ${C.borderCard}`, marginBottom: "8px" }}
                             alt="preuve"
                           />
                         )}
@@ -481,8 +475,7 @@ export default function SignalementPage() {
   return (
     <Suspense fallback={
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#080812" }}>
-        <div style={{ width: "32px", height: "32px", border: "3px solid rgba(245,166,35,0.2)", borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <YelenLoader size={32}/>
       </div>
     }>
       <SignalementInner />

@@ -2,9 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Inter } from "next/font/google";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { T } from "@/lib/theme";
+
+// Auto-hébergée (Lot 1.5, 13/08/2026) — remplace l'@import
+// fonts.googleapis.com : mêmes graisses, zéro requête réseau externe au
+// runtime, élimine le besoin d'une exception CSP pour cette page.
+const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800", "900"], variable: "--font-inter" });
 
 // ─── Données réelles des ambassades guinéennes ────────────────────────────────
 
@@ -62,7 +67,6 @@ const SERVICES_CONSULAIRES = [
 
 export default function AmbassadesPage() {
   const { theme } = useTheme();
-  const C = T[theme];
   const isDark = theme === "dark";
 
   const [continent, setContinent] = useState("Tous");
@@ -91,9 +95,8 @@ export default function AmbassadesPage() {
   const hdrBg   = isDark2 ? "rgba(10,12,18,0.98)" : "rgba(255,255,255,0.98)";
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: bg, color: txt1, fontFamily: "'Inter', -apple-system, sans-serif" }}>
+    <div className={inter.variable} style={{ minHeight: "100vh", backgroundColor: bg, color: txt1, fontFamily: "var(--font-inter), -apple-system, sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         *{box-sizing:border-box}
         @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
         .amb-card:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,0.12);border-color:rgba(206,17,38,0.3)!important}
@@ -228,7 +231,7 @@ export default function AmbassadesPage() {
                 { step: "01", icon: "👤", titre: "Créer votre compte", desc: "Inscrivez-vous sur Yelen224 avec votre numéro de téléphone guinéen. Gratuit et sécurisé.", color: "#F5A623" },
                 { step: "02", icon: "🏛️", titre: "Choisir votre ambassade", desc: "Sélectionnez l'ambassade ou le consulat guinéen le plus proche de votre lieu de résidence.", color: "#CE1126" },
                 { step: "03", icon: "📅", titre: "Réserver un créneau", desc: "Choisissez la date, l'heure et le service souhaité. Confirmation immédiate par SMS.", color: "#22c55e" },
-              ].map((s, i) => (
+              ].map((s) => (
                 <div key={s.step} style={{ background: cardBg, border: `1px solid ${cardBrd}`, borderRadius: "16px", padding: "28px 24px", position: "relative" }}>
                   <div style={{ width: "44px", height: "44px", borderRadius: "12px", background: `${s.color}15`, border: `1px solid ${s.color}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px", marginBottom: "16px" }}>{s.icon}</div>
                   <div style={{ position: "absolute", top: "20px", right: "20px", fontSize: "36px", fontWeight: "900", color: isDark2 ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", lineHeight: 1 }}>{s.step}</div>
@@ -326,8 +329,8 @@ export default function AmbassadesPage() {
             {/* Pas votre pays */}
             <div style={{ background: isDark2 ? "rgba(206,17,38,0.05)" : "rgba(206,17,38,0.04)", border: "1px solid rgba(206,17,38,0.15)", borderRadius: "16px", padding: "28px 24px", textAlign: "center", marginTop: "32px" }}>
               <span style={{ fontSize: "32px", display: "block", marginBottom: "12px" }}>🌐</span>
-              <h3 style={{ color: txt1, fontSize: "16px", fontWeight: "800", margin: "0 0 8px" }}>Votre pays n'est pas encore listé ?</h3>
-              <p style={{ color: txt2, fontSize: "13px", margin: "0 0 16px", lineHeight: 1.6 }}>Le réseau diplomatique guinéen est en expansion. Contactez-nous pour signaler un consulat manquant ou demander l'ouverture d'un service dans votre pays.</p>
+              <h3 style={{ color: txt1, fontSize: "16px", fontWeight: "800", margin: "0 0 8px" }}>Votre pays n&apos;est pas encore listé ?</h3>
+              <p style={{ color: txt2, fontSize: "13px", margin: "0 0 16px", lineHeight: 1.6 }}>Le réseau diplomatique guinéen est en expansion. Contactez-nous pour signaler un consulat manquant ou demander l&apos;ouverture d&apos;un service dans votre pays.</p>
               <Link href="/contact" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "#CE1126", color: "#fff", borderRadius: "10px", padding: "11px 20px", fontWeight: "700", fontSize: "13px", textDecoration: "none" }}>
                 Contacter le ministère →
               </Link>
@@ -335,22 +338,9 @@ export default function AmbassadesPage() {
           </div>
         </div>
 
-        {/* ── CTA INSTITUTION ── */}
-        <div style={{ background: isDark2 ? "linear-gradient(135deg,#0F1829,#1a0810)" : "linear-gradient(135deg,#fff5e6,#ffeaea)", borderTop: `1px solid ${cardBrd}`, padding: "48px 20px" }}>
-          <div style={{ maxWidth: "760px", margin: "0 auto", textAlign: "center" }}>
-            <span style={{ fontSize: "40px", display: "block", marginBottom: "16px" }}>🏛️</span>
-            <h2 style={{ color: txt1, fontSize: "clamp(20px,3vw,28px)", fontWeight: "900", margin: "0 0 12px", letterSpacing: "-0.02em" }}>Vous représentez une ambassade ou un consulat guinéen ?</h2>
-            <p style={{ color: txt2, fontSize: "14px", lineHeight: 1.7, margin: "0 0 24px" }}>Rejoignez Yelen224 pour gérer vos rendez-vous consulaires en ligne. Inscription officielle avec validation par le Ministère des Affaires Étrangères de Guinée.</p>
-            <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
-              <Link href="/institution/inscription" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "#CE1126", color: "#fff", borderRadius: "12px", padding: "13px 24px", fontWeight: "700", fontSize: "14px", textDecoration: "none", boxShadow: "0 4px 20px rgba(206,17,38,0.25)" }}>
-                🏛️ Inscrire mon ambassade
-              </Link>
-              <Link href="/contact" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "transparent", color: txt1, border: `1px solid ${cardBrd}`, borderRadius: "12px", padding: "13px 24px", fontWeight: "600", fontSize: "14px", textDecoration: "none" }}>
-                Nous contacter
-              </Link>
-            </div>
-          </div>
-        </div>
+        {/* CTA institution retiré (mission séparation Citizen/Web,
+            11/08/2026) — l'inscription professionnelle reste sur le
+            portail Web, jamais promue depuis un écran citoyen mobile. */}
       </main>
 
       {/* ── FOOTER ── */}

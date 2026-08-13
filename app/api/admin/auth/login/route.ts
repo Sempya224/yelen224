@@ -153,12 +153,18 @@ export async function POST(request: NextRequest) {
       await supabaseAdmin.from('admin_users').update({ failed_login_attempts: 0, locked_until: null }).eq('id', admin.id)
     }
 
-    // Générer JWT
+    // Générer JWT — mfaEnabled ajouté le 13/08/2026 (chantier MFA Admin,
+    // décision CEO GAP-04-03) : reflète l'état réel au moment de la
+    // connexion (si totp_enabled était true, le code TOTP vient d'être
+    // vérifié ci-dessus avant d'atteindre ce point). Lu par middleware.ts
+    // pour imposer la configuration 2FA aux comptes qui ne l'ont pas
+    // encore activée.
     const token = await new SignJWT({
       adminId: admin.id,
       email: admin.email,
       role: admin.role,
       nom: admin.nom,
+      mfaEnabled: admin.totp_enabled === true,
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(admin.id)

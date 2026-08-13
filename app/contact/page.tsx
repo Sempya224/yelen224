@@ -2,6 +2,15 @@
 
 import React from "react";
 import { useState } from "react";
+import { Sora } from "next/font/google";
+
+// Auto-hébergée (Lot 1.5, 13/08/2026) — voir app/ambassades/page.tsx pour
+// le raisonnement complet.
+// Sora ne propose pas de graisse 900 statique (confirmé dans les types
+// next/font/google) — l'ancien @import la demandait déjà en vain, le
+// navigateur retombait silencieusement sur 800 (algorithme de matching de
+// graisse CSS standard). Comportement visuel strictement identique.
+const sora = Sora({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-sora" });
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 const FORM_TYPES = [
@@ -26,7 +35,7 @@ const inp: React.CSSProperties = {
   backdropFilter: "blur(8px)",
   color: "#1a1200",
   fontSize: "14px",
-  fontFamily: "'Sora', sans-serif",
+  fontFamily: "var(--font-sora), sans-serif",
   fontWeight: "500",
   outline: "none",
   boxSizing: "border-box",
@@ -75,9 +84,8 @@ export default function ContactPage() {
   const currentType = FORM_TYPES.find(f => f.id === activeForm);
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg, #FFF3CC 0%, #FFE680 35%, #FFDA40 65%, #FFF0B3 100%)", fontFamily: "'Sora', sans-serif" }}>
+    <div className={sora.variable} style={{ minHeight: "100vh", background: "linear-gradient(160deg, #FFF3CC 0%, #FFE680 35%, #FFDA40 65%, #FFF0B3 100%)", fontFamily: "var(--font-sora), sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; }
         ::-webkit-scrollbar { display: none; }
@@ -172,7 +180,7 @@ export default function ContactPage() {
             <div style={{ fontSize: "48px", marginBottom: "14px" }}>✅</div>
             <h3 style={{ color: "#1a1200", fontSize: "18px", fontWeight: "900", margin: "0 0 8px" }}>Message envoyé !</h3>
             <p style={{ color: "#6b5000", fontSize: "13px", maxWidth: "260px", margin: "0 auto 20px", lineHeight: 1.6 }}>Notre équipe vous répond sous 24–48h ouvrées.</p>
-            <button onClick={() => setStatus("idle")} style={{ background: "#F5A623", color: "#1a1200", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "14px", border: "none", cursor: "pointer", boxShadow: "0 4px 16px rgba(245,166,35,0.35)", fontFamily: "'Sora', sans-serif" }}>
+            <button onClick={() => setStatus("idle")} style={{ background: "#F5A623", color: "#1a1200", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "14px", border: "none", cursor: "pointer", boxShadow: "0 4px 16px rgba(245,166,35,0.35)", fontFamily: "var(--font-sora), sans-serif" }}>
               Nouveau message
             </button>
           </div>
@@ -310,7 +318,7 @@ export default function ContactPage() {
                 </div>
               )}
 
-              <button type="submit" disabled={status === "sending"} style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: status === "sending" ? "rgba(200,140,0,0.3)" : "linear-gradient(135deg, #F5A623, #e8950f)", color: status === "sending" ? "#8B6914" : "#1a1200", fontWeight: "900", fontSize: "15px", cursor: status === "sending" ? "not-allowed" : "pointer", fontFamily: "'Sora', sans-serif", boxShadow: status === "sending" ? "none" : "0 6px 20px rgba(245,166,35,0.4)", letterSpacing: "0.3px", transition: "all 0.15s ease" }}>
+              <button type="submit" disabled={status === "sending"} style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: status === "sending" ? "rgba(200,140,0,0.3)" : "linear-gradient(135deg, #F5A623, #e8950f)", color: status === "sending" ? "#8B6914" : "#1a1200", fontWeight: "900", fontSize: "15px", cursor: status === "sending" ? "not-allowed" : "pointer", fontFamily: "var(--font-sora), sans-serif", boxShadow: status === "sending" ? "none" : "0 6px 20px rgba(245,166,35,0.4)", letterSpacing: "0.3px", transition: "all 0.15s ease" }}>
                 {status === "sending" ? "Envoi en cours..." : "Envoyer le message →"}
               </button>
             </div>
@@ -335,7 +343,7 @@ export default function ContactPage() {
             <div style={{ color: "#8B6914", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "2px" }}>EMAIL DIRECT</div>
             <div style={{ color: "#1a1200", fontSize: "13px", fontWeight: "700" }}>yelen224gn@gmail.com</div>
           </div>
-          <a href="mailto:yelen224gn@gmail.com" style={{ background: "#F5A623", color: "#1a1200", fontSize: "12px", fontWeight: "800", padding: "9px 16px", borderRadius: "12px", textDecoration: "none", boxShadow: "0 3px 10px rgba(245,166,35,0.3)", fontFamily: "'Sora', sans-serif", flexShrink: 0 }}>
+          <a href="mailto:yelen224gn@gmail.com" style={{ background: "#F5A623", color: "#1a1200", fontSize: "12px", fontWeight: "800", padding: "9px 16px", borderRadius: "12px", textDecoration: "none", boxShadow: "0 3px 10px rgba(245,166,35,0.3)", fontFamily: "var(--font-sora), sans-serif", flexShrink: 0 }}>
             Écrire →
           </a>
         </div>

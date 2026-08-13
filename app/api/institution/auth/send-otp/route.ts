@@ -8,12 +8,6 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-// ⚠️ DEV MODE — décision assumée de Bryan (voir CLAUDE.md /auth), pas une dette
-// à corriger sans demande explicite. Ne jamais passer à false ni brancher un
-// vrai fournisseur SMS sans validation préalable.
-const DEV_MODE = true
-const DEV_OTP = '123456'
-
 const PHONE_REGEX = /^\+224\d{8,9}$/
 
 const ipAttempts = new Map<string, { count: number; resetAt: number }>()
@@ -104,19 +98,31 @@ export async function POST(request: NextRequest) {
 
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
 
-    if (DEV_MODE) {
-      await supabaseAdmin.from('institution_otp').insert({
-        phone,
-        code: DEV_OTP,
-        expires_at: expiresAt,
-      })
-
-      return NextResponse.json({ success: true })
+    // Durcissement Lot 1.1 (13/08/2026, remédiation GAP-04-01) — même
+    // architecture que lib/auth/otp.ts côté citoyen : plus aucune valeur en
+    // dur, plus aucun bypass inconditionnel. Tant qu'aucun SMS_PROVIDER
+    // n'est configuré, le code réellement stocké/vérifié vient de
+    // INSTITUTION_OTP_FALLBACK (variable d'environnement serveur, jamais
+    // envoyée au client, jamais affichée à l'écran) — si elle est absente,
+    // l'envoi échoue explicitement plutôt que de retomber sur une valeur
+    // devinable. verify-otp/register n'ont plus aucun code de contournement
+    // : ils vérifient uniquement ce qui est réellement stocké ici.
+    let code: string
+    if (process.env.SMS_PROVIDER) {
+      // TODO(Bryan) : brancher l'envoi SMS réel ici une fois le
+      // compte/la clé API créés.
+      code = crypto.randomInt(100000, 1000000).toString()
+      console.warn('[institution otp] SMS_PROVIDER défini mais aucun adaptateur d\'envoi réel implémenté — code non délivré à l\'institution.')
+    } else {
+      const fallback = process.env.INSTITUTION_OTP_FALLBACK
+      if (!fallback) {
+        return NextResponse.json(
+          { error: 'OTP non configuré côté serveur (INSTITUTION_OTP_FALLBACK manquant).', code: 'OTP_NOT_CONFIGURED' },
+          { status: 500 }
+        )
+      }
+      code = fallback
     }
-
-    // Branche prod — squelette. Fournisseur SMS non branché : le code est
-    // généré et stocké mais jamais renvoyé au client.
-    const code = crypto.randomInt(100000, 1000000).toString()
 
     await supabaseAdmin.from('institution_otp').insert({
       phone,

@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { Inter } from "next/font/google";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import Link from "next/link";
+
+// Auto-hébergée (Lot 1.5, 13/08/2026) — voir app/ambassades/page.tsx pour
+// le raisonnement complet.
+const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800", "900"], variable: "--font-inter" });
 
 const COOKIES_DATA = [
   {
@@ -377,10 +382,9 @@ export default function PolitiqueCookiesPage() {
   const currentIndex = SECTIONS.findIndex(s => s.id === activeSection);
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: C.pageBg, color: C.text, fontFamily: "'Inter', -apple-system, sans-serif", transition: "background-color 0.3s ease, color 0.3s ease" }}>
+    <div className={inter.variable} style={{ minHeight: "100vh", backgroundColor: C.pageBg, color: C.text, fontFamily: "var(--font-inter), -apple-system, sans-serif", transition: "background-color 0.3s ease, color 0.3s ease" }}>
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; }
         .nav-item:hover { background-color: rgba(245,166,35,0.06) !important; color: #F5A623 !important; }
       `}</style>
@@ -425,7 +429,7 @@ export default function PolitiqueCookiesPage() {
             <span style={{ color: "#F5A623" }}>des Cookies</span>
           </h1>
           <p style={{ color: C.textMuted, fontSize: "15px", maxWidth: "580px", margin: "0 0 20px", lineHeight: 1.75 }}>
-            Transparence totale sur l'utilisation des cookies sur la plateforme Yelen224 — leur nature, leur finalité, leur durée de vie et vos droits de gestion.
+            Transparence totale sur l&apos;utilisation des cookies sur la plateforme Yelen224 — leur nature, leur finalité, leur durée de vie et vos droits de gestion.
           </p>
 
           {/* Résumé visuel */}
@@ -478,7 +482,7 @@ export default function PolitiqueCookiesPage() {
           {/* Engagement no-ads */}
           <div style={{ marginTop: "16px", padding: "12px", borderRadius: "10px", backgroundColor: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.15)" }}>
             <p style={{ color: "#22c55e", fontSize: "11px", fontWeight: "700", margin: "0 0 4px" }}>🚫 Zéro publicité</p>
-            <p style={{ color: C.textSubtle, fontSize: "11px", margin: 0, lineHeight: 1.5 }}>Aucun cookie publicitaire ou de tracking marketing n'est utilisé sur Yelen224.</p>
+            <p style={{ color: C.textSubtle, fontSize: "11px", margin: 0, lineHeight: 1.5 }}>Aucun cookie publicitaire ou de tracking marketing n&apos;est utilisé sur Yelen224.</p>
           </div>
         </nav>
 

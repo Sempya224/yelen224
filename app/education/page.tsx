@@ -1,6 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
+import { Nunito } from "next/font/google";
+
+// Auto-hébergée (Lot 1.5, 13/08/2026) — voir app/ambassades/page.tsx pour
+// le raisonnement complet. Graisses alignées sur l'@import d'origine
+// (pas de 500 dans ce fichier, contrairement aux autres).
+const nunito = Nunito({ subsets: ["latin"], weight: ["400", "600", "700", "800", "900"], variable: "--font-nunito" });
 
 // ─── INLINE SVG ICONS (no lucide-react needed) ────────────────────────────────
 const ic = (d: string, size = 22) => (
@@ -359,10 +366,13 @@ function Popup({ data, onClose }: { data: PopupData; onClose: () => void }) {
       >
         {/* Image header */}
         <div className="relative h-48 sm:h-56 overflow-hidden rounded-t-3xl sm:rounded-t-3xl">
-          <img
+          <Image
             src={data.image}
             alt={data.title}
-            className="w-full h-full object-cover"
+            fill
+            sizes="(min-width: 640px) 512px, 100vw"
+            priority
+            style={{ objectFit: "cover" }}
           />
           <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, transparent 40%, ${data.bgColor})` }} />
           <button
@@ -451,7 +461,7 @@ function ArticleCard({ item, onClick }: { item: PopupData; onClick: () => void }
       style={{ border: `1.5px solid ${item.color}22` }}
     >
       <div className="relative h-40 overflow-hidden">
-        <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+        <Image src={item.image} alt={item.title} fill sizes="(min-width: 1024px) 320px, (min-width: 640px) 45vw, 92vw" className="group-hover:scale-105 transition-transform duration-500" style={{ objectFit: "cover" }} />
         <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.6))` }} />
         <div className="absolute top-3 left-3">
           <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white" style={{ background: item.color }}>
@@ -465,7 +475,7 @@ function ArticleCard({ item, onClick }: { item: PopupData; onClick: () => void }
       <div className="p-4" style={{ background: item.bgColor }}>
         <h3 className="font-bold text-gray-900 text-sm leading-snug mb-2">{item.title}</h3>
         <div className="flex items-center gap-1 text-xs font-semibold" style={{ color: item.color }}>
-          Lire l'article <ChevronRight size={13} />
+          Lire l&apos;article <ChevronRight size={13} />
         </div>
       </div>
     </button>
@@ -477,8 +487,8 @@ function VideoCard({ video }: { video: typeof VIDEOS[0] }) {
   const thumb = `https://img.youtube.com/vi/${video.id}/hqdefault.jpg`;
   return (
     <div className="relative rounded-3xl overflow-hidden shadow-md" style={{ border: "1.5px solid #F59E0B22" }}>
-      <div className="relative">
-        <img src={thumb} alt={video.title} className="w-full h-44 object-cover" />
+      <div className="relative h-44 overflow-hidden">
+        <Image src={thumb} alt={video.title} fill sizes="(min-width: 640px) 400px, 92vw" style={{ objectFit: "cover" }} />
         {/* YELEN overlay brand */}
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}>
           <div className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg" style={{ background: "#F59E0B" }}>
@@ -529,24 +539,21 @@ export default function EducationPage() {
   const citoyenItems = POPUPS.slice(14, 20);
 
   return (
-    <div className="min-h-screen" style={{ background: "#FFFEF0", fontFamily: "'Nunito', sans-serif" }}>
-      {/* Google Font */}
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');`}</style>
-
+    <div className={`min-h-screen ${nunito.variable}`} style={{ background: "#FFFEF0", fontFamily: "var(--font-nunito), sans-serif" }}>
       {/* ── HERO ── */}
       <div className="relative overflow-hidden px-5 pt-12 pb-10" style={{ background: "linear-gradient(135deg, #FEF3C7 0%, #FDF6D8 50%, #FFFEF0 100%)" }}>
         <div className="absolute top-0 right-0 w-64 h-64 rounded-full opacity-20" style={{ background: "radial-gradient(circle, #F59E0B, transparent)", transform: "translate(30%, -30%)" }} />
         <div className="absolute bottom-0 left-0 w-48 h-48 rounded-full opacity-10" style={{ background: "radial-gradient(circle, #10B981, transparent)", transform: "translate(-30%, 30%)" }} />
         <div className="relative z-10 max-w-md mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold mb-4" style={{ background: "#F59E0B", color: "#fff" }}>
-            <BookOpen size={14} /> Centre d'éducation YELEN224
+            <BookOpen size={14} /> Centre d&apos;éducation YELEN224
           </div>
           <h1 className="text-3xl font-black text-gray-900 leading-tight mb-3">
             Apprends. Agis.<br />
             <span style={{ color: "#F59E0B" }}>Change la Guinée.</span>
           </h1>
           <p className="text-sm text-gray-600 leading-relaxed max-w-xs mx-auto">
-            Tout ce qu'un citoyen guinéen doit savoir pour réussir, s'organiser et construire son avenir sans quitter son pays.
+            Tout ce qu&apos;un citoyen guinéen doit savoir pour réussir, s&apos;organiser et construire son avenir sans quitter son pays.
           </p>
         </div>
       </div>

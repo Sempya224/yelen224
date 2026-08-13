@@ -1,0 +1,58 @@
+name: CI
+
+# Lot 1.1 (13/08/2026, remédiation GAP-14-02) — préparation des contrôles
+# CI/CD demandée par le master plan sécurité (section 14/15). Ce workflow
+# est un point de départ minimal : build + vérification de types + audit
+# de dépendances en lecture seule sur chaque push/PR touchant main. Il ne
+# déploie rien (Netlify gère déjà le déploiement séparément via
+# @netlify/plugin-nextjs) et ne bloque aucun merge tant qu'aucune "required
+# status check" n'est activée côté GitHub (Settings → Branches) — cette
+# activation est une action à faire par Bryan, hors de portée du code.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    # Informationnel uniquement pour l'instant (continue-on-error) — le
+    # projet a des vulnérabilités connues et documentées dans
+    # docs/security/YELEN_SECURITY_GAP_ANALYSIS.md (GAP-14-01), certaines
+    # ne peuvent être corrigées qu'avec --force (bump majeur de next). Ne
+    # doit pas faire échouer la CI tant que ce gap n'est pas traité
+    # explicitement par Bryan.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit (informationnel)
+        run: npm audit --omit=dev
+        continue-on-error: true

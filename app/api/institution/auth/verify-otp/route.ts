@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
 import crypto from 'crypto'
 import { mintInstitutionTotpChallengeToken } from '@/lib/auth/institutionSession'
+import { enregistrerAction } from '@/lib/journalActivite'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,10 +12,6 @@ const supabaseAdmin = createClient(
 )
 
 const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
-
-// ⚠️ DEV MODE — décision assumée de Bryan (voir CLAUDE.md /auth), pas une dette
-// à corriger sans demande explicite.
-const DEV_OTP = '123456'
 
 const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
 
@@ -91,25 +88,24 @@ export async function POST(request: NextRequest) {
       phone = rawPhone
     }
 
+    // Durcissement Lot 1.1 (13/08/2026, remédiation GAP-04-01) — plus de
+    // bypass en dur : seul le code réellement stocké par send-otp/route.ts
+    // (via INSTITUTION_OTP_FALLBACK tant qu'aucun SMS_PROVIDER n'est
+    // configuré) est accepté.
     let verified = false
+    const { data: otpRow } = await supabaseAdmin
+      .from('institution_otp')
+      .select('id')
+      .eq('phone', phone)
+      .eq('code', code)
+      .gt('expires_at', new Date().toISOString())
+      .order('expires_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    if (code === DEV_OTP) {
+    if (otpRow) {
+      await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
       verified = true
-    } else {
-      const { data: otpRow } = await supabaseAdmin
-        .from('institution_otp')
-        .select('id')
-        .eq('phone', phone)
-        .eq('code', code)
-        .gt('expires_at', new Date().toISOString())
-        .order('expires_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (otpRow) {
-        await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
-        verified = true
-      }
     }
 
     if (!verified) {
@@ -133,7 +129,7 @@ export async function POST(request: NextRequest) {
     // role dans le même JWT si le membre Admin principal existe déjà.
     const { data: membrePrincipal } = await supabaseAdmin
       .from('institution_membres')
-      .select('id, role, totp_enabled')
+      .select('id, role, totp_enabled, prenom, nom')
       .eq('institution_id', institution.id)
       .eq('compte_principal', true)
       .maybeSingle()
@@ -141,15 +137,45 @@ export async function POST(request: NextRequest) {
     // 2FA TOTP (chantier sécurité institution 25/07/2026) — l'OTP téléphone
     // vient de réussir, mais on ne finalise la session qu'après validation
     // du code TOTP, via /api/institution/auth/totp/login-verify. rememberMe
-    // voyage dans le jeton de défi pour être honoré après coup.
+    // voyage dans le jeton de défi pour être honoré après coup. membreNom
+    // transporté aussi (bug corrigé 05/08/2026 : sans lui, login-verify ne
+    // journalisait jamais "connexion" ni ne mettait à jour
+    // derniere_connexion pour le compte_principal en 2FA — seul le flux
+    // membre/login le faisait).
     if (membrePrincipal?.totp_enabled) {
       const totpToken = await mintInstitutionTotpChallengeToken({
         institutionId: institution.id,
         membreId: membrePrincipal.id,
         role: membrePrincipal.role,
         rememberMe: rememberMe === true,
+        membreNom: `${membrePrincipal.prenom} ${membrePrincipal.nom}`,
       })
       return NextResponse.json({ requiresTotp: true, totpToken })
+    }
+
+    // Traçabilité de connexion (bug corrigé 05/08/2026) — ce flux
+    // (téléphone + OTP, utilisé par le compte_principal au quotidien)
+    // n'écrivait ni "connexion" dans journal_activite ni
+    // institution_membres.derniere_connexion, contrairement au flux
+    // membre/login (identifiant+PIN). D'où l'incohérence observée :
+    // "Dernières actions" pouvait sembler vide/incohérent pour ce compte
+    // pendant que "Dernière connexion" affichait "Jamais connecté" malgré
+    // des connexions réelles répétées.
+    if (membrePrincipal) {
+      await supabaseAdmin
+        .from('institution_membres')
+        .update({ derniere_connexion: new Date().toISOString() })
+        .eq('id', membrePrincipal.id)
+
+      await enregistrerAction({
+        institutionId: institution.id,
+        membreId: membrePrincipal.id,
+        membreNom: `${membrePrincipal.prenom} ${membrePrincipal.nom}`,
+        action: 'connexion',
+        cibleTable: 'institution_membres',
+        cibleId: membrePrincipal.id,
+        req: request,
+      })
     }
 
     const token = await new SignJWT({

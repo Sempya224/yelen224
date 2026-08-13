@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
+import crypto from 'crypto'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,14 +11,28 @@ const supabaseAdmin = createClient(
 
 const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
 
-// ⚠️ DEV MODE — décision assumée de Bryan (voir CLAUDE.md /auth), pas une dette
-// à corriger sans demande explicite.
-const DEV_OTP = '123456'
-
 const PHONE_REGEX = /^\+224\d{8,9}$/
 
 const SECTEURS = ['sante', 'administratif', 'financier', 'juridique', 'beaute_bien_etre', 'commerce', 'artisanat', 'services_divers']
 const STATUTS_JURIDIQUES = ['public', 'prive_formel', 'liberal', 'individuel_informel']
+
+// Même translittération que le backfill SQL de la migration
+// 20260805000010_clock_in_institutions_slug.sql — garde une normalisation
+// cohérente entre les institutions déjà en base et les nouvelles.
+const SLUG_TRANSLIT: Record<string, string> = {
+  à: 'a', â: 'a', ä: 'a', é: 'e', è: 'e', ê: 'e', ë: 'e',
+  ï: 'i', î: 'i', ô: 'o', ö: 'o', ù: 'u', û: 'u', ü: 'u',
+  ç: 'c', ñ: 'n',
+}
+
+function slugifyBase(name: string): string {
+  const lowered = name
+    .toLowerCase()
+    .split('')
+    .map((ch) => SLUG_TRANSLIT[ch] ?? ch)
+    .join('')
+  return lowered.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
 
 const ipAttempts = new Map<string, { count: number; resetAt: number }>()
 const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
@@ -147,25 +162,22 @@ export async function POST(request: NextRequest) {
 
     // Revalidation complète du code OTP — ne fait jamais confiance à un état
     // "vérifié" déclaré par le client (voir /verify-otp appelé en amont côté UI).
+    // Durcissement Lot 1.1 (13/08/2026, remédiation GAP-04-01) — plus de
+    // bypass en dur, voir send-otp/route.ts pour la génération du code réel.
     let verified = false
+    const { data: otpRow } = await supabaseAdmin
+      .from('institution_otp')
+      .select('id')
+      .eq('phone', phone)
+      .eq('code', code)
+      .gt('expires_at', new Date().toISOString())
+      .order('expires_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    if (code === DEV_OTP) {
+    if (otpRow) {
+      await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
       verified = true
-    } else {
-      const { data: otpRow } = await supabaseAdmin
-        .from('institution_otp')
-        .select('id')
-        .eq('phone', phone)
-        .eq('code', code)
-        .gt('expires_at', new Date().toISOString())
-        .order('expires_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (otpRow) {
-        await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
-        verified = true
-      }
     }
 
     if (!verified) {
@@ -178,12 +190,41 @@ export async function POST(request: NextRequest) {
 
     clearFailures(phone)
 
+    // Slug URL-friendly requis par institutions.slug (NOT NULL UNIQUE + CHECK
+    // de format, migration 20260805000010, portail Clock In Shift
+    // /clock/{slug}) — jamais fourni par ce flux avant ce correctif, ce qui
+    // faisait échouer TOUTE nouvelle inscription depuis l'exécution de cette
+    // migration (violation NOT NULL, remontée en "Erreur lors de la création
+    // de l'institution", bug réel signalé par Bryan le 12/08/2026). Fallback
+    // aléatoire si le nom ne produit aucun caractère alphanumérique (l'id de
+    // l'institution n'existe pas encore à ce stade, contrairement au backfill
+    // SQL qui pouvait s'appuyer dessus). Suffixe numérique en cas de
+    // collision, garde-fou improbable au-delà de 50 tentatives.
+    const slugBase = slugifyBase(name) || `institution-${crypto.randomBytes(4).toString('hex')}`
+    let slug = slugBase
+    let slugSuffix = 1
+    while (true) {
+      const { data: slugClash } = await supabaseAdmin
+        .from('institutions')
+        .select('id')
+        .eq('slug', slug)
+        .maybeSingle()
+      if (!slugClash) break
+      slugSuffix++
+      slug = `${slugBase}-${slugSuffix}`
+      if (slugSuffix > 50) {
+        slug = `${slugBase}-${Date.now()}`
+        break
+      }
+    }
+
     // Création de l'institution — niveau_confiance non fourni : la colonne a
     // un défaut ('profil_basique') côté base, source unique de vérité.
     const { data: institution, error: insertError } = await supabaseAdmin
       .from('institutions')
       .insert({
         name: name.trim(),
+        slug,
         ...(typeof category === 'string' && category.trim() ? { category: category.trim() } : {}),
         secteur,
         statut_juridique,
