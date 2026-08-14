@@ -1,0 +1,92 @@
+{
+  "common": {},
+  "navigation": {
+    "language": {
+      "title": "Language",
+      "description": "Choose the display language for Yelen. Arabic is coming later.",
+      "options": {
+        "fr": "Français",
+        "en": "English"
+      },
+      "saved": "Language updated."
+    }
+  },
+  "authentication": {
+    "recovery": {
+      "title": "Recover my account",
+      "subtitle": "Lost or changed phone number, or can't access two-factor authentication? An admin will verify your ID and approve the request.",
+      "headerTitle": "Account recovery",
+      "headerTitleCompact": "Recovery",
+      "reasons": {
+        "numberLost": "Lost / changed number",
+        "totpUnavailable": "Can't access 2FA"
+      },
+      "fields": {
+        "oldPhoneNumero": "Old number",
+        "oldPhoneTotp": "Your number",
+        "newPhone": "New number",
+        "firstName": "First name",
+        "lastName": "Last name",
+        "idDocument": "ID document (national ID)",
+        "idDocumentPlaceholder": "Choose a file (PDF, JPG, PNG)"
+      },
+      "totpNotice": "Your number stays the same. Once approved, two-factor authentication will be disabled — you'll be able to sign in with just the SMS code, and turn it back on later if needed.",
+      "errors": {
+        "oldPhoneInvalid": "Enter your number (9 digits).",
+        "newPhoneInvalid": "Enter your new number (9 digits).",
+        "samePhone": "The new number must be different from the old one.",
+        "nameRequired": "Enter your first and last name.",
+        "documentRequired": "Attach an ID document (national ID).",
+        "sendFailed": "Something went wrong sending your request. Please try again.",
+        "network": "Network error. Please try again."
+      },
+      "submit": "Send request",
+      "submitting": "Sending…",
+      "disclaimer": "Your ID document is sent securely and only reviewed by the Yelen team to verify your request.",
+      "success": {
+        "title": "Request sent",
+        "bodyNumero": "A member of the Yelen team will review your ID document. Once the request is approved, a {hours}-hour security delay applies before the new number is activated — giving you time to contact us if this request wasn't made by you.",
+        "bodyTotp": "A member of the Yelen team will review your ID document. Once the request is approved, a {hours}-hour security delay applies before two-factor authentication is disabled — giving you time to contact us if this request wasn't made by you.",
+        "backToLogin": "Back to sign in"
+      }
+    }
+  },
+  "appointments": {},
+  "profile": {},
+  "payments": {
+    "receiptVerification": {
+      "fields": {
+        "institution": "Institution",
+        "amount": "Amount",
+        "date": "Date"
+      }
+    }
+  },
+  "notifications": {},
+  "documents": {},
+  "institution": {},
+  "errors": {},
+  "validation": {},
+  "legal": {
+    "mentions": {
+      "sections": {
+        "editeur": {
+          "title": "Platform publisher",
+          "labels": {
+            "platformName": "Platform name",
+            "company": "Publishing company",
+            "legalForm": "Legal form",
+            "publisher": "Publication director",
+            "email": "Email",
+            "phoneNewYork": "New York phone",
+            "phoneConakry": "Conakry phone"
+          }
+        },
+        "propriete": {
+          "title": "Intellectual property",
+          "body": "All elements making up the Yelen224 platform — including the trade name \"Yelen224\", the name \"Sempya224\", logos, visual identity, text, images, features, source code, databases, technical architecture, and any other content — are the exclusive property of Sempya224.\n\nThese elements are protected under applicable intellectual property law in the Republic of Guinea and the United States of America.\n\nAny reproduction, representation, modification, publication, adaptation, or exploitation of all or part of these elements, by any means, without the prior written authorization of Sempya224, is strictly prohibited and constitutes an infringement of intellectual property rights that may result in civil and/or criminal proceedings.\n\nThe \"Yelen224\" and \"Sempya224\" marks, along with their associated logos, are trademarks of Sempya224. Any use without prior written authorization is strictly prohibited."
+        }
+      }
+    }
+  }
+}

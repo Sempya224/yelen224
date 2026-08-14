@@ -1,0 +1,92 @@
+{
+  "common": {},
+  "navigation": {
+    "language": {
+      "title": "Langue",
+      "description": "Choisissez la langue d'affichage de Yelen. L'arabe arrivera plus tard.",
+      "options": {
+        "fr": "Français",
+        "en": "English"
+      },
+      "saved": "Langue mise à jour."
+    }
+  },
+  "authentication": {
+    "recovery": {
+      "title": "Récupérer mon compte",
+      "subtitle": "Numéro perdu, changé, ou double authentification inaccessible ? Un admin vérifie votre pièce d'identité et valide la demande.",
+      "headerTitle": "Récupération de compte",
+      "headerTitleCompact": "Récupération",
+      "reasons": {
+        "numberLost": "Numéro perdu / changé",
+        "totpUnavailable": "2FA inaccessible"
+      },
+      "fields": {
+        "oldPhoneNumero": "Ancien numéro",
+        "oldPhoneTotp": "Votre numéro",
+        "newPhone": "Nouveau numéro",
+        "firstName": "Prénom",
+        "lastName": "Nom",
+        "idDocument": "Pièce d'identité (CIN)",
+        "idDocumentPlaceholder": "Choisir un fichier (PDF, JPG, PNG)"
+      },
+      "totpNotice": "Votre numéro ne change pas. Une fois validée, la double authentification sera désactivée — vous pourrez vous reconnecter avec seulement le code SMS, et la réactiver plus tard si besoin.",
+      "errors": {
+        "oldPhoneInvalid": "Entrez votre numéro (9 chiffres).",
+        "newPhoneInvalid": "Entrez votre nouveau numéro (9 chiffres).",
+        "samePhone": "Le nouveau numéro doit être différent de l'ancien.",
+        "nameRequired": "Renseignez votre prénom et votre nom.",
+        "documentRequired": "Joignez une pièce d'identité (CIN).",
+        "sendFailed": "Erreur lors de l'envoi. Réessayez.",
+        "network": "Erreur réseau. Réessayez."
+      },
+      "submit": "Envoyer la demande",
+      "submitting": "Envoi…",
+      "disclaimer": "Votre pièce d'identité est transmise de façon sécurisée et consultée uniquement par l'équipe Yelen pour vérifier votre demande.",
+      "success": {
+        "title": "Demande envoyée",
+        "bodyNumero": "Un membre de l'équipe Yelen va vérifier votre pièce d'identité. Une fois la demande approuvée, un délai de sécurité de {hours} heures s'applique avant l'activation du nouveau numéro — le temps de nous contacter si ce n'est pas vous qui êtes à l'origine de cette demande.",
+        "bodyTotp": "Un membre de l'équipe Yelen va vérifier votre pièce d'identité. Une fois la demande approuvée, un délai de sécurité de {hours} heures s'applique avant la désactivation de la double authentification — le temps de nous contacter si ce n'est pas vous qui êtes à l'origine de cette demande.",
+        "backToLogin": "Retour à la connexion"
+      }
+    }
+  },
+  "appointments": {},
+  "profile": {},
+  "payments": {
+    "receiptVerification": {
+      "fields": {
+        "institution": "Institution",
+        "amount": "Montant",
+        "date": "Date"
+      }
+    }
+  },
+  "notifications": {},
+  "documents": {},
+  "institution": {},
+  "errors": {},
+  "validation": {},
+  "legal": {
+    "mentions": {
+      "sections": {
+        "editeur": {
+          "title": "Éditeur de la plateforme",
+          "labels": {
+            "platformName": "Nom de la plateforme",
+            "company": "Société éditrice",
+            "legalForm": "Forme juridique",
+            "publisher": "Directeur de la publication",
+            "email": "Email",
+            "phoneNewYork": "Téléphone New York",
+            "phoneConakry": "Téléphone Conakry"
+          }
+        },
+        "propriete": {
+          "title": "Propriété intellectuelle",
+          "body": "L'ensemble des éléments constituant la plateforme Yelen224 — notamment le nom commercial \"Yelen224\", le nom \"Sempya224\", les logos, la charte graphique, les textes, les images, les fonctionnalités, le code source, les bases de données, l'architecture technique et tout autre contenu — sont la propriété exclusive de Sempya224.\n\nCes éléments sont protégés par les lois applicables en matière de propriété intellectuelle en République de Guinée et aux États-Unis d'Amérique.\n\nToute reproduction, représentation, modification, publication, adaptation ou exploitation de tout ou partie de ces éléments, par quelque moyen ou procédé que ce soit, sans l'autorisation préalable et écrite de Sempya224, est strictement interdite et constitue une violation des droits de propriété intellectuelle susceptible d'entraîner des poursuites civiles et/ou pénales.\n\nLes marques \"Yelen224\" et \"Sempya224\", ainsi que les logos associés, sont des marques de Sempya224. Leur utilisation sans autorisation préalable écrite est formellement interdite."
+        }
+      }
+    }
+  }
+}
