@@ -43,18 +43,67 @@ async function verifierTokenAdmin(token: string): Promise<{ valide: boolean; mfa
   }
 }
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+// CSP — Lot 1.1 (13/08/2026, remédiation GAP-16-01), volontairement en
+// mode Report-Only : aucun outil navigateur n'est disponible dans cet
+// environnement pour vérifier réellement qu'une CSP en mode bloquant ne
+// casse rien (l'app s'appuie massivement sur des styles inline React,
+// qui nécessitent 'unsafe-inline' sur style-src — sans ce mode
+// permissif, l'app entière serait cassée). En Report-Only, le navigateur
+// journalise dans la console les violations qui SERAIENT bloquées, sans
+// rien bloquer réellement — donc zéro risque de casser l'application.
+// Domaines externes réels utilisés par le produit, chacun confirmé par
+// recherche exhaustive dans le code au Lot 1.5 (pas copié d'un modèle
+// générique) :
+//  - Supabase (REST + Realtime wss: + Storage) : backend applicatif.
+//  - images.pexels.com, img.youtube.com : next.config.ts::remotePatterns.
+//  - www.youtube.com : iframe embarquée app/page.tsx:1476.
+//  - *.tile.openstreetmap.org : tuiles de carte Leaflet
+//    (components/CarteMap.tsx, LocationPicker.tsx) — sous-domaines a/b/c,
+//    d'où le wildcard.
+//  - formsubmit.co (connect-src) : app/contact/page.tsx fait un fetch()
+//    direct vers ce service tiers pour le formulaire de contact.
+// Google Fonts (fonts.googleapis.com/fonts.gstatic.com) : PAS de source
+// CSP — les 9 pages qui les chargeaient par @import direct ont été migrées
+// vers next/font/google (auto-hébergé, même Lot 1.5) : zéro dépendance
+// externe restante, donc zéro exception nécessaire. Principe du moindre
+// privilège appliqué à la lettre plutôt que de garder une exception "par
+// habitude".
+// Aucun analytics, aucun script tiers, aucune police via <link> externe
+// trouvés (recherche exhaustive également négative sur ces points).
+// WebAuthn (@simplewebauthn/browser) n'a besoin d'aucune source
+// supplémentaire : API navigateur native (navigator.credentials), toutes
+// les vérifications passent par nos propres routes /api/* (déjà 'self').
+// Pour passer en mode bloquant réel : renommer l'en-tête en
+// "Content-Security-Policy" (sans "-Report-Only") UNIQUEMENT après avoir
+// navigué sur l'app en conditions réelles et confirmé 0 violation dans
+// la console navigateur (Bryan).
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://pgcabxgrgjgukuagpuhc.supabase.co https://images.pexels.com https://img.youtube.com https://*.tile.openstreetmap.org",
+  "font-src 'self' data:",
+  "connect-src 'self' https://pgcabxgrgjgukuagpuhc.supabase.co wss://pgcabxgrgjgukuagpuhc.supabase.co https://formsubmit.co",
+  "frame-src https://www.youtube.com https://pgcabxgrgjgukuagpuhc.supabase.co",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ')
 
-  // ═══════════════════════════════════════════
-  // SÉCURITÉ 1 — Headers de sécurité globaux
-  // ═══════════════════════════════════════════
-  const response = NextResponse.next()
-
-  response.headers.set('X-Frame-Options', 'DENY')
-  response.headers.set('X-Content-Type-Options', 'nosniff')
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
-  response.headers.set('X-XSS-Protection', '1; mode=block')
+// Correctif verification Lot 1.5 (13/08/2026) — trouvé en vérification
+// production que /api/admin/kpis (401 sans session) et /admin (redirect
+// login sans cookie) n'avaient AUCUN header de sécurité : ils ne
+// passaient pas par l'objet `response` d'origine mais par un nouveau
+// NextResponse.redirect()/.json()/.rewrite() construit plus bas dans la
+// fonction, qui ne recopie jamais les headers déjà posés ailleurs.
+// Cette fonction doit être appelée sur CHAQUE réponse retournée par le
+// middleware, pas seulement le "laisser passer" par défaut.
+function appliquerHeadersSecurite<T extends NextResponse>(res: T): T {
+  res.headers.set('X-Frame-Options', 'DENY')
+  res.headers.set('X-Content-Type-Options', 'nosniff')
+  res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.headers.set('X-XSS-Protection', '1; mode=block')
   // Lot 1.5 (13/08/2026, remédiation) — corrigé de camera=(), geolocation=()
   // (blocage total) à camera=(self), geolocation=(self) : inventaire réel
   // du code a trouvé 8 fichiers utilisant navigator.geolocation (recherche
@@ -66,65 +115,19 @@ export async function middleware(request: NextRequest) {
   // (app/compte/confidentialite/confidentialite-client.tsx ne fait qu'une
   // LECTURE de permission déjà accordée, jamais une demande d'accès —
   // non affectée par cette policy dans un sens ou l'autre).
-  response.headers.set(
-    'Permissions-Policy',
-    'camera=(self), microphone=(), geolocation=(self)'
-  )
-  response.headers.set(
-    'Strict-Transport-Security',
-    'max-age=31536000; includeSubDomains; preload'
-  )
+  res.headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(self)')
+  res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload')
+  res.headers.set('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY)
+  return res
+}
 
-  // CSP — Lot 1.1 (13/08/2026, remédiation GAP-16-01), volontairement en
-  // mode Report-Only : aucun outil navigateur n'est disponible dans cet
-  // environnement pour vérifier réellement qu'une CSP en mode bloquant ne
-  // casse rien (l'app s'appuie massivement sur des styles inline React,
-  // qui nécessitent 'unsafe-inline' sur style-src — sans ce mode
-  // permissif, l'app entière serait cassée). En Report-Only, le navigateur
-  // journalise dans la console les violations qui SERAIENT bloquées, sans
-  // rien bloquer réellement — donc zéro risque de casser l'application.
-  // Domaines externes réels utilisés par le produit, chacun confirmé par
-  // recherche exhaustive dans le code au Lot 1.5 (pas copié d'un modèle
-  // générique) :
-  //  - Supabase (REST + Realtime wss: + Storage) : backend applicatif.
-  //  - images.pexels.com, img.youtube.com : next.config.ts::remotePatterns.
-  //  - www.youtube.com : iframe embarquée app/page.tsx:1476.
-  //  - *.tile.openstreetmap.org : tuiles de carte Leaflet
-  //    (components/CarteMap.tsx, LocationPicker.tsx) — sous-domaines a/b/c,
-  //    d'où le wildcard.
-  //  - formsubmit.co (connect-src) : app/contact/page.tsx fait un fetch()
-  //    direct vers ce service tiers pour le formulaire de contact.
-  // Google Fonts (fonts.googleapis.com/fonts.gstatic.com) : PAS de source
-  // CSP — les 9 pages qui les chargeaient par @import direct ont été migrées
-  // vers next/font/google (auto-hébergé, même Lot 1.5) : zéro dépendance
-  // externe restante, donc zéro exception nécessaire. Principe du moindre
-  // privilège appliqué à la lettre plutôt que de garder une exception "par
-  // habitude".
-  // Aucun analytics, aucun script tiers, aucune police via <link> externe
-  // trouvés (recherche exhaustive également négative sur ces points).
-  // WebAuthn (@simplewebauthn/browser) n'a besoin d'aucune source
-  // supplémentaire : API navigateur native (navigator.credentials), toutes
-  // les vérifications passent par nos propres routes /api/* (déjà 'self').
-  // Pour passer en mode bloquant réel : renommer l'en-tête en
-  // "Content-Security-Policy" (sans "-Report-Only") UNIQUEMENT après avoir
-  // navigué sur l'app en conditions réelles et confirmé 0 violation dans
-  // la console navigateur (Bryan).
-  response.headers.set(
-    'Content-Security-Policy-Report-Only',
-    [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://pgcabxgrgjgukuagpuhc.supabase.co https://images.pexels.com https://img.youtube.com https://*.tile.openstreetmap.org",
-      "font-src 'self' data:",
-      "connect-src 'self' https://pgcabxgrgjgukuagpuhc.supabase.co wss://pgcabxgrgjgukuagpuhc.supabase.co https://formsubmit.co",
-      "frame-src https://www.youtube.com https://pgcabxgrgjgukuagpuhc.supabase.co",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "frame-ancestors 'none'",
-    ].join('; ')
-  )
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // ═══════════════════════════════════════════
+  // SÉCURITÉ 1 — Headers de sécurité globaux
+  // ═══════════════════════════════════════════
+  const response = appliquerHeadersSecurite(NextResponse.next())
 
   // ═══════════════════════════════════════════
   // SÉCURITÉ 0 — Restriction géographique de pré-lancement
@@ -164,7 +167,7 @@ export async function middleware(request: NextRequest) {
 
       if (!autorise) {
         logSecurite('geo_bloque', { raison, pays: geo?.country?.code ?? null, subdivision: geo?.subdivision?.code ?? null, ip: extraireIpClient(request), path: pathname })
-        return NextResponse.rewrite(new URL('/region-non-disponible', request.url))
+        return appliquerHeadersSecurite(NextResponse.rewrite(new URL('/region-non-disponible', request.url)))
       }
     }
   }
@@ -186,7 +189,7 @@ export async function middleware(request: NextRequest) {
   ) {
     const ua = request.headers.get('user-agent')
     if (!estRobotOuApercu(ua) && !estAppareilMobile(ua)) {
-      return NextResponse.rewrite(new URL('/acces-mobile-requis', request.url))
+      return appliquerHeadersSecurite(NextResponse.rewrite(new URL('/acces-mobile-requis', request.url)))
     }
   }
 
@@ -205,18 +208,18 @@ export async function middleware(request: NextRequest) {
   const userAgent = request.headers.get('user-agent')
   if (estUserAgentSuspect(userAgent)) {
     logSecurite('ua_suspect_bloque', { userAgent, ip: extraireIpClient(request), path: pathname })
-    return NextResponse.json({ error: 'Requête refusée' }, { status: 403 })
+    return appliquerHeadersSecurite(NextResponse.json({ error: 'Requête refusée' }, { status: 403 }))
   }
   if (process.env.EDGE_RATE_LIMIT_ENABLED === 'true') {
     const ip = extraireIpClient(request)
     if (estRateLimite(`global:${ip}`)) {
       logSecurite('rate_limit_global', { ip, path: pathname })
-      return NextResponse.json({ error: 'Trop de requêtes, réessayez dans un instant.' }, { status: 429 })
+      return appliquerHeadersSecurite(NextResponse.json({ error: 'Trop de requêtes, réessayez dans un instant.' }, { status: 429 }))
     }
     const seuilSensible = seuilEndpointSensible(pathname)
     if (seuilSensible !== null && estRateLimite(`sensible:${ip}`, seuilSensible)) {
       logSecurite('rate_limit_endpoint_sensible', { ip, path: pathname, seuil: seuilSensible })
-      return NextResponse.json({ error: 'Trop de tentatives, réessayez dans un instant.' }, { status: 429 })
+      return appliquerHeadersSecurite(NextResponse.json({ error: 'Trop de tentatives, réessayez dans un instant.' }, { status: 429 }))
     }
   }
 
@@ -236,7 +239,7 @@ export async function middleware(request: NextRequest) {
       // Pas de session → redirect login
       const loginUrl = new URL('/admin/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
-      return NextResponse.redirect(loginUrl)
+      return appliquerHeadersSecurite(NextResponse.redirect(loginUrl))
     }
 
     // Vérification réelle de la signature JWT (plus un simple contrôle
@@ -247,7 +250,7 @@ export async function middleware(request: NextRequest) {
       logSecurite('admin_token_invalide', { path: pathname, ip: extraireIpClient(request) })
       const loginUrl = new URL('/admin/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
-      const redirectResponse = NextResponse.redirect(loginUrl)
+      const redirectResponse = appliquerHeadersSecurite(NextResponse.redirect(loginUrl))
       redirectResponse.cookies.delete('yelen224_admin_session')
       return redirectResponse
     }
@@ -257,7 +260,7 @@ export async function middleware(request: NextRequest) {
     // configuration, seul chemin encore accessible tant qu'elle n'est pas
     // activée.
     if (!mfaEnabled && !MFA_EXEMPT_ADMIN_ROUTES.some(route => pathname.startsWith(route))) {
-      return NextResponse.redirect(new URL('/admin/security', request.url))
+      return appliquerHeadersSecurite(NextResponse.redirect(new URL('/admin/security', request.url)))
     }
 
     return response
@@ -275,26 +278,26 @@ export async function middleware(request: NextRequest) {
     const adminToken = request.cookies.get('yelen224_admin_session')?.value
 
     if (!adminToken) {
-      return NextResponse.json(
+      return appliquerHeadersSecurite(NextResponse.json(
         { error: 'Non autorisé', code: 'NO_SESSION' },
         { status: 401 }
-      )
+      ))
     }
 
     const { valide, mfaEnabled } = await verifierTokenAdmin(adminToken)
     if (!valide) {
       logSecurite('admin_token_invalide', { path: pathname, ip: extraireIpClient(request) })
-      return NextResponse.json(
+      return appliquerHeadersSecurite(NextResponse.json(
         { error: 'Session invalide ou expirée', code: 'INVALID_SESSION' },
         { status: 401 }
-      )
+      ))
     }
 
     if (!mfaEnabled && !MFA_EXEMPT_API_ROUTES.some(route => pathname.startsWith(route))) {
-      return NextResponse.json(
+      return appliquerHeadersSecurite(NextResponse.json(
         { error: 'Configuration de la double authentification requise avant de continuer.', code: 'MFA_SETUP_REQUIRED' },
         { status: 403 }
-      )
+      ))
     }
 
     return response
