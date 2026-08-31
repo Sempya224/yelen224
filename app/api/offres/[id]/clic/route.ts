@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { OFFRE_CAT_LABELS } from "@/lib/offresCategories";
+import { estCanalValide } from "@/lib/canalAcquisition";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -140,6 +141,11 @@ function pageInterstitielle(partenaireNom: string, categorieLabel: string, ctaUr
 // marque avant de rediriger vers l'offre externe réelle.
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Canal propagé depuis app/offres/[id]/page.tsx (query param), pas
+  // re-détecté ici : le Referer de cette requête serait toujours l'offre
+  // elle-même (lien same-origin), sans intérêt pour l'acquisition réelle.
+  const canalParam = req.nextUrl.searchParams.get("canal");
+  const canal = estCanalValide(canalParam) ? canalParam : "autres";
 
   const { data: offre } = await sb
     .from("offres")
@@ -152,6 +158,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   await sb.from("offres").update({ nb_clics: (offre.nb_clics ?? 0) + 1 }).eq("id", id);
+  // offre_clics permet en plus un vrai graphique de performance par jour
+  // (MesOffresPerformanceChart.tsx) — citoyen_id toujours null ici (route
+  // ouverte dans un nouvel onglet, aucune session transmise). Erreur
+  // avalée volontairement (ex. migration pas encore appliquée) : ne doit
+  // jamais empêcher la redirection réelle vers le partenaire.
+  await sb.from("offre_clics").insert({ offre_id: id, citoyen_id: null, canal }).then(() => {}, () => {});
 
   const categorieLabel = OFFRE_CAT_LABELS[offre.categorie] || offre.categorie;
   const html = pageInterstitielle(offre.partenaire_nom, categorieLabel, offre.cta_url);

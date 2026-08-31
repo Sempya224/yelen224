@@ -9,12 +9,18 @@
 
 export type EtapeRappel = { libelle: string; date_echeance: string | null; fait: boolean; ordre: number };
 
+// `categorie`/`priorite` ajoutés le 24/08/2026 pour la modernisation de la
+// carte "Vos démarches en cours" (Accueil) — colonnes déjà présentes sur
+// citoyen_demarches depuis la migration 20260824000002, jamais remontées
+// jusqu'ici jusqu'à cette carte.
 export type DemarcheRappel = {
   id: string;
   titre: string;
   institutionNom: string | null;
   dateCible: string | null;
   etapes: EtapeRappel[];
+  categorie: "personnel" | "professionnel" | null;
+  priorite: "faible" | "normale" | "importante" | "urgente";
 };
 
 export type RappelDemarche = {
@@ -25,13 +31,20 @@ export type RappelDemarche = {
   echeanceProche: boolean;
   etapesFaites: number;
   etapesTotal: number;
+  institutionNom: string | null;
+  categorie: "personnel" | "professionnel" | null;
+  priorite: "faible" | "normale" | "importante" | "urgente";
 };
 
 function prochaineEtapeNonCochee(d: DemarcheRappel): EtapeRappel | null {
   return d.etapes.filter(e => !e.fait).sort((a, b) => a.ordre - b.ordre)[0] ?? null;
 }
 
-function prochaineDate(d: DemarcheRappel): Date | null {
+// Exportée (25/08/2026, État d'attention — Lot 1) pour être réutilisée par
+// lib/citizenStateBuilder.ts sans dupliquer la règle de sélection de la
+// prochaine échéance — seule cette fonction sait laquelle, entre les
+// étapes non cochées et la date cible, fait foi.
+export function prochaineDate(d: DemarcheRappel): Date | null {
   if (d.etapes.length > 0) {
     const dates = d.etapes.filter(e => !e.fait && e.date_echeance).map(e => new Date(e.date_echeance as string));
     if (dates.length === 0) return null;
@@ -66,6 +79,7 @@ export function deriverRappelsDemarches(demarches: DemarcheRappel[]): RappelDema
     return {
       id: d.id, titre: d.titre, sousTexte, enRetard, echeanceProche,
       etapesFaites: d.etapes.filter(e => e.fait).length, etapesTotal: d.etapes.length,
+      institutionNom: d.institutionNom, categorie: d.categorie, priorite: d.priorite,
     };
   });
 

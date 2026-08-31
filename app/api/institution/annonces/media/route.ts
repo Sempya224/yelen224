@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
+import { validateUpload, type UploadCategory } from "@/lib/uploadSecurity";
 
 // Upload des médias d'annonce (couverture, carrousel, PDF, vidéo) via
 // service_role — même contournement RLS storage.objects que
@@ -16,11 +17,11 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
-const ACCEPTED: Record<string, string> = {
-  cover: "image/",
-  carrousel: "image/",
-  pdf: "application/pdf",
-  video: "video/",
+const CATEGORIE_PAR_PREFIX: Record<string, UploadCategory> = {
+  cover: "PUBLIC_IMAGE",
+  carrousel: "PUBLIC_IMAGE",
+  pdf: "PUBLIC_PDF",
+  video: "PUBLIC_VIDEO",
 };
 
 export async function POST(req: NextRequest) {
@@ -33,24 +34,18 @@ export async function POST(req: NextRequest) {
 
   const prefix = form.get("prefix");
   const file = form.get("file");
-  if (typeof prefix !== "string" || !(prefix in ACCEPTED)) {
+  if (typeof prefix !== "string" || !(prefix in CATEGORIE_PAR_PREFIX)) {
     return NextResponse.json({ error: "Type de média invalide" }, { status: 400 });
   }
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
   }
-  if (!file.type.startsWith(ACCEPTED[prefix])) {
-    return NextResponse.json({ error: "Format de fichier non accepté" }, { status: 400 });
-  }
 
   const maxSize = prefix === "video" ? MAX_VIDEO_SIZE : MAX_MEDIA_SIZE;
-  if (file.size > maxSize) {
-    return NextResponse.json({ error: "Fichier trop volumineux" }, { status: 400 });
-  }
-
-  const ext = file.name.split(".").pop() || "bin";
-  const path = `${membre.institutionId}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
+  const verif = await validateUpload(buffer, CATEGORIE_PAR_PREFIX[prefix], maxSize, file.name);
+  if (!verif.valid) return NextResponse.json({ error: verif.reason }, { status: 400 });
+  const path = `${membre.institutionId}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${verif.extension}`;
 
   // Bucket dédié "annonces" (public) — le bucket "documents" est et doit
   // rester privé (documents de conformité institutionnelle), confirmé par
@@ -60,7 +55,7 @@ export async function POST(req: NextRequest) {
   // n'est pas servie publiquement pour un bucket privé).
   const { error: upErr } = await sb.storage.from("annonces").upload(path, buffer, {
     upsert: true,
-    contentType: file.type,
+    contentType: verif.detectedType,
   });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 

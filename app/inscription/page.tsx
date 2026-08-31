@@ -8,6 +8,9 @@ import { T } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { VILLES_GUINEE } from "@/lib/villes";
+import { YelenLoader } from "@/components/YelenLoader";
+import { validerFormatPhoneGuinee, normaliserChiffresPhone, versE164Guinee, filtrerSaisiePhone } from "@/lib/phoneGuinee";
+import { AuthSecurityBlockedScreen } from "@/components/security/AuthSecurityBlockedScreen";
 
 // ─── Anti-bot ─────────────────────────────────────────────────────────────────
 const CHALLENGES = [
@@ -20,11 +23,12 @@ const CHALLENGES = [
   { q: "Combien de jours en une semaine ?", a: "7"  },
 ];
 
-// Numéro guinéen = 9 chiffres après +224 — tronque au-delà et regroupe par 3
-// pour la lisibilité (retour CEO 23/07/2026).
-function formatPhoneInput(raw: string): string {
-  const digits = raw.replace(/\D/g, "").slice(0, 9);
-  return digits.match(/.{1,3}/g)?.join(" ") ?? "";
+// Message générique pour l'état bloqué/support_only (chantier Auth
+// Security 28/08/2026, voir lib/security/authSecurity.ts) — utilisé
+// uniquement pour la garde locale avant l'envoi d'une requête.
+function messageBlocageActuel(state: "blocked" | "support_only", retryAfterS: number): string {
+  if (state === "support_only") return "Contactez le support pour réactiver l'inscription sur cet appareil.";
+  return retryAfterS > 0 ? `Accès temporairement protégé. Réessayez dans ${retryAfterS}s.` : "Accès temporairement protégé. Réessayez dans un instant.";
 }
 
 export default function InscriptionCitoyen() {
@@ -37,9 +41,19 @@ export default function InscriptionCitoyen() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false); // micro-animation avant redirection
   const [error, setError]   = useState("");
+  // Compte déjà existant à ce numéro — message + lien "Se connecter" dédiés
+  // (retour Bryan 09/08/2026, message plus humain qu'une simple erreur).
+  const [accountExists, setAccountExists] = useState(false);
+  // Demande de récupération de compte déjà en cours (retour Bryan
+  // 09/08/2026) — même trace locale que app/login/page.tsx, pour éviter
+  // qu'un citoyen recrée un compte par erreur en attendant sa récupération.
+  const [recoveryPending, setRecoveryPending] = useState<{ phone: string; submittedAt: number } | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [acceptCGU, setAcceptCGU] = useState(false);
   const [form, setForm]     = useState({ prenom: "", nom: "", phone: "", ville: "" });
+  const phoneDigitsNormalized = normaliserChiffresPhone(form.phone);
+  const phoneValidation = validerFormatPhoneGuinee(form.phone);
+  const phoneErreurVisible = phoneValidation.code === "prefixe_inconnu" || phoneValidation.code === "caracteres_invalides";
   const [code, setCode]     = useState(["","","","","",""]);
 
   // Anti-bot
@@ -47,9 +61,11 @@ export default function InscriptionCitoyen() {
   const [chalAnswer, setChalAnswer] = useState("");
   const [chalValid, setChalValid]   = useState(false);
   const [honeypot, setHoneypot]     = useState("");
-  const [attempts, setAttempts]     = useState(0);
-  const [blocked, setBlocked]       = useState(false);
-  const [blockTimer, setBlockTimer] = useState(0);
+  // État anti-abus piloté par le serveur (chantier Auth Security
+  // 28/08/2026) — remplace l'ancien compteur cosmétique local. Alimenté
+  // par le champ `security` renvoyé par /api/citoyen/auth/register.
+  const [securityState, setSecurityState] = useState<"normal" | "warning" | "blocked" | "support_only">("normal");
+  const [securityRetryAfterS, setSecurityRetryAfterS] = useState(0);
   const lastKey = useRef(0);
   const speeds  = useRef<number[]>([]);
 
@@ -65,14 +81,31 @@ export default function InscriptionCitoyen() {
   }, []);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem("yelen224_recuperation_pending");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { phone: string; submittedAt: number };
+        if (parsed?.phone && parsed?.submittedAt) setRecoveryPending(parsed);
+      }
+    } catch {}
+  }, []);
+
+  const dismissRecoveryPending = () => {
+    try { localStorage.removeItem("yelen224_recuperation_pending"); } catch {}
+    setRecoveryPending(null);
+  };
+
+  useEffect(() => {
     setChalValid(chalAnswer.trim() === challenge.a);
   }, [chalAnswer, challenge]);
 
+  // Décompte visuel du blocage — purement informatif : la porte réelle
+  // reste vérifiée par le serveur à la prochaine requête.
   useEffect(() => {
-    if (!blocked || blockTimer <= 0) { if (blocked && blockTimer === 0) setBlocked(false); return; }
-    const t = setTimeout(() => setBlockTimer(b => b - 1), 1000);
+    if (securityState !== "blocked" || securityRetryAfterS <= 0) return;
+    const t = setTimeout(() => setSecurityRetryAfterS(s => Math.max(0, s - 1)), 1000);
     return () => clearTimeout(t);
-  }, [blocked, blockTimer]);
+  }, [securityState, securityRetryAfterS]);
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 30);
@@ -99,16 +132,15 @@ export default function InscriptionCitoyen() {
     setError("");
     if (honeypot) { await new Promise(r => setTimeout(r, 2000)); return; }
     if (isBotSpeed()) { setError("Comportement inhabituel détecté. Réessayez normalement."); return; }
-    if (blocked) { setError(`Trop de tentatives. Attendez ${blockTimer}s.`); return; }
+    if (securityState === "blocked" || securityState === "support_only") { setError(messageBlocageActuel(securityState, securityRetryAfterS)); return; }
     if (!form.prenom.trim()) { setError("Le prénom est obligatoire."); return; }
     if (!form.nom.trim()) { setError("Le nom est obligatoire."); return; }
     if (!form.ville) { setError("Sélectionnez votre ville."); return; }
     if (!acceptCGU) { setError("Acceptez les conditions d'utilisation pour continuer."); return; }
     if (!chalValid) { setError("Répondez correctement à la question de sécurité."); return; }
-    const cleaned = form.phone.replace(/\s/g, "");
-    if (!cleaned || cleaned.length !== 9) { setError("Entrez un numéro à 9 chiffres."); return; }
+    if (!phoneValidation.valide) { setError(phoneValidation.message || "Format de numéro invalide."); return; }
 
-    const fullPhone = "+224" + cleaned;
+    const fullPhone = versE164Guinee(phoneDigitsNormalized);
     localStorage.setItem("inscription_phone",  fullPhone);
     localStorage.setItem("inscription_prenom", form.prenom.trim());
     localStorage.setItem("inscription_nom",    form.nom.trim());
@@ -126,9 +158,14 @@ export default function InscriptionCitoyen() {
   const handleVerify = async () => {
     if (loading) return; // garde anti double-clic
     setError("");
-    if (blocked) { setError(`Bloqué. Attendez ${blockTimer}s.`); return; }
+    setAccountExists(false);
+    if (securityState === "blocked" || securityState === "support_only") { setError(messageBlocageActuel(securityState, securityRetryAfterS)); return; }
     const entered = code.join("");
-    if (entered.length < 6) { setError("Entrez les 6 chiffres du code."); return; }
+    // Le bouton reste désactivé tant que les 6 chiffres ne sont pas saisis
+    // (voir disabled={... code.join("").length < 6} plus bas) — ce garde-fou
+    // ne sert plus qu'à ignorer un Entrée prématuré, jamais à afficher un
+    // message (retour Bryan 09/08/2026 : bandeau perçu comme "faux").
+    if (entered.length < 6) return;
     setLoading(true);
     try {
       const phone  = localStorage.getItem("inscription_phone");
@@ -141,11 +178,17 @@ export default function InscriptionCitoyen() {
         body: JSON.stringify({ phone, code: entered, prenom, nom, ...(ville ? { ville } : {}) }),
       });
       const json = await res.json();
+      if (json.security?.state) { setSecurityState(json.security.state); setSecurityRetryAfterS(json.security.retryAfterS || 0); }
+
+      if (res.status === 423) {
+        setError(json.error || "Accès temporairement protégé.");
+        setCode(["","","","","",""]);
+        return;
+      }
+
       if (!res.ok || !json.success) {
-        if (json.code === "ALREADY_REGISTERED") { setError("Ce numéro est déjà enregistré."); return; }
+        if (json.code === "ALREADY_REGISTERED") { setError("Un compte existe déjà avec ce numéro."); setAccountExists(true); return; }
         if (json.code === "INVALID_CODE") {
-          const n = attempts + 1; setAttempts(n);
-          if (n >= 3) { setBlocked(true); setBlockTimer(60); }
           setError(json.error || "Code incorrect.");
           setCode(["","","","","",""]); setTimeout(() => otpRefs[0].current?.focus(), 100);
           return;
@@ -170,7 +213,7 @@ export default function InscriptionCitoyen() {
       // Micro-animation de succès avant redirection (retour CEO 23/07/2026)
       setSuccess(true);
       await new Promise(r => setTimeout(r, 550));
-      router.push("/dashboard");
+      router.push("/?welcome=1");
     } catch { setError("Erreur réseau."); }
     finally { setLoading(false); }
   };
@@ -186,7 +229,7 @@ export default function InscriptionCitoyen() {
     if (e.key === "Enter") handleVerify();
   };
 
-  const canSubmit = chalValid && acceptCGU && !blocked && !loading;
+  const canSubmit = chalValid && acceptCGU && securityState !== "blocked" && securityState !== "support_only" && !loading && phoneValidation.valide;
 
   // ── Tokens thème auto ─────────────────────────────────────────────────────
   const inputBg  = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
@@ -194,6 +237,11 @@ export default function InscriptionCitoyen() {
   const txt1 = isDark ? "#F0EEE8" : "#0d0d1a";
   const txt2 = isDark ? "#6E6E7A" : "#6C6C70";
   const txt3 = isDark ? "#333345" : "#bbb";
+  // Bandeaux d'erreur — rouge dédié, le doré reste réservé à la marque/aux
+  // actions (retour Bryan 09/08/2026, même correctif que app/login/page.tsx).
+  const errBg   = isDark ? "rgba(239,68,68,0.14)" : "#FEE2E2";
+  const errBrd  = "#ef4444";
+  const errText = isDark ? "#FCA5A5" : "#991B1B";
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif", color: txt1, overflowX: "hidden", transition: "background-color 0.3s" }}>
@@ -225,13 +273,13 @@ export default function InscriptionCitoyen() {
         paddingTop: "calc(13px + env(safe-area-inset-top))", paddingBottom: "13px", paddingLeft: "20px", paddingRight: "20px",
         display: "flex", alignItems: "center", justifyContent: "flex-end",
       }}>
-        <Link href="/login" className="tap" style={{ color: "#080812", fontSize: "12px", fontWeight: "800", textDecoration: "none", padding: "7px 14px", borderRadius: "20px", background: "linear-gradient(135deg,#F5A623,#C8940A)" }}>
+        <Link href="/login" className="tap" style={{ color: "#080812", fontSize: "12px", fontWeight: "800", textDecoration: "none", padding: "7px 14px", borderRadius: "20px", background: "#F5A623" }}>
           Connexion
         </Link>
       </header>
 
       {/* ── HERO ── */}
-      <div style={{ position: "relative", height: "220px", background: isDark ? "linear-gradient(160deg,#0F0E1A 0%,#110F1E 60%,#1A1008 100%)" : "linear-gradient(160deg,#F5A623 0%,#E8960A 50%,#C8740A 100%)", overflow: "hidden" }}>
+      <div style={{ position: "relative", height: "220px", background: isDark ? "linear-gradient(160deg,#0F0E1A 0%,#110F1E 60%,#1A1008 100%)" : "#F5A623", overflow: "hidden" }}>
         {isDark && <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(245,166,35,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(245,166,35,0.04) 1px,transparent 1px)", backgroundSize: "40px 40px", pointerEvents: "none" }}/>}
         {isDark && <div style={{ position: "absolute", top: "-60px", left: "50%", transform: "translateX(-50%)", width: "280px", height: "280px", borderRadius: "50%", background: "radial-gradient(circle,rgba(245,166,35,0.1) 0%,transparent 70%)", pointerEvents: "none" }}/>}
         {/* Cercles déco light */}
@@ -261,6 +309,24 @@ export default function InscriptionCitoyen() {
       {/* ── FORMULAIRE ── */}
       <div style={{ padding: "22px 20px 48px", maxWidth: "480px", margin: "0 auto", animation: "fadeUp 0.3s ease" }}>
 
+        {(securityState === "blocked" || securityState === "support_only") ? (
+          <AuthSecurityBlockedScreen state={securityState} retryAfterS={securityRetryAfterS} dark={isDark} onExpire={() => setSecurityState("normal")} />
+        ) : (
+        <>
+        {recoveryPending && step === "info" && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", backgroundColor: isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.25)", borderLeft: "3px solid #F5A623", borderRadius: "12px", marginBottom: "18px" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: txt1, fontSize: "12.5px", fontWeight: "700", lineHeight: 1.5 }}>
+                Une demande de récupération pour {recoveryPending.phone} est déjà en cours (envoyée le {new Date(recoveryPending.submittedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}). Inutile de créer un nouveau compte — un admin la traite sous 48h.
+              </div>
+            </div>
+            <button onClick={dismissRecoveryPending} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: txt2, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        )}
+
         {step === "info" && (
           <div key="info" className="step-in">
             {/* Prénom + Nom */}
@@ -269,7 +335,7 @@ export default function InscriptionCitoyen() {
                 <div key={f.key}>
                   <div style={{ color: txt2, fontSize: "10px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "7px" }}>{f.label} *</div>
                   <input
-                    value={(form as any)[f.key]}
+                    value={form[f.key as "prenom" | "nom"]}
                     onChange={e => { fc(f.key, e.target.value); onKey(); }}
                     placeholder={f.ph}
                     style={{ width: "100%", background: inputBg, border: `1px solid ${inputBrd}`, borderRadius: "14px", padding: "13px 14px", color: txt1, fontSize: "14px", fontWeight: "600", transition: "border-color 0.2s" }}
@@ -281,19 +347,27 @@ export default function InscriptionCitoyen() {
             {/* Téléphone */}
             <div style={{ marginBottom: "14px" }}>
               <div style={{ color: txt2, fontSize: "10px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "7px" }}>Téléphone *</div>
-              <div style={{ display: "flex", gap: "8px", border: `1px solid ${inputBrd}`, borderRadius: "14px", overflow: "hidden", transition: "border-color 0.2s" }}>
+              <div style={{ display: "flex", gap: "8px", border: `1px solid ${phoneErreurVisible ? errBrd : inputBrd}`, borderRadius: "14px", overflow: "hidden", transition: "border-color 0.2s" }}>
                 <div style={{ background: inputBg, padding: "13px 14px", display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, borderRight: `1px solid ${inputBrd}` }}>
                   <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#F5A623" }}/>
                   <span style={{ color: "#F5A623", fontSize: "14px", fontWeight: "800" }}>+224</span>
                 </div>
                 <input
                   type="tel" value={form.phone}
-                  onChange={e => { fc("phone", formatPhoneInput(e.target.value)); onKey(); }}
+                  onChange={e => {
+                    const raw = filtrerSaisiePhone(e.target.value);
+                    // Plafond à 10 chiffres : 9 chiffres réels + 1 "0" initial toléré.
+                    if (raw.replace(/\s/g, "").length <= 10) fc("phone", raw);
+                    onKey();
+                  }}
                   onKeyDown={e => { onKey(); if (e.key === "Enter") handleSubmitInfo(); }}
                   placeholder="620 000 000"
                   style={{ flex: 1, background: "transparent", border: "none", padding: "13px 14px", color: txt1, fontSize: "15px", fontWeight: "600", letterSpacing: "0.5px" }}
                 />
               </div>
+              <p style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "5px", color: phoneErreurVisible ? errBrd : (phoneValidation.valide ? "#F5A623" : txt2), fontSize: "11px", marginTop: "6px", fontWeight: "600" }}>
+                {phoneErreurVisible ? phoneValidation.message : (phoneValidation.valide ? "Numéro valide" : `${phoneDigitsNormalized.length} / 9 chiffres`)}
+              </p>
             </div>
 
             {/* Ville */}
@@ -350,8 +424,8 @@ export default function InscriptionCitoyen() {
                 {acceptCGU && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
               </div>
               <div style={{ color: txt2, fontSize: "12px", lineHeight: 1.6 }}>
-                J'accepte les{" "}
-                <Link href="/cgu" onClick={e => e.stopPropagation()} style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions d'utilisation</Link>
+                J&apos;accepte les{" "}
+                <Link href="/cgu" onClick={e => e.stopPropagation()} style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions d&apos;utilisation</Link>
                 {" "}et la{" "}
                 <Link href="/confidentialite" onClick={e => e.stopPropagation()} style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de confidentialité</Link>
                 {" "}de Yelen224.
@@ -365,17 +439,17 @@ export default function InscriptionCitoyen() {
 
             {/* Erreur */}
             {error && (
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.05)", border: "1px solid rgba(245,166,35,0.2)", borderLeft: "3px solid #F5A623", borderRadius: "12px", marginBottom: "16px" }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: errBg, border: `1px solid ${errBrd}`, borderLeft: `3px solid ${errBrd}`, borderRadius: "12px", marginBottom: "16px" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={errBrd} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/>
                 </svg>
-                <span style={{ color: txt1, fontSize: "13px", fontWeight: "600" }}>{error}</span>
+                <span style={{ color: errText, fontSize: "13px", fontWeight: "600" }}>{error}</span>
               </div>
             )}
 
             <button onClick={handleSubmitInfo} disabled={!canSubmit} className="tap" style={{
               width: "100%", padding: "16px",
-              background: canSubmit ? "linear-gradient(135deg,#F5A623,#C8940A)" : inputBg,
+              background: canSubmit ? "#F5A623" : inputBg,
               color: canSubmit ? "#080812" : txt2,
               border: canSubmit ? "none" : `1px solid ${inputBrd}`,
               borderRadius: "16px", fontSize: "15px", fontWeight: "900",
@@ -384,7 +458,7 @@ export default function InscriptionCitoyen() {
               marginBottom: "14px", transition: "all 0.2s",
             }}>
               {loading
-                ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(8,8,18,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/> Vérification…</>
+                ? <><YelenLoader size={16} color="#080812"/> Vérification…</>
                 : <>Continuer <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="m9 18 6-6-6-6"/></svg></>
               }
             </button>
@@ -399,7 +473,7 @@ export default function InscriptionCitoyen() {
           <div key="otp" className="step-in">
             {/* Récap profil */}
             <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "16px", marginBottom: "22px" }}>
-              <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
+              <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
                 {`${form.prenom[0]||""}${form.nom[0]||""}`.toUpperCase() || "C"}
               </div>
               <div style={{ flex: 1 }}>
@@ -411,17 +485,6 @@ export default function InscriptionCitoyen() {
               </button>
             </div>
 
-            {/* Blocage */}
-            {blocked && (
-              <div style={{ padding: "14px 16px", background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: "12px", marginBottom: "16px" }}>
-                <div style={{ color: "#F5A623", fontSize: "12px", fontWeight: "800", marginBottom: "6px" }}>Compte temporairement bloqué</div>
-                <div style={{ color: txt2, fontSize: "13px", marginBottom: "8px" }}>Réessayez dans <strong style={{ color: txt1 }}>{blockTimer}s</strong></div>
-                <div style={{ height: "3px", background: inputBrd, borderRadius: "2px" }}>
-                  <div style={{ height: "100%", background: "#F5A623", width: `${(blockTimer/60)*100}%`, transition: "width 1s linear", borderRadius: "2px" }}/>
-                </div>
-              </div>
-            )}
-
             {/* OTP inputs */}
             <div style={{ marginBottom: "8px" }}>
               <div style={{ color: txt2, fontSize: "10px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "14px" }}>Code à 6 chiffres</div>
@@ -430,18 +493,16 @@ export default function InscriptionCitoyen() {
                   <input key={i} ref={otpRefs[i]} type="text" inputMode="numeric" maxLength={1} value={digit}
                     onChange={e => handleOtpChange(i, e.target.value)}
                     onKeyDown={e => handleOtpKeyDown(i, e)}
-                    disabled={blocked}
                     className="otp-box"
-                    style={{ width: "46px", height: "56px", textAlign: "center", fontSize: "22px", fontWeight: "900", background: digit ? (isDark ? "rgba(245,166,35,0.1)" : "rgba(245,166,35,0.08)") : inputBg, border: `2px solid ${digit ? "rgba(245,166,35,0.4)" : blocked ? "rgba(245,166,35,0.1)" : inputBrd}`, borderRadius: "14px", color: digit ? "#F5A623" : txt1, opacity: blocked ? 0.4 : 1, transition: "all 0.15s" }}
+                    style={{ width: "46px", height: "56px", textAlign: "center", fontSize: "22px", fontWeight: "900", background: digit ? (isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)") : inputBg, border: `2px solid ${digit ? txt1 : inputBrd}`, borderRadius: "14px", color: txt1, transition: "all 0.15s" }}
                   />
                 ))}
               </div>
             </div>
 
-            {attempts > 0 && !blocked && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginBottom: "12px" }}>
-                {[0,1,2].map(i => <div key={i} style={{ width: "8px", height: "8px", borderRadius: "50%", background: i < attempts ? "#F5A623" : inputBrd, transition: "background 0.2s" }}/>)}
-                <span style={{ color: txt2, fontSize: "11px", marginLeft: "4px" }}>{attempts}/3 tentatives</span>
+            {securityState === "warning" && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginBottom: "12px", padding: "8px 12px", background: isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: "10px" }}>
+                <span style={{ color: "#F5A623", fontSize: "11.5px", fontWeight: "700" }}>Plusieurs tentatives détectées — quelques essais restants avant blocage temporaire.</span>
               </div>
             )}
 
@@ -449,37 +510,44 @@ export default function InscriptionCitoyen() {
                 code en clair à l'écran. */}
 
             {error && (
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.05)", border: "1px solid rgba(245,166,35,0.2)", borderLeft: "3px solid #F5A623", borderRadius: "12px", marginBottom: "14px" }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: errBg, border: `1px solid ${errBrd}`, borderLeft: `3px solid ${errBrd}`, borderRadius: "12px", marginBottom: "14px" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={errBrd} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/>
                 </svg>
-                <span style={{ color: txt1, fontSize: "13px", fontWeight: "600" }}>{error}</span>
+                <span style={{ color: errText, fontSize: "13px", fontWeight: "600" }}>{error}</span>
+              </div>
+            )}
+            {accountExists && (
+              <div style={{ textAlign: "center", marginTop: "-6px", marginBottom: "14px" }}>
+                <Link href="/login" style={{ color: "#F5A623", fontWeight: "700", fontSize: "13px", textDecoration: "none" }}>Se connecter avec ce numéro →</Link>
               </div>
             )}
 
-            <button onClick={handleVerify} disabled={loading || blocked || code.join("").length < 6} className="tap" style={{
+            <button onClick={handleVerify} disabled={loading || code.join("").length < 6} className="tap" style={{
               width: "100%", padding: "16px",
-              background: success ? "#22c55e" : !loading && !blocked && code.join("").length === 6 ? "linear-gradient(135deg,#F5A623,#C8940A)" : inputBg,
-              color: success ? "#fff" : !loading && !blocked && code.join("").length === 6 ? "#080812" : txt2,
+              background: success ? "#22c55e" : !loading && code.join("").length === 6 ? "#F5A623" : inputBg,
+              color: success ? "#fff" : !loading && code.join("").length === 6 ? "#080812" : txt2,
               border: "none", borderRadius: "16px", fontSize: "15px", fontWeight: "900",
-              cursor: !loading && !blocked && code.join("").length === 6 ? "pointer" : "not-allowed",
+              cursor: !loading && code.join("").length === 6 ? "pointer" : "not-allowed",
               display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
               marginBottom: "12px", transition: "background 0.25s",
             }}>
               {success
                 ? <><svg className="pop-in" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg> Compte créé !</>
                 : loading
-                ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(8,8,18,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/> Création du compte…</>
+                ? <><YelenLoader size={16} color="#080812"/> Création du compte…</>
                 : <>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                     Confirmer et créer mon compte
                   </>
               }
             </button>
-            <button onClick={() => { setStep("info"); setCode(["","","","","",""]); setError(""); setAttempts(0); setBlocked(false); }} className="tap" style={{ width: "100%", padding: "13px", background: "transparent", border: `1px solid ${inputBrd}`, borderRadius: "14px", color: txt2, fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>
+            <button onClick={() => { setStep("info"); setCode(["","","","","",""]); setError(""); }} className="tap" style={{ width: "100%", padding: "13px", background: "transparent", border: `1px solid ${inputBrd}`, borderRadius: "14px", color: txt2, fontSize: "14px", fontWeight: "600", cursor: "pointer" }}>
               Modifier les informations
             </button>
           </div>
+        )}
+        </>
         )}
 
         {/* Footer */}

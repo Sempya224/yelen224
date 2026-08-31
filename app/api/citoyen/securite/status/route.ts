@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
         .order("created_at", { ascending: false }),
       supabaseAdmin
         .from("citoyen_remember_tokens")
-        .select("id, token_hash, user_agent, ip, device_label, created_at, expires_at, last_used_at")
+        .select("id, token_hash, user_agent, ip, device_label, device_type, status, created_at, expires_at, last_used_at")
         .eq("citoyen_id", user.id)
         .order("created_at", { ascending: false }),
     ]);
@@ -62,6 +62,10 @@ export async function GET(request: NextRequest) {
       remember_devices: (rememberTokens ?? []).map(t => ({
         id: t.id,
         device_label: t.device_label,
+        device_type: t.device_type,
+        // Trusted Device (30/08/2026) — 'trusted'/'pending'/'revoked',
+        // voir supabase/migrations/20260830000004_trusted_device.sql.
+        status: t.status,
         user_agent: t.user_agent,
         ip: t.ip,
         created_at: t.created_at,

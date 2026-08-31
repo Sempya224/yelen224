@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { validateUpload } from "@/lib/uploadSecurity";
 
 // Upload d'image de post citoyen — mirroring exact de
 // app/api/citoyen/profil/photo/route.ts (l'upload direct client vers
@@ -23,25 +24,20 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
   }
-  if (!file.type.startsWith("image/")) {
-    return NextResponse.json({ error: "Seules les images sont acceptées" }, { status: 400 });
-  }
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "Image trop volumineuse (5 Mo max)" }, { status: 400 });
-  }
 
   const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
   if (authErr || !user) {
     return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
   }
 
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${user.id}/post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
+  const verif = await validateUpload(buffer, "PUBLIC_IMAGE", MAX_SIZE, file.name);
+  if (!verif.valid) return NextResponse.json({ error: verif.reason }, { status: 400 });
+  const path = `${user.id}/post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${verif.extension}`;
 
   const { error: upErr } = await sb.storage.from("post-images").upload(path, buffer, {
     upsert: true,
-    contentType: file.type,
+    contentType: verif.detectedType,
   });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 

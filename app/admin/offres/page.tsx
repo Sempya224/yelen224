@@ -114,7 +114,7 @@ export default function OffresModerationPage() {
       </div>
 
       {loading ? (
-        <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+        <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
       ) : items.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px' }}>
           <p style={{ color: D.textSub, fontSize: '13px' }}>Aucune offre pour ce filtre.</p>

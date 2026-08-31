@@ -5,6 +5,7 @@
 // app/api/admin/feedback).
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '@/app/admin/adminTheme'
+import { YelenLoader } from '@/components/YelenLoader'
 
 type Feedback = {
   id: string; institution_id: string; institution_nom: string;
@@ -90,7 +91,7 @@ export default function FeedbackPage() {
       </div>
 
       {loading ? (
-        <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+        <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
       ) : items.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px' }}>
           <p style={{ color: D.textSub, fontSize: '13px' }}>Aucun feedback pour ce filtre.</p>
@@ -113,9 +114,9 @@ export default function FeedbackPage() {
                   <button
                     onClick={() => marquerTraite(f.id)}
                     disabled={busyId === f.id}
-                    style={{ background: D.greenDim, border: `1px solid ${D.green}30`, color: D.green, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busyId === f.id ? 0.6 : 1 }}
+                    style={{ background: D.greenDim, border: `1px solid ${D.green}30`, color: D.green, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busyId === f.id ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {busyId === f.id ? '…' : 'Marquer traité'}
+                    {busyId === f.id ? <YelenLoader size={11} color={D.green}/> : 'Marquer traité'}
                   </button>
                 )}
               </div>

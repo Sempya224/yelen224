@@ -1,3 +1,22 @@
+-- ⚠️ NOTE AJOUTÉE 16/08/2026 (Lot 2.4 "Trust", stade CONTRACT, cosmétique
+-- uniquement — AUCUNE réexécution de ce fichier, la base réelle est déjà
+-- saine) :
+-- 1. Ligne 26 ci-dessous référence `admins(id)` — nom de table déjà
+--    renommé en `admin_users` par une migration antérieure
+--    (20260709000002). La contrainte réelle en production référence
+--    correctement `admin_users(id)` (confirmé par requête SQL de Bryan le
+--    16/08/2026) — seul ce fichier sur disque est resté périmé, très
+--    probablement corrigé à la main au moment de l'exécution originale
+--    sans jamais être reporté ici. Voir GAP-06-06,
+--    docs/security/YELEN_SECURITY_GAP_ANALYSIS.md.
+-- 2. Le paragraphe "Un renvoi de document met à jour la ligne existante
+--    (upsert...)" ci-dessous décrit un comportement désormais SUPERSEDÉ :
+--    ce comportement écrasait la preuve précédente à chaque resoumission
+--    (violation de l'invariant "aucune preuve historique détruite",
+--    docs/product/YELEN_TRUST_MODEL.md). Remplacé par un modèle de
+--    versionnement (docs/product/YELEN_TRUST_VERIFICATION_DATA_MODEL.md),
+--    voir les migrations 20260816000001 à 20260816000004.
+--
 -- Migration Lot A : workflow de statut pour documents_institution (11/07/2026)
 -- Refonte complete de l'ecran Documents institutionnels. Jusqu'ici la table
 -- documents_institution (id, institution_id, nom, url, type, cree_le)

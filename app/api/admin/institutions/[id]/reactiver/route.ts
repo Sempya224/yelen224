@@ -1,27 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyAdmin(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
-  })
-  if (!['super_admin', 'moderateur', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
-  return payload
-}
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'institutions.manage')
     const { id } = await params
 
     const { error } = await supabaseAdmin
@@ -31,6 +20,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (error) throw error
 
+    // Clôture la suspension active correspondante (décision CEO 17/08/2026,
+    // voir migration 20260817000001) — si aucune ligne active n'existe
+    // (institution suspendue avant ce chantier, jamais tracée dans
+    // institution_suspensions), ce update ne touche simplement aucune ligne.
+    await supabaseAdmin
+      .from('institution_suspensions')
+      .update({ statut: 'levee', levee_par: 'admin', levee_admin_id: admin.adminId as string, levee_le: new Date().toISOString() })
+      .eq('institution_id', id)
+      .eq('statut', 'active')
+
     await supabaseAdmin.from('admin_logs').insert({
       admin_id: admin.adminId as string,
       action: 'REACTIVER_INSTITUTION',
@@ -39,7 +38,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     })
 
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (e) {
+    if (e instanceof AdminAuthError) return adminAuthErrorResponse(e)
     return NextResponse.json({ error: 'Erreur' }, { status: 500 })
   }
 }

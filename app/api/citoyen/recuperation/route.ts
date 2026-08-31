@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { validateUpload } from '@/lib/uploadSecurity'
+import { extraireIpClient } from '@/lib/edgeSecurity'
+import {
+  resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
+  enregistrerTentative, messageSecurite,
+} from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,42 +14,35 @@ const supabaseAdmin = createClient(
 )
 
 const PHONE_REGEX = /^\+224\d{8,9}$/
-const CIN_ACCEPTED_MIME = ['application/pdf', 'image/jpeg', 'image/png']
 const MAX_CIN_SIZE = 10 * 1024 * 1024
 
-// Pas de session possible ici par définition (c'est justement le problème
-// à résoudre) — seule protection anti-abus : rate limit IP, comme
-// lookup/verify/register. Volontairement strict (peu de demandes légitimes
-// par IP en temps normal).
-const ipAttempts = new Map<string, { count: number; resetAt: number }>()
-function checkIpRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const entry = ipAttempts.get(ip)
-  if (!entry || entry.resetAt < now) {
-    ipAttempts.set(ip, { count: 1, resetAt: now + 60 * 60 * 1000 })
-    return true
-  }
-  if (entry.count >= 3) return false
-  entry.count++
-  return true
-}
-
 export async function POST(request: NextRequest) {
-  try {
-    const ip =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      '127.0.0.1'
+  // Auth Security (chantier 28/08/2026) — remplace la Map IP locale
+  // (pas de session possible ici par définition, c'est justement le
+  // problème à résoudre), voir lib/security/authSecurity.ts. Pas de
+  // signal "compte" possible non plus pour ce flux (l'identifiant n'est
+  // pas encore fiable) — device+IP suffisent, mêmes garanties anti-DoS.
+  const { deviceId, estNouveau } = resoudreDeviceId(request)
+  const ip = extraireIpClient(request)
+  const userAgent = request.headers.get('user-agent')
 
-    if (!checkIpRateLimit(ip)) {
-      return NextResponse.json(
-        { error: 'Trop de demandes. Réessayez dans une heure, ou contactez le support.', code: 'RATE_LIMITED' },
-        { status: 429 }
+  const finaliser = (body: Record<string, unknown>, status: number) => {
+    const response = NextResponse.json(body, { status })
+    poserCookieDeviceSiNecessaire(response, deviceId, estNouveau)
+    return response
+  }
+
+  try {
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
       )
     }
 
     const form = await request.formData().catch(() => null)
-    if (!form) return NextResponse.json({ error: 'Corps de requête invalide', code: 'BAD_REQUEST' }, { status: 400 })
+    if (!form) return finaliser({ error: 'Corps de requête invalide', code: 'BAD_REQUEST' }, 400)
 
     const typeRaw = form.get('type')
     const type = typeRaw === 'totp' ? 'totp' : 'numero'
@@ -56,25 +55,24 @@ export async function POST(request: NextRequest) {
     const file = form.get('file')
 
     if (typeof ancienPhone !== 'string' || !PHONE_REGEX.test(ancienPhone)) {
-      return NextResponse.json({ error: 'Numéro invalide', code: 'INVALID_FORMAT' }, { status: 400 })
+      return finaliser({ error: 'Numéro invalide', code: 'INVALID_FORMAT' }, 400)
     }
     if (typeof nouveauPhone !== 'string' || !PHONE_REGEX.test(nouveauPhone)) {
-      return NextResponse.json({ error: 'Nouveau numéro invalide', code: 'INVALID_FORMAT' }, { status: 400 })
+      return finaliser({ error: 'Nouveau numéro invalide', code: 'INVALID_FORMAT' }, 400)
     }
     if (type === 'numero' && ancienPhone === nouveauPhone) {
-      return NextResponse.json({ error: "Le nouveau numéro doit être différent de l'ancien", code: 'SAME_PHONE' }, { status: 400 })
+      return finaliser({ error: "Le nouveau numéro doit être différent de l'ancien", code: 'SAME_PHONE' }, 400)
     }
     if (typeof prenom !== 'string' || !prenom.trim() || typeof nom !== 'string' || !nom.trim()) {
-      return NextResponse.json({ error: 'Nom et prénom requis', code: 'MISSING_FIELDS' }, { status: 400 })
+      return finaliser({ error: 'Nom et prénom requis', code: 'MISSING_FIELDS' }, 400)
     }
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Pièce d'identité requise", code: 'MISSING_FILE' }, { status: 400 })
+      return finaliser({ error: "Pièce d'identité requise", code: 'MISSING_FILE' }, 400)
     }
-    if (!CIN_ACCEPTED_MIME.includes(file.type)) {
-      return NextResponse.json({ error: 'Format non accepté (PDF, JPG, PNG uniquement)', code: 'INVALID_FORMAT' }, { status: 400 })
-    }
-    if (file.size > MAX_CIN_SIZE) {
-      return NextResponse.json({ error: 'Fichier trop volumineux (10 Mo max)', code: 'TOO_LARGE' }, { status: 400 })
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const verif = await validateUpload(buffer, 'DOCUMENT_KYC', MAX_CIN_SIZE, file.name)
+    if (!verif.valid) {
+      return finaliser({ error: verif.reason, code: 'INVALID_FORMAT' }, 400)
     }
 
     // Rapprochement automatique avec le compte existant sur l'ancien numéro
@@ -102,24 +100,26 @@ export async function POST(request: NextRequest) {
 
     if (insertError || !demande) {
       console.error('[CITOYEN RECUPERATION INSERT ERROR]', insertError)
-      return NextResponse.json({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, { status: 500 })
+      return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
     }
 
-    const ext = file.name.split('.').pop() || 'bin'
-    const path = `recuperation/${demande.id}/${crypto.randomUUID()}.${ext}`
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const { error: upErr } = await supabaseAdmin.storage.from('documents-citoyens').upload(path, buffer, { contentType: file.type })
+    const path = `recuperation/${demande.id}/${crypto.randomUUID()}.${verif.extension}`
+    const { error: upErr } = await supabaseAdmin.storage.from('documents-citoyens').upload(path, buffer, { contentType: verif.detectedType })
     if (upErr) {
       console.error('[CITOYEN RECUPERATION UPLOAD ERROR]', upErr)
-      return NextResponse.json({ error: 'Erreur lors du dépôt du document', code: 'UPLOAD_ERROR' }, { status: 500 })
+      return finaliser({ error: 'Erreur lors du dépôt du document', code: 'UPLOAD_ERROR' }, 500)
     }
 
     await supabaseAdmin.from('citoyen_demandes_recuperation').update({ cin_document_url: path }).eq('id', demande.id)
 
-    return NextResponse.json({ success: true })
+    const etat = await enregistrerTentative(supabaseAdmin, {
+      endpointCategory: 'recuperation', deviceId, ip, identifiant: ancienPhone, outcome: 'demande_creee', userAgent,
+    })
+
+    return finaliser({ success: true, security: etat }, 200)
   } catch (error) {
     console.error('[CITOYEN RECUPERATION ERROR]', error)
-    return NextResponse.json({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, { status: 500 })
+    return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
   }
 }
 

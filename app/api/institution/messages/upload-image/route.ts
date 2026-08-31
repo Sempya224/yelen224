@@ -5,10 +5,10 @@ import { can } from "@/lib/institutionPermissions";
 import { conversationFermee } from "@/lib/messagerie";
 import { envoyerNotification } from "@/lib/notifications";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import { validateUpload } from "@/lib/uploadSecurity";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 function buildNom(u: { nom: string | null; prenom: string | null; phone: string | null } | undefined): string {
@@ -36,8 +36,6 @@ export async function POST(req: NextRequest) {
 
   if (typeof rdvId !== "string" || !rdvId) return NextResponse.json({ error: "Rendez-vous manquant" }, { status: 400 });
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
-  if (!IMAGE_MIME.includes(file.type)) return NextResponse.json({ error: "Format non accepté (JPG, PNG, WEBP uniquement)" }, { status: 400 });
-  if (file.size > MAX_IMAGE_SIZE) return NextResponse.json({ error: "Image trop volumineuse (10 Mo max)" }, { status: 400 });
 
   const { data: rdv } = await sb.from("rdv").select("id,citoyen_id,institution_id,statut").eq("id", rdvId).maybeSingle();
   if (!rdv || rdv.institution_id !== authInstId) {
@@ -47,10 +45,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ce rendez-vous est terminé — la conversation est fermée." }, { status: 409 });
   }
 
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${rdvId}/${authInstId}/${crypto.randomUUID()}.${ext}`;
+  // Restriction messagerie institution → citoyen pendant une suspension —
+  // même garde-fou que POST /api/institution/messages, vérifié avant
+  // l'upload pour ne pas consommer de stockage inutilement.
+  const { data: inst } = await sb.from("institutions").select("name,statut").eq("id", authInstId).maybeSingle();
+  if (inst?.statut === "suspendue") {
+    return NextResponse.json({ error: "Votre établissement est suspendu — vous ne pouvez pas envoyer de nouveaux messages aux citoyens pour le moment. Besoin de parler à un agent ? Contactez le support Yelen ou demandez une révision depuis l'écran d'accueil." }, { status: 403 });
+  }
+
   const buffer = Buffer.from(await file.arrayBuffer());
-  const { error: upErr } = await sb.storage.from("messagerie-images").upload(path, buffer, { contentType: file.type });
+  const verif = await validateUpload(buffer, "MESSAGE_IMAGE", MAX_IMAGE_SIZE, file.name);
+  if (!verif.valid) return NextResponse.json({ error: verif.reason }, { status: 400 });
+  const path = `${rdvId}/${authInstId}/${crypto.randomUUID()}.${verif.extension}`;
+  const { error: upErr } = await sb.storage.from("messagerie-images").upload(path, buffer, { contentType: verif.detectedType });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
   const legendeTexte = typeof legende === "string" && legende.trim() ? legende.trim() : null;
@@ -68,7 +75,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insErr.message }, { status: 500 });
   }
 
-  const { data: inst } = await sb.from("institutions").select("name").eq("id", authInstId).maybeSingle();
   await envoyerNotification({
     destinataire_id: rdv.citoyen_id, destinataire_type: "citoyen", rdv_id: rdvId,
     type: "message", titre: "Nouveau message", message: `${inst?.name ?? "Votre établissement"} a envoyé une image`,

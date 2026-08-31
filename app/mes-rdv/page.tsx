@@ -2,14 +2,17 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { supabase } from "@/lib/supabase";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { CompteHeader } from "@/components/CompteEcranVide";
 import { getConversations, type Conversation } from "@/lib/messagerie";
 import { verifierRappels, fetchNotifications, marquerNotifsLues } from "@/lib/notifications";
 import { annulerRdv, reporterRdv } from "./actions";
 import { rdvEstEnRetard, rdvEstAbsent } from "@/lib/rdvGating";
+import { YelenLoader } from "@/components/YelenLoader";
 
 // Refonte complète (retour Bryan 29/07/2026) : écran jugé "trop chargé, pas
 // assez compréhensible" — chaque carte de la liste affichait en permanence
@@ -342,7 +345,7 @@ export default function MesRdvPage() {
   const [userLat, setUserLat]     = useState<number | null>(null);
   const [userLng, setUserLng]     = useState<number | null>(null);
   const [now, setNow]             = useState(new Date());
-  const channelRef = useRef<any>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   // ── Toast ──────────────────────────────────────────────────────────────────
   const showToast = (msg: string, ok = true) => {
@@ -391,7 +394,8 @@ export default function MesRdvPage() {
     if (ids.length === 0) { setAvisMap({}); return; }
     const { data } = await supabase.from("avis").select("rdv_id,note,commentaire").in("rdv_id", ids).eq("brouillon", false);
     const map: Record<string, { note: number; commentaire: string | null }> = {};
-    (data || []).forEach((a: any) => { if (a.rdv_id) map[a.rdv_id] = { note: a.note, commentaire: a.commentaire }; });
+    type AvisRow = { rdv_id: string | null; note: number; commentaire: string | null };
+    ((data || []) as unknown as AvisRow[]).forEach((a) => { if (a.rdv_id) map[a.rdv_id] = { note: a.note, commentaire: a.commentaire }; });
     setAvisMap(map);
   }, []);
 
@@ -411,15 +415,17 @@ export default function MesRdvPage() {
 
   // ── Init ───────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const uid = localStorage.getItem(YELEN224_USER_ID_KEY);
+    let uid: string | null = null;
+    try { uid = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     if (!uid) { router.push("/login"); return; }
     setUserId(uid);
     fetchRdvs(uid);
     loadConversations(uid);
 
     fetchNotifications(uid, 30).then(data => {
-      setNotifs(data as Notif[]);
-      setNbNotifs(data.filter((n: any) => !n.lu).length);
+      const notifs = data as Notif[];
+      setNotifs(notifs);
+      setNbNotifs(notifs.filter((n) => !n.lu).length);
     });
 
     verifierRappels(uid, "citoyen").catch(console.error);
@@ -492,13 +498,27 @@ export default function MesRdvPage() {
     setNouvelleHeure("");
   }
 
+  // Fire-and-forget : ne doit jamais bloquer le toast, une erreur ici est
+  // sans conséquence pour l'utilisateur.
+  async function notifierPublicationAvis(avisId: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      await fetch("/api/citoyen/avis/notifier-publication", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ avisId }),
+      });
+    } catch {}
+  }
+
   // ── Envoyer avis ───────────────────────────────────────────────────────────
   async function handleEnvoyerAvis(brouillon = false) {
     if (!modal || modal.type !== "avis" || avisNote === 0 || !userId) return;
     const rdv = modal.rdv;
     setActionLoading(rdv.id);
     try {
-      await supabase.from("avis").insert({
+      const { data: avisCree } = await supabase.from("avis").insert({
         institution_id: rdv.institutions!.id,
         citoyen_id: userId,
         rdv_id: rdv.id,
@@ -506,10 +526,16 @@ export default function MesRdvPage() {
         titre: avisTitre.trim() || null,
         commentaire: avisCommentaire.trim() || null,
         brouillon,
-      });
+      }).select("id").single();
       // Un brouillon n'est pas terminé — avis_demande reste true pour que
       // le citoyen soit toujours invité à publier (via Mes avis) plus tard.
-      if (!brouillon) await supabase.from("rdv").update({ avis_demande: false }).eq("id", rdv.id);
+      // rdv.avis_demande=false est mis à jour par notifierPublicationAvis()
+      // côté serveur (service_role) — la policy RLS du citoyen sur `rdv`
+      // est lecture seule, un UPDATE client-direct échouait silencieusement
+      // (bug réel corrigé le 15/08/2026, voir notifier-publication/route.ts).
+      if (!brouillon && avisCree?.id) {
+        void notifierPublicationAvis(avisCree.id);
+      }
       setAvisEnvoye(true);
       showToast(brouillon ? "Brouillon enregistré." : "Avis envoyé, merci !");
       setTimeout(() => {
@@ -775,9 +801,9 @@ export default function MesRdvPage() {
           return (
             <div key={rdv.id} onClick={() => setDetailRdv(rdv)} className="tap" style={{ background: card, border: `1px solid ${brd}`, borderRadius: 18, padding: "12px 14px", boxShadow: cardShadow, display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
               <div style={{ position: "relative", flexShrink: 0 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 13, background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#F5A623", overflow: "hidden" }}>
+                <div style={{ width: 44, height: 44, position: "relative", borderRadius: 13, background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#F5A623", overflow: "hidden" }}>
                   {inst?.logo
-                    ? <img src={inst.logo} alt={inst.name} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+                    ? <Image src={inst.logo} alt={inst.name} fill sizes="44px" style={{ objectFit: "cover" }}/>
                     : getInitials(inst?.name ?? "?")}
                 </div>
                 {inst?.badge_verifie && (
@@ -845,8 +871,8 @@ export default function MesRdvPage() {
             {/* Institution */}
             <div onClick={() => inst && router.push(`/institution/${inst.id}`)} className="tap" style={{ display: "flex", alignItems: "center", gap: 12, cursor: inst ? "pointer" : "default", marginBottom: 18 }}>
               <div style={{ position: "relative", flexShrink: 0 }}>
-                <div style={{ width: 56, height: 56, borderRadius: 16, background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, fontWeight: 800, color: "#F5A623", overflow: "hidden" }}>
-                  {inst?.logo ? <img src={inst.logo} alt={inst.name} style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : getInitials(inst?.name ?? "?")}
+                <div style={{ width: 56, height: 56, position: "relative", borderRadius: 16, background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, fontWeight: 800, color: "#F5A623", overflow: "hidden" }}>
+                  {inst?.logo ? <Image src={inst.logo} alt={inst.name} fill sizes="56px" style={{ objectFit: "cover" }}/> : getInitials(inst?.name ?? "?")}
                 </div>
                 {inst?.badge_verifie && (
                   <div style={{ position: "absolute", top: -3, right: -3, width: 17, height: 17, borderRadius: "50%", background: "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${bg}` }}>{Ic.Verified()}</div>
@@ -875,7 +901,7 @@ export default function MesRdvPage() {
             </div>
 
             {detail.objet && (
-              <div style={{ background: card, border: `1px solid ${brd}`, borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
+              <div style={{ background: card, borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
                 <div style={{ color: t3, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Objet</div>
                 <div style={{ color: t2, fontSize: 13.5, lineHeight: 1.5 }}>{detail.objet}</div>
               </div>
@@ -883,7 +909,7 @@ export default function MesRdvPage() {
 
             {detail.motif_annulation && (
               <div style={{ background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
-                <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Motif d'annulation</div>
+                <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Motif d&apos;annulation</div>
                 <div style={{ color: t2, fontSize: 13, lineHeight: 1.5 }}>{detail.motif_annulation}</div>
               </div>
             )}
@@ -903,7 +929,7 @@ export default function MesRdvPage() {
             )}
 
             {detailAvis && (
-              <div style={{ background: card, border: `1px solid ${brd}`, borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
+              <div style={{ background: card, borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
                 <div style={{ color: t3, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Votre avis</div>
                 <div style={{ marginBottom: detailAvis.commentaire ? 4 : 0 }}>
                   {[1,2,3,4,5].map(n => <span key={n} style={{ color: n <= detailAvis.note ? "#F5A623" : card2 }}>{Ic.Star(n <= detailAvis.note)}</span>)}
@@ -915,7 +941,7 @@ export default function MesRdvPage() {
             {/* Timeline — masquée pour absent/annulé/refusé, peu utile une
                 fois la situation figée. */}
             {!estAbsent(detail) && detail.statut !== "annule" && detail.statut !== "refuse" && (
-              <div style={{ background: card, border: `1px solid ${brd}`, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+              <div style={{ background: card, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
                 <div style={{ color: t3, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Suivi</div>
                 <Timeline rdv={detail} t1={t1} t3={t3} lineTodo={brd} ov={ov}/>
               </div>
@@ -976,7 +1002,7 @@ export default function MesRdvPage() {
               </div>
               <div style={{ marginBottom: 20 }}>
                 <div style={{ color: t3, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
-                  Motif d'annulation <span style={{ color: "#F87171" }}>*obligatoire</span>
+                  Motif d&apos;annulation <span style={{ color: "#F87171" }}>*obligatoire</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
                   {["Empêchement personnel", "Problème de santé", "Déplacement annulé", "Changement de plans"].map(m => (
@@ -990,8 +1016,8 @@ export default function MesRdvPage() {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
                 <button onClick={() => setModal(null)} className="tap" style={{ padding: 14, borderRadius: 14, border: `1px solid ${brd}`, background: "transparent", color: t2, fontSize: 14, cursor: "pointer" }}>Retour</button>
-                <button onClick={handleAnnuler} disabled={!motif.trim() || actionLoading === modal.rdv.id} className="tap" style={{ padding: 14, borderRadius: 14, border: "none", background: motif.trim() ? "#F87171" : "rgba(248,113,113,0.2)", color: motif.trim() ? "#fff" : "#F87171", fontSize: 14, fontWeight: 800, cursor: motif.trim() ? "pointer" : "not-allowed" }}>
-                  {actionLoading === modal.rdv.id ? "..." : "Confirmer l'annulation"}
+                <button onClick={handleAnnuler} disabled={!motif.trim() || actionLoading === modal.rdv.id} className="tap" style={{ padding: 14, borderRadius: 14, border: "none", background: motif.trim() ? "#F87171" : "rgba(248,113,113,0.2)", color: motif.trim() ? "#fff" : "#F87171", fontSize: 14, fontWeight: 800, cursor: motif.trim() ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  {actionLoading === modal.rdv.id ? <><YelenLoader size={14} color="#fff"/>Annulation…</> : "Confirmer l'annulation"}
                 </button>
               </div>
             </div>
@@ -1057,7 +1083,7 @@ export default function MesRdvPage() {
                   <div style={{ textAlign: "center", marginBottom: 24 }}>
                     <div style={{ color: "#F5A623", display: "flex", justifyContent: "center", marginBottom: 10 }}>{Ic.Star(true, 42)}</div>
                     <div style={{ color: t1, fontSize: 19, fontWeight: 800, marginBottom: 4 }}>Votre avis compte !</div>
-                    <div style={{ color: t3, fontSize: 13, lineHeight: 1.6 }}>Comment s'est passé votre RDV chez <strong style={{ color: t1 }}>{modal.rdv.institutions?.name}</strong> ?</div>
+                    <div style={{ color: t3, fontSize: 13, lineHeight: 1.6 }}>Comment s&apos;est passé votre RDV chez <strong style={{ color: t1 }}>{modal.rdv.institutions?.name}</strong> ?</div>
                   </div>
                   <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 16 }}>
                     {[1,2,3,4,5].map(n => (
@@ -1075,8 +1101,8 @@ export default function MesRdvPage() {
                     style={{ width: "100%", background: card2, border: `1px solid ${brd}`, borderRadius: 12, padding: "12px 14px", fontSize: 13, resize: "none", lineHeight: 1.5, color: t1, marginBottom: 20 }}/>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10, marginBottom: 10 }}>
                     <button onClick={() => setModal(null)} className="tap" style={{ padding: 14, borderRadius: 14, border: `1px solid ${brd}`, background: "transparent", color: t2, fontSize: 14, cursor: "pointer" }}>Plus tard</button>
-                    <button onClick={() => handleEnvoyerAvis(false)} disabled={avisNote === 0 || actionLoading !== null} className="tap" style={{ padding: 14, borderRadius: 14, border: "none", background: avisNote > 0 ? "#F5A623" : "rgba(245,166,35,0.2)", color: avisNote > 0 ? "#080812" : "#F5A623", fontSize: 14, fontWeight: 800, cursor: avisNote > 0 ? "pointer" : "not-allowed" }}>
-                      {actionLoading !== null ? "Envoi..." : "Envoyer mon avis"}
+                    <button onClick={() => handleEnvoyerAvis(false)} disabled={avisNote === 0 || actionLoading !== null} className="tap" style={{ padding: 14, borderRadius: 14, border: "none", background: avisNote > 0 ? "#F5A623" : "rgba(245,166,35,0.2)", color: avisNote > 0 ? "#080812" : "#F5A623", fontSize: 14, fontWeight: 800, cursor: avisNote > 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      {actionLoading !== null ? <><YelenLoader size={14} color="#080812"/>Envoi…</> : "Envoyer mon avis"}
                     </button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>

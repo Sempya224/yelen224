@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { conversationFermee } from "@/lib/messagerie";
+import { conversationFermee, messageInstitutionSuspendue } from "@/lib/messagerie";
 import { envoyerNotification } from "@/lib/notifications";
+import { validateUpload } from "@/lib/uploadSecurity";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,7 +10,6 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 );
 
-const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 // Upload d'image pour la messagerie citoyen (onglets Yelen et
@@ -42,12 +42,6 @@ export async function POST(request: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Fichier requis", code: "MISSING_FILE" }, { status: 400 });
     }
-    if (!IMAGE_MIME.includes(file.type)) {
-      return NextResponse.json({ error: "Format non accepté (JPG, PNG, WEBP uniquement)", code: "INVALID_FORMAT" }, { status: 400 });
-    }
-    if (file.size > MAX_IMAGE_SIZE) {
-      return NextResponse.json({ error: "Image trop volumineuse (10 Mo max)", code: "TOO_LARGE" }, { status: 400 });
-    }
 
     const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
     if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
@@ -65,13 +59,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Cette conversation est fermée, ce rendez-vous est terminé.", code: "CONVERSATION_FERMEE" }, { status: 409 });
       }
       finalInstitutionId = rdv.institution_id;
+
+      // Restriction messagerie citoyen → institution suspendue (retour
+      // Bryan 17/08/2026) — cette route sert aussi les images, contournée
+      // par le blocage UI (bouton caméra masqué avec le reste de la zone
+      // de saisie) mais jamais vérifiée côté serveur jusqu'ici, contrairement
+      // au texte (lib/messagerie.ts::sendMessageRdv) : trou de sécurité réel
+      // comblé ici, même barrière, même message personnalisé.
+      const { data: inst } = await supabaseAdmin.from("institutions").select("statut,name").eq("id", finalInstitutionId).maybeSingle();
+      if (inst?.statut === "suspendue") {
+        return NextResponse.json({ error: messageInstitutionSuspendue(inst.name || "Cet établissement"), code: "INSTITUTION_SUSPENDED" }, { status: 403 });
+      }
     }
 
-    const ext = file.name.split(".").pop() || "jpg";
-    const folder = target === "yelen" ? `yelen/${user.id}` : `${rdvId}/${user.id}`;
-    const path = `${folder}/${crypto.randomUUID()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { error: upErr } = await supabaseAdmin.storage.from("messagerie-images").upload(path, buffer, { contentType: file.type });
+    const verif = await validateUpload(buffer, "MESSAGE_IMAGE", MAX_IMAGE_SIZE, file.name);
+    if (!verif.valid) return NextResponse.json({ error: verif.reason, code: "INVALID_FORMAT" }, { status: 400 });
+    const folder = target === "yelen" ? `yelen/${user.id}` : `${rdvId}/${user.id}`;
+    const path = `${folder}/${crypto.randomUUID()}.${verif.extension}`;
+    const { error: upErr } = await supabaseAdmin.storage.from("messagerie-images").upload(path, buffer, { contentType: verif.detectedType });
     if (upErr) return NextResponse.json({ error: upErr.message, code: "UPLOAD_ERROR" }, { status: 500 });
 
     const legendeTexte = typeof legende === "string" && legende.trim() ? legende.trim() : null;

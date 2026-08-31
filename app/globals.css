@@ -131,6 +131,96 @@ input[inputmode="numeric"][maxlength="1"] {
 }
 
 /* ============================================
+   BARRE DE SCROLL VISIBLE — sheet Vue Carte (onglet 3)
+   Retour Bryan (07/08/2026) : au palier développé, le sheet
+   doit montrer une vraie barre de défilement verticale —
+   à l'inverse de la règle globale ci-dessus qui les cache
+   partout ailleurs dans le produit.
+   ============================================ */
+.carte-sheet-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 166, 35, 0.4) transparent;
+}
+.carte-sheet-scroll::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+.carte-sheet-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.carte-sheet-scroll::-webkit-scrollbar-thumb {
+  background: rgba(245, 166, 35, 0.4);
+  border-radius: 4px;
+}
+
+/* ============================================
+   BARRE DE SCROLL VISIBLE — modales desktop du wizard
+   d'inscription institution (ActiviteStep.tsx, chantier
+   adaptation desktop, 20/08/2026). Même besoin que
+   .carte-sheet-scroll : un volet interne qui défile doit le
+   montrer clairement (indicateur visible), pas hériter du
+   scroll invisible par défaut du reste du produit.
+   ============================================ */
+.signup-modal-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 166, 35, 0.4) transparent;
+}
+.signup-modal-scroll::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+}
+.signup-modal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.signup-modal-scroll::-webkit-scrollbar-thumb {
+  background: rgba(245, 166, 35, 0.4);
+  border-radius: 4px;
+}
+
+/* ============================================
+   BARRE DE SCROLL VISIBLE — popup profil auteur "Yelen
+   Community" (ProfilAuteurOverlay.tsx, 22/08/2026, retour
+   Bryan). Même besoin que .carte-sheet-scroll/.signup-modal-scroll.
+   ============================================ */
+.profil-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 166, 35, 0.4) transparent;
+}
+.profil-scroll::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+.profil-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.profil-scroll::-webkit-scrollbar-thumb {
+  background: rgba(245, 166, 35, 0.4);
+  border-radius: 4px;
+}
+
+/* ============================================
+   BARRE DE SCROLL VISIBLE — popup légende plein texte de la
+   visionneuse d'image "Yelen Community" (CommunautePostCard.tsx,
+   22/08/2026, retour Bryan). Même besoin que .carte-sheet-scroll/
+   .profil-scroll/.signup-modal-scroll.
+   ============================================ */
+.legende-post-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 166, 35, 0.4) transparent;
+}
+.legende-post-scroll::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+.legende-post-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.legende-post-scroll::-webkit-scrollbar-thumb {
+  background: rgba(245, 166, 35, 0.4);
+  border-radius: 4px;
+}
+
+/* ============================================
    HEADER NAVIGATION MOBILE
    ============================================ */
 @media (max-width: 768px) {
@@ -274,4 +364,30 @@ input[inputmode="numeric"][maxlength="1"] {
   .show-mobile-only {
     display: none !important;
   }
+}
+
+/* ============================================
+   PRIMITIVES PARTAGÉES — Button / ConfirmModal
+   (components/ui/Button.tsx, components/ui/ConfirmModal.tsx)
+   Chantier gouvernance des actions et confirmation, 16/08/2026.
+   ============================================ */
+@keyframes yelenFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes yelenSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* Anneau de focus clavier — :focus-visible seul (jamais au clic souris).
+   Couleur pilotée par --yelen-focus posé en inline style par Button.tsx
+   (jaune D.yellow côté admin, doré C.gold côté institution — jamais une
+   couleur nouvelle). */
+.yelen-focus-ring:focus-visible {
+  outline: 2px solid var(--yelen-focus, #F5A623);
+  outline-offset: 2px;
+}
+
+/* ConfirmModal — bottom sheet mobile par défaut, dialogue centré ≥1024px :
+   même convention que .client-fiche-* (MesClientsTab/EquipeTab), pas un 2e
+   système de popin parallèle. */
+@media (min-width: 1024px) {
+  .yelen-confirm-overlay { align-items: center !important; }
+  .yelen-confirm-panel { border-radius: 20px !important; }
+  .yelen-confirm-grip { display: none !important; }
 }

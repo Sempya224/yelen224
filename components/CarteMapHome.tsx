@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import Image from 'next/image'
+import type { Map as LeafletMap, Marker as LeafletMarker } from 'leaflet'
 
 export type Institution = {
   id: string
@@ -16,8 +18,17 @@ export type Institution = {
   nb_avis?: number | null
   badge_verifie?: boolean | null
   category?: string | null
-  disponibilites?: any
+  disponibilites?: unknown
 }
+
+// Format horaires attendu par ce composant — objets {jour, ouvert, debut,
+// fin} par jour de semaine. ⚠️ Différent du format réellement écrit par
+// l'écran Disponibilités institution (lib/disponibilites.ts::generateSlots,
+// tableau de créneaux "Lun 09:00") : ce composant ne matchera donc jamais
+// de vraies données tant que cet écart n'est pas résolu (hors périmètre de
+// ce lot — typage fidèle au comportement actuel, pas de correction
+// silencieuse d'un désaccord de format entre écrans).
+type HoraireJour = { jour?: string; ouvert?: boolean; debut?: string; fin?: string; heures?: string };
 
 // ── Catégories ────────────────────────────────────────────────────────────────
 const CAT: Record<string, { color: string; label: string; svgPath: string }> = {
@@ -35,19 +46,20 @@ const DEFAULT_CAT = { color: "#8b5cf6", label: "Autre", svgPath: "M3 9l9-7 9 7v1
 function getCat(cat?: string | null) { return CAT[cat || ""] || DEFAULT_CAT }
 
 // ── Ouvert / Fermé ────────────────────────────────────────────────────────────
-function getStatus(disponibilites: any): { ouvert: boolean | null; horaire: string; prochaine: string } {
+function getStatus(disponibilites: unknown): { ouvert: boolean | null; horaire: string; prochaine: string } {
   try {
-    const dispo = typeof disponibilites === "string" ? JSON.parse(disponibilites) : disponibilites
+    const dispo: unknown = typeof disponibilites === "string" ? JSON.parse(disponibilites) : disponibilites
     if (!Array.isArray(dispo)) return { ouvert: null, horaire: "", prochaine: "" }
+    const jours = dispo as HoraireJour[]
     const JOURS = ["Dimanche","Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi"]
     const now = new Date()
     const jourNom = JOURS[now.getDay()]
     const nowMin = now.getHours() * 60 + now.getMinutes()
-    const h = dispo.find((d: any) => d.jour?.toLowerCase() === jourNom.toLowerCase())
+    const h = jours.find((d) => d.jour?.toLowerCase() === jourNom.toLowerCase())
     if (!h) return { ouvert: null, horaire: "", prochaine: "" }
     if (h.ouvert === false) {
       for (let i = 1; i <= 7; i++) {
-        const next = dispo.find((d: any) => d.jour?.toLowerCase() === JOURS[(now.getDay() + i) % 7].toLowerCase())
+        const next = jours.find((d) => d.jour?.toLowerCase() === JOURS[(now.getDay() + i) % 7].toLowerCase())
         if (next && next.ouvert !== false && next.debut) {
           return { ouvert: false, horaire: "Fermé", prochaine: `Ouvre ${JOURS[(now.getDay() + i) % 7]} ${next.debut}` }
         }
@@ -135,8 +147,8 @@ function InstLogo({ inst, size = 58 }: { inst: Institution; size?: number }) {
   const initials = (inst.name || "?").split(" ").slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("")
   if (inst.logo && !err) {
     return (
-      <div style={{ width: size, height: size, borderRadius: "14px", overflow: "hidden", flexShrink: 0, border: `2px solid ${cm.color}30` }}>
-        <img src={inst.logo} alt={inst.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+      <div style={{ width: size, height: size, position: "relative", borderRadius: "14px", overflow: "hidden", flexShrink: 0, border: `2px solid ${cm.color}30` }}>
+        <Image src={inst.logo} alt={inst.name} fill sizes={`${size}px`} onError={() => setErr(true)} style={{ objectFit: "cover" }}/>
       </div>
     )
   }
@@ -179,10 +191,11 @@ function InstPopup({ inst, onClose, userPos }: {
   const today = JOURS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]
   let horairesComplets: { jour: string; label: string; isToday: boolean }[] = []
   try {
-    const dispo = typeof inst.disponibilites === "string" ? JSON.parse(inst.disponibilites) : inst.disponibilites
+    const dispo: unknown = typeof inst.disponibilites === "string" ? JSON.parse(inst.disponibilites) : inst.disponibilites
     if (Array.isArray(dispo)) {
+      const jours = dispo as HoraireJour[]
       horairesComplets = JOURS.map(j => {
-        const h = dispo.find((d: any) => d.jour?.toLowerCase() === j.toLowerCase())
+        const h = jours.find((d) => d.jour?.toLowerCase() === j.toLowerCase())
         if (!h) return { jour: j, label: "—", isToday: j === today }
         if (h.ouvert === false) return { jour: j, label: "Fermé", isToday: j === today }
         if (h.debut && h.fin) return { jour: j, label: `${h.debut} – ${h.fin}`, isToday: j === today }
@@ -399,8 +412,8 @@ function InstPopup({ inst, onClose, userPos }: {
 // ── COMPOSANT PRINCIPAL ───────────────────────────────────────────────────────
 export default function CarteMapHome({ institutions = [] }: { institutions?: Institution[] }) {
   const divRef   = useRef<HTMLDivElement>(null)
-  const mapRef   = useRef<any>(null)
-  const layerRef = useRef<{ pin: any; label: any; inst: Institution }[]>([])
+  const mapRef   = useRef<LeafletMap | null>(null)
+  const layerRef = useRef<{ pin: LeafletMarker; label: LeafletMarker; inst: Institution }[]>([])
   const initRef  = useRef(false)
 
   const [selected, setSelected] = useState<Institution | null>(null)
@@ -551,13 +564,14 @@ export default function CarteMapHome({ institutions = [] }: { institutions?: Ins
   // ── Marker position utilisateur ─────────────────────────────────────────────
   useEffect(() => {
     if (!ready || !userPos || !mapRef.current || typeof window === "undefined") return
+    const map = mapRef.current
     ;(async () => {
       const L = (await import("leaflet")).default
       const userIcon = L.divIcon({
         html: `<div style="width:18px;height:18px;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 0 6px rgba(59,130,246,0.2)"></div>`,
         className: "", iconSize: [18, 18], iconAnchor: [9, 9],
       })
-      L.marker(userPos, { icon: userIcon, zIndexOffset: 2000 }).addTo(mapRef.current)
+      L.marker(userPos, { icon: userIcon, zIndexOffset: 2000 }).addTo(map)
     })()
   }, [userPos, ready])
 

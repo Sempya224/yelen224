@@ -105,7 +105,7 @@ async function inserer(
   titre: string,
   message: string,
 ): Promise<void> {
-  const { error } = await sb.from("notifications").insert({
+  const { data, error } = await sb.from("notifications").insert({
     destinataire_id: destinataireId,
     destinataire_type: destinataireType,
     rdv_id: rdvId,
@@ -113,10 +113,16 @@ async function inserer(
     titre,
     message,
     lu: false,
-  });
+  }).select("id").single();
   if (error) { console.error("[notificationEngine] insert error:", error.message); return; }
 
-  const url = destinataireType === "citoyen" ? `/messagerie?rdv_id=${rdvId}` : `/institution/${destinataireId}/dashboard`;
+  // Route vers l'id de la notification elle-même, pas rdv_id (12/08/2026,
+  // bug réel trouvé lors de l'audit : rdv_id pouvait être absent pour
+  // certains types de notification, produisant une URL cassée
+  // /messagerie?rdv_id=null sur les push envoyées app fermée). La popup de
+  // détail (app/page.tsx + NotificationDetailOverlay) résout elle-même le
+  // lien "Voir la conversation" si un rdv_id existe réellement en base.
+  const url = destinataireType === "citoyen" ? `/?notif=${data.id}` : `/institution/${destinataireId}/dashboard`;
   await envoyerPush(destinataireId, destinataireType, titre, message, url);
 }
 
@@ -175,7 +181,7 @@ export async function notifierRappel15min(ctx: RdvNotifContext): Promise<void> {
 export async function notifierArrivee(ctx: RdvNotifContext): Promise<void> {
   await inserer(ctx.citoyenId, "citoyen", ctx.rdvId, "arrivee",
     salutation(ctx.citoyenPrenom),
-    `Bienvenue 👋 Votre arrivée a bien été enregistrée. L'établissement a été informé de votre présence.`);
+    `Bienvenue — votre arrivée a bien été enregistrée. L'établissement a été informé de votre présence.`);
   await inserer(ctx.institutionId, "institution", ctx.rdvId, "arrivee",
     salutation(ctx.institutionNom),
     `${ctx.citoyenPrenom} est arrivé. Vous pouvez maintenant commencer sa prise en charge.`);
@@ -211,22 +217,38 @@ export async function envoyerNotification(params: {
   destinataireId: string;
   destinataireType: "citoyen" | "institution";
   rdvId: string | null;
+  // FK optionnelles (24/08/2026, Mission Ghost — Notifications V2) — les
+  // colonnes existent en base depuis les Lots précédents (démarches,
+  // dépenses) mais cette fonction générique ne les acceptait pas encore,
+  // laissant `demarche_creee`/`depense_ajoutee` sans lien exploitable pour
+  // un CTA précis. Toutes optionnelles, rétrocompatible avec chaque appel
+  // existant qui ne passe que `rdvId`.
+  demarcheId?: string | null;
+  etapeId?: string | null;
+  depenseId?: string | null;
+  budgetId?: string | null;
+  objectifId?: string | null;
   type: string;
   titre: string;
   message: string;
 }): Promise<void> {
-  const { error } = await sb.from("notifications").insert({
+  const { data, error } = await sb.from("notifications").insert({
     destinataire_id: params.destinataireId,
     destinataire_type: params.destinataireType,
     rdv_id: params.rdvId,
+    demarche_id: params.demarcheId ?? null,
+    etape_id: params.etapeId ?? null,
+    depense_id: params.depenseId ?? null,
+    budget_id: params.budgetId ?? null,
+    objectif_id: params.objectifId ?? null,
     type: params.type,
     titre: params.titre,
     message: params.message,
     lu: false,
-  });
+  }).select("id").single();
   if (error) { console.error("[notificationEngine] insert error:", error.message); return; }
 
-  const url = params.destinataireType === "citoyen" ? `/messagerie?rdv_id=${params.rdvId}` : `/institution/${params.destinataireId}/dashboard`;
+  const url = params.destinataireType === "citoyen" ? `/?notif=${data.id}` : `/institution/${params.destinataireId}/dashboard`;
   await envoyerPush(params.destinataireId, params.destinataireType, params.titre, params.message, url);
 }
 
@@ -304,4 +326,4 @@ export async function notifierDocumentTeleverse(params: { institutionId: string;
   });
 }
 
-export { formatDateLongue, formatHeureCourte };
+export { formatDateLongue, formatHeureCourte, salutation };

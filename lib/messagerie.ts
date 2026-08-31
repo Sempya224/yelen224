@@ -145,6 +145,11 @@ export type ConversationEtablissement = {
   service: string | null;
   date_rdv: string;
   fermee: boolean;
+  // Restriction messagerie citoyen → institution suspendue (retour Bryan
+  // 17/08/2026) : l'établissement reste consultable pour un rdv déjà pris,
+  // mais un citoyen ne doit pas pouvoir lui écrire de nouveau message tant
+  // qu'il est suspendu — message explicite plutôt qu'un envoi silencieux.
+  institution_suspendue: boolean;
   dernier_message: string | null;
   dernier_message_type: "texte" | "image" | null;
   dernier_message_at: string | null;
@@ -170,7 +175,7 @@ export type MessageRdvThread = {
 export async function getConversationsEtablissements(citoyenId: string): Promise<ConversationEtablissement[]> {
   const { data: rdvs, error: rdvErr } = await supabase
     .from("rdv")
-    .select("id,institution_id,statut,service,date_rdv,institutions!rdv_institution_id_fkey(id,name,logo)")
+    .select("id,institution_id,statut,service,date_rdv,institutions!rdv_institution_id_fkey(id,name,logo,statut)")
     .eq("citoyen_id", citoyenId)
     .order("date_rdv", { ascending: false });
   if (rdvErr) throw rdvErr;
@@ -196,7 +201,7 @@ export async function getConversationsEtablissements(citoyenId: string): Promise
 
   return rdvs
     .map(r => {
-      const inst = r.institutions as unknown as { id: string; name: string; logo: string | null } | null;
+      const inst = r.institutions as unknown as { id: string; name: string; logo: string | null; statut: string | null } | null;
       const fermee = conversationFermee(r.statut as string);
       const dernier = parRdv.get(r.id);
       return {
@@ -207,6 +212,7 @@ export async function getConversationsEtablissements(citoyenId: string): Promise
         service: r.service ?? null,
         date_rdv: r.date_rdv,
         fermee,
+        institution_suspendue: inst?.statut === "suspendue",
         dernier_message: dernier?.contenu ?? null,
         dernier_message_type: dernier?.type ?? null,
         dernier_message_at: dernier?.cree_le ?? null,
@@ -245,12 +251,45 @@ export async function getThreadRdv(rdvId: string, options?: { limite?: number; a
   }));
 }
 
+// Message personnalisé avec le vrai nom de l'établissement (retour Bryan
+// 17/08/2026 : un texte générique "cet établissement" ne suffit pas, même
+// convention que le reste du produit qui nomme toujours l'entité réelle —
+// cf. envoyerNotification/salutation). Réutilisé à l'identique par
+// app/messagerie/citoyen/page.tsx (bannière du fil) pour ne jamais
+// désynchroniser le texte affiché avant l'envoi de celui renvoyé en cas
+// d'échec réel.
+export function messageInstitutionSuspendue(nomEtablissement: string): string {
+  return `${nomEtablissement} est temporairement indisponible sur Yelen — vous ne pouvez pas lui envoyer de message pour le moment. Besoin d'aide ? Contactez le support Yelen.`;
+}
+
+// Erreur typée (plutôt qu'un message générique comparé par égalité stricte,
+// fragile dès que le texte est personnalisé par établissement) — le code
+// appelant distingue ce cas via `instanceof`.
+export class InstitutionSuspendueError extends Error {
+  constructor(nomEtablissement: string) {
+    super(messageInstitutionSuspendue(nomEtablissement));
+    this.name = "InstitutionSuspendueError";
+  }
+}
+
 export async function sendMessageRdv(
   citoyenId: string,
   institutionId: string,
   rdvId: string,
   contenu: { texte?: string; imageUrl?: string }
 ): Promise<void> {
+  // Restriction messagerie citoyen → institution suspendue (retour Bryan
+  // 17/08/2026). Vérification client, cohérente avec l'architecture déjà en
+  // place ici (écriture citoyen directe via RLS, jamais de route API
+  // dédiée pour ce flux — voir en-tête de fichier) : une barrière UI, pas
+  // une garantie serveur absolue, proportionnée au risque (aucune donnée
+  // sensible en jeu, seulement un message qui n'aurait aucun destinataire
+  // capable d'agir dessus).
+  const { data: inst } = await supabase.from("institutions").select("statut,name").eq("id", institutionId).maybeSingle();
+  if (inst?.statut === "suspendue") {
+    throw new InstitutionSuspendueError(inst.name || "Cet établissement");
+  }
+
   const type: "texte" | "image" = contenu.imageUrl ? "image" : "texte";
   const { error } = await supabase.from("messages").insert({
     expediteur_citoyen_id: citoyenId,

@@ -17,16 +17,22 @@
 // payante) — unifie l'ancienne dualité SuccessGratuit/SuccessPayant.
 // ═══════════════════════════════════════════════════════════════════════
 
+import NextImage from "next/image";
 import { supabase } from "@/lib/supabase";
+import { DEVISE_LABEL } from "@/lib/devise";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
+type ThemeC = (typeof T)[keyof typeof T];
+import { YelenLoader } from "@/components/YelenLoader";
+import { EcranContenuIntrouvable } from "@/components/EcranContenuIntrouvable";
 import Link from "next/link";
 import QRCode from "qrcode";
 import { notFound, useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRdv, notifierReservationPayante } from "./actions";
 import { type CreneauSlot, generateSlotsInRange, toISODate } from "@/lib/disponibilites";
+import { ACTIVITE_CATEGORIE_COLORS, ActiviteCategorieIcon } from "@/lib/activiteVisuels";
 
 // ─── Types ────────────────────────────────────────────────────────────
 type InstitutionRow = {
@@ -37,6 +43,12 @@ type InstitutionRow = {
   adresse: string;
   phone: string;
   category: string;
+  // Chantier "Recherche & catégories" (21/08/2026) — `category` (texte
+  // libre) n'est plus jamais écrite depuis la migration Taxonomie, voir
+  // app/recherche/shared.tsx. Résolu via activite_categorie_id (FK directe
+  // sur institutions) → activite_categories.code, jamais un embed
+  // PostgREST (piège documenté, CLAUDE.md).
+  activiteCategorieCode: string | null;
   badge_verifie: boolean;
   logo: string | null;
   description: string | null;
@@ -109,12 +121,11 @@ function genCode(): string {
 }
 
 // GNF (Franc Guinéen), pas FCFA — la Guinée n'appartient pas à la zone
-// UEMOA/CEMAC, elle a sa propre monnaie (retour Bryan 25/07/2026). Le même
-// mislabel existe dans 16 autres fichiers du projet (grep "FCFA") — pas
-// touchés ici, hors périmètre de cet écran (limite "2 fichiers max" du
-// protocole projet).
+// UEMOA/CEMAC, elle a sa propre monnaie (retour Bryan 25/07/2026). Migration
+// FCFA → GNF étendue à tout le projet le 06/08/2026 via lib/devise.ts
+// (DEVISE_LABEL, schéma centralisé pour une future expansion multi-devise).
 function formatPrix(p: number): string {
-  return p.toLocaleString("fr-FR") + " GNF";
+  return p.toLocaleString("fr-FR") + " " + DEVISE_LABEL;
 }
 
 function buildIcs(opts: { title: string; description: string; location: string; dateRdv: string; heureRdv: string; durationMinutes: number }): string {
@@ -131,36 +142,32 @@ function buildIcs(opts: { title: string; description: string; location: string; 
   ].join("\r\n");
 }
 
-// ─── Métadonnées catégories ───────────────────────────────────────────
-const CAT_META: Record<string, { svgPath: string; color: string }> = {
-  "Hopital / Clinique":       { svgPath: "M12 5v14M5 12h14", color: "#F5A623" },
-  "Ecole / Universite":       { svgPath: "M12 3L2 9l10 6 10-6-10-6zM2 17l10 6 10-6", color: "#F5A623" },
-  "Mairie / Administration":  { svgPath: "M3 21h18M4 21V10l8-7 8 7v11M9 21v-6h6v6", color: "#F5A623" },
-  "Banque / Microfinance":    { svgPath: "M3 21h18M3 7h18M3 3h18v4H3zM9 11v10M15 11v10", color: "#F5A623" },
-  "Pharmacie":                { svgPath: "M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18", color: "#F5A623" },
-  "Cabinet medical":          { svgPath: "M22 12h-4l-3 9L9 3l-3 9H2", color: "#F5A623" },
-  "Tribunal / Justice":       { svgPath: "M12 3v18M3 9h18M3 15h18", color: "#F5A623" },
-  "Transport / Logistique":   { svgPath: "M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v9a2 2 0 0 1-2 2h-3", color: "#F5A623" },
-  "ONG / Association":        { svgPath: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2", color: "#F5A623" },
-  "Autre":                    { svgPath: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", color: "#F5A623" },
-};
-
 // ─── Composant Logo ───────────────────────────────────────────────────
+// Métadonnées catégories — chantier "Recherche & catégories" (21/08/2026) :
+// remplace l'ancien CAT_META local (basé sur `category`, texte libre plus
+// jamais écrit depuis la migration Taxonomie) par lib/activiteVisuels.tsx,
+// même source unique que app/recherche/shared.tsx. Institution sans
+// activiteCategorieCode → fallback gris neutre, jamais une couleur/icône
+// inventée.
 function InstitutionLogo({ inst, size = 56 }: { inst: InstitutionRow; size?: number }) {
   const [err, setErr] = useState(false);
-  const meta     = CAT_META[inst.category] || { svgPath: "", color: "#F5A623" };
+  const color = inst.activiteCategorieCode ? (ACTIVITE_CATEGORIE_COLORS[inst.activiteCategorieCode] ?? "#9C9CA8") : "#9C9CA8";
   const initials = inst.name.split(" ").slice(0, 2).map(w => w[0]?.toUpperCase() || "").join("");
   if (inst.logo && !err) {
     return (
-      <div style={{ width: size, height: size, borderRadius: "16px", overflow: "hidden", flexShrink: 0, border: `2px solid ${meta.color}30`, boxShadow: `0 0 0 4px ${meta.color}12` }}>
-        <img src={inst.logo} alt={inst.name} onError={() => setErr(true)} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+      <div style={{ width: size, height: size, position: "relative", borderRadius: "16px", overflow: "hidden", flexShrink: 0, border: `2px solid ${color}30`, boxShadow: `0 0 0 4px ${color}12` }}>
+        <NextImage src={inst.logo} alt={inst.name} fill sizes={`${size}px`} onError={() => setErr(true)} style={{ objectFit: "cover" }}/>
       </div>
     );
   }
   return (
-    <div style={{ width: size, height: size, borderRadius: "16px", flexShrink: 0, background: `linear-gradient(135deg, ${meta.color}25, ${meta.color}10)`, border: `2px solid ${meta.color}35`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "3px", boxShadow: `0 0 0 4px ${meta.color}08` }}>
-      <svg width={Math.round(size * 0.38)} height={Math.round(size * 0.38)} viewBox="0 0 24 24" fill="none" stroke={meta.color} strokeWidth="2" strokeLinecap="round"><path d={meta.svgPath}/></svg>
-      <span style={{ color: meta.color, fontSize: "10px", fontWeight: "900", letterSpacing: "0.5px" }}>{initials || "?"}</span>
+    <div style={{ width: size, height: size, borderRadius: "16px", flexShrink: 0, background: `linear-gradient(135deg, ${color}25, ${color}10)`, border: `2px solid ${color}35`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "3px", boxShadow: `0 0 0 4px ${color}08` }}>
+      {inst.activiteCategorieCode ? (
+        <ActiviteCategorieIcon code={inst.activiteCategorieCode} color={color} size={Math.round(size * 0.38)}/>
+      ) : (
+        <svg width={Math.round(size * 0.38)} height={Math.round(size * 0.38)} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/></svg>
+      )}
+      <span style={{ color, fontSize: "10px", fontWeight: "900", letterSpacing: "0.5px" }}>{initials || "?"}</span>
     </div>
   );
 }
@@ -190,7 +197,7 @@ const RAISONS_ABANDON = [
 ];
 
 function ExitIntentModal({ institutionName, isDark, C, onStay, onSubmitFeedback, onLeaveNow }: {
-  institutionName: string; isDark: boolean; C: any; onStay: () => void;
+  institutionName: string; isDark: boolean; C: ThemeC; onStay: () => void;
   onSubmitFeedback: (raison: string, commentaire: string) => Promise<void>;
   onLeaveNow: () => void;
 }) {
@@ -214,7 +221,7 @@ function ExitIntentModal({ institutionName, isDark, C, onStay, onSubmitFeedback,
         <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#FBBF24)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 16px rgba(245,166,35,0.35)", marginBottom: "16px" }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.8" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
-        <div style={{ color: C.text, fontSize: "17px", fontWeight: "900", textAlign: "center" }}>Merci, c'est noté</div>
+        <div style={{ color: C.text, fontSize: "17px", fontWeight: "900", textAlign: "center" }}>Merci, c&apos;est noté</div>
         <p style={{ color: C.textSubtle, fontSize: "12.5px", textAlign: "center", marginTop: "6px" }}>Votre retour nous aide à améliorer Yelen.</p>
       </div>
     );
@@ -265,7 +272,7 @@ function ExitIntentModal({ institutionName, isDark, C, onStay, onSubmitFeedback,
 
 // ─── Carte Service unifiée (gratuit ou payant) ────────────────────────
 function ServiceCard({ service, selected, onSelect, isDark, C, premium = false }: {
-  service: WizardService; selected: boolean; onSelect: () => void; isDark: boolean; C: any; premium?: boolean;
+  service: WizardService; selected: boolean; onSelect: () => void; isDark: boolean; C: ThemeC; premium?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   // Le doré reste réservé à l'état sélectionné et au CTA "Choisir ce
@@ -329,7 +336,7 @@ function ServiceCard({ service, selected, onSelect, isDark, C, premium = false }
 
 // ─── Écran succès (unifié gratuit/payant) ─────────────────────────────
 function SuccessScreen({ inst, service, code, dateRdv, heureRdv, C, isDark }: {
-  inst: InstitutionRow; service: WizardService; code: string; dateRdv: string; heureRdv: string; C: any; isDark: boolean;
+  inst: InstitutionRow; service: WizardService; code: string; dateRdv: string; heureRdv: string; C: ThemeC; isDark: boolean;
 }) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
@@ -396,9 +403,11 @@ function SuccessScreen({ inst, service, code, dateRdv, heureRdv, C, isDark }: {
                     "H" (30%) du QR tolère cette zone masquée sans nuire au
                     scan (retour Bryan 25/07/2026). */}
                 <div style={{ position: "relative", width: "150px", height: "150px" }}>
+                  {/* IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode), non fetchable par l'optimiseur next/image | reviewed=2026-08-08 */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={qrDataUrl} alt="QR code" style={{ width: "150px", height: "150px", borderRadius: "14px", border: `1.5px solid ${C.borderCard}` }}/>
                   <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "38px", height: "38px", borderRadius: "10px", background: "#fff", padding: "4px", boxShadow: "0 0 0 3px #fff" }}>
-                    <img src="/icon-192.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: "6px" }}/>
+                    <NextImage src="/icon-192.png" alt="" fill sizes="38px" style={{ objectFit: "contain", borderRadius: "6px" }}/>
                   </div>
                 </div>
               </div>
@@ -537,7 +546,10 @@ export default function RdvPage() {
   }, [step]);
 
   useEffect(() => {
-    const userId = typeof window !== "undefined" ? localStorage.getItem(YELEN224_USER_ID_KEY) : null;
+    let userId: string | null = null;
+    if (typeof window !== "undefined") {
+      try { userId = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
+    }
     if (!userId?.trim()) {
       const returnUrl = encodeURIComponent(window.location.pathname);
       router.replace(`/inscription?redirect=${returnUrl}`);
@@ -548,7 +560,7 @@ export default function RdvPage() {
     setLoadError(null);
     const { data, error } = await supabase
       .from("institutions")
-      .select("id,name,ville,quartier,adresse,phone,category,badge_verifie,logo,description,moyenne_avis,nb_avis,disponibilites,services,capacite_par_creneau")
+      .select("id,name,ville,quartier,adresse,phone,category,badge_verifie,logo,description,moyenne_avis,nb_avis,disponibilites,services,capacite_par_creneau,activite_categorie_id")
       .eq("id", institutionId)
       .maybeSingle();
     if (error) { setLoadError(error.message); return; }
@@ -556,9 +568,19 @@ export default function RdvPage() {
     const row = data as Record<string, unknown>;
     const name = String(row.name ?? "").trim();
     if (!name) { setLoadError("Établissement invalide."); return; }
+
+    // Résolution activite_categorie_id → code, requête séparée jamais un
+    // embed PostgREST (piège documenté, CLAUDE.md /pieges-techniques-connus).
+    let activiteCategorieCode: string | null = null;
+    if (row.activite_categorie_id) {
+      const { data: catRow } = await supabase.from("activite_categories").select("code").eq("id", row.activite_categorie_id as string).maybeSingle();
+      activiteCategorieCode = catRow?.code ?? null;
+    }
+
     setInstitution({
       id: String(row.id), name, ville: String(row.ville ?? "").trim(), quartier: String(row.quartier ?? "").trim(),
       adresse: String(row.adresse ?? "").trim(), phone: String(row.phone ?? "").trim(), category: String(row.category ?? "Autre").trim(),
+      activiteCategorieCode,
       badge_verifie: Boolean(row.badge_verifie), logo: row.logo ? String(row.logo) : null,
       description: row.description ? String(row.description) : null,
       moyenne_avis: Number(row.moyenne_avis ?? 0), nb_avis: Number(row.nb_avis ?? 0),
@@ -692,7 +714,10 @@ export default function RdvPage() {
     for (const c of selectedService.champs_complementaires) {
       if (c.requis && !(champsReponses[c.label] ?? "").trim()) { setSubmitError(`Le champ "${c.label}" est requis.`); return; }
     }
-    const userId = typeof window !== "undefined" ? localStorage.getItem(YELEN224_USER_ID_KEY) : null;
+    let userId: string | null = null;
+    if (typeof window !== "undefined") {
+      try { userId = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
+    }
     if (!userId?.trim()) { setSubmitError("Vous devez être connecté."); return; }
 
     setSubmitting(true);
@@ -721,7 +746,14 @@ export default function RdvPage() {
         if (bkErr) { console.error("[rdv] paid_bookings insert:", bkErr.message); setSubmitError("Une erreur est survenue pendant la réservation. Réessayez dans un instant."); return; }
         const { data: rdvInserted, error: rdvErr } = await supabase.from("rdv").insert({
           citoyen_id: userId.trim(), institution_id: id, date_rdv: selectedSlot.dateRdv, heure_rdv: selectedSlot.heureRdv || "00:00",
-          objet, statut: "en_attente", pour_autre: forOther, nom_autre: forOther ? otherName.trim() : null,
+          // statut "nouveau" (pas "en_attente") — même valeur initiale que le
+          // flux gratuit (app/rdv/[id]/actions.ts::createRdv), corrige une
+          // incohérence signalée par Bryan le 05/08/2026 : le jumeau rdv d'une
+          // réservation payante sautait l'étape "nouveau" (accepter/refuser
+          // côté institution) que suit tout rdv gratuit. paid_bookings.statut
+          // reste "en_attente" (son propre enum statut_paid_booking n'a pas de
+          // valeur "nouveau" — c'est ce que lit l'écran de validation).
+          objet, statut: "nouveau", pour_autre: forOther, nom_autre: forOther ? otherName.trim() : null,
           phone_autre: forOther ? otherPhone.trim() : null, qr_token: code, champs_complementaires_reponses: reponses,
           duree_minutes: dureeMinutes, description_besoin: besoin, provenance,
         }).select("id").single();
@@ -750,18 +782,20 @@ export default function RdvPage() {
   }
 
   if (loading) return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px" }}>
-      <div style={{ width: "44px", height: "44px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-      <p style={{ color: C.textSubtle, fontSize: "14px" }}>Chargement…</p>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <YelenLoader size={44} label="Chargement…" labelColor={C.textSubtle}/>
     </div>
   );
 
   if (loadError || !institution) return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", textAlign: "center" }}>
-      <p style={{ color: "rgba(245,166,35,0.8)", fontSize: "15px", fontWeight: "600", marginBottom: "20px" }}>{loadError || "Institution introuvable"}</p>
-      <Link href="/recherche" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "14px", padding: "12px 24px", borderRadius: "12px", textDecoration: "none" }}>Retour</Link>
-    </div>
+    <EcranContenuIntrouvable
+      pageBg={C.pageBg} text={C.text} textSubtle={C.textSubtle} border={C.border} isDark={isDark}
+      eyebrow="RENDEZ-VOUS INTROUVABLE"
+      title="Cette réservation n'existe pas"
+      message={loadError || "Elle a peut-être été supprimée ou l'adresse saisie est incorrecte."}
+      primaryHref="/recherche" primaryLabel="Retour à la recherche"
+      secondaryHref="/" secondaryLabel="Retour à l'accueil"
+    />
   );
 
   if (success) return <SuccessScreen inst={institution} service={selectedService!} code={success.code} dateRdv={success.dateRdv} heureRdv={success.heureRdv} C={C} isDark={isDark}/>;
@@ -835,12 +869,12 @@ export default function RdvPage() {
         );
       })()}
 
-      <div style={{ maxWidth: "520px", margin: "0 auto", padding: "20px 16px 0" }}>
+      <div style={{ padding: "20px 16px 0" }}>
 
         {/* ═══ ÉTAPE 1 — Choisir un service ═══ */}
         {step === "service" && (
           <div style={{ animation: "fadeUp 0.25s ease" }}>
-            <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Que souhaitez-vous faire aujourd'hui ?</h1>
+            <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px", letterSpacing: "-0.5px" }}>Que souhaitez-vous faire aujourd&apos;hui ?</h1>
             <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 10px" }}>Sélectionnez le service correspondant à votre besoin.</p>
 
             {/* Badge vérifié — la note est désormais affichée dans le
@@ -853,7 +887,7 @@ export default function RdvPage() {
               </div>
             )}
 
-            <div style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "10px" }}>Services de l'établissement</div>
+            <div style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "10px" }}>Services de l&apos;établissement</div>
             {allServices.length === 0 ? (
               <div style={{ background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", border: `1px dashed ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`, borderRadius: "20px", padding: "28px 20px", textAlign: "center" }}>
                 <div style={{ color: C.text, fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>Aucun service configuré.</div>
@@ -869,7 +903,7 @@ export default function RdvPage() {
             {hasPremium && (
               <>
                 <h2 style={{ color: C.text, fontSize: "16px", fontWeight: "900", margin: "0 0 4px" }}>Services premium</h2>
-                <p style={{ color: C.textSubtle, fontSize: "12.5px", margin: "0 0 14px" }}>Ces services nécessitent un paiement sur place ou selon les modalités définies par l'établissement.</p>
+                <p style={{ color: C.textSubtle, fontSize: "12.5px", margin: "0 0 14px" }}>Ces services nécessitent un paiement sur place ou selon les modalités définies par l&apos;établissement.</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                   {paidWizardServices.map(s => <ServiceCard key={`premium-${s.id}`} service={s} selected={selectedService?.id === s.id} onSelect={() => goToService(s)} isDark={isDark} C={C} premium/>)}
                 </div>
@@ -968,7 +1002,7 @@ export default function RdvPage() {
 
             {selectedSlot && (
               <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 300, padding: "14px 16px calc(14px + env(safe-area-inset-bottom))", background: isDark ? "rgba(8,8,15,0.98)" : "rgba(255,255,255,0.98)", backdropFilter: "blur(20px)", borderTop: `1px solid ${C.borderCard}`, animation: "barUp 0.25s ease" }}>
-                <div style={{ maxWidth: "520px", margin: "0 auto" }}>
+                <div>
                   <button onClick={() => setStep("recap")} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer" }}>
                     Continuer avec {selectedService.duree_minutes > 0 ? `${selectedSlot.heureRdv} - ${addMinutes(selectedSlot.heureRdv, selectedService.duree_minutes)}` : selectedSlot.heureRdv} →
                   </button>
@@ -986,7 +1020,7 @@ export default function RdvPage() {
             <h2 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: "0 0 4px" }}>Récapitulatif</h2>
             <p style={{ color: C.textSubtle, fontSize: "13px", margin: "0 0 20px" }}>Vérifiez avant de confirmer.</p>
 
-            <div style={{ background: C.cardBg, borderRadius: "20px", border: `1.5px solid ${C.borderCard}`, overflow: "hidden", marginBottom: "16px" }}>
+            <div style={{ background: C.cardBg, borderRadius: "20px", overflow: "hidden", marginBottom: "16px" }}>
               <div style={{ padding: "20px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px", paddingBottom: "16px", borderBottom: `1px solid ${C.borderSubtle}`, marginBottom: "16px" }}>
                   <InstitutionLogo inst={institution} size={44}/>
@@ -1030,7 +1064,7 @@ export default function RdvPage() {
                   <div style={{ marginTop: "10px", display: "flex", gap: "8px", alignItems: "flex-start" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="1.8" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                     <p style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.6, margin: 0 }}>
-                      Prix en Franc Guinéen (GNF) — c'est le montant final que vous réglez à l'établissement, Yelen n'ajoute aucun frais ni majoration.
+                      Prix en Franc Guinéen (GNF) — c&apos;est le montant final que vous réglez à l&apos;établissement, Yelen n&apos;ajoute aucun frais ni majoration.
                       {selectedService.tauxTaxe && selectedService.tauxTaxe > 0 ? ` Inclut une taxe de ${selectedService.tauxTaxe}% — rien à ajouter de votre côté.` : ""}
                     </p>
                   </div>
@@ -1038,7 +1072,7 @@ export default function RdvPage() {
               </div>
             </div>
 
-            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}`, marginBottom: "16px" }}>
+            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", marginBottom: "16px" }}>
               <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", cursor: "pointer" }}>
                 <div><div style={{ color: C.text, fontSize: "13px", fontWeight: "700" }}>Pour un tiers</div><div style={{ color: C.textSubtle, fontSize: "11px", marginTop: "2px" }}>Parent, enfant…</div></div>
                 <div onClick={() => setForOther(v => !v)} style={{ width: "44px", height: "24px", borderRadius: "12px", background: forOther ? "#F5A623" : isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", position: "relative", cursor: "pointer" }}>
@@ -1071,11 +1105,11 @@ export default function RdvPage() {
               })()}
             </div>
 
-            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", border: `1px solid ${C.borderCard}`, marginBottom: "16px" }}>
+            <div style={{ background: C.cardBg, borderRadius: "16px", padding: "16px", marginBottom: "16px" }}>
               <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", marginBottom: demandeSpecialeOpen ? "2px" : 0 }}>Demande spéciale</div>
               {demandeSpecialeOpen ? (
                 <>
-                  <div style={{ color: C.textSubtle, fontSize: "11px", marginBottom: "10px" }}>Optionnel — aide l'établissement à préparer votre visite.</div>
+                  <div style={{ color: C.textSubtle, fontSize: "11px", marginBottom: "10px" }}>Optionnel — aide l&apos;établissement à préparer votre visite.</div>
                   <textarea
                     value={descriptionBesoin}
                     onChange={e => setDescriptionBesoin(e.target.value.slice(0, 500))}
@@ -1104,7 +1138,7 @@ export default function RdvPage() {
                   (annulerRdv/reporterRdv, app/mes-rdv/actions.ts, demandent
                   seulement un motif) : information vérifiée, pas inventée. */}
               <p style={{ color: C.textSubtle, fontSize: "11.5px", lineHeight: 1.7, margin: 0 }}>
-                Besoin de changer d'avis ? Vous pouvez annuler ou reporter ce rendez-vous à tout moment depuis <strong style={{ color: C.text }}>Mes RDV</strong>, sans frais.
+                Besoin de changer d&apos;avis ? Vous pouvez annuler ou reporter ce rendez-vous à tout moment depuis <strong style={{ color: C.text }}>Mes RDV</strong>, sans frais.
               </p>
             </div>
 
@@ -1122,7 +1156,7 @@ export default function RdvPage() {
               {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Confirmation…</> : (selectedService.champs_complementaires.length > 0 ? "Continuer →" : "Confirmer le rendez-vous")}
             </button>
             <p style={{ color: C.textSubtle, fontSize: "10.5px", lineHeight: 1.6, textAlign: "center", margin: "10px 0 0" }}>
-              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions Générales d'Utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de Confidentialité</Link>.
+              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions Générales d&apos;Utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de Confidentialité</Link>.
             </p>
           </div>
         )}
@@ -1143,10 +1177,10 @@ export default function RdvPage() {
             </div>
             {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "12px", color: "#ef4444", fontSize: "13px" }}>{submitError}</div>}
             <button onClick={handleConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "linear-gradient(135deg,#F5A623,#C8940A)", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-              {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Confirmation…</> : "Confirmer le rendez-vous"}
+              {submitting ? <><YelenLoader size={16} color="#080812"/>Confirmation…</> : "Confirmer le rendez-vous"}
             </button>
             <p style={{ color: C.textSubtle, fontSize: "10.5px", lineHeight: 1.6, textAlign: "center", margin: "10px 0 0" }}>
-              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions Générales d'Utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de Confidentialité</Link>.
+              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions Générales d&apos;Utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de Confidentialité</Link>.
             </p>
           </div>
         )}

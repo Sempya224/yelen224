@@ -47,6 +47,19 @@ export async function POST(request: NextRequest) {
       .eq("id", membre.membreId);
     if (error) throw error;
 
+    // institution_sessions (dette technique comblée 30/08/2026, remplace
+    // institutions.session_revoked_at de GAP-04-04) — invalide toute session
+    // active de l'institution (échelle institution entière, pas seulement ce
+    // membre — voir lib/institutionAuth.ts). Désactiver un facteur de
+    // sécurité force une reconnexion, y compris sur cet appareil (même
+    // précédent que le chantier MFA Admin du 13/08/2026).
+    const { error: revokeError } = await supabaseAdmin
+      .from("institution_sessions")
+      .update({ revoked_at: new Date().toISOString(), revoked_reason: "totp_disabled" })
+      .eq("institution_id", membre.institutionId)
+      .is("revoked_at", null);
+    if (revokeError) console.error("[INSTITUTION TOTP DISABLE] Erreur révocation session:", revokeError.message);
+
     return NextResponse.json({ success: true });
 
   } catch (error) {

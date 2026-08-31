@@ -1,25 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
-import { jwtVerify } from 'jose'
+import { verifyAdminSession } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  return payload
-}
 
 // Politique simple, cohérente avec le niveau déjà appliqué ailleurs dans
 // le projet (citoyen/institution) : longueur + diversité minimale, pas de
@@ -31,8 +19,8 @@ function motDePasseValide(pwd: string): boolean {
 export async function POST(request: NextRequest) {
   let adminId: string
   try {
-    const payload = await verifyToken(request)
-    adminId = payload.adminId as string
+    const payload = await verifyAdminSession(request)
+    adminId = payload.adminId
   } catch {
     return NextResponse.json({ error: 'Session invalide' }, { status: 401 })
   }
@@ -66,6 +54,18 @@ export async function POST(request: NextRequest) {
       .update({ password_hash: nouveauHash, password_changed_at: new Date().toISOString() })
       .eq('id', adminId)
     if (error) throw error
+
+    // admin_sessions (Mission Hardening Admin, point 7, 30/08/2026,
+    // remplace session_revoked_at de GAP-04-04) — révoque TOUTES les
+    // sessions actives du compte, y compris celle-ci (reconnexion requise,
+    // même précédent que le chantier MFA Admin du 13/08/2026). Un
+    // changement de mot de passe est explicitement un scénario de
+    // compromission potentielle.
+    await supabaseAdmin
+      .from('admin_sessions')
+      .update({ revoked_at: new Date().toISOString(), revoked_reason: 'password_change' })
+      .eq('admin_id', adminId)
+      .is('revoked_at', null)
 
     await supabaseAdmin.from('admin_logs').insert({
       admin_id: adminId,

@@ -241,10 +241,10 @@ export default function ConfidentialitePage() {
         <section className="legal-section">
           <h2>Article 1 — Introduction et engagement</h2>
           <p>
-            Yelen224, opérée par Sempya224, accorde une importance fondamentale à la protection de la vie privée de ses utilisateurs. La présente Politique de Confidentialité décrit de manière transparente la façon dont nous collectons, utilisons, stockons, protégeons et partageons vos données personnelles lorsque vous utilisez la plateforme Yelen224 accessible à l'adresse <strong>https://yelen224.com</strong>.
+            Yelen224, opérée par Sempya224, accorde une importance fondamentale à la protection de la vie privée de ses utilisateurs. La présente Politique de Confidentialité décrit de manière transparente la façon dont nous collectons, utilisons, stockons, protégeons et partageons vos données personnelles lorsque vous utilisez la plateforme Yelen224 accessible à l&apos;adresse <strong>https://yelen224.com</strong>.
           </p>
           <p>
-            Cette politique s'applique à tous les utilisateurs de la plateforme : citoyens guinéens, prestataires professionnels, institutions officielles et visiteurs non inscrits.
+            Cette politique s&apos;applique à tous les utilisateurs de la plateforme : citoyens guinéens, prestataires professionnels, institutions officielles et visiteurs non inscrits.
           </p>
           <p>
             En utilisant Yelen224, vous reconnaissez avoir pris connaissance de la présente politique et consentez au traitement de vos données personnelles dans les conditions décrites ci-dessous.
@@ -284,7 +284,7 @@ export default function ConfidentialitePage() {
           <h2>Article 3 — Données collectées</h2>
 
           <h3>3.1 Données collectées directement auprès de vous</h3>
-          <p><strong>Données d'identité :</strong></p>
+          <p><strong>Données d&apos;identité :</strong></p>
           <ul>
             <li>Nom et prénom</li>
             <li>Numéro de téléphone (identifiant principal)</li>
@@ -300,10 +300,10 @@ export default function ConfidentialitePage() {
           </ul>
           <p><strong>Données professionnelles (prestataires et institutions) :</strong></p>
           <ul>
-            <li>Nom et description de l'activité ou institution</li>
+            <li>Nom et description de l&apos;activité ou institution</li>
             <li>Adresse professionnelle complète</li>
             <li>Documents justificatifs soumis pour vérification</li>
-            <li>Horaires d'ouverture et disponibilités</li>
+            <li>Horaires d&apos;ouverture et disponibilités</li>
           </ul>
           <p><strong>Données de contenu :</strong></p>
           <ul>
@@ -315,7 +315,7 @@ export default function ConfidentialitePage() {
           <ul>
             <li>Adresse IP</li>
             <li>Type et version du navigateur</li>
-            <li>Système d'exploitation</li>
+            <li>Système d&apos;exploitation</li>
             <li>Pages visitées et durée de consultation</li>
             <li>Données de connexion et logs de sécurité</li>
           </ul>
@@ -352,7 +352,7 @@ export default function ConfidentialitePage() {
 
           <h3>4.3 Amélioration des services</h3>
           <ul>
-            <li>Analyse de l'utilisation pour améliorer la plateforme</li>
+            <li>Analyse de l&apos;utilisation pour améliorer la plateforme</li>
             <li>Détection et correction des bugs</li>
             <li>Développement de nouvelles fonctionnalités</li>
             <li>Statistiques agrégées et anonymisées</li>
@@ -361,8 +361,8 @@ export default function ConfidentialitePage() {
           <h3>4.4 Sécurité et prévention des fraudes</h3>
           <ul>
             <li>Détection des activités frauduleuses ou malveillantes</li>
-            <li>Protection de l'intégrité de la plateforme</li>
-            <li>Vérification de l'identité des prestataires et institutions</li>
+            <li>Protection de l&apos;intégrité de la plateforme</li>
+            <li>Vérification de l&apos;identité des prestataires et institutions</li>
           </ul>
 
           <h3>4.5 Obligations légales</h3>
@@ -376,7 +376,7 @@ export default function ConfidentialitePage() {
           <ul>
             <li><strong>Exécution du contrat</strong> — pour les services que vous avez demandés</li>
             <li><strong>Consentement</strong> — pour les communications marketing</li>
-            <li><strong>Intérêt légitime</strong> — pour la sécurité et l'amélioration des services</li>
+            <li><strong>Intérêt légitime</strong> — pour la sécurité et l&apos;amélioration des services</li>
             <li><strong>Obligation légale</strong> — pour les obligations réglementaires</li>
           </ul>
         </section>
@@ -390,7 +390,7 @@ export default function ConfidentialitePage() {
 
           <h3>5.1 Partage avec les institutions et prestataires</h3>
           <p>
-            Lorsque vous prenez un rendez-vous, les informations nécessaires (nom, prénom, numéro de téléphone) sont partagées avec l'institution ou le prestataire concerné. Ce partage est limité aux informations strictement nécessaires à la réalisation du rendez-vous.
+            Lorsque vous prenez un rendez-vous, les informations nécessaires (nom, prénom, numéro de téléphone) sont partagées avec l&apos;institution ou le prestataire concerné. Ce partage est limité aux informations strictement nécessaires à la réalisation du rendez-vous.
           </p>
 
           <h3>5.2 Prestataires techniques</h3>
@@ -400,7 +400,7 @@ export default function ConfidentialitePage() {
             <li><strong>Prestataires email</strong> — envoi des notifications et confirmations</li>
             <li><strong>Prestataires de paiement</strong> — traitement sécurisé des abonnements</li>
           </ul>
-          <p>Ces prestataires n'ont accès qu'aux données strictement nécessaires à leurs missions et sont contractuellement tenus de protéger vos données.</p>
+          <p>Ces prestataires n&apos;ont accès qu&apos;aux données strictement nécessaires à leurs missions et sont contractuellement tenus de protéger vos données.</p>
 
           <h3>5.3 Transferts internationaux</h3>
           <p>
@@ -408,7 +408,7 @@ export default function ConfidentialitePage() {
           </p>
 
           <h3>5.4 Autorités compétentes</h3>
-          <p>Yelen224 peut communiquer vos données aux autorités judiciaires ou administratives compétentes si la loi l'exige.</p>
+          <p>Yelen224 peut communiquer vos données aux autorités judiciaires ou administratives compétentes si la loi l&apos;exige.</p>
         </section>
 
         {/* Article 6 */}
@@ -422,9 +422,9 @@ export default function ConfidentialitePage() {
             <li><strong>Données comptables et de facturation</strong> — conservées 7 ans (obligations légales)</li>
             <li><strong>Logs de sécurité</strong> — conservés 12 mois</li>
             <li><strong>Données de navigation</strong> — conservées 6 mois maximum</li>
-            <li><strong>Données de vérification prestataires</strong> — pendant l'inscription + 1 an après résiliation</li>
+            <li><strong>Données de vérification prestataires</strong> — pendant l&apos;inscription + 1 an après résiliation</li>
           </ul>
-          <p>À l'issue des délais de conservation, vos données sont définitivement supprimées ou anonymisées de façon irréversible.</p>
+          <p>À l&apos;issue des délais de conservation, vos données sont définitivement supprimées ou anonymisées de façon irréversible.</p>
         </section>
 
         {/* Article 7 */}
@@ -450,7 +450,7 @@ export default function ConfidentialitePage() {
             <li>Audits de sécurité réguliers</li>
           </ul>
           <p>
-            En cas de violation de données susceptible d'engendrer un risque élevé pour vos droits, Yelen224 s'engage à vous en informer dans les meilleurs délais et à prendre toutes les mesures correctives nécessaires.
+            En cas de violation de données susceptible d&apos;engendrer un risque élevé pour vos droits, Yelen224 s&apos;engage à vous en informer dans les meilleurs délais et à prendre toutes les mesures correctives nécessaires.
           </p>
         </section>
 
@@ -459,12 +459,12 @@ export default function ConfidentialitePage() {
           <h2>Article 8 — Vos droits sur vos données</h2>
           <p>Conformément aux réglementations applicables, vous disposez des droits suivants :</p>
           <ul>
-            <li><strong>Droit d'accès</strong> — consulter l'ensemble des données personnelles que nous détenons à votre sujet</li>
+            <li><strong>Droit d&apos;accès</strong> — consulter l&apos;ensemble des données personnelles que nous détenons à votre sujet</li>
             <li><strong>Droit de rectification</strong> — demander la correction de toute donnée inexacte ou incomplète</li>
-            <li><strong>Droit à l'effacement</strong> — demander la suppression de vos données, sous réserve de nos obligations légales</li>
+            <li><strong>Droit à l&apos;effacement</strong> — demander la suppression de vos données, sous réserve de nos obligations légales</li>
             <li><strong>Droit à la limitation</strong> — demander la limitation du traitement dans certaines circonstances</li>
             <li><strong>Droit à la portabilité</strong> — recevoir vos données dans un format structuré ou les transférer vers un autre responsable</li>
-            <li><strong>Droit d'opposition</strong> — vous opposer au traitement de vos données à des fins de prospection commerciale</li>
+            <li><strong>Droit d&apos;opposition</strong> — vous opposer au traitement de vos données à des fins de prospection commerciale</li>
             <li><strong>Retrait du consentement</strong> — à tout moment, sans affecter la licéité du traitement antérieur</li>
           </ul>
           <p>
@@ -486,7 +486,7 @@ export default function ConfidentialitePage() {
 
           <h3>9.2 Cookies analytiques (avec votre consentement)</h3>
           <ul>
-            <li>Analyse de l'utilisation pour améliorer la plateforme</li>
+            <li>Analyse de l&apos;utilisation pour améliorer la plateforme</li>
             <li>Mesure des performances des pages</li>
             <li>Identification des problèmes techniques</li>
           </ul>
@@ -507,7 +507,7 @@ export default function ConfidentialitePage() {
             Si vous êtes parent ou tuteur et que votre enfant de moins de 16 ans a fourni des données sans votre consentement, contactez-nous immédiatement à <strong>contact@yelen224.com</strong>.
           </p>
           <p>
-            Pour les rendez-vous médicaux ou administratifs concernant des mineurs, un adulte responsable (parent ou tuteur légal) doit s'inscrire et gérer les rendez-vous au nom du mineur.
+            Pour les rendez-vous médicaux ou administratifs concernant des mineurs, un adulte responsable (parent ou tuteur légal) doit s&apos;inscrire et gérer les rendez-vous au nom du mineur.
           </p>
         </section>
 
@@ -520,7 +520,7 @@ export default function ConfidentialitePage() {
           <p>
             En cas de modification substantielle, vous serez informé par email (si fourni), par notification sur la plateforme lors de votre prochaine connexion, et par publication de la nouvelle version sur cette page avec indication de la date de mise à jour.
           </p>
-          <p>La poursuite de l'utilisation de la plateforme après notification vaut acceptation de la nouvelle politique.</p>
+          <p>La poursuite de l&apos;utilisation de la plateforme après notification vaut acceptation de la nouvelle politique.</p>
         </section>
 
         {/* Article 12 */}
@@ -563,13 +563,13 @@ export default function ConfidentialitePage() {
               <div className="footer-links-group">
                 <span className="group-label">Mentions légales</span>
                 <Link href="/confidentialite" className="active">Politique de confidentialité</Link>
-                <Link href="/cgu">Conditions générales d'utilisation</Link>
+                <Link href="/cgu">Conditions générales d&apos;utilisation</Link>
                 <Link href="/cookies">Politique des cookies</Link>
               </div>
               <div className="footer-links-group">
                 <span className="group-label">Plateforme</span>
                 <Link href="/">Accueil</Link>
-                <Link href="/faq">Centre d'aide</Link>
+                <Link href="/faq">Centre d&apos;aide</Link>
                 <Link href="/contact">Contact</Link>
               </div>
               <div className="footer-links-group">

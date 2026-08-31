@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
+import { CODES_EQUIPEMENTS_CHAMBRE } from "@/lib/hotelEquipements";
+
+// Équipements structurés Hôtel (21/08/2026) — vocabulaire contrôlé
+// (lib/hotelEquipements.tsx), jamais un texte libre. Filtre silencieux
+// des codes inconnus plutôt qu'un rejet total (tolère un client
+// légèrement désynchronisé), dédoublonné. Colonne nullable partagée par
+// les 14 autres secteurs (jamais renseignée par eux en pratique).
+function equipementsChambreValides(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const valides = raw.filter((code): code is string => typeof code === "string" && CODES_EQUIPEMENTS_CHAMBRE.includes(code));
+  return [...new Set(valides)];
+}
 
 // Contourne RLS via service role — paid_services n'a qu'une policy SELECT
 // anon limitée à is_active=true (migration 20260709000013, pensée pour la
@@ -63,6 +75,13 @@ export async function POST(req: NextRequest) {
   if (typeof prix !== "number" || !(prix > 0)) return NextResponse.json({ error: "Prix invalide" }, { status: 400 });
   if (typeof duree_minutes !== "number" || !(duree_minutes > 0)) return NextResponse.json({ error: "Durée invalide" }, { status: 400 });
 
+  // Chantier Services Hôtel V2 (docs/ui/YELEN_HOTEL_SERVICES_V2_AUDIT.md
+  // §F Option 2, 20/08/2026) — 5 champs additionnels optionnels, ignorés
+  // (null) si absents du body. Aucun changement de comportement pour les
+  // appelants existants (ServicesTab.tsx, tous secteurs) qui ne les
+  // envoient jamais. `prix`/`duree_minutes` restent obligatoires pour
+  // tout le monde, y compris l'hôtel — décision explicite, non modifiée.
+  const TYPES_PRESTATION = ["reservable", "commandable", "supplement", "horaires_limites", "inclus", "sur_demande", "indisponible"];
   const { data, error } = await sb.from("paid_services").insert({
     institution_id: authInstId,
     nom: nom.trim(),
@@ -75,6 +94,19 @@ export async function POST(req: NextRequest) {
     taux_taxe: typeof body?.taux_taxe === "number" && body.taux_taxe >= 0 ? body.taux_taxe : 0,
     prix_promo: typeof body?.prix_promo === "number" && body.prix_promo > 0 ? body.prix_promo : null,
     promo_actif: typeof body?.promo_actif === "boolean" ? body.promo_actif : false,
+    type_prestation: typeof body?.type_prestation === "string" && TYPES_PRESTATION.includes(body.type_prestation) ? body.type_prestation : null,
+    unite_prix: typeof body?.unite_prix === "string" && body.unite_prix.trim() ? body.unite_prix.trim() : null,
+    // horaires : même structure que institutions.horaires (Horaire[] —
+    // {jour, ouvert, debut, fin}), jamais du texte libre.
+    horaires: Array.isArray(body?.horaires) && body.horaires.length > 0 ? body.horaires : null,
+    localisation: typeof body?.localisation === "string" && body.localisation.trim() ? body.localisation.trim() : null,
+    est_chambre: typeof body?.est_chambre === "boolean" ? body.est_chambre : false,
+    // Galerie chambre (retour Bryan 20/08/2026, jusqu'à 5 images + 1
+    // vidéo) — max 5 forcé ici, jamais fait confiance au client seul.
+    photos: Array.isArray(body?.photos) ? body.photos.filter((p: unknown): p is string => typeof p === "string" && p.trim() !== "").slice(0, 5) : [],
+    video_url: typeof body?.video_url === "string" && body.video_url.trim() ? body.video_url.trim() : null,
+    video_duree_secondes: typeof body?.video_duree_secondes === "number" && body.video_duree_secondes > 0 ? Math.round(body.video_duree_secondes) : null,
+    equipements_chambre: equipementsChambreValides(body?.equipements_chambre),
   }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, service: data });
@@ -104,6 +136,17 @@ export async function PATCH(req: NextRequest) {
   if (typeof body?.taux_taxe === "number" && body.taux_taxe >= 0) updates.taux_taxe = body.taux_taxe;
   if (typeof body?.prix_promo === "number" || body?.prix_promo === null) updates.prix_promo = body?.prix_promo ?? null;
   if (typeof body?.promo_actif === "boolean") updates.promo_actif = body.promo_actif;
+  // Chantier Services Hôtel V2 — mêmes 5 champs optionnels qu'en POST.
+  const TYPES_PRESTATION = ["reservable", "commandable", "supplement", "horaires_limites", "inclus", "sur_demande", "indisponible"];
+  if (body?.type_prestation === null || (typeof body?.type_prestation === "string" && TYPES_PRESTATION.includes(body.type_prestation))) updates.type_prestation = body.type_prestation;
+  if (typeof body?.unite_prix === "string" || body?.unite_prix === null) updates.unite_prix = body?.unite_prix?.trim() || null;
+  if (Array.isArray(body?.horaires) || body?.horaires === null) updates.horaires = Array.isArray(body?.horaires) && body.horaires.length > 0 ? body.horaires : null;
+  if (typeof body?.localisation === "string" || body?.localisation === null) updates.localisation = body?.localisation?.trim() || null;
+  if (typeof body?.est_chambre === "boolean") updates.est_chambre = body.est_chambre;
+  if (Array.isArray(body?.photos)) updates.photos = body.photos.filter((p: unknown): p is string => typeof p === "string" && p.trim() !== "").slice(0, 5);
+  if (typeof body?.video_url === "string" || body?.video_url === null) updates.video_url = body?.video_url?.trim() || null;
+  if (typeof body?.video_duree_secondes === "number" || body?.video_duree_secondes === null) updates.video_duree_secondes = typeof body?.video_duree_secondes === "number" && body.video_duree_secondes > 0 ? Math.round(body.video_duree_secondes) : null;
+  if (Array.isArray(body?.equipements_chambre) || body?.equipements_chambre === null) updates.equipements_chambre = equipementsChambreValides(body?.equipements_chambre);
 
   const { data, error } = await sb.from("paid_services").update(updates).eq("id", id).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

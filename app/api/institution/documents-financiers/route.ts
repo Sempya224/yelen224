@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { canAccessTab } from "@/lib/institutionPermissions";
-import { DOCUMENT_TRAVAIL_ACCEPTED_MIME, MAX_DOCUMENT_TRAVAIL_SIZE, CATEGORIES_FINANCIERES } from "@/lib/documentsTravail";
+import { MAX_DOCUMENT_TRAVAIL_SIZE, CATEGORIES_FINANCIERES } from "@/lib/documentsTravail";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import { validateUpload } from "@/lib/uploadSecurity";
 
 // Documents financiers du comptable — même table/bucket que documents-travail
 // (espace de travail), filtré aux catégories financières. Route dédiée
@@ -55,22 +56,17 @@ export async function POST(req: NextRequest) {
   const description = form.get("description");
 
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
-  if (!DOCUMENT_TRAVAIL_ACCEPTED_MIME.includes(file.type)) {
-    return NextResponse.json({ error: "Format non accepté (PDF, Word, Excel, JPG, PNG uniquement)" }, { status: 400 });
-  }
-  if (file.size > MAX_DOCUMENT_TRAVAIL_SIZE) {
-    return NextResponse.json({ error: "Fichier trop volumineux (20 Mo max)" }, { status: 400 });
-  }
   if (typeof categorie !== "string" || !CATEGORIES_FINANCIERES.includes(categorie as (typeof CATEGORIES_FINANCIERES)[number])) {
     return NextResponse.json({ error: "Catégorie invalide" }, { status: 400 });
   }
 
   const displayName = typeof nom === "string" && nom.trim() ? nom.trim() : file.name;
-  const ext = file.name.split(".").pop() || "bin";
-  const path = `${membre.institutionId}/${crypto.randomUUID()}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
+  const verif = await validateUpload(buffer, "DOCUMENT_TRAVAIL", MAX_DOCUMENT_TRAVAIL_SIZE, file.name);
+  if (!verif.valid) return NextResponse.json({ error: verif.reason }, { status: 400 });
+  const path = `${membre.institutionId}/${crypto.randomUUID()}.${verif.extension}`;
 
-  const { error: upErr } = await sb.storage.from("documents-travail").upload(path, buffer, { contentType: file.type });
+  const { error: upErr } = await sb.storage.from("documents-travail").upload(path, buffer, { contentType: verif.detectedType });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
   const { data: inserted, error: insertErr } = await sb.from("documents_travail").insert({
@@ -80,7 +76,7 @@ export async function POST(req: NextRequest) {
     categorie,
     url: path,
     taille: file.size,
-    type_mime: file.type,
+    type_mime: verif.detectedType,
     membre_id: membre.membreId,
   }).select("id").single();
   if (insertErr) {

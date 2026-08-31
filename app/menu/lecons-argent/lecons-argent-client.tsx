@@ -105,7 +105,7 @@ export function LeconsArgentClient() {
 
       <div style={{ padding: "12px 16px 40px", display: "flex", flexDirection: "column", gap: "16px" }}>
         {lecons.map(lecon => (
-          <Link key={lecon.id} href={`/menu/lecons-argent/${lecon.id}`} className="tap" style={{ display: "block", backgroundColor: card, borderRadius: "18px", overflow: "hidden", border: `1px solid ${brd}`, textDecoration: "none" }}>
+          <Link key={lecon.id} href={`/menu/lecons-argent/${lecon.id}`} className="tap" style={{ display: "block", backgroundColor: card, borderRadius: "18px", overflow: "hidden", textDecoration: "none" }}>
             {Banniere[lecon.categorie]()}
             <div style={{ padding: "16px" }}>
               <div style={{ color: t1, fontSize: "16px", fontWeight: "800", marginBottom: "6px" }}>{lecon.titre}</div>
@@ -120,7 +120,7 @@ export function LeconsArgentClient() {
           </Link>
         ))}
         {lecons.length === 0 && (
-          <div style={{ padding: "40px 0", textAlign: "center", color: t2, fontSize: "14px", fontWeight: "600" }}>Aucune leçon dans cette catégorie pour l'instant.</div>
+          <div style={{ padding: "40px 0", textAlign: "center", color: t2, fontSize: "14px", fontWeight: "600" }}>Aucune leçon dans cette catégorie pour l&apos;instant.</div>
         )}
       </div>
     </div>

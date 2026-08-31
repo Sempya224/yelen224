@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
-import { SECTEUR_LABELS } from "@/lib/secteurs";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 
 const P = { pointerEvents: "none" as const };
 const Ic = {
@@ -101,6 +103,12 @@ export function FavorisClient() {
   const [recherche, setRecherche] = useState("");
   const [secteurFiltre, setSecteurFiltre] = useState<string | null>(null);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   function showToast(msg: string, type: "success" | "error" = "success") {
     setToast({ msg, type });
@@ -170,14 +178,14 @@ export function FavorisClient() {
 
   const kpi = useMemo(() => {
     const list = favoris ?? [];
-    const trenteJours = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const trenteJours = nowTick - 30 * 24 * 60 * 60 * 1000;
     return {
       total: list.length,
       visites: list.filter((f) => f.derniere_visite).length,
       nouveaux: list.filter((f) => new Date(f.favori_depuis).getTime() >= trenteJours).length,
       ouverts: list.filter((f) => f.ouvert).length,
     };
-  }, [favoris]);
+  }, [favoris, nowTick]);
 
   const btnGhost: React.CSSProperties = {
     background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: t1, fontWeight: 700, fontSize: "12.5px",
@@ -185,19 +193,15 @@ export function FavorisClient() {
   };
 
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Établissements favoris"/>;
   }
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Établissements favoris"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ padding: "4px 4px 20px" }}>
           <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5 }}>Retrouvez rapidement vos établissements préférés.</p>
         </div>
@@ -210,7 +214,7 @@ export function FavorisClient() {
             { label: "Nouveaux", valeur: kpi.nouveaux },
             { label: "Ouverts", valeur: kpi.ouverts },
           ].map((k) => (
-            <div key={k.label} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "12px 8px", textAlign: "center" }}>
+            <div key={k.label} style={{ backgroundColor: card, borderRadius: "14px", padding: "12px 8px", textAlign: "center" }}>
               <div style={{ color: t1, fontSize: "18px", fontWeight: 900 }}>{k.valeur}</div>
               <div style={{ color: t2, fontSize: "10.5px", fontWeight: 700, marginTop: "2px" }}>{k.label}</div>
             </div>
@@ -256,10 +260,10 @@ export function FavorisClient() {
           {favorisFiltres.map((f) => {
             const dist = position && f.latitude && f.longitude ? distanceKm(position.lat, position.lng, f.latitude, f.longitude) : null;
             return (
-              <div key={f.institution_id} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "18px", padding: "16px" }}>
+              <div key={f.institution_id} style={{ backgroundColor: card, borderRadius: "18px", padding: "16px" }}>
                 <div style={{ display: "flex", gap: "12px", marginBottom: "12px" }}>
-                  <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
-                    {f.logo ? <img src={f.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ color: "#F5A623", fontWeight: 800, fontSize: "15px" }}>{initials(f.name)}</span>}
+                  <div style={{ width: "48px", height: "48px", position: "relative", borderRadius: "14px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                    {f.logo ? <Image src={f.logo} alt="" fill sizes="48px" style={{ objectFit: "cover" }}/> : <span style={{ color: "#F5A623", fontWeight: 800, fontSize: "15px" }}>{initials(f.name)}</span>}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
@@ -319,6 +323,7 @@ export function FavorisClient() {
           })}
         </div>
       </main>
+      </PullToRefresh>
 
       {toast && (
         <div style={{

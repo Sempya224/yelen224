@@ -18,6 +18,8 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   rdv_termine: "rdv",
   rdv_absent: "rdv",
   rdv_confirme: "rdv",
+  rdv_annule: "rdv",
+  rdv_validation_annulee: "rdv",
   suivi_rdv_modifie: "rdv",
   // Clients
   note_client_modifiee: "clients",
@@ -58,14 +60,36 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   // dans le Journal — sans ça, seuls les envois institution étaient
   // visibles, donnant une image biaisée (signalé le 18/07/2026).
   message_recu: "communication",
+  // Disponibilités (refonte Enterprise 05/08/2026 — bouton "Historique")
+  disponibilites_modifiees: "disponibilites",
   // Paiements / finance
   acces_urgence_comptable: "paiements",
+  // Reçu Yelen (Lot E, décision CEO 05/08/2026) — QR de vérification
+  // publique scanné (membre_id null, aucun membre à l'origine de l'action).
+  recu_verifie: "paiements",
+  // Transactions (Lot 3, refonte "journal financier Enterprise",
+  // décision CEO 06/08/2026) — "toutes les exportations sont enregistrées
+  // dans le journal d'activité".
+  export_transactions: "paiements",
   // Compte institution
   suppression_compte_acces_refuse: "compte",
   // Authentification
   connexion: "authentification",
   // Journal (méta-actions sur le journal lui-même)
   export_journal: "journal",
+  // Offres partenaires (chantier "Centre de pilotage des offres",
+  // 02/08/2026). offre_approuvee/offre_refusee/offre_suspendue_admin sont
+  // émises par la modération Yelen (membre_id null, même convention que
+  // message_recu) — distinctes des actions institution correspondantes.
+  offre_creee: "offres",
+  offre_modifiee: "offres",
+  offre_soumise: "offres",
+  offre_suspendue: "offres",
+  offre_archivee: "offres",
+  offre_supprimee: "offres",
+  offre_approuvee: "offres",
+  offre_refusee: "offres",
+  offre_suspendue_admin: "offres",
 };
 
 // Seules les actions dont le niveau par défaut diffère de "info" sont
@@ -78,9 +102,17 @@ export const NIVEAU_PAR_DEFAUT: Partial<Record<string, NiveauJournal>> = {
   note_supprimee: "attention",
   rdv_refuse: "attention",
   rdv_absent: "attention",
+  rdv_annule: "attention",
+  rdv_validation_annulee: "attention",
   membre_acces_refuse: "erreur",
   suppression_compte_acces_refuse: "erreur",
   connexion: "succes",
+  offre_supprimee: "attention",
+  offre_archivee: "attention",
+  offre_suspendue: "attention",
+  offre_suspendue_admin: "attention",
+  offre_refusee: "attention",
+  offre_approuvee: "succes",
 };
 
 export type RisqueJournal = "vert" | "orange" | "rouge";

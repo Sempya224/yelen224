@@ -139,11 +139,6 @@ const FILTER_METHODS = new Set([
   "rangeAdjacent", "overlaps", "textSearch", "not", "filter", "order",
 ]);
 const PAYLOAD_METHODS = new Set(["insert", "update", "upsert"]);
-const IGNORED_METHODS = new Set([
-  "delete", "select", "single", "maybeSingle", "limit", "range", "csv",
-  "throwOnError", "abortSignal", "returns", "then", "match", "or", "on",
-  "subscribe", "count", "head", "explain",
-]);
 
 /* ================================================================
  * Utilitaires de parsing (analyse textuelle avec gestion des

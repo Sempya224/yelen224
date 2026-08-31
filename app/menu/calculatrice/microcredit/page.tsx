@@ -51,7 +51,7 @@ export default function Page() {
           </svg>
         </div>
         <div style={{ color: t1, fontSize: "20px", fontWeight: "900", marginBottom: "6px" }}>Calculateur de microcrédit</div>
-        <div style={{ color: t2, fontSize: "13px" }}>Estimez la mensualité d'un crédit dégressif, façon Crédit Rural de Guinée</div>
+        <div style={{ color: t2, fontSize: "13px" }}>Estimez la mensualité d&apos;un crédit dégressif, façon Crédit Rural de Guinée</div>
       </div>
 
       <div style={{ padding: "20px 20px 0", "--track": card2 } as React.CSSProperties}>
@@ -89,7 +89,7 @@ export default function Page() {
         </div>
 
         <div style={{ marginTop: "16px", padding: "16px", color: t3, fontSize: "12px", lineHeight: "1.6" }}>
-          Estimation basée sur un remboursement dégressif (intérêts sur le capital restant dû), comme au Crédit Rural de Guinée. Des frais additionnels peuvent s'ajouter selon l'institution — frais de dossier, épargne de garantie ou pénalités de retard — à vérifier avant signature.
+          Estimation basée sur un remboursement dégressif (intérêts sur le capital restant dû), comme au Crédit Rural de Guinée. Des frais additionnels peuvent s&apos;ajouter selon l&apos;institution — frais de dossier, épargne de garantie ou pénalités de retard — à vérifier avant signature.
           <br/><br/>
           Source : <a href={CREDIT.source.url} target="_blank" rel="noopener noreferrer" style={{ color: t3, textDecoration: "underline" }}>{CREDIT.source.label}</a>, <a href={CREDIT.sourceFrais.url} target="_blank" rel="noopener noreferrer" style={{ color: t3, textDecoration: "underline" }}>{CREDIT.sourceFrais.label}</a>.
         </div>

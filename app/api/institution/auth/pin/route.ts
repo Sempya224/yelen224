@@ -1,29 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
 import bcrypt from 'bcryptjs'
+import { getAuthenticatedInstitutionId } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-
-const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
-
-async function getAuthenticatedInstitutionId(request: NextRequest): Promise<string | null> {
-  const token = request.cookies.get('yelen224_institution_session')?.value
-  if (!token) return null
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET, {
-      issuer: 'yelen224-institution',
-      audience: 'yelen224-institution-dashboard',
-    })
-    return typeof payload.institutionId === 'string' ? payload.institutionId : null
-  } catch {
-    return null
-  }
-}
 
 // Supprime le PIN — redemande le PIN actuel avant d'agir (défense en profondeur : la
 // session de 8h prouve déjà l'identité, mais un poste déverrouillé volé ne devrait pas

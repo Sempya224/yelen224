@@ -10,15 +10,34 @@
 // connexion que provoquait l'ancienne version accordéon.
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "@/components/ThemeProvider";
+import { T } from "@/lib/theme";
+import { YelenLoader } from "@/components/YelenLoader";
 
-const C = {
-  gold: "#F5A623", goldD: "#C8940A", goldBg: "#FFFBEB", goldBg2: "#FEF3C7",
-  white: "#FFFFFF", dark: "#1C1400", dark2: "#3D2E00", gray: "#92836A", gray3: "#EDE8D8",
-  red: "#DC2626", redL: "#FEF2F2", border: "rgba(245,166,35,0.2)",
-};
+// Accent de marque — fixe, jamais dérivé du thème clair/sombre (même
+// convention que app/institution/connexion/page.tsx).
+const GOLD = { gold: "#F5A623", goldD: "#C8940A" };
 
 export function MembreLoginSection() {
   const router = useRouter();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+  const t = T[theme];
+  const C = {
+    gold: GOLD.gold, goldD: GOLD.goldD,
+    white:  t.cardBg,
+    dark:   t.text,
+    dark2:  t.textMuted,
+    gray:   t.textSubtle,
+    gray3:  isDark ? "rgba(255,255,255,0.08)" : "#EDE8D8",
+    red:    "#DC2626",
+    redL:   isDark ? "rgba(220,38,38,0.14)" : "#FEF2F2",
+    // Neutre au repos (décision Bryan 14/08/2026, même correctif que la page
+    // de connexion principale) — le doré n'apparaît plus qu'au focus d'un
+    // champ (voir .membre-inp:focus), jamais comme halo permanent.
+    border: isDark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.14)",
+    shadow: isDark ? "0 -8px 40px rgba(0,0,0,0.5)" : "0 -8px 40px rgba(20,20,30,0.14)",
+  };
   const [open, setOpen] = useState(false);
   const [headerH, setHeaderH] = useState(70);
   const [identifiant, setIdentifiant] = useState("");
@@ -36,6 +55,11 @@ export function MembreLoginSection() {
   const [totpCode, setTotpCode] = useState("");
   const [totpBackupMode, setTotpBackupMode] = useState(false);
 
+  function close() {
+    setOpen(false);
+    setError("");
+  }
+
   // Verrouille le scroll de la page derrière l'overlay et mesure la hauteur
   // réelle du header pour ne jamais le recouvrir sur mobile.
   useEffect(() => {
@@ -51,11 +75,6 @@ export function MembreLoginSection() {
       window.removeEventListener("keydown", onKey);
     };
   }, [open]);
-
-  function close() {
-    setOpen(false);
-    setError("");
-  }
 
   async function connexion() {
     if (!identifiant.trim() || pin.length !== 6) return;
@@ -104,24 +123,35 @@ export function MembreLoginSection() {
     width: "100%", padding: "14px 16px", borderRadius: "12px",
     border: `1.5px solid ${C.border}`, marginBottom: "10px",
     fontSize: "15px", color: C.dark, backgroundColor: C.white,
+    transition: "border-color 0.2s, box-shadow 0.2s",
   };
+
+  const ctaStyle = (disabled: boolean): React.CSSProperties => ({
+    width: "100%", padding: "14px", borderRadius: "12px", border: "none",
+    background: disabled ? C.gray3 : C.gold,
+    color: disabled ? C.gray : C.dark, fontWeight: "800", fontSize: "14.5px",
+    cursor: disabled ? "not-allowed" : "pointer",
+    boxShadow: disabled ? "none" : `0 8px 24px ${C.gold}40`,
+    display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s",
+  });
 
   const css = `
     @keyframes membreSlideUp{from{transform:translateY(24px);opacity:0}to{transform:translateY(0);opacity:1}}
     @keyframes membreScaleIn{from{transform:translate(-50%,-50%) scale(0.96);opacity:0}to{transform:translate(-50%,-50%) scale(1);opacity:1}}
     @keyframes membreFadeIn{from{opacity:0}to{opacity:1}}
+    .membre-inp:focus{border-color:${C.gold}!important;box-shadow:0 0 0 3px rgba(245,166,35,0.12)!important;outline:none}
     .membre-modal-backdrop{ display:none; }
     .membre-modal-sheet{
       position:fixed; left:0; right:0; bottom:0; top:${headerH}px; z-index:201;
       background:${C.white}; border-radius:20px 20px 0 0;
       display:flex; flex-direction:column; overflow:hidden;
       animation: membreSlideUp .28s cubic-bezier(.2,.8,.2,1);
-      box-shadow: 0 -8px 40px rgba(28,20,0,0.18);
+      box-shadow: ${C.shadow};
     }
     @media (min-width: 860px){
       .membre-modal-backdrop{
         display:block; position:fixed; inset:0; z-index:200;
-        background:rgba(20,15,0,0.55); backdrop-filter:blur(4px);
+        background:rgba(10,10,15,0.6); backdrop-filter:blur(4px);
         animation: membreFadeIn .18s ease;
       }
       .membre-modal-sheet{
@@ -135,7 +165,7 @@ export function MembreLoginSection() {
   return (
     <div style={{ marginTop: "18px", textAlign: "center" }}>
       <button onClick={() => setOpen(true)} className="tap" style={{ background: "none", border: "none", color: C.gray, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
-        Vous êtes un membre de l'équipe ? <span style={{ color: C.gold }}>Connectez-vous ici</span>
+        Vous êtes un membre de l&apos;équipe ? <span style={{ color: C.dark, fontWeight: "800" }}>Connectez-vous ici</span>
       </button>
 
       {open && (
@@ -166,6 +196,7 @@ export function MembreLoginSection() {
                   {error && <div style={{ backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px", textAlign: "center" }}>{error}</div>}
 
                   <input
+                    className="membre-inp"
                     type="text"
                     inputMode={totpBackupMode ? "text" : "numeric"}
                     maxLength={totpBackupMode ? 9 : 6}
@@ -177,12 +208,12 @@ export function MembreLoginSection() {
                     autoFocus
                   />
 
-                  <button onClick={verifierTotp} disabled={loading || !totpCode.trim()} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "12px", border: "none", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.dark, fontWeight: "800", fontSize: "14.5px", cursor: "pointer", opacity: loading || !totpCode.trim() ? 0.5 : 1, boxShadow: `0 6px 20px ${C.gold}35`, marginTop: "4px", marginBottom: "12px" }}>
-                    {loading ? "…" : "Vérifier"}
+                  <button onClick={verifierTotp} disabled={loading || !totpCode.trim()} className="tap" style={{ ...ctaStyle(loading || !totpCode.trim()), marginTop: "4px", marginBottom: "12px" }}>
+                    {loading ? <YelenLoader size={16} color={C.dark}/> : "Vérifier"}
                   </button>
 
                   <div style={{ textAlign: "center" }}>
-                    <button onClick={() => { setTotpBackupMode(v => !v); setTotpCode(""); setError(""); }} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
+                    <button onClick={() => { setTotpBackupMode(v => !v); setTotpCode(""); setError(""); }} className="tap" style={{ background: "none", border: "none", color: C.dark2, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
                       {totpBackupMode ? "Utiliser l'application d'authentification" : "Utiliser un code de secours"}
                     </button>
                   </div>
@@ -198,13 +229,13 @@ export function MembreLoginSection() {
                   {error && <div style={{ backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px", textAlign: "center" }}>{error}</div>}
 
                   <label style={{ color: C.dark2, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>Identifiant</label>
-                  <input value={identifiant} onChange={e => setIdentifiant(e.target.value)} placeholder="ex. jdupont" style={inputStyle} autoFocus/>
+                  <input className="membre-inp" value={identifiant} onChange={e => setIdentifiant(e.target.value)} placeholder="ex. jdupont" style={inputStyle} autoFocus/>
 
                   <label style={{ color: C.dark2, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>Code PIN</label>
-                  <input type="password" inputMode="numeric" maxLength={6} placeholder="6 chiffres" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && connexion()} style={{ ...inputStyle, marginBottom: "18px", fontSize: "18px", letterSpacing: "5px", textAlign: "center" }}/>
+                  <input className="membre-inp" type="password" inputMode="numeric" maxLength={6} placeholder="6 chiffres" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && connexion()} style={{ ...inputStyle, marginBottom: "18px", fontSize: "18px", letterSpacing: "5px", textAlign: "center" }}/>
 
-                  <button onClick={connexion} disabled={loading || !identifiant.trim() || pin.length !== 6} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "12px", border: "none", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.dark, fontWeight: "800", fontSize: "14.5px", cursor: "pointer", opacity: loading || !identifiant.trim() || pin.length !== 6 ? 0.5 : 1, boxShadow: `0 6px 20px ${C.gold}35` }}>
-                    {loading ? "…" : "Se connecter"}
+                  <button onClick={connexion} disabled={loading || !identifiant.trim() || pin.length !== 6} className="tap" style={ctaStyle(loading || !identifiant.trim() || pin.length !== 6)}>
+                    {loading ? <YelenLoader size={16} color={C.dark}/> : "Se connecter"}
                   </button>
                 </div>
               ) : (
@@ -217,11 +248,11 @@ export function MembreLoginSection() {
 
                   {error && <div style={{ backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px", textAlign: "center" }}>{error}</div>}
 
-                  <input type="password" inputMode="numeric" maxLength={6} placeholder="Nouveau PIN (6 chiffres)" value={nouveauPin} onChange={e => setNouveauPin(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, fontSize: "18px", letterSpacing: "5px", textAlign: "center" }} autoFocus/>
-                  <input type="password" inputMode="numeric" maxLength={6} placeholder="Confirmer le PIN" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, marginBottom: "18px", fontSize: "18px", letterSpacing: "5px", textAlign: "center" }}/>
+                  <input className="membre-inp" type="password" inputMode="numeric" maxLength={6} placeholder="Nouveau PIN (6 chiffres)" value={nouveauPin} onChange={e => setNouveauPin(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, fontSize: "18px", letterSpacing: "5px", textAlign: "center" }} autoFocus/>
+                  <input className="membre-inp" type="password" inputMode="numeric" maxLength={6} placeholder="Confirmer le PIN" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, marginBottom: "18px", fontSize: "18px", letterSpacing: "5px", textAlign: "center" }}/>
 
-                  <button onClick={changerPin} disabled={loading || nouveauPin.length !== 6} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "12px", border: "none", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: C.dark, fontWeight: "800", fontSize: "14.5px", cursor: "pointer", opacity: loading || nouveauPin.length !== 6 ? 0.5 : 1, boxShadow: `0 6px 20px ${C.gold}35` }}>
-                    {loading ? "…" : "Valider"}
+                  <button onClick={changerPin} disabled={loading || nouveauPin.length !== 6} className="tap" style={ctaStyle(loading || nouveauPin.length !== 6)}>
+                    {loading ? <YelenLoader size={16} color={C.dark}/> : "Valider"}
                   </button>
                 </div>
               )}

@@ -262,25 +262,25 @@ export default function CGUPage() {
       <div className="legal-wrap">
 
         <p className="page-eyebrow">Document officiel — République de Guinée</p>
-        <h1 className="page-title">Conditions Générales d'Utilisation</h1>
+        <h1 className="page-title">Conditions Générales d&apos;Utilisation</h1>
         <p className="page-meta">
           Yelen224 — Opéré par Sempya224 &nbsp;&nbsp;|&nbsp;&nbsp; Version 1.0 &nbsp;&nbsp;|&nbsp;&nbsp; En vigueur depuis Mars 2025
         </p>
 
         {/* Article 1 */}
         <section className="legal-section">
-          <h2>Article 1 — Objet et champ d'application</h2>
+          <h2>Article 1 — Objet et champ d&apos;application</h2>
           <p>
-            Les présentes Conditions Générales d'Utilisation (ci-après "CGU") régissent l'accès et l'utilisation de la plateforme Yelen224, accessible à l'adresse <strong>https://yelen224.com</strong>, ainsi que toutes ses sous-pages, applications et services associés.
+            Les présentes Conditions Générales d&apos;Utilisation (ci-après &quot;CGU&quot;) régissent l&apos;accès et l&apos;utilisation de la plateforme Yelen224, accessible à l&apos;adresse <strong>https://yelen224.com</strong>, ainsi que toutes ses sous-pages, applications et services associés.
           </p>
           <p>
             Yelen224 est une plateforme numérique de prise de rendez-vous officielle, développée et opérée par Sempya224, société technologique dont le siège social est établi au 1895 Morris Avenue, 5ème étage, Bronx, New York 10345, États-Unis, avec une représentation opérationnelle à Conakry, Commune de Ratoma, Cimenterie, 3ème étage, République de Guinée.
           </p>
           <p>
-            En accédant à la plateforme Yelen224 et en utilisant ses services, l'utilisateur reconnaît avoir lu, compris et accepté sans réserve l'intégralité des présentes CGU. Si l'utilisateur n'accepte pas ces conditions, il lui est demandé de ne pas utiliser la plateforme.
+            En accédant à la plateforme Yelen224 et en utilisant ses services, l&apos;utilisateur reconnaît avoir lu, compris et accepté sans réserve l&apos;intégralité des présentes CGU. Si l&apos;utilisateur n&apos;accepte pas ces conditions, il lui est demandé de ne pas utiliser la plateforme.
           </p>
           <p>
-            Yelen224 se réserve le droit de modifier les présentes CGU à tout moment. Les modifications entrent en vigueur dès leur publication sur la plateforme. L'utilisation continue de la plateforme après modification vaut acceptation des nouvelles conditions.
+            Yelen224 se réserve le droit de modifier les présentes CGU à tout moment. Les modifications entrent en vigueur dès leur publication sur la plateforme. L&apos;utilisation continue de la plateforme après modification vaut acceptation des nouvelles conditions.
           </p>
         </section>
 
@@ -288,13 +288,13 @@ export default function CGUPage() {
         <section className="legal-section">
           <h2>Article 2 — Définitions</h2>
           <ul>
-            <li><strong>Plateforme</strong> — le site web Yelen224 accessible à l'adresse https://yelen224.com, ses applications mobiles et l'ensemble de ses services numériques</li>
-            <li><strong>Utilisateur</strong> — toute personne physique accédant à la plateforme, qu'il soit citoyen, prestataire ou représentant d'une institution</li>
+            <li><strong>Plateforme</strong> — le site web Yelen224 accessible à l&apos;adresse https://yelen224.com, ses applications mobiles et l&apos;ensemble de ses services numériques</li>
+            <li><strong>Utilisateur</strong> — toute personne physique accédant à la plateforme, qu&apos;il soit citoyen, prestataire ou représentant d&apos;une institution</li>
             <li><strong>Citoyen</strong> — tout utilisateur inscrit sur la plateforme pour prendre des rendez-vous auprès des institutions et prestataires</li>
-            <li><strong>Prestataire</strong> — tout professionnel ou structure privée proposant ses services via la plateforme dans le cadre d'un abonnement Pro ou Premium</li>
+            <li><strong>Prestataire</strong> — tout professionnel ou structure privée proposant ses services via la plateforme dans le cadre d&apos;un abonnement Pro ou Premium</li>
             <li><strong>Institution</strong> — toute entité publique ou privée officielle (hôpital, mairie, banque, ambassade, école, tribunal, etc.) inscrite sur la plateforme</li>
-            <li><strong>Rendez-vous (RDV)</strong> — le créneau horaire réservé par un citoyen auprès d'une institution ou d'un prestataire via la plateforme</li>
-            <li><strong>Compte</strong> — l'espace personnel créé par l'utilisateur sur la plateforme</li>
+            <li><strong>Rendez-vous (RDV)</strong> — le créneau horaire réservé par un citoyen auprès d&apos;une institution ou d&apos;un prestataire via la plateforme</li>
+            <li><strong>Compte</strong> — l&apos;espace personnel créé par l&apos;utilisateur sur la plateforme</li>
             <li><strong>Contenu</strong> — tout texte, image, donnée, information ou élément publié sur la plateforme</li>
             <li><strong>Sempya224</strong> — la société éditrice et opératrice de la plateforme Yelen224</li>
           </ul>
@@ -305,10 +305,10 @@ export default function CGUPage() {
           <h2>Article 3 — Accès à la plateforme et création de compte</h2>
 
           <h3>3.1 Accès général</h3>
-          <p>L'accès à la plateforme Yelen224 est libre et gratuit pour tout utilisateur disposant d'une connexion internet. Certaines fonctionnalités nécessitent la création d'un compte.</p>
+          <p>L&apos;accès à la plateforme Yelen224 est libre et gratuit pour tout utilisateur disposant d&apos;une connexion internet. Certaines fonctionnalités nécessitent la création d&apos;un compte.</p>
 
           <h3>3.2 Création de compte citoyen</h3>
-          <p>La création d'un compte citoyen est gratuite et ouverte à toute personne physique. Pour créer un compte, l'utilisateur doit :</p>
+          <p>La création d&apos;un compte citoyen est gratuite et ouverte à toute personne physique. Pour créer un compte, l&apos;utilisateur doit :</p>
           <ul>
             <li>Fournir un numéro de téléphone valide (guinéen ou international)</li>
             <li>Valider son identité via un code SMS de vérification</li>
@@ -317,24 +317,24 @@ export default function CGUPage() {
 
           <h3>3.3 Création de compte prestataire ou institution</h3>
           <ul>
-            <li>Fourniture d'informations exactes sur l'activité ou l'institution</li>
+            <li>Fourniture d&apos;informations exactes sur l&apos;activité ou l&apos;institution</li>
             <li>Soumission des documents justificatifs requis selon la catégorie</li>
-            <li>Validation par l'équipe Yelen224 sous 48 à 72 heures ouvrées</li>
+            <li>Validation par l&apos;équipe Yelen224 sous 48 à 72 heures ouvrées</li>
             <li>Acceptation des conditions tarifaires applicables</li>
           </ul>
 
-          <h3>3.4 Obligations de l'utilisateur</h3>
+          <h3>3.4 Obligations de l&apos;utilisateur</h3>
           <ul>
             <li>Fournir des informations exactes, complètes et à jour lors de son inscription</li>
             <li>Maintenir la confidentialité de ses identifiants de connexion</li>
             <li>Ne pas créer plusieurs comptes pour un même usage</li>
-            <li>Ne pas utiliser le compte d'un tiers sans autorisation</li>
+            <li>Ne pas utiliser le compte d&apos;un tiers sans autorisation</li>
             <li>Signaler immédiatement toute utilisation non autorisée de son compte</li>
           </ul>
 
           <h3>3.5 Suspension et résiliation</h3>
           <p>
-            Yelen224 se réserve le droit de suspendre ou de supprimer tout compte en cas de violation des présentes CGU, d'utilisation frauduleuse, de comportement abusif ou de fourniture d'informations erronées, sans préavis ni indemnité.
+            Yelen224 se réserve le droit de suspendre ou de supprimer tout compte en cas de violation des présentes CGU, d&apos;utilisation frauduleuse, de comportement abusif ou de fourniture d&apos;informations erronées, sans préavis ni indemnité.
           </p>
         </section>
 
@@ -344,10 +344,10 @@ export default function CGUPage() {
 
           <h3>4.1 Services aux citoyens (gratuits)</h3>
           <ul>
-            <li>Recherche d'institutions et de prestataires vérifiés</li>
+            <li>Recherche d&apos;institutions et de prestataires vérifiés</li>
             <li>Consultation des profils, horaires, services et avis</li>
             <li>Prise de rendez-vous en ligne avec confirmation SMS et email</li>
-            <li>Gestion de l'historique de rendez-vous</li>
+            <li>Gestion de l&apos;historique de rendez-vous</li>
             <li>Rappels automatiques avant les rendez-vous</li>
             <li>Notation et avis sur les institutions et prestataires</li>
             <li>Accès aux ambassades et consulats guinéens depuis la diaspora</li>
@@ -358,12 +358,12 @@ export default function CGUPage() {
             <div className="tarif-box">
               <span className="tarif-label">Plan Pro</span>
               <div className="tarif-price">7 USD<span style={{ fontSize: "13px", fontWeight: "400", color: "#888" }}>/mois</span></div>
-              <div className="tarif-trial">2 mois d'essai gratuit</div>
+              <div className="tarif-trial">2 mois d&apos;essai gratuit</div>
               <ul>
                 <li>Profil professionnel complet et personnalisé</li>
                 <li>Gestion des disponibilités et créneaux</li>
                 <li>Notifications SMS/email automatiques</li>
-                <li>Badge "Prestataire Vérifié" Yelen224</li>
+                <li>Badge &quot;Prestataire Vérifié&quot; Yelen224</li>
                 <li>Statistiques de base</li>
                 <li>Support prioritaire</li>
               </ul>
@@ -371,7 +371,7 @@ export default function CGUPage() {
             <div className="tarif-box" style={{ borderColor: "rgba(245,166,35,0.4)" }}>
               <span className="tarif-label">Plan Premium</span>
               <div className="tarif-price">15 USD<span style={{ fontSize: "13px", fontWeight: "400", color: "#888" }}>/mois</span></div>
-              <div className="tarif-trial">3 mois d'essai gratuit</div>
+              <div className="tarif-trial">3 mois d&apos;essai gratuit</div>
               <ul>
                 <li>Toutes les fonctionnalités Pro</li>
                 <li>Position prioritaire dans les résultats</li>
@@ -379,7 +379,7 @@ export default function CGUPage() {
                 <li>Statistiques avancées et rapports</li>
                 <li>Intégration ambassades et diaspora</li>
                 <li>Support dédié 24h/24 — 7j/7</li>
-                <li>Accès à l'API Yelen224</li>
+                <li>Accès à l&apos;API Yelen224</li>
                 <li>Gestion multi-utilisateurs (10 comptes staff)</li>
               </ul>
             </div>
@@ -387,7 +387,7 @@ export default function CGUPage() {
 
           <h3>4.3 Essais gratuits</h3>
           <p>
-            Les essais gratuits sont accordés sans carte bancaire requise. À l'issue de la période d'essai, aucun prélèvement automatique n'est effectué sans l'accord explicite de l'utilisateur. Yelen224 envoie un rappel par email 7 jours avant la fin de l'essai.
+            Les essais gratuits sont accordés sans carte bancaire requise. À l&apos;issue de la période d&apos;essai, aucun prélèvement automatique n&apos;est effectué sans l&apos;accord explicite de l&apos;utilisateur. Yelen224 envoie un rappel par email 7 jours avant la fin de l&apos;essai.
           </p>
         </section>
 
@@ -396,23 +396,23 @@ export default function CGUPage() {
           <h2>Article 5 — Obligations et responsabilités des utilisateurs</h2>
 
           <h3>5.1 Utilisation loyale de la plateforme</h3>
-          <p>L'utilisateur s'engage à utiliser la plateforme de manière loyale, conforme à sa destination et dans le respect des lois et réglementations applicables. Il est notamment interdit de :</p>
+          <p>L&apos;utilisateur s&apos;engage à utiliser la plateforme de manière loyale, conforme à sa destination et dans le respect des lois et réglementations applicables. Il est notamment interdit de :</p>
           <ul>
             <li>Publier des informations fausses, trompeuses ou frauduleuses</li>
-            <li>Utiliser la plateforme à des fins illicites ou contraires à l'ordre public</li>
-            <li>Tenter d'accéder de manière non autorisée aux systèmes informatiques de Yelen224</li>
+            <li>Utiliser la plateforme à des fins illicites ou contraires à l&apos;ordre public</li>
+            <li>Tenter d&apos;accéder de manière non autorisée aux systèmes informatiques de Yelen224</li>
             <li>Diffuser des virus, malwares ou tout code informatique malveillant</li>
-            <li>Harceler, menacer ou insulter d'autres utilisateurs</li>
+            <li>Harceler, menacer ou insulter d&apos;autres utilisateurs</li>
             <li>Utiliser des robots ou systèmes automatisés sans autorisation</li>
             <li>Reproduire ou exploiter commercialement tout ou partie de la plateforme sans autorisation écrite</li>
           </ul>
 
           <h3>5.2 Responsabilité des prestataires et institutions</h3>
-          <p>Les prestataires et institutions inscrits sont seuls responsables de l'exactitude et de la mise à jour de leurs informations, du respect de leurs engagements de rendez-vous, de la qualité des services proposés, et du respect des réglementations professionnelles applicables.</p>
+          <p>Les prestataires et institutions inscrits sont seuls responsables de l&apos;exactitude et de la mise à jour de leurs informations, du respect de leurs engagements de rendez-vous, de la qualité des services proposés, et du respect des réglementations professionnelles applicables.</p>
 
           <h3>5.3 Avis et notations</h3>
           <p>
-            Les utilisateurs s'engagent à ne publier que des avis sincères, basés sur leur expérience réelle. Tout avis frauduleux, diffamatoire ou non fondé peut être signalé et supprimé. Yelen224 modère les avis avant publication et se réserve le droit de supprimer tout contenu inapproprié.
+            Les utilisateurs s&apos;engagent à ne publier que des avis sincères, basés sur leur expérience réelle. Tout avis frauduleux, diffamatoire ou non fondé peut être signalé et supprimé. Yelen224 modère les avis avant publication et se réserve le droit de supprimer tout contenu inapproprié.
           </p>
         </section>
 
@@ -421,7 +421,7 @@ export default function CGUPage() {
           <h2>Article 6 — Paiements et abonnements</h2>
 
           <h3>6.1 Tarification</h3>
-          <p>Les tarifs des abonnements professionnels sont indiqués en dollars américains (USD) et peuvent être modifiés par Yelen224 avec un préavis de 30 jours. Les modifications de tarif ne s'appliquent pas aux abonnements en cours jusqu'à leur renouvellement.</p>
+          <p>Les tarifs des abonnements professionnels sont indiqués en dollars américains (USD) et peuvent être modifiés par Yelen224 avec un préavis de 30 jours. Les modifications de tarif ne s&apos;appliquent pas aux abonnements en cours jusqu&apos;à leur renouvellement.</p>
 
           <h3>6.2 Modes de paiement acceptés</h3>
           <ul>
@@ -432,13 +432,13 @@ export default function CGUPage() {
           </ul>
 
           <h3>6.3 Facturation</h3>
-          <p>La facturation est effectuée mensuellement ou annuellement selon le choix de l'abonné. Une facture officielle est émise pour chaque paiement et envoyée automatiquement par email.</p>
+          <p>La facturation est effectuée mensuellement ou annuellement selon le choix de l&apos;abonné. Une facture officielle est émise pour chaque paiement et envoyée automatiquement par email.</p>
 
           <h3>6.4 Remboursements</h3>
-          <p>Sauf en cas de défaillance technique imputable à Yelen224, les paiements effectués ne sont pas remboursables pour la période en cours. En cas de litige, l'utilisateur peut contacter l'équipe Yelen224 à <strong>contact@yelen224.com</strong>.</p>
+          <p>Sauf en cas de défaillance technique imputable à Yelen224, les paiements effectués ne sont pas remboursables pour la période en cours. En cas de litige, l&apos;utilisateur peut contacter l&apos;équipe Yelen224 à <strong>contact@yelen224.com</strong>.</p>
 
-          <h3>6.5 Résiliation de l'abonnement</h3>
-          <p>L'abonné peut résilier son abonnement à tout moment depuis son tableau de bord. L'accès aux fonctionnalités payantes est maintenu jusqu'à la fin de la période payée. Les données sont conservées pendant 90 jours après la résiliation, délai pendant lequel l'abonné peut réactiver son compte.</p>
+          <h3>6.5 Résiliation de l&apos;abonnement</h3>
+          <p>L&apos;abonné peut résilier son abonnement à tout moment depuis son tableau de bord. L&apos;accès aux fonctionnalités payantes est maintenu jusqu&apos;à la fin de la période payée. Les données sont conservées pendant 90 jours après la résiliation, délai pendant lequel l&apos;abonné peut réactiver son compte.</p>
         </section>
 
         {/* Article 7 */}
@@ -450,11 +450,11 @@ export default function CGUPage() {
 
           <h3>7.1 Données collectées</h3>
           <ul>
-            <li>Nom, prénom et numéro de téléphone (obligatoires à l'inscription)</li>
+            <li>Nom, prénom et numéro de téléphone (obligatoires à l&apos;inscription)</li>
             <li>Ville de résidence et pays</li>
             <li>Historique des rendez-vous pris via la plateforme</li>
             <li>Avis et notations publiés</li>
-            <li>Données de navigation et d'utilisation</li>
+            <li>Données de navigation et d&apos;utilisation</li>
           </ul>
 
           <h3>7.2 Sécurité</h3>
@@ -467,7 +467,7 @@ export default function CGUPage() {
 
           <h3>7.3 Droits des utilisateurs</h3>
           <p>
-            Tout utilisateur dispose des droits d'accès, de rectification, d'effacement, de portabilité et d'opposition. Pour les exercer : <strong>contact@yelen224.com</strong>
+            Tout utilisateur dispose des droits d&apos;accès, de rectification, d&apos;effacement, de portabilité et d&apos;opposition. Pour les exercer : <strong>contact@yelen224.com</strong>
           </p>
         </section>
 
@@ -477,15 +477,15 @@ export default function CGUPage() {
 
           <h3>8.1 Droits de Yelen224</h3>
           <p>
-            L'ensemble des éléments constituant la plateforme Yelen224 — notamment le nom, le logo, la charte graphique, les textes, les fonctionnalités, le code source, les bases de données et l'architecture — sont la propriété exclusive de Sempya224 et sont protégés par les lois applicables en matière de propriété intellectuelle.
+            L&apos;ensemble des éléments constituant la plateforme Yelen224 — notamment le nom, le logo, la charte graphique, les textes, les fonctionnalités, le code source, les bases de données et l&apos;architecture — sont la propriété exclusive de Sempya224 et sont protégés par les lois applicables en matière de propriété intellectuelle.
           </p>
           <p>Toute reproduction, modification, publication ou exploitation de tout ou partie de ces éléments sans autorisation préalable écrite de Sempya224 est strictement interdite.</p>
 
           <h3>8.2 Contenu des utilisateurs</h3>
-          <p>Les utilisateurs conservent la propriété des contenus qu'ils publient sur la plateforme. En publiant un contenu, l'utilisateur accorde à Yelen224 une licence non exclusive, mondiale et gratuite pour utiliser, reproduire, afficher et distribuer ce contenu dans le cadre du fonctionnement de la plateforme.</p>
+          <p>Les utilisateurs conservent la propriété des contenus qu&apos;ils publient sur la plateforme. En publiant un contenu, l&apos;utilisateur accorde à Yelen224 une licence non exclusive, mondiale et gratuite pour utiliser, reproduire, afficher et distribuer ce contenu dans le cadre du fonctionnement de la plateforme.</p>
 
           <h3>8.3 Marques</h3>
-          <p>Les marques "Yelen224" et "Sempya224", ainsi que les logos associés, sont des marques déposées. Leur utilisation sans autorisation préalable écrite est interdite.</p>
+          <p>Les marques &quot;Yelen224&quot; et &quot;Sempya224&quot;, ainsi que les logos associés, sont des marques déposées. Leur utilisation sans autorisation préalable écrite est interdite.</p>
         </section>
 
         {/* Article 9 */}
@@ -493,16 +493,16 @@ export default function CGUPage() {
           <h2>Article 9 — Limitation de responsabilité</h2>
 
           <h3>9.1 Disponibilité de la plateforme</h3>
-          <p>Yelen224 s'efforce d'assurer la disponibilité de la plateforme 24h/24 et 7j/7. Toutefois, Yelen224 ne peut garantir une disponibilité sans interruption et se réserve le droit d'effectuer des opérations de maintenance.</p>
+          <p>Yelen224 s&apos;efforce d&apos;assurer la disponibilité de la plateforme 24h/24 et 7j/7. Toutefois, Yelen224 ne peut garantir une disponibilité sans interruption et se réserve le droit d&apos;effectuer des opérations de maintenance.</p>
 
           <h3>9.2 Contenu tiers</h3>
-          <p>Yelen224 n'est pas responsable du contenu publié par les institutions et prestataires inscrits sur la plateforme. Chaque institution ou prestataire est seul responsable de l'exactitude et de la mise à jour de ses informations.</p>
+          <p>Yelen224 n&apos;est pas responsable du contenu publié par les institutions et prestataires inscrits sur la plateforme. Chaque institution ou prestataire est seul responsable de l&apos;exactitude et de la mise à jour de ses informations.</p>
 
           <h3>9.3 Rendez-vous</h3>
-          <p>Yelen224 agit en tant qu'intermédiaire technique entre les citoyens et les institutions/prestataires. Yelen224 n'est pas responsable du non-respect d'un rendez-vous par une institution ou un prestataire, ni de la qualité des services fournis.</p>
+          <p>Yelen224 agit en tant qu&apos;intermédiaire technique entre les citoyens et les institutions/prestataires. Yelen224 n&apos;est pas responsable du non-respect d&apos;un rendez-vous par une institution ou un prestataire, ni de la qualité des services fournis.</p>
 
           <h3>9.4 Dommages indirects</h3>
-          <p>En aucun cas Yelen224 ne peut être tenue responsable des dommages indirects, pertes de données, pertes de revenus ou préjudices de toute nature résultant de l'utilisation ou de l'impossibilité d'utiliser la plateforme.</p>
+          <p>En aucun cas Yelen224 ne peut être tenue responsable des dommages indirects, pertes de données, pertes de revenus ou préjudices de toute nature résultant de l&apos;utilisation ou de l&apos;impossibilité d&apos;utiliser la plateforme.</p>
         </section>
 
         {/* Article 10 */}
@@ -510,10 +510,10 @@ export default function CGUPage() {
           <h2>Article 10 — Droit applicable et résolution des litiges</h2>
 
           <h3>10.1 Droit applicable</h3>
-          <p>Les présentes CGU sont régies par le droit de la République de Guinée, complété en tant que de besoin par le droit américain applicable à l'État de New York, siège social de Sempya224.</p>
+          <p>Les présentes CGU sont régies par le droit de la République de Guinée, complété en tant que de besoin par le droit américain applicable à l&apos;État de New York, siège social de Sempya224.</p>
 
           <h3>10.2 Résolution amiable</h3>
-          <p>En cas de litige, l'utilisateur est invité à contacter en premier lieu l'équipe Yelen224 afin de trouver une solution amiable. Yelen224 s'engage à répondre à toute réclamation sous 5 jours ouvrés.</p>
+          <p>En cas de litige, l&apos;utilisateur est invité à contacter en premier lieu l&apos;équipe Yelen224 afin de trouver une solution amiable. Yelen224 s&apos;engage à répondre à toute réclamation sous 5 jours ouvrés.</p>
 
           <div className="contact-grid">
             <div className="contact-box">
@@ -527,7 +527,7 @@ export default function CGUPage() {
           </div>
 
           <h3>10.3 Juridiction compétente</h3>
-          <p>À défaut de résolution amiable dans un délai de 30 jours, tout litige sera soumis à la compétence exclusive des tribunaux compétents de Conakry, République de Guinée, ou des tribunaux de New York, États-Unis, selon la résidence de l'utilisateur.</p>
+          <p>À défaut de résolution amiable dans un délai de 30 jours, tout litige sera soumis à la compétence exclusive des tribunaux compétents de Conakry, République de Guinée, ou des tribunaux de New York, États-Unis, selon la résidence de l&apos;utilisateur.</p>
         </section>
 
         {/* Article 11 */}
@@ -564,13 +564,13 @@ export default function CGUPage() {
               <div className="footer-links-group">
                 <span className="group-label">Mentions légales</span>
                 <Link href="/confidentialite">Politique de confidentialité</Link>
-                <Link href="/cgu" className="active">Conditions générales d'utilisation</Link>
+                <Link href="/cgu" className="active">Conditions générales d&apos;utilisation</Link>
                 <Link href="/cookies">Politique des cookies</Link>
               </div>
               <div className="footer-links-group">
                 <span className="group-label">Plateforme</span>
                 <Link href="/">Accueil</Link>
-                <Link href="/faq">Centre d'aide</Link>
+                <Link href="/faq">Centre d&apos;aide</Link>
                 <Link href="/contact">Contact</Link>
               </div>
               <div className="footer-links-group">

@@ -62,7 +62,8 @@ export async function calculerFinanceAccueil(institutionId: string): Promise<Fin
     .order("created_at", { ascending: false })
     .limit(2000);
 
-  const bookings: Booking[] = (raw ?? []).map((b: any) => ({
+  type BookingRow = { statut: string; montant_paye: number | null; created_at: string; service_id: string; paid_services: { nom: string | null } | null };
+  const bookings: Booking[] = ((raw ?? []) as unknown as BookingRow[]).map((b) => ({
     statut: b.statut,
     montant_paye: b.montant_paye,
     created_at: b.created_at,

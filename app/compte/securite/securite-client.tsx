@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { isWebAuthnSupported, registerBiometrie } from "@/lib/auth/citoyenBiometrie";
 import type { NiveauSecurite } from "@/lib/citoyenSecurite";
 
@@ -16,10 +17,10 @@ import type { NiveauSecurite } from "@/lib/citoyenSecurite";
 // remonté par Bryan : "obligé de cliquer dans le champ après chaque
 // chiffre"). Reçoit `t1` en prop plutôt que de fermer sur une variable
 // locale du composant appelant.
-function Section({ titre, t1, children }: { titre: string; t1: string; children: React.ReactNode }) {
+function Section({ titre, t2, children }: { titre: string; t2: string; children: React.ReactNode }) {
   return (
     <section style={{ marginBottom: "28px" }}>
-      <div style={{ color: t1, fontSize: "13px", fontWeight: 800, letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "12px" }}>{titre}</div>
+      <div style={{ color: t2, fontSize: "12px", fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>{titre}</div>
       {children}
     </section>
   );
@@ -58,7 +59,7 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 }
 
-const NIVEAU_COULEUR: Record<NiveauSecurite, string> = { faible: "#ef4444", moyen: "#F5A623", fort: "#22c55e" };
+const NIVEAU_COULEUR: Record<NiveauSecurite, string> = { faible: "#ef4444", moyen: "#eab308", fort: "#22c55e" };
 const NIVEAU_LABEL: Record<NiveauSecurite, string> = { faible: "Faible", moyen: "Moyenne", fort: "Forte" };
 
 export function SecuriteClient() {
@@ -295,7 +296,7 @@ export function SecuriteClient() {
     borderRadius: "12px", padding: "12px 14px", color: t1, fontSize: "15px", letterSpacing: "2px", textAlign: "center",
   };
   const btnPrimary: React.CSSProperties = {
-    background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "13.5px",
+    background: t1, color: isDark ? "#0A0A0F" : "#FFFFFF", fontWeight: 800, fontSize: "13.5px",
     padding: "10px 16px", borderRadius: "12px", border: "none", cursor: "pointer",
   };
   const btnGhost: React.CSSProperties = {
@@ -307,24 +308,16 @@ export function SecuriteClient() {
     padding: "8px 12px", borderRadius: "10px", border: "1px solid rgba(239,68,68,0.25)", cursor: "pointer",
   };
 
-  // Cercle Yelen — même spinner que app/dashboard/dashboard-client.tsx et
-  // app/compte/informations-personnelles/informations-client.tsx, pour
-  // rester cohérent avec l'indicateur de chargement utilisé partout
-  // ailleurs dans l'app plutôt qu'un texte "Chargement…" isolé.
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Sécurité"/>;
   }
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}`}</style>
       <CompteHeader titre="Sécurité"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
 
         {error && (
           <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "12px", padding: "12px 14px", marginBottom: "18px", color: "#ef4444", fontSize: "13px", fontWeight: 600 }}>
@@ -335,7 +328,7 @@ export function SecuriteClient() {
         {statut && (
           <>
             {/* Score de sécurité */}
-            <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "18px", padding: "20px", marginBottom: "24px" }}>
+            <div style={{ backgroundColor: card, borderRadius: "18px", padding: "20px", marginBottom: "24px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
                 <div style={{ color: t2, fontSize: "12px", fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase" }}>Niveau de sécurité</div>
                 <div style={{ color: NIVEAU_COULEUR[statut.score.niveau], fontSize: "13px", fontWeight: 800 }}>{NIVEAU_LABEL[statut.score.niveau]}</div>
@@ -348,14 +341,16 @@ export function SecuriteClient() {
               ))}
             </div>
 
-            {/* Verrouillage rapide */}
-            <Section titre="Verrouillage rapide" t1={t1}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {/* Verrouillage rapide — PIN + Biométrie regroupés dans une
+                seule carte (trait de séparation), plutôt que 2 cartes
+                empilées : rendu "liste groupée" façon Paramètres. */}
+            <Section titre="Verrouillage rapide" t2={t2}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", overflow: "hidden" }}>
 
                 {/* PIN */}
-                <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+                <div style={{ padding: "16px" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
-                    <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}><Ic.Pin/></div>
+                    <div style={{ color: t2, flexShrink: 0, marginTop: "2px" }}><Ic.Pin/></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: t1, fontSize: "15px", fontWeight: 700, marginBottom: "3px" }}>Code PIN</div>
                       <div style={{ color: t2, fontSize: "12.5px" }}>{statut.pin_configured ? "Configuré" : "Non configuré"}</div>
@@ -392,9 +387,9 @@ export function SecuriteClient() {
                 </div>
 
                 {/* Biométrie */}
-                <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+                <div style={{ padding: "16px", borderTop: `1px solid ${brd}` }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: (statut.webauthn_credentials.length || bioForm === "nommer") ? "14px" : 0 }}>
-                    <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}><Ic.Finger/></div>
+                    <div style={{ color: t2, flexShrink: 0, marginTop: "2px" }}><Ic.Finger/></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: t1, fontSize: "15px", fontWeight: 700, marginBottom: "3px" }}>Empreinte / Face ID</div>
                       <div style={{ color: t2, fontSize: "12.5px" }}>
@@ -440,27 +435,27 @@ export function SecuriteClient() {
             </Section>
 
             {/* Authentification à deux facteurs (TOTP) */}
-            <Section titre="Authentification à deux facteurs" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+            <Section titre="Authentification à deux facteurs" t2={t2}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 {totpBackupCodes ? (
                   <div>
                     <div style={{ color: t1, fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Notez vos codes de secours</div>
                     <div style={{ color: t2, fontSize: "12.5px", marginBottom: "12px", lineHeight: 1.5 }}>
-                      Ils ne seront plus jamais affichés. Chacun ne fonctionne qu'une seule fois, en remplacement de votre application si vous la perdez.
+                      Ils ne seront plus jamais affichés. Chacun ne fonctionne qu&apos;une seule fois, en remplacement de votre application si vous la perdez.
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "14px" }}>
                       {totpBackupCodes.map(c => (
                         <code key={c} style={{ backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#f5f5f8", border: `1px solid ${brd}`, borderRadius: "8px", padding: "8px 10px", color: t1, fontSize: "13px", textAlign: "center" }}>{c}</code>
                       ))}
                     </div>
-                    <button className="tap" style={btnPrimary} onClick={() => setTotpBackupCodes(null)}>J'ai noté mes codes</button>
+                    <button className="tap" style={btnPrimary} onClick={() => setTotpBackupCodes(null)}>J&apos;ai noté mes codes</button>
                   </div>
                 ) : (
                   <>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: totpForm !== "aucun" ? "14px" : 0 }}>
-                      <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}><Ic.Shield/></div>
+                      <div style={{ color: t2, flexShrink: 0, marginTop: "2px" }}><Ic.Shield/></div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ color: t1, fontSize: "15px", fontWeight: 700, marginBottom: "3px" }}>Application d'authentification</div>
+                        <div style={{ color: t1, fontSize: "15px", fontWeight: 700, marginBottom: "3px" }}>Application d&apos;authentification</div>
                         <div style={{ color: t2, fontSize: "12.5px" }}>
                           {statut.totp_enabled ? "Activée — un code sera demandé à chaque connexion" : "Non activée"}
                         </div>
@@ -475,7 +470,11 @@ export function SecuriteClient() {
                     {totpForm === "activer" && (
                       <form onSubmit={handleTotpConfirmer} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                         <div style={{ color: t2, fontSize: "12.5px" }}>Scannez ce QR code avec Google Authenticator, Microsoft Authenticator ou équivalent, ou saisissez le secret manuellement.</div>
-                        {totpQr && <img src={totpQr} alt="QR code 2FA" style={{ width: "160px", height: "160px", borderRadius: "10px", border: `1px solid ${brd}`, alignSelf: "center" }} />}
+                        {totpQr && (
+                          // IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode.toDataURL), non fetchable par l'optimiseur next/image | reviewed=2026-08-08
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={totpQr} alt="QR code 2FA" style={{ width: "160px", height: "160px", borderRadius: "10px", border: `1px solid ${brd}`, alignSelf: "center" }} />
+                        )}
                         {totpSecret && <code style={{ backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#f5f5f8", border: `1px solid ${brd}`, borderRadius: "8px", padding: "8px 10px", color: t1, fontSize: "12px", textAlign: "center", wordBreak: "break-all" }}>{totpSecret}</code>}
                         <input style={{ ...inputStyle, letterSpacing: "3px" }} type="text" inputMode="numeric" maxLength={6} placeholder="Code à 6 chiffres" value={totpConfirmCode} onChange={e => setTotpConfirmCode(e.target.value.replace(/\D/g, ""))}/>
                         {totpMsg && <div style={{ color: "#ef4444", fontSize: "12.5px" }}>{totpMsg}</div>}
@@ -505,8 +504,8 @@ export function SecuriteClient() {
             </Section>
 
             {/* Appareils mémorisés */}
-            <Section titre="Appareils mémorisés" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+            <Section titre="Appareils mémorisés" t2={t2}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 {statut.remember_devices.length === 0 && (
                   <div style={{ color: t2, fontSize: "12.5px" }}>Aucun appareil mémorisé.</div>
                 )}
@@ -542,10 +541,10 @@ export function SecuriteClient() {
             </Section>
 
             {/* Guide de sécurité */}
-            <Section titre="Guide de sécurité" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+            <Section titre="Guide de sécurité" t2={t2}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
-                  <div style={{ color: "#F5A623", flexShrink: 0 }}><Ic.Info/></div>
+                  <div style={{ color: t2, flexShrink: 0 }}><Ic.Info/></div>
                   <div style={{ color: t1, fontSize: "13.5px", fontWeight: 700 }}>Protégez votre compte</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -558,6 +557,7 @@ export function SecuriteClient() {
           </>
         )}
       </main>
+      </PullToRefresh>
     </div>
   );
 }

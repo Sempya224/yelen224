@@ -6,7 +6,8 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { deleteCitoyenAccount } from "@/app/profil/actions";
 import type { ChampsVisibles } from "@/lib/citoyenConfidentialite";
 
@@ -46,6 +47,22 @@ function Switch({ on, onToggle, disabled }: { on: boolean; onToggle: () => void;
     >
       <div style={{ position: "absolute", top: "2px", left: on ? "20px" : "2px", width: "22px", height: "22px", borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}/>
     </button>
+  );
+}
+
+// Même convention que Section/Switch ci-dessus — était redéfini à
+// l'intérieur de ConfidentialiteClient() (bug réel, corrigé lors de
+// l'audit de consolidation), exactement le piège documenté en tête de
+// fichier.
+function Row({ titre, description, right, t1, t2 }: { titre: string; description: string; right: React.ReactNode; t1: string; t2: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "12px 0" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ color: t1, fontSize: "14px", fontWeight: 700, marginBottom: "2px" }}>{titre}</div>
+        <div style={{ color: t2, fontSize: "12px", lineHeight: 1.4 }}>{description}</div>
+      </div>
+      <div style={{ flexShrink: 0, marginTop: "2px" }}>{right}</div>
+    </div>
   );
 }
 
@@ -272,23 +289,8 @@ export function ConfidentialiteClient() {
     borderRadius: "12px", padding: "12px 14px", color: t1, fontSize: "14px",
   };
 
-  const Row = ({ titre, description, right }: { titre: string; description: string; right: React.ReactNode }) => (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "12px 0" }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: t1, fontSize: "14px", fontWeight: 700, marginBottom: "2px" }}>{titre}</div>
-        <div style={{ color: t2, fontSize: "12px", lineHeight: 1.4 }}>{description}</div>
-      </div>
-      <div style={{ flexShrink: 0, marginTop: "2px" }}>{right}</div>
-    </div>
-  );
-
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Confidentialité"/>;
   }
 
   const profilOuvert = !!statut && (statut.champs_visibles.adresse || statut.champs_visibles.email || statut.champs_visibles.date_naissance);
@@ -297,7 +299,8 @@ export function ConfidentialiteClient() {
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Confidentialité"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ padding: "4px 4px 20px" }}>
           <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5 }}>Choisissez quelles informations vous souhaitez partager et gardez le contrôle de vos données.</p>
         </div>
@@ -322,7 +325,7 @@ export function ConfidentialiteClient() {
 
             {/* Visibilité */}
             <Section titre="Visibilité" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
                   <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}><Ic.Eye/></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -339,6 +342,7 @@ export function ConfidentialiteClient() {
                     {CHAMPS_LABELS.map((c) => (
                       <div key={c.key} style={{ borderBottom: `1px solid ${brd}` }}>
                         <Row
+                          t1={t1} t2={t2}
                           titre={c.titre} description={c.description}
                           right={<Switch on={statut.champs_visibles[c.key]} onToggle={() => majVisibilite({ [c.key]: !statut.champs_visibles[c.key] } as Partial<ChampsVisibles>)}/>}
                         />
@@ -348,8 +352,9 @@ export function ConfidentialiteClient() {
                 )}
               </div>
 
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Profil public"
                   description="Autoriser les établissements à consulter votre profil public avant une prise de rendez-vous."
                   right={<Switch on={statut.profil_public} onToggle={() => majVisibilite({ profil_public: !statut.profil_public })}/>}
@@ -359,14 +364,16 @@ export function ConfidentialiteClient() {
 
             {/* Partage des données */}
             <Section titre="Partage des données" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Historique des rendez-vous"
                   description="Autoriser un établissement à consulter vos anciens rendez-vous réalisés avec lui."
                   right={<Switch on={statut.partage_historique_rdv} onToggle={() => majPartage({ partageHistoriqueRdv: !statut.partage_historique_rdv })}/>}
                 />
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Historique des services"
                     description="Partager l'historique des services déjà effectués dans le même établissement."
                     right={<Switch on={statut.partage_historique_services} onToggle={() => majPartage({ partageHistoriqueServices: !statut.partage_historique_services })}/>}
@@ -374,6 +381,7 @@ export function ConfidentialiteClient() {
                 </div>
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Informations de réservation"
                     description="Partager uniquement les informations nécessaires au traitement de votre rendez-vous. Toujours activé — indispensable au fonctionnement de Yelen."
                     right={<Switch on={true} onToggle={() => {}} disabled/>}
@@ -384,7 +392,7 @@ export function ConfidentialiteClient() {
 
             {/* Autorisations */}
             <Section titre="Autorisations" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 {[
                   { icon: <Ic.Lock/>, titre: "Localisation", description: "Utilisée uniquement lorsque vous recherchez des établissements proches.", etat: permissions.geolocation },
                   { icon: <Ic.Camera/>, titre: "Caméra", description: "Utilisée pour scanner les QR Codes.", etat: permissions.camera },
@@ -393,6 +401,7 @@ export function ConfidentialiteClient() {
                 ].map((p, i) => (
                   <div key={p.titre} style={{ borderTop: i === 0 ? "none" : `1px solid ${brd}` }}>
                     <Row
+                      t1={t1} t2={t2}
                       titre={p.titre} description={p.description}
                       right={<span style={{ color: COULEUR_PERMISSION[p.etat], fontSize: "11.5px", fontWeight: 800 }}>{LABEL_PERMISSION[p.etat]}</span>}
                     />
@@ -400,6 +409,7 @@ export function ConfidentialiteClient() {
                 ))}
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Photos"
                     description="Ajouter une photo de profil ou transmettre un document. Aucune autorisation supplémentaire requise — le sélecteur de fichier de votre navigateur s'en charge."
                     right={<span style={{ color: t3, fontSize: "11.5px", fontWeight: 700 }}>—</span>}
@@ -413,8 +423,9 @@ export function ConfidentialiteClient() {
 
             {/* Consentements */}
             <Section titre="Consentements" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Conditions d'utilisation"
                   description={statut.cgu_acceptee_le ? `Acceptées — ${formatDate(statut.cgu_acceptee_le)}` : "Non acceptées"}
                   right={statut.cgu_acceptee_le
@@ -423,6 +434,7 @@ export function ConfidentialiteClient() {
                 />
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Politique de confidentialité"
                     description={statut.confidentialite_acceptee_le ? `Acceptée — ${formatDate(statut.confidentialite_acceptee_le)}` : "Non acceptée"}
                     right={statut.confidentialite_acceptee_le
@@ -436,14 +448,16 @@ export function ConfidentialiteClient() {
                 </div>
               </div>
 
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Communications Yelen"
                   description="Recevoir les nouveautés Yelen."
                   right={<Switch on={statut.communications_yelen} onToggle={() => majCommunication({ communicationsYelen: !statut.communications_yelen })}/>}
                 />
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Communications établissements"
                     description="Recevoir les annonces publiées par les établissements que vous suivez."
                     right={<Switch on={statut.communications_etablissements} onToggle={() => majCommunication({ communicationsEtablissements: !statut.communications_etablissements })}/>}
@@ -451,6 +465,7 @@ export function ConfidentialiteClient() {
                 </div>
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Personnalisation"
                     description="Recevoir des recommandations adaptées à votre activité."
                     right={<Switch on={statut.personnalisation} onToggle={() => majCommunication({ personnalisation: !statut.personnalisation })}/>}
@@ -461,8 +476,9 @@ export function ConfidentialiteClient() {
 
             {/* Mes données */}
             <Section titre="Mes données" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px", marginBottom: "12px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginBottom: "12px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Télécharger mes données"
                   description="Disponible depuis Paramètres → Télécharger mes données."
                   right={<Link href="/compte/mes-donnees" className="tap" style={{ color: "#F5A623", fontSize: "13px", fontWeight: 700, textDecoration: "none" }}>Ouvrir</Link>}
@@ -485,6 +501,7 @@ export function ConfidentialiteClient() {
           </>
         )}
       </main>
+      </PullToRefresh>
 
       {/* Pop-up de confirmation — jamais une section qui s'ouvre verticalement
           dans la page (retour Bryan), même convention que BiometrieModal

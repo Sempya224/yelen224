@@ -56,7 +56,8 @@ export async function GET(req: NextRequest) {
     .eq("institution_id", authInstId)
     .neq("statut", "annule");
   const paidMap = new Map<string, { id: string; nom: string; prix: number; code: string }>();
-  (paidRaw ?? []).forEach((b: any) => {
+  type PaidRow = { id: string; date_rdv: string; heure_rdv: string; confirmation_code: string; paid_services: { nom: string; prix: number } | null };
+  ((paidRaw ?? []) as unknown as PaidRow[]).forEach((b) => {
     if (!b.paid_services) return;
     paidMap.set(`${b.date_rdv}|${b.heure_rdv}`, { id: b.id, nom: b.paid_services.nom, prix: b.paid_services.prix, code: b.confirmation_code });
   });

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { validateUpload } from "@/lib/uploadSecurity";
+import { trouverOuCreerConversationActive } from "@/lib/messagerieYelenInstitution";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 // Upload d'image pour la conversation institution ↔ support Yelen —
@@ -21,18 +22,21 @@ export async function POST(req: NextRequest) {
   const legende = form.get("legende");
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
-  if (!IMAGE_MIME.includes(file.type)) return NextResponse.json({ error: "Format non accepté (JPG, PNG, WEBP uniquement)" }, { status: 400 });
-  if (file.size > MAX_IMAGE_SIZE) return NextResponse.json({ error: "Image trop volumineuse (10 Mo max)" }, { status: 400 });
 
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `yelen-institution/${authInstId}/${crypto.randomUUID()}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
-  const { error: upErr } = await sb.storage.from("messagerie-images").upload(path, buffer, { contentType: file.type });
+  const verif = await validateUpload(buffer, "MESSAGE_IMAGE", MAX_IMAGE_SIZE, file.name);
+  if (!verif.valid) return NextResponse.json({ error: verif.reason }, { status: 400 });
+  const path = `yelen-institution/${authInstId}/${crypto.randomUUID()}.${verif.extension}`;
+  const { error: upErr } = await sb.storage.from("messagerie-images").upload(path, buffer, { contentType: verif.detectedType });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+
+  const conv = await trouverOuCreerConversationActive(sb, authInstId).catch(() => null);
+  if (!conv) { await sb.storage.from("messagerie-images").remove([path]); return NextResponse.json({ error: "Impossible d'ouvrir la conversation." }, { status: 500 }); }
 
   const legendeTexte = typeof legende === "string" && legende.trim() ? legende.trim() : null;
   const { error: insErr } = await sb.from("messages_yelen_institution").insert({
     institution_id: authInstId,
+    conversation_id: conv.id,
     membre_id: membre.membreId,
     expediteur: "institution",
     contenu: legendeTexte,

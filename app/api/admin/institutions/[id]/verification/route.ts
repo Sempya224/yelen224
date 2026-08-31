@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { authorizeAdmin, adminAuthErrorResponse } from "@/lib/adminAuth";
-import { getRequiredDocuments } from "@/lib/documentsInstitution";
+import { getRequiredDocuments, getRequiredDocumentsInternational } from "@/lib/documentsInstitution";
 
 // Dossier de vérification admin (Trust Lot 2.5) — vue de preuves, jamais
 // une simple fiche institution. Colonnes explicites partout (jamais
@@ -18,11 +18,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { data: institution, error: instErr } = await sb
       .from("institutions")
-      .select("id, name, statut, statut_juridique, secteur, badge_verifie, niveau_confiance, created_at")
+      .select("id, name, statut, statut_juridique, secteur, origine_type, badge_verifie, niveau_confiance, created_at")
       .eq("id", id)
       .maybeSingle();
     if (instErr) throw instErr;
     if (!institution) return NextResponse.json({ error: "Institution introuvable" }, { status: 404 });
+
+    // Chantier Taxonomie des activités (Phase 4, 20/08/2026, spec §3ter) —
+    // bloc Identité internationale, additif au dossier existant. Requête
+    // séparée (pas d'embed PostgREST, CLAUDE.md /pieges-techniques-connus),
+    // toujours null pour une institution guinéenne (immense majorité).
+    const identiteInternationale = institution.origine_type === "etrangere"
+      ? (await sb.from("institution_identite_internationale").select("*").eq("institution_id", id).maybeSingle()).data ?? null
+      : null;
 
     const [responsableRes, documentsRes, decisionsRes] = await Promise.all([
       sb.from("institution_responsables").select("prenom, nom, role, phone, email").eq("institution_id", id).maybeSingle(),
@@ -75,10 +83,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       };
     };
 
+    const requis = [
+      ...getRequiredDocuments(institution.statut_juridique),
+      ...(institution.origine_type === "etrangere" ? getRequiredDocumentsInternational(identiteInternationale?.statut_presence_guinee) : []),
+    ];
+
     return NextResponse.json({
       institution,
+      identite_internationale: identiteInternationale,
       responsable: responsableRes.data ?? null,
-      requis: getRequiredDocuments(institution.statut_juridique),
+      requis,
       documents,
       decisions: { identite: parAxe("identite"), autorite: parAxe("autorite") },
     });

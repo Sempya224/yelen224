@@ -9,6 +9,7 @@ import { D } from '@/app/admin/adminTheme'
 import { Ic } from '@/app/admin/adminIcons'
 import { Badge, DataTable, LineChart, BarChart, PieChart, StatBadge, fmtMoney, fmtNum } from '@/app/admin/adminUiKit'
 import type { KPIs } from '@/app/admin/adminTypes'
+import { YelenLoader } from '@/components/YelenLoader'
 
 export default function AnalytiquesPage() {
   const [kpis, setKpis] = useState<KPIs | null>(null)
@@ -26,7 +27,7 @@ export default function AnalytiquesPage() {
         <p style={{ margin: '2px 0 0', fontSize: '12px', color: D.textMuted }}>Données 30 derniers jours</p>
       </div>
       {!kpis ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Chargement...</div>
+        <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={24}/></div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>

@@ -24,15 +24,23 @@ export async function POST(request: NextRequest) {
 
     const { data: remembered } = await supabaseAdmin
       .from("citoyen_remember_tokens")
-      .select("citoyen_id, expires_at")
+      .select("id, citoyen_id, status, expires_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
 
-    if (!remembered || new Date(remembered.expires_at).getTime() < Date.now()) {
+    // Trusted Device (30/08/2026) — un appareil 'revoked' ne doit plus
+    // jamais proposer le déverrouillage rapide, même si son cookie/
+    // expiration sont encore valides côté client (la révocation est une
+    // décision serveur explicite, voir securite/remember/revoke). Un
+    // appareil 'pending' reste accepté ici (décision Bryan : pas de
+    // blocage dur, seulement notification + statut consultable).
+    if (!remembered || remembered.status === "revoked" || new Date(remembered.expires_at).getTime() < Date.now()) {
       const response = NextResponse.json({ error: "Appareil non reconnu ou expiré", code: "INVALID_OR_EXPIRED" }, { status: 401 });
       response.cookies.delete("yelen224_citoyen_remember");
       return response;
     }
+
+    void supabaseAdmin.from("citoyen_remember_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", remembered.id);
 
     const { data: citoyen } = await supabaseAdmin
       .from("users")

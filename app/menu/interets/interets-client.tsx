@@ -8,6 +8,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader } from "@/components/CompteEcranVide";
 import { SECTIONS_INTERET, type CentreInteretId } from "@/lib/centresInteret";
 import { updateCentresInteret } from "./actions";
+import { YelenLoaderEcran } from "@/components/YelenLoader";
 
 // "Vos centres d'intérêt" — chantier engagement du 25/07/2026. Décision
 // CEO : chaque citoyen doit avoir sa propre expérience Yelen selon ce qui
@@ -120,12 +121,12 @@ export function InteretsClient() {
       <CompteHeader titre="Vos centres d'intérêt" fondNeutre onBackIntercept={tenterQuitter}/>
 
       <div style={{ padding: "20px 20px 8px" }}>
-        <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "6px" }}>Qu'est-ce qui compte pour vous ?</div>
+        <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "6px" }}>Qu&apos;est-ce qui compte pour vous ?</div>
         <div style={{ color: t2, fontSize: "13px", lineHeight: "1.5" }}>Vous pouvez en choisir plusieurs, revenir modifier quand vous voulez, et ça ne touche jamais à vos rendez-vous en cours.</div>
       </div>
 
       {loading ? (
-        <div style={{ padding: "60px 20px", textAlign: "center", color: t3, fontSize: "14px", fontWeight: "600" }}>Chargement…</div>
+        <YelenLoaderEcran labelColor={t3}/>
       ) : (
         <div style={{ padding: "8px 20px 120px", flex: 1 }}>
           {SECTIONS_INTERET.map(section => (
@@ -139,10 +140,10 @@ export function InteretsClient() {
                       key={item.id}
                       onClick={() => toggle(item.id)}
                       className="tap"
-                      style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 16px 8px 8px", borderRadius: "30px", border: "none", backgroundColor: actif ? "#080812" : card, cursor: "pointer", animation: `chipIn 0.3s ease ${i * 0.03}s both`, transition: "background-color 0.2s ease" }}
+                      style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 16px 8px 8px", borderRadius: "30px", border: "none", backgroundColor: actif ? "#F5A623" : card, cursor: "pointer", animation: `chipIn 0.3s ease ${i * 0.03}s both`, transition: "background-color 0.2s ease" }}
                     >
                       <span style={{ flexShrink: 0, display: "flex" }}>{Illu[item.id]()}</span>
-                      <span style={{ color: actif ? "#fff" : t1, fontSize: "13.5px", fontWeight: "800", whiteSpace: "nowrap" }}>{item.label}</span>
+                      <span style={{ color: actif ? "#080812" : t1, fontSize: "13.5px", fontWeight: "800", whiteSpace: "nowrap" }}>{item.label}</span>
                     </button>
                   );
                 })}
@@ -168,7 +169,7 @@ export function InteretsClient() {
         <div style={{ position: "fixed", inset: 0, zIndex: 400, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setConfirmQuitOpen(false)}>
           <div onClick={e => e.stopPropagation()} style={{ backgroundColor: card, borderRadius: "24px 24px 0 0", padding: "24px 20px calc(env(safe-area-inset-bottom) + 20px)", width: "100%", maxWidth: "480px", animation: "toastIn 0.25s ease" }}>
             <div style={{ color: t1, fontSize: "17px", fontWeight: "800", marginBottom: "8px" }}>Enregistrer avant de quitter ?</div>
-            <div style={{ color: t2, fontSize: "13.5px", lineHeight: "1.5", marginBottom: "20px" }}>Vous avez changé votre sélection sans l'enregistrer. Sans ça, ces changements seront perdus.</div>
+            <div style={{ color: t2, fontSize: "13.5px", lineHeight: "1.5", marginBottom: "20px" }}>Vous avez changé votre sélection sans l&apos;enregistrer. Sans ça, ces changements seront perdus.</div>
             <button onClick={() => enregistrer(() => router.push("/?menu=1"))} disabled={saving} className="tap" style={{ width: "100%", padding: "15px", borderRadius: "24px", border: "none", backgroundColor: "#F5A623", color: "#080812", fontSize: "14.5px", fontWeight: "800", cursor: "pointer", marginBottom: "10px" }}>
               {saving ? "Enregistrement…" : "Enregistrer et quitter"}
             </button>

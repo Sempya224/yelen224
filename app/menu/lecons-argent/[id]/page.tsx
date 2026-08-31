@@ -68,7 +68,7 @@ export default function Page() {
     return (
       <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
         <CompteHeader titre="Leçon" fondNeutre retourHref="/menu/lecons-argent"/>
-        <div style={{ padding: "60px 20px", textAlign: "center", color: t3, fontSize: "14px", fontWeight: "600" }}>Cette leçon n'existe pas.</div>
+        <div style={{ padding: "60px 20px", textAlign: "center", color: t3, fontSize: "14px", fontWeight: "600" }}>Cette leçon n&apos;existe pas.</div>
       </div>
     );
   }

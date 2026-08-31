@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { YelenLoader } from '@/components/YelenLoader'
 
 export default function AdminLogin() {
   const router = useRouter()
@@ -72,6 +73,18 @@ export default function AdminLogin() {
       }
 
       if (!res.ok) {
+        // Anti-abus device/IP (lib/security/authSecurity.ts, réponse 423,
+        // distincte du verrouillage de compte 429 ci-dessous) — bug corrigé
+        // 30/08/2026 : ce statut n'était pas reconnu ici, le formulaire ne
+        // passait donc jamais en état "bloqué" malgré un vrai blocage
+        // serveur, laissant le bouton indéfiniment retentable en silence.
+        if (res.status === 423) {
+          setBlocked(true)
+          setBlockTimer(data?.security?.retryAfterS ?? 900)
+          setError(data.error || 'Accès temporairement bloqué.')
+          return
+        }
+
         const newAttempts = attempts + 1
         setAttempts(newAttempts)
 
@@ -335,9 +348,10 @@ export default function AdminLogin() {
                 cursor: loading || blocked ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s',
                 letterSpacing: '0.2px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
               }}
             >
-              {loading ? 'Vérification...' : blocked ? 'Accès bloqué' : totpRequired ? 'Valider le code' : 'Accéder au dashboard'}
+              {loading ? <><YelenLoader size={16} color="#fff"/>Vérification…</> : blocked ? 'Accès bloqué' : totpRequired ? 'Valider le code' : 'Accéder au dashboard'}
             </button>
           </form>
         </div>

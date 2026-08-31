@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const depuis14j = new Date();
     depuis14j.setDate(depuis14j.getDate() - 14);
 
-    const [{ data: solde }, { data: historique, error: histErr }, { data: milestones, error: mErr }, { data: unlocks, error: uErr }, { data: recents, error: recErr }] = await Promise.all([
+    const [{ data: solde }, { data: historique, error: histErr }, { data: milestones, error: mErr }, { data: unlocks, error: uErr }, { data: recents, error: recErr }, { data: reglesActives, error: rgErr }, { data: mesEvents, error: evErr }] = await Promise.all([
       supabaseAdmin
         .from("reward_balances")
         .select("balance, lifetime_earned")
@@ -66,12 +66,26 @@ export async function GET(request: NextRequest) {
         .select("points_delta, created_at")
         .eq("citoyen_id", citoyenId)
         .gte("created_at", depuis14j.toISOString()),
+      // Rewards V2 (22/08/2026) — section "Comment progresser" régénérée
+      // depuis les vraies règles actives, jamais une liste codée en dur qui
+      // re-périme au prochain lot (voir audit : "+15 points" restait affiché
+      // après le passage à +45 en Lot 4).
+      supabaseAdmin
+        .from("reward_rules")
+        .select("code, label, points_delta, conditions, description")
+        .eq("actif", true),
+      supabaseAdmin
+        .from("reward_events")
+        .select("event_type, created_at")
+        .eq("citoyen_id", citoyenId),
     ]);
 
     if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
     if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
     if (uErr) return NextResponse.json({ error: uErr.message }, { status: 500 });
     if (recErr) return NextResponse.json({ error: recErr.message }, { status: 500 });
+    if (rgErr) return NextResponse.json({ error: rgErr.message }, { status: 500 });
+    if (evErr) return NextResponse.json({ error: evErr.message }, { status: 500 });
 
     const unlockParMilestone = new Map((unlocks ?? []).map((u) => [u.milestone_id, u]));
 
@@ -84,6 +98,43 @@ export async function GET(request: NextRequest) {
       if (age < SEPT_JOURS_MS) semaineCourante += t.points_delta;
       else if (age < 2 * SEPT_JOURS_MS) semainePrecedente += t.points_delta;
     }
+
+    // "Comment progresser" — une ligne par règle active, avec le vrai
+    // nombre de réalisations et, si applicable, le plafond anti-abus réel
+    // (conditions.max_par_periode, même lecture que lib/rewardsEngine.ts)
+    // plutôt qu'un texte statique. Le client décide localement quels codes
+    // sont "à réaliser une fois" (profil_complete/identite_verifiee) —
+    // aucun flag dédié en base pour cette distinction, cohérent avec le
+    // schéma existant.
+    type Conditions = { max_par_periode?: { count: number; jours: number } };
+    const regles = (reglesActives ?? [])
+      .map((r) => {
+        const evenementsRegle = (mesEvents ?? []).filter((e) => e.event_type === r.code);
+        const conditions = (r.conditions ?? {}) as Conditions;
+        let plafond: { limite: number; jours: number; realise_periode: number; restant: number } | null = null;
+        if (conditions.max_par_periode) {
+          const depuisMs = Date.now() - conditions.max_par_periode.jours * 86400000;
+          const dansFenetre = evenementsRegle.filter((e) => new Date(e.created_at).getTime() >= depuisMs).length;
+          plafond = {
+            limite: conditions.max_par_periode.count,
+            jours: conditions.max_par_periode.jours,
+            realise_periode: dansFenetre,
+            restant: Math.max(0, conditions.max_par_periode.count - dansFenetre),
+          };
+        }
+        return {
+          code: r.code,
+          label: r.label,
+          points_delta: r.points_delta,
+          description: r.description,
+          nb_realisations: evenementsRegle.length,
+          derniere_realisation: evenementsRegle.length > 0
+            ? evenementsRegle.map((e) => e.created_at).sort().slice(-1)[0]
+            : null,
+          plafond,
+        };
+      })
+      .sort((a, b) => b.points_delta - a.points_delta);
 
     return NextResponse.json({
       success: true,
@@ -116,6 +167,7 @@ export async function GET(request: NextRequest) {
         };
       }),
       historique_curseur_suivant: historique && historique.length === limite ? historique[historique.length - 1].created_at : null,
+      regles,
     });
   } catch (error) {
     console.error("[CITOYEN REWARDS GET ERROR]", error);

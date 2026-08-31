@@ -2,7 +2,9 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
+import { YelenLoader } from "@/components/YelenLoader";
 
 type RDV = {
   id: string;
@@ -36,23 +38,13 @@ function LaissezAvis() {
   const LABELS = ["", "Tres mauvais", "Mauvais", "Correct", "Bien", "Excellent"];
   const COLORS = ["", "#ef4444", "#f97316", "#eab308", "#84cc16", "#22c55e"];
 
-  useEffect(() => {
-    const id = localStorage.getItem("citoyenId");
-    setCitoyenId(id);
-    if (!rdvId) {
-      setError("Aucun rendez-vous specifie.");
-      setLoading(false);
-      return;
-    }
-    fetchRDV(rdvId, id);
-  }, [rdvId]);
-
-  const fetchRDV = async (id: string, cId: string | null) => {
+  const fetchRDV = async (id: string, cId: string) => {
     try {
       const { data, error: rdvError } = await supabase
         .from("rdv")
         .select("id, objet, date_rdv, heure_rdv, institution_id, citoyen_id, statut")
         .eq("id", id)
+        .eq("citoyen_id", cId)
         .single();
 
       if (rdvError || !data) {
@@ -99,6 +91,27 @@ function LaissezAvis() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    (async () => {
+      // Audit de consolidation (07/08/2026) : cet écran lisait citoyenId
+      // depuis localStorage brut, sans vérifier de session réelle, et ne
+      // filtrait jamais le RDV par citoyen_id — n'importe quel rdv_id
+      // termine+sans avis était affichable/postable comme avis par
+      // n'importe qui. Corrigé avec le même pattern que les autres écrans
+      // citoyen : id dérivé d'une session Supabase Auth réelle, RDV
+      // explicitement scopé à ce citoyen.
+      const { data: { session } } = await supabase.auth.getSession();
+      const id = session?.user?.id ?? null;
+      setCitoyenId(id);
+      if (!rdvId || !id) {
+        setError("Aucun rendez-vous specifie.");
+        setLoading(false);
+        return;
+      }
+      fetchRDV(rdvId, id);
+    })();
+  }, [rdvId]);
 
   const handleSubmit = async () => {
     setError("");
@@ -150,8 +163,7 @@ function LaissezAvis() {
 
   if (loading) return (
     <div style={{ minHeight: "100vh", backgroundColor: "#0D0D1A", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ width: "40px", height: "40px", border: "3px solid #F5A623", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <YelenLoader size={40}/>
     </div>
   );
 
@@ -215,9 +227,9 @@ function LaissezAvis() {
 
       <main style={{ maxWidth: "600px", margin: "0 auto", padding: "32px 24px 60px" }}>
         <div style={{ backgroundColor: "#13132A", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "20px", marginBottom: "28px", display: "flex", alignItems: "center", gap: "16px" }}>
-          <div style={{ width: "52px", height: "52px", borderRadius: "12px", flexShrink: 0, backgroundColor: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+          <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "12px", flexShrink: 0, backgroundColor: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
             {rdv?.institution?.logo
-              ? <img src={rdv.institution.logo} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="logo" />
+              ? <Image src={rdv.institution.logo} fill sizes="52px" style={{ objectFit: "cover" }} alt="logo" />
               : <span style={{ color: "#F5A623", fontSize: "20px", fontWeight: "800" }}>{rdv?.institution?.name?.[0]?.toUpperCase() || "?"}</span>
             }
           </div>
@@ -295,9 +307,9 @@ function LaissezAvis() {
         <button
           onClick={handleSubmit}
           disabled={submitting || note === 0}
-          style={{ width: "100%", backgroundColor: note === 0 ? "#111" : submitting ? "#333" : "#F5A623", color: note === 0 ? "#333" : "#0D0D1A", border: note === 0 ? "1px solid rgba(255,255,255,0.06)" : "none", borderRadius: "12px", padding: "16px", fontSize: "15px", fontWeight: "700", cursor: note === 0 || submitting ? "not-allowed" : "pointer", transition: "all 0.2s" }}
+          style={{ width: "100%", backgroundColor: note === 0 ? "#111" : submitting ? "#333" : "#F5A623", color: note === 0 ? "#333" : "#0D0D1A", border: note === 0 ? "1px solid rgba(255,255,255,0.06)" : "none", borderRadius: "12px", padding: "16px", fontSize: "15px", fontWeight: "700", cursor: note === 0 || submitting ? "not-allowed" : "pointer", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
         >
-          {submitting ? "Envoi en cours..." : note === 0 ? "Selectionnez une note pour continuer" : "Publier mon avis"}
+          {submitting ? <><YelenLoader size={16} color="#F5A623"/>Envoi en cours…</> : note === 0 ? "Selectionnez une note pour continuer" : "Publier mon avis"}
         </button>
 
         <p style={{ color: "#333", fontSize: "11px", textAlign: "center", marginTop: "14px", lineHeight: "1.6" }}>

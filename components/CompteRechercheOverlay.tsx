@@ -277,7 +277,7 @@ export function CompteRechercheOverlay({ onClose }: { onClose: () => void }) {
             <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "20px", padding: "20px", marginTop: "18px", marginBottom: "24px", display: "flex", alignItems: "center", gap: "16px" }}>
               <div style={{ flexShrink: 0 }}>{Ic.CtaIllustration()}</div>
               <div style={{ flex: 1 }}>
-                <div style={{ color: t1, fontSize: "15px", fontWeight: 900, marginBottom: "4px" }}>Besoin d'un établissement ?</div>
+                <div style={{ color: t1, fontSize: "15px", fontWeight: 900, marginBottom: "4px" }}>Besoin d&apos;un établissement ?</div>
                 <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.4, marginBottom: "12px" }}>Hôpitaux, mairies, banques, ambassades et bien plus.</div>
                 <button onClick={allerVersRecherchePrincipale} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "13px", padding: "10px 16px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
                   Rechercher un prestataire
@@ -297,7 +297,7 @@ export function CompteRechercheOverlay({ onClose }: { onClose: () => void }) {
             </div>
 
             {/* Explorer d'autres sujets */}
-            <div style={{ color: t1, fontSize: "14px", fontWeight: 800, marginBottom: "12px" }}>Explorer d'autres sujets</div>
+            <div style={{ color: t1, fontSize: "14px", fontWeight: 800, marginBottom: "12px" }}>Explorer d&apos;autres sujets</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "24px" }}>
               {pills.map(item => (
                 <Link key={item.href} href={item.href} onClick={onClose} className="tap" style={{ backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "#EBEBF0", color: t1, fontSize: "12.5px", fontWeight: 700, padding: "9px 14px", borderRadius: "20px", textDecoration: "none" }}>

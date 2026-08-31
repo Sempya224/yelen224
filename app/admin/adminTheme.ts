@@ -37,3 +37,17 @@ export const D = {
   radiusLg:  '14px',
   font:      '-apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif',
 }
+
+// Adaptateur vers la primitive partagée components/ui/Button.tsx — ne
+// change aucune couleur, ne fait que reformer D dans la forme générique
+// attendue par Button/ConfirmModal (chantier gouvernance des actions et
+// confirmation, 16/08/2026). D est un singleton (dark forcé), pas besoin
+// de paramètre theme contrairement à l'équivalent institution.
+import type { ButtonTokens } from '@/components/ui/Button'
+export const uiTokens: ButtonTokens = {
+  accent: D.yellow, accentText: '#000',
+  surface: D.surface2, border: D.border2,
+  text: D.text, textMuted: D.textMuted,
+  danger: D.red, dangerBg: D.redDim, dangerBorder: D.redBrd,
+  radius: D.radius, radiusSm: D.radiusSm, font: D.font,
+}

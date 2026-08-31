@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
+import { envoyerNotification, salutation } from "@/lib/notificationEngine";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,6 +48,9 @@ export async function POST(request: NextRequest) {
 
     const pinHash = await bcrypt.hash(pin, 12);
 
+    const { data: avant } = await supabaseAdmin.from("users").select("pin_hash, prenom").eq("id", user.id).maybeSingle();
+    const dejaConfigure = !!avant?.pin_hash;
+
     const { data: updated, error: updateError } = await supabaseAdmin
       .from("users")
       .update({ pin_hash: pinHash })
@@ -60,6 +64,17 @@ export async function POST(request: NextRequest) {
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: "Compte introuvable", code: "NOT_FOUND" }, { status: 404 });
     }
+
+    await envoyerNotification({
+      destinataireId: user.id,
+      destinataireType: "citoyen",
+      rdvId: null,
+      type: "securite_pin_modifie",
+      titre: salutation(avant?.prenom || "cher client"),
+      message: dejaConfigure
+        ? "Votre code PIN a été modifié. Si vous n'êtes pas à l'origine de ce changement, sécurisez votre compte immédiatement."
+        : "Votre code PIN a été configuré. Il vous permet un déverrouillage rapide de l'application.",
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

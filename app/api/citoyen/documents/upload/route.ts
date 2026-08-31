@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { notifierDocumentTeleverse } from "@/lib/notificationEngine";
+import { validateUpload } from "@/lib/uploadSecurity";
+import { enregistrerReception } from "@/lib/citoyenDocuments";
+import { accorderPoints } from "@/lib/rewardsEngine";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +11,6 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 );
 
-const DOCUMENT_ACCEPTED_MIME = ["application/pdf", "image/jpeg", "image/png"];
 const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024;
 
 // Lot D (chantier "Activités passées") — le citoyen répond à une "demande"
@@ -34,12 +36,6 @@ export async function POST(request: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Fichier requis", code: "MISSING_FILE" }, { status: 400 });
     }
-    if (!DOCUMENT_ACCEPTED_MIME.includes(file.type)) {
-      return NextResponse.json({ error: "Format non accepté (PDF, JPG, PNG uniquement)", code: "INVALID_FORMAT" }, { status: 400 });
-    }
-    if (file.size > MAX_DOCUMENT_SIZE) {
-      return NextResponse.json({ error: "Fichier trop volumineux (10 Mo max)", code: "TOO_LARGE" }, { status: 400 });
-    }
 
     const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
     if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
@@ -55,20 +51,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Cette demande n'est plus en attente", code: "ALREADY_HANDLED" }, { status: 409 });
     }
 
-    const ext = file.name.split(".").pop() || "bin";
-    const path = `${doc.institution_id}/${user.id}/${crypto.randomUUID()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { error: upErr } = await supabaseAdmin.storage.from("documents-citoyens").upload(path, buffer, { contentType: file.type });
+    const verif = await validateUpload(buffer, "DOCUMENT_KYC", MAX_DOCUMENT_SIZE, file.name);
+    if (!verif.valid) return NextResponse.json({ error: verif.reason, code: "INVALID_FORMAT" }, { status: 400 });
+    const path = `${doc.institution_id}/${user.id}/${crypto.randomUUID()}.${verif.extension}`;
+    const { error: upErr } = await supabaseAdmin.storage.from("documents-citoyens").upload(path, buffer, { contentType: verif.detectedType });
     if (upErr) return NextResponse.json({ error: upErr.message, code: "UPLOAD_ERROR" }, { status: 500 });
 
-    const { error: updateErr } = await supabaseAdmin
-      .from("citoyen_documents")
-      .update({ url: path, type_mime: file.type, taille: file.size, statut: "televerse", traite_le: new Date().toISOString() })
-      .eq("id", documentId);
-    if (updateErr) {
+    const reception = await enregistrerReception({
+      documentId, url: path, typeMime: verif.detectedType, taille: file.size,
+      acteur: { type: "citoyen", id: user.id, nom: null }, req: request,
+    });
+    if (!reception.ok) {
       await supabaseAdmin.storage.from("documents-citoyens").remove([path]);
-      return NextResponse.json({ error: updateErr.message, code: "UPDATE_ERROR" }, { status: 500 });
+      return NextResponse.json({ error: reception.error, code: "UPDATE_ERROR" }, { status: 500 });
     }
+
+    // Yelen Rewards Phase 2 (22/08/2026) — +25 points, une fois par
+    // document (idempotence via source_id=documentId). Répétable, jamais
+    // contrôlé par le citoyen (la demande initiale vient toujours de
+    // l'institution) — pas de risque de farming identifié.
+    await accorderPoints({ citoyenId: user.id, sourceType: "document", sourceId: documentId, eventType: "document_envoye" });
 
     // Notification institution (plan rétention v2, item 1) — best-effort,
     // ne fait jamais échouer l'upload si la notification échoue.

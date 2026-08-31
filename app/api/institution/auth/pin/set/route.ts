@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
 import bcrypt from 'bcryptjs'
+import { getAuthenticatedInstitutionId } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-
-const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
 
 const PIN_REGEX = /^\d{4,8}$/
 
@@ -21,20 +19,6 @@ function isWeakPin(pin: string): boolean {
   const ascending = pin.split('').every((d, i) => i === 0 || Number(d) === Number(pin[i - 1]) + 1)
   const descending = pin.split('').every((d, i) => i === 0 || Number(d) === Number(pin[i - 1]) - 1)
   return ascending || descending // 1234, 4321, 123456...
-}
-
-async function getAuthenticatedInstitutionId(request: NextRequest): Promise<string | null> {
-  const token = request.cookies.get('yelen224_institution_session')?.value
-  if (!token) return null
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET, {
-      issuer: 'yelen224-institution',
-      audience: 'yelen224-institution-dashboard',
-    })
-    return typeof payload.institutionId === 'string' ? payload.institutionId : null
-  } catch {
-    return null
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -79,6 +63,18 @@ export async function POST(request: NextRequest) {
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'Institution introuvable', code: 'NOT_FOUND' }, { status: 404 })
     }
+
+    // institution_sessions (dette technique comblée 30/08/2026, remplace
+    // institutions.session_revoked_at de GAP-04-04) — invalide toute session
+    // active, y compris sur cet appareil (même précédent que le chantier MFA
+    // Admin du 13/08/2026 : changer un identifiant de sécurité force une
+    // reconnexion).
+    const { error: revokeError } = await supabaseAdmin
+      .from('institution_sessions')
+      .update({ revoked_at: new Date().toISOString(), revoked_reason: 'pin_change' })
+      .eq('institution_id', institutionId)
+      .is('revoked_at', null)
+    if (revokeError) console.error('[INSTITUTION PIN SET] Erreur révocation session:', revokeError.message)
 
     return NextResponse.json({ success: true })
 

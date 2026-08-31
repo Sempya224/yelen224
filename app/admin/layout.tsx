@@ -10,7 +10,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Ic } from './adminIcons'
-import { AdminNotifBell } from './AdminNotifBell'
+import { AdminNotifBell, type Categorie } from './AdminNotifBell'
+import { YelenLoader } from '@/components/YelenLoader'
 
 type NavItem = { href: string; label: string; icon: (c?: string) => React.ReactNode; exact?: boolean; roles?: string[] }
 type NavGroup = { label: string | null; items: NavItem[] }
@@ -28,14 +29,19 @@ const NAV_GROUPS: NavGroup[] = [
   ]},
   { label: 'Modération', items: [
     { href: '/admin/institutions',  label: 'Institutions',    icon: Ic.Building,   roles: ['super_admin','moderateur','admin'] },
+    { href: '/admin/revisions',     label: 'Révisions',       icon: Ic.Refresh,    roles: ['super_admin','moderateur','admin'] },
+    { href: '/admin/verification',  label: 'Vérification',    icon: Ic.Eye,        roles: ['super_admin','moderateur','admin'] },
+    { href: '/admin/identite-citoyens', label: 'Identité citoyens', icon: Ic.Eye,  roles: ['super_admin','moderateur','admin'] },
+    { href: '/admin/activites',     label: 'Activités',       icon: Ic.Layers,     roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/moderation',    label: 'Signalements',    icon: Ic.Shield,     roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/partenariats',  label: 'Partenariats',    icon: Ic.Handshake,  roles: ['super_admin','moderateur','admin'] },
+    { href: '/admin/communaute-demandes', label: 'Demandes Communauté', icon: Ic.Users, roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/offres',        label: 'Offres Yelen',    icon: Ic.Tag,        roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/posts',         label: 'Communauté',      icon: Ic.MessageSquare, roles: ['super_admin','moderateur','admin'] },
   ]},
   { label: 'Utilisateurs', items: [
     { href: '/admin/citoyens',              label: 'Citoyens',              icon: Ic.Users,  roles: ['super_admin','admin'] },
-    { href: '/admin/recuperation-comptes',  label: 'Récupération comptes',  icon: Ic.Unlock, roles: ['super_admin','admin'] },
+    { href: '/admin/recuperation-comptes',  label: 'Récupération comptes',  icon: Ic.Unlock, roles: ['super_admin'] },
     { href: '/admin/admins',                label: 'Admins',                icon: Ic.Key,    roles: ['super_admin'] },
   ]},
   { label: 'Activité', items: [
@@ -63,16 +69,53 @@ interface AdminUser {
   nom: string
 }
 
+// Bug trouvé en test réel (30/08/2026, vérification ADMIN_ENTRY_TOKEN) —
+// usePathname() reflète l'URL du NAVIGATEUR, pas le chemin réécrit côté
+// serveur (middleware.ts::proxy réécrit /{token}/admin/login en interne
+// vers /admin/login, mais côté client `pathname` reste
+// "/{token}/admin/login" tant que l'utilisateur n'a pas navigué ailleurs).
+// Une comparaison stricte `estPageLogin(pathname)` ne matche donc
+// jamais lors du tout premier accès via l'URL secrète : la sidebar
+// complète s'affichait autour du formulaire de connexion, et l'effet de
+// vérification de session se déclenchait à tort (croyant ne pas être sur
+// la page login), échouait (pas encore connecté), et forçait un
+// router.push('/admin/login') qui remontait tout le composant — vidant
+// les champs saisis. `endsWith` fonctionne quel que soit le préfixe,
+// sans que ce composant client ait besoin de connaître
+// ADMIN_ENTRY_TOKEN (jamais exposé au client, volontairement).
+function estPageLogin(pathname: string): boolean {
+  return pathname.endsWith('/admin/login')
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [admin, setAdmin] = useState<AdminUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [categories, setCategories] = useState<Categorie[]>([])
+
+  // Compteurs live des files d'attente (app/api/admin/notifications/count),
+  // partagés entre la cloche de notifications et les badges rouges de la
+  // sidebar (retour Bryan 17/08/2026 : "sur tous les écrans où on reçoit
+  // des demandes, pour éviter de manquer les demandes"). Rafraîchi toutes
+  // les 30s, même cadence que l'ancien polling KPI.
+  useEffect(() => {
+    if (estPageLogin(pathname)) return
+    function load() {
+      fetch('/api/admin/notifications/count')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.categories) setCategories(d.categories) })
+        .catch(() => {})
+    }
+    load()
+    const iv = setInterval(load, 30000)
+    return () => clearInterval(iv)
+  }, [pathname])
 
   useEffect(() => {
     // Ne pas vérifier la session sur la page login
-    if (pathname === '/admin/login') {
+    if (estPageLogin(pathname)) {
       setLoading(false)
       return
     }
@@ -105,7 +148,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   // Page login → pas de layout, pas de loading
-  if (pathname === '/admin/login') return <>{children}</>
+  if (estPageLogin(pathname)) return <>{children}</>
 
   if (loading) {
     return (
@@ -116,18 +159,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '40px', height: '40px',
-            border: '3px solid #2a2a2a',
-            borderTop: '3px solid #00c896',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-            margin: '0 auto 16px',
-          }} />
-          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-          <p style={{ color: '#555', fontSize: '14px' }}>Vérification de session...</p>
-        </div>
+        <YelenLoader size={40} color="#00c896" label="Vérification de session…" labelColor="#555"/>
       </div>
     )
   }
@@ -137,6 +169,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     .map(g => ({ ...g, items: g.items.filter(i => !i.roles || (admin && i.roles.includes(admin.role))) }))
     .filter(g => g.items.length > 0)
   const allItems = NAV_GROUPS.flatMap(g => g.items)
+  // Compteur par href — plusieurs catégories peuvent pointer vers le même
+  // écran (ex. "institutions" + "suppressions" → /admin/institutions),
+  // additionnées plutôt qu'écrasées : les deux méritent l'attention de
+  // l'admin sur cette page.
+  const countByHref = categories.reduce<Record<string, number>>((acc, c) => {
+    acc[c.href] = (acc[c.href] ?? 0) + c.count
+    return acc
+  }, {})
 
   return (
     <div style={{
@@ -201,6 +241,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               )}
               {group.items.map(item => {
                 const active = isActive(item.href, item.exact)
+                const count = countByHref[item.href] ?? 0
                 return (
                   <button
                     key={item.href}
@@ -238,8 +279,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                       }
                     }}
                   >
-                    <span style={{ display: 'flex', minWidth: '20px', justifyContent: 'center' }}>{item.icon('currentColor')}</span>
-                    {!sidebarCollapsed && <span>{item.label}</span>}
+                    <span style={{ display: 'flex', minWidth: '20px', justifyContent: 'center', position: 'relative' }}>
+                      {item.icon('currentColor')}
+                      {/* Sidebar réduite : simple pastille rouge, pas de place pour un
+                          nombre — le décompte exact reste dans la cloche de notifications. */}
+                      {sidebarCollapsed && count > 0 && (
+                        <span style={{ position: 'absolute', top: '-4px', right: '-4px', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444', border: '1.5px solid #141414' }} />
+                      )}
+                    </span>
+                    {!sidebarCollapsed && (
+                      <>
+                        <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
+                        {/* Badge rouge (retour Bryan 17/08/2026) : nombre de demandes en
+                            attente sur cet écran, pour ne jamais en manquer une. */}
+                        {count > 0 && (
+                          <span style={{ backgroundColor: '#ef4444', color: '#fff', fontSize: '10.5px', fontWeight: '800', borderRadius: '20px', minWidth: '18px', height: '18px', padding: '0 5px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            {count > 99 ? '99+' : count}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </button>
                 )
               })}
@@ -344,7 +403,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <AdminNotifBell/>
+            <AdminNotifBell categories={categories}/>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <div style={{

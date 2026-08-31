@@ -9,7 +9,9 @@
 // image, zéro fermeture) — voir le plan du chantier pour le détail complet.
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
+import { YelenLoader } from "@/components/YelenLoader";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLogo } from "@/components/YelenLogo";
@@ -17,6 +19,7 @@ import { EmptyState } from "@/components/EmptyState";
 import {
   getConversationsEtablissements, getThreadRdv, sendMessageRdv, markThreadReadRdv,
   getThreadYelen, sendMessageYelen, markThreadYelenRead, getUnreadCountYelen,
+  messageInstitutionSuspendue, InstitutionSuspendueError,
   type ConversationEtablissement, type MessageRdvThread, type MessageYelenThread,
 } from "@/lib/messagerie";
 import { journaliserMessageCitoyen } from "./actions";
@@ -36,9 +39,6 @@ const Ic = {
 
 function getInitials(name: string): string {
   return name.split(" ").slice(0, 2).map(w => w[0]?.toUpperCase() || "").join("");
-}
-function HumanIcon({ color }: { color: string }) {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
 }
 function formatHeure(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
@@ -321,7 +321,8 @@ function MessagerieInner() {
       }
       setMessageText("");
     } catch (e) {
-      showToast(e instanceof Error && e.message.includes("terminé") ? e.message : "Erreur d'envoi. Réessayez.");
+      const msg = e instanceof Error ? e.message : "";
+      showToast(e instanceof InstitutionSuspendueError || msg.includes("terminé") ? msg : "Erreur d'envoi. Réessayez.");
     } finally {
       setSending(false);
     }
@@ -333,9 +334,23 @@ function MessagerieInner() {
 
   const dansUnFil = tab === "yelen" || (tab === "etablissements" && !!selected);
   const fermee = tab === "etablissements" && selected?.fermee === true;
+  // Restriction messagerie citoyen → institution suspendue (retour Bryan
+  // 17/08/2026) — message explicite, distinct de "conversation fermée"
+  // (le rdv n'est pas fermé, l'établissement est simplement injoignable
+  // pour l'instant).
+  const suspendue = tab === "etablissements" && !fermee && selected?.institution_suspendue === true;
   const threadLoading = tab === "yelen" ? yelenLoading : etabThreadLoading;
   const hasMore = tab === "yelen" ? yelenHasMore : etabHasMore;
   const loadingMore = tab === "yelen" ? yelenLoadingMore : etabLoadingMore;
+
+  // ── Refonte visuelle uniquement (retour Bryan 21/08/2026, "LOT — Refonte
+  // UI/UX écran Messagerie Yelen") : même principe que
+  // MessagerieTab.tsx (institution) — mobile-first, liste↔détail sur
+  // mobile (une seule couche visible, piloté par `selected`/`tab`, état
+  // déjà existant), liste + détail simultanés dès 860px. Zéro changement
+  // de logique/route/realtime/pagination — uniquement présentation.
+  const listeVisibleMobile = tab !== "etablissements" || !selected;
+  const detailVisibleMobile = dansUnFil;
 
   return (
     <div style={{ minHeight: "100svh", background: bg, color: t1, fontFamily: "-apple-system,'SF Pro Text','Helvetica Neue',sans-serif", display: "flex", flexDirection: "column" }}>
@@ -348,199 +363,216 @@ function MessagerieInner() {
         .tap:active{opacity:0.65;transform:scale(0.96)}
         input{font-family:inherit;color:${t1}}
         input:focus{outline:none}
+        .msg-pane{display:none;min-height:0}
+        .msg-pane-on{display:flex}
+        @media (min-width:860px){
+          .msg-pane{display:flex !important}
+          .msg-body{flex-direction:row !important}
+          .msg-list-pane{width:320px;flex-shrink:0;border-right:1px solid ${brd}}
+        }
       `}</style>
 
-      <header style={{ position: "sticky", top: 0, zIndex: 200, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, paddingTop: "env(safe-area-inset-top)", paddingRight: "16px", paddingBottom: 0, paddingLeft: "16px" }}>
-        <div style={{ height: 56, display: "flex", alignItems: "center", gap: 10 }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 200, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, paddingTop: "env(safe-area-inset-top)", paddingRight: "16px", paddingBottom: 0, paddingLeft: "16px", flexShrink: 0 }}>
+        <div style={{ height: 52, display: "flex", alignItems: "center", gap: 10 }}>
           <button
             onClick={() => (tab === "etablissements" && selected) ? setSelected(null) : router.back()}
             className="tap" style={{ background: "none", border: "none", color: t2, padding: "4px 6px 4px 0", cursor: "pointer" }}
           >{Ic.Back()}</button>
           {tab === "etablissements" && selected ? (
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: t1, fontSize: 15, fontWeight: 800, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selected.institution_nom}</div>
-              <div style={{ color: fermee ? "#EF4444" : t3, fontSize: 11, fontWeight: 600, marginTop: 1 }}>
+              <div style={{ color: t1, fontSize: 14.5, fontWeight: 800, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{selected.institution_nom}</div>
+              <div style={{ color: fermee ? "#EF4444" : t3, fontSize: 10.5, fontWeight: 600, marginTop: 1 }}>
                 {fermee ? "Conversation fermée" : (selected.service ?? "Conversation active")}
               </div>
             </div>
           ) : (
-            <div>
-              <div style={{ color: gold, fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" }}>Yelen224</div>
-              <div style={{ color: t1, fontSize: 16, fontWeight: 800, lineHeight: 1.2 }}>Messagerie</div>
-            </div>
+            <div style={{ color: t1, fontSize: 15, fontWeight: 800, lineHeight: 1.2 }}>Messagerie</div>
           )}
         </div>
-        {!(tab === "etablissements" && selected) && (
-          <div style={{ display: "flex", gap: 8, paddingBottom: 12 }}>
-            {([
-              { key: "yelen" as const, label: "Yelen", badge: yelenUnread },
-              { key: "etablissements" as const, label: "Établissements", badge: conversations.reduce((s, c) => s + c.non_lus, 0) },
-            ]).map(t => {
-              const active = tab === t.key;
-              return (
-                <button key={t.key} onClick={() => switchTab(t.key)} className="tap" style={{
-                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  padding: "9px 10px", borderRadius: 12, border: `1px solid ${active ? gold : brd}`,
-                  background: active ? "rgba(245,166,35,0.1)" : "transparent", color: active ? gold : t2,
-                  fontSize: 13, fontWeight: 800, cursor: "pointer",
-                }}>
-                  {t.key === "yelen" ? <YelenLogo size={14} color={active ? gold : t2}/> : null}
-                  {t.label}
-                  {t.badge > 0 && (
-                    <span style={{ background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 800, minWidth: 18, height: 18, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>{t.badge}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <div className={`msg-pane ${listeVisibleMobile ? "msg-pane-on" : ""}`} style={{ gap: 6, paddingBottom: 10 }}>
+          {([
+            { key: "yelen" as const, label: "Yelen", badge: yelenUnread },
+            { key: "etablissements" as const, label: "Établissements", badge: conversations.reduce((s, c) => s + c.non_lus, 0) },
+          ]).map(t => {
+            const active = tab === t.key;
+            return (
+              <button key={t.key} onClick={() => switchTab(t.key)} className="tap" style={{
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                padding: "8px 10px", borderRadius: 10, border: "none",
+                background: active ? "rgba(245,166,35,0.12)" : "transparent", color: active ? gold : t2,
+                fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+              }}>
+                {t.key === "yelen" ? <YelenLogo size={13} color={active ? gold : t2}/> : null}
+                {t.label}
+                {t.badge > 0 && (
+                  <span style={{ background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 800, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>{t.badge}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </header>
 
-      {/* ═══ LISTE ÉTABLISSEMENTS ═══ */}
-      {tab === "etablissements" && !selected && (
-        <div style={{ flex: 1, padding: "14px 16px 40px" }}>
-          {conversationsLoading ? (
-            <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
-              <div style={{ width: 32, height: 32, border: `3px solid rgba(245,166,35,0.15)`, borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-            </div>
-          ) : conversations.length === 0 ? (
-            <div style={{ paddingTop: 24 }}>
-              <EmptyState
-                title="Aucune conversation pour l'instant"
-                message="Dès qu'un rendez-vous est confirmé, vous pouvez échanger directement avec l'institution ici — rappels, questions, suivi."
-                color={gold} titleColor={t1} textColor={t3}
-              />
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {conversations.map(c => (
-                <div key={c.rdv_id} onClick={() => setSelected(c)} className="tap" style={{
-                  background: c.non_lus > 0 ? "rgba(245,166,35,0.06)" : card, border: `1px solid ${c.non_lus > 0 ? "rgba(245,166,35,0.25)" : brd}`,
-                  borderRadius: 16, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
-                }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 13, background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: gold, overflow: "hidden", flexShrink: 0 }}>
-                    {c.institution_logo ? <img src={c.institution_logo} alt={c.institution_nom} style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : getInitials(c.institution_nom)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <div style={{ color: t1, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.institution_nom}</div>
-                      {c.fermee && Ic.Lock()}
-                    </div>
-                    <div style={{ color: c.non_lus > 0 ? t1 : t3, fontSize: 12, fontWeight: c.non_lus > 0 ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{formatApercu(c)}</div>
-                  </div>
-                  {c.non_lus > 0 && (
-                    <span style={{ background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 800, minWidth: 20, height: 20, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px", flexShrink: 0 }}>{c.non_lus}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ═══ FIL (Yelen ou conversation établissement ouverte) ═══ */}
-      {dansUnFil && (
-        <>
-          <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
-            {threadLoading ? (
+      <div className="msg-body" style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+        {/* ═══ LISTE ÉTABLISSEMENTS ═══ */}
+        {tab === "etablissements" && (
+          <div className={`msg-pane msg-list-pane ${listeVisibleMobile ? "msg-pane-on" : ""}`} style={{ flexDirection: "column", overflowY: "auto" }}>
+            {conversationsLoading ? (
               <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
-                <div style={{ width: 32, height: 32, border: `3px solid rgba(245,166,35,0.15)`, borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
+                <div style={{ width: 30, height: 30, border: `3px solid rgba(245,166,35,0.15)`, borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
               </div>
-            ) : threadUnifie.length === 0 ? (
-              <div style={{ paddingTop: 24 }}>
+            ) : conversations.length === 0 ? (
+              <div style={{ paddingTop: 24, padding: "24px 16px" }}>
                 <EmptyState
-                  title={tab === "yelen" ? "Écrivez-nous" : "Démarrez la conversation"}
-                  message={tab === "yelen" ? "Une question, un souci, une suggestion — l'équipe Yelen vous répond ici." : `Envoyez un premier message à ${selected?.institution_nom}.`}
+                  title="Aucune conversation pour l'instant"
+                  message="Dès qu'un rendez-vous est confirmé, vous pouvez échanger directement avec l'institution ici — rappels, questions, suivi."
                   color={gold} titleColor={t1} textColor={t3}
                 />
               </div>
             ) : (
-              <>
-                {hasMore && (
-                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
-                    <button onClick={() => tab === "yelen" ? loadYelenPlusAncien() : loadEtabPlusAncien()} disabled={loadingMore} className="tap" style={{ background: card2, border: "none", borderRadius: 20, padding: "6px 14px", color: t2, fontSize: 11.5, fontWeight: 700, cursor: "pointer", opacity: loadingMore ? 0.6 : 1 }}>
-                      {loadingMore ? "Chargement…" : "Charger les messages précédents"}
-                    </button>
-                  </div>
-                )}
-                {threadUnifie.map((m, i) => {
-                  const prev = threadUnifie[i - 1];
-                  const showSeparateur = !prev || !estMemeJour(prev.cree_le, m.cree_le);
-                  const avatar = (
-                    <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: m.mine ? "rgba(245,166,35,0.15)" : "rgba(96,165,250,0.15)", border: `1px solid ${m.mine ? "rgba(245,166,35,0.3)" : "rgba(96,165,250,0.3)"}` }}>
-                      {m.mine ? <HumanIcon color={t1}/> : <YelenLogo size={13} color="#60A5FA"/>}
-                    </div>
-                  );
-                  const url = m.image_url ? imageUrls[m.image_url] : null;
+              <div>
+                {conversations.map(c => {
+                  const activeRow = selected?.rdv_id === c.rdv_id;
                   return (
-                    <div key={m.id}>
-                      {showSeparateur && (
-                        <div style={{ textAlign: "center", margin: "14px 0 10px" }}>
-                          <span style={{ color: t3, fontSize: 11, fontWeight: 700, background: card2, padding: "3px 12px", borderRadius: 20, textTransform: "capitalize" }}>{formatSeparateurJour(m.cree_le)}</span>
+                    <div key={c.rdv_id} onClick={() => setSelected(c)} className="tap" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderLeft: `2px solid ${activeRow ? gold : "transparent"}`, background: activeRow ? card2 : "transparent", cursor: "pointer" }}>
+                      <div style={{ width: 40, height: 40, position: "relative", borderRadius: 12, background: card2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: t2, overflow: "hidden", flexShrink: 0 }}>
+                        {c.institution_logo ? <Image src={c.institution_logo} alt={c.institution_nom} fill sizes="40px" style={{ objectFit: "cover" }}/> : getInitials(c.institution_nom)}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ color: t1, fontSize: 13.5, fontWeight: c.non_lus > 0 ? 800 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.institution_nom}</span>
+                          {c.dernier_message_at && <span style={{ color: t3, fontSize: 10.5, flexShrink: 0 }}>{formatHeure(c.dernier_message_at)}</span>}
                         </div>
-                      )}
-                      <div style={{ display: "flex", flexDirection: m.mine ? "row-reverse" : "row", alignItems: "flex-end", gap: 8, marginBottom: 8, animation: "fadeUp 0.2s ease" }}>
-                        {avatar}
-                        <div style={{ maxWidth: "72%", background: m.mine ? "rgba(245,166,35,0.12)" : card, border: `1px solid ${m.mine ? "rgba(245,166,35,0.25)" : brd}`, borderRadius: 14, padding: m.type === "image" ? 6 : "9px 13px", overflow: "hidden" }}>
-                          {m.type === "image" && (
-                            url ? (
-                              <img src={url} alt="" onClick={() => setLightbox(url)} className="tap" style={{ display: "block", width: "100%", maxWidth: 220, borderRadius: 9, cursor: "pointer" }}/>
-                            ) : (
-                              <div style={{ width: 180, height: 130, borderRadius: 9, background: card2, display: "flex", alignItems: "center", justifyContent: "center", color: t3, fontSize: 11 }}>Chargement…</div>
-                            )
-                          )}
-                          {m.contenu && <div style={{ color: t1, fontSize: 13, lineHeight: 1.5, marginTop: m.type === "image" ? 6 : 0, padding: m.type === "image" ? "0 4px" : 0 }}>{m.contenu}</div>}
-                          <div style={{ color: t3, fontSize: 9.5, marginTop: 4, textAlign: "right", padding: m.type === "image" ? "0 4px" : 0 }}>{formatHeure(m.cree_le)}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
+                          {(c.fermee || c.institution_suspendue) && <span style={{ display: "flex", color: t3, flexShrink: 0 }}>{Ic.Lock()}</span>}
+                          <span style={{ color: c.non_lus > 0 ? t2 : t3, fontSize: 12, fontWeight: c.non_lus > 0 ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{formatApercu(c)}</span>
                         </div>
                       </div>
+                      {c.non_lus > 0 && (
+                        <span style={{ background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 800, minWidth: 18, height: 18, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px", flexShrink: 0 }}>{c.non_lus}</span>
+                      )}
                     </div>
                   );
                 })}
-              </>
+              </div>
             )}
           </div>
+        )}
 
-          {fermee ? (
-            <div style={{ position: "sticky", bottom: 0, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderTop: `1px solid ${brd}`, padding: "14px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-              {Ic.Lock()}
-              <div style={{ color: t2, fontSize: 12.5, lineHeight: 1.5 }}>Ce rendez-vous est terminé — la conversation est fermée, aucun nouvel envoi n&apos;est possible.</div>
+        {/* ═══ FIL (Yelen ou conversation établissement ouverte) ═══ */}
+        <div className={`msg-pane msg-detail-pane ${detailVisibleMobile ? "msg-pane-on" : ""}`} style={{ flexDirection: "column", flex: 1, minHeight: 0 }}>
+          {!dansUnFil ? (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: t3, fontSize: 12.5, padding: 24, textAlign: "center" }}>
+              Sélectionnez une conversation
             </div>
           ) : (
-            <div style={{ position: "sticky", bottom: 0, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderTop: `1px solid ${brd}`, padding: "10px 16px 12px" }}>
-              {pendingImagePreview && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <div style={{ position: "relative", width: 52, height: 52, borderRadius: 10, overflow: "hidden", border: `1px solid ${brd}` }}>
-                    <img src={pendingImagePreview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+            <>
+              <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "18px 20px 8px" }}>
+                {threadLoading ? (
+                  <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
+                    <div style={{ width: 30, height: 30, border: `3px solid rgba(245,166,35,0.15)`, borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
                   </div>
-                  <button onClick={cancelPendingImage} className="tap" style={{ background: card2, border: "none", borderRadius: "50%", width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", color: t2, cursor: "pointer" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                  <span style={{ color: t3, fontSize: 11.5 }}>Image prête — ajoutez une légende ou envoyez directement.</span>
+                ) : threadUnifie.length === 0 ? (
+                  <div style={{ paddingTop: 24 }}>
+                    <EmptyState
+                      title={tab === "yelen" ? "Écrivez-nous" : "Démarrez la conversation"}
+                      message={tab === "yelen" ? "Une question, un souci, une suggestion — l'équipe Yelen vous répond ici." : `Envoyez un premier message à ${selected?.institution_nom}.`}
+                      color={gold} titleColor={t1} textColor={t3}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    {hasMore && (
+                      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                        <button onClick={() => tab === "yelen" ? loadYelenPlusAncien() : loadEtabPlusAncien()} disabled={loadingMore} className="tap" style={{ background: "none", border: `1px solid ${brd}`, borderRadius: 20, padding: "6px 14px", color: t2, fontSize: 11.5, fontWeight: 700, cursor: "pointer", opacity: loadingMore ? 0.6 : 1 }}>
+                          {loadingMore ? "Chargement…" : "Charger les messages précédents"}
+                        </button>
+                      </div>
+                    )}
+                    {threadUnifie.map((m, i) => {
+                      const prev = threadUnifie[i - 1];
+                      const showSeparateur = !prev || !estMemeJour(prev.cree_le, m.cree_le);
+                      const url = m.image_url ? imageUrls[m.image_url] : null;
+                      return (
+                        <div key={m.id}>
+                          {showSeparateur && (
+                            <div style={{ textAlign: "center", margin: "16px 0 12px" }}>
+                              <span style={{ color: t3, fontSize: 11, fontWeight: 700, textTransform: "capitalize" }}>{formatSeparateurJour(m.cree_le)}</span>
+                            </div>
+                          )}
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: m.mine ? "flex-end" : "flex-start", marginBottom: 14, animation: "fadeUp 0.2s ease" }}>
+                            <div style={{ maxWidth: "min(76%, 480px)", background: m.mine ? "rgba(245,166,35,0.10)" : card, borderRadius: 15, padding: m.type === "image" ? 6 : "10px 14px", overflow: "hidden" }}>
+                              {m.type === "image" && (
+                                url ? (
+                                  <Image src={url} alt="" width={800} height={600} onClick={() => setLightbox(url)} className="tap" style={{ display: "block", width: "100%", height: "auto", maxWidth: 220, borderRadius: 9, cursor: "pointer" }}/>
+                                ) : (
+                                  <div style={{ width: 180, height: 130, borderRadius: 9, background: card2, display: "flex", alignItems: "center", justifyContent: "center", color: t3, fontSize: 11 }}>Chargement…</div>
+                                )
+                              )}
+                              {m.contenu && <div style={{ color: t1, fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: m.type === "image" ? 6 : 0, padding: m.type === "image" ? "0 4px" : 0 }}>{m.contenu}</div>}
+                            </div>
+                            <span style={{ color: t3, fontSize: 10, marginTop: 4, padding: "0 2px" }}>{formatHeure(m.cree_le)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+
+              {fermee ? (
+                <div style={{ position: "sticky", bottom: 0, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "12px 16px", flexShrink: 0 }}>
+                  {Ic.Lock()}
+                  <div style={{ color: t3, fontSize: 11.5 }}>Ce rendez-vous est terminé — la conversation est fermée.</div>
+                </div>
+              ) : suspendue ? (
+                <div style={{ position: "sticky", bottom: 0, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 16px", flexShrink: 0 }}>
+                  {Ic.Lock()}
+                  <div style={{ color: t2, fontSize: 11.5, lineHeight: 1.55 }}>
+                    {messageInstitutionSuspendue(selected?.institution_nom || "Cet établissement")}{" "}
+                    <a href="mailto:support@yelen224.com" style={{ color: gold, fontWeight: 700, textDecoration: "none" }}>Besoin de parler à un agent ? →</a>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ position: "sticky", bottom: 0, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", padding: "8px 16px 14px", flexShrink: 0 }}>
+                  {pendingImagePreview && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <div style={{ position: "relative", width: 46, height: 46, borderRadius: 10, overflow: "hidden", border: `1px solid ${brd}` }}>
+                        {/* IMG-EXCEPTION: reason=aperçu blob local (URL.createObjectURL) avant envoi, non fetchable par l'optimiseur next/image | reviewed=2026-08-08 */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={pendingImagePreview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+                      </div>
+                      <button onClick={cancelPendingImage} className="tap" style={{ background: card2, border: "none", borderRadius: "50%", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", color: t2, cursor: "pointer" }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                      <span style={{ color: t3, fontSize: 11 }}>Image prête — ajoutez une légende ou envoyez directement.</span>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, background: card2, borderRadius: 24, padding: "4px 6px 4px 16px" }}>
+                    <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePickFile} style={{ display: "none" }}/>
+                    <button onClick={() => fileInputRef.current?.click()} disabled={sending} className="tap" style={{ background: "none", border: "none", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: t2, cursor: "pointer", padding: 4 }}>{Ic.Camera()}</button>
+                    <input
+                      value={messageText}
+                      onChange={e => setMessageText(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") handleSend(); }}
+                      placeholder={pendingImageFile ? "Légende (optionnel)…" : "Écrire un message…"}
+                      style={{ flex: 1, background: "none", border: "none", padding: "10px 0", fontSize: 13.5 }}
+                    />
+                    <button onClick={handleSend} disabled={sending || (!messageText.trim() && !pendingImageFile)} className="tap" style={{ background: gold, color: "#080812", border: "none", borderRadius: "50%", width: 34, height: 34, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", opacity: sending || (!messageText.trim() && !pendingImageFile) ? 0.5 : 1 }}>
+                      {sending ? <YelenLoader size={14} color="#080812"/> : Ic.Send()}
+                    </button>
+                  </div>
                 </div>
               )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePickFile} style={{ display: "none" }}/>
-                <button onClick={() => fileInputRef.current?.click()} disabled={sending} className="tap" style={{ background: card2, border: "none", borderRadius: 12, width: 42, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: t2, cursor: "pointer" }}>{Ic.Camera()}</button>
-                <input
-                  value={messageText}
-                  onChange={e => setMessageText(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") handleSend(); }}
-                  placeholder={pendingImageFile ? "Légende (optionnel)…" : "Écrire un message…"}
-                  style={{ flex: 1, background: card2, border: `1px solid ${brd}`, borderRadius: 12, padding: "12px 14px", fontSize: 13 }}
-                />
-                <button onClick={handleSend} disabled={sending || (!messageText.trim() && !pendingImageFile)} className="tap" style={{ background: gold, color: "#080812", border: "none", borderRadius: 12, width: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", opacity: sending || (!messageText.trim() && !pendingImageFile) ? 0.5 : 1 }}>
-                  {sending ? "…" : Ic.Send()}
-                </button>
-              </div>
-            </div>
+            </>
           )}
-        </>
-      )}
+        </div>
+      </div>
 
       {lightbox && (
         <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <button onClick={() => setLightbox(null)} className="tap" style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer" }}>{Ic.X()}</button>
-          <img src={lightbox} alt="" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }}/>
+          <Image src={lightbox} alt="" width={1200} height={900} style={{ width: "auto", height: "auto", maxWidth: "100%", maxHeight: "100%", borderRadius: 12 }}/>
         </div>
       )}
 
@@ -564,8 +596,7 @@ export default function MessagerieCitoyenPage() {
   return (
     <Suspense fallback={
       <div style={{ minHeight: "100svh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: 32, height: 32, border: "3px solid rgba(245,166,35,0.15)", borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <YelenLoader size={32}/>
       </div>
     }>
       <MessagerieInner/>

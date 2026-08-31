@@ -35,11 +35,35 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await sb
     .from("institution_membres")
-    .select("id,identifiant,prenom,nom,role,actif,compte_principal,doit_changer_pin,created_at")
+    .select("id,identifiant,prenom,nom,role,actif,compte_principal,doit_changer_pin,locked_until,derniere_connexion,fonction,created_at")
     .eq("institution_id", membre.institutionId)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ membres: data ?? [], role: membre.role, membreId: membre.membreId });
+
+  // "Dernière activité" (refonte Enterprise Équipe, 05/08/2026) — dérivée
+  // de journal_activite, pas une nouvelle colonne. Une seule requête sur
+  // les 500 dernières entrées de l'institution plutôt qu'une requête par
+  // membre : suffisant en pratique pour couvrir l'activité récente de
+  // chacun, et évite un N+1 sur un écran qui peut afficher plusieurs
+  // dizaines de membres.
+  const { data: journalRecent } = await sb
+    .from("journal_activite")
+    .select("membre_id,action,created_at")
+    .eq("institution_id", membre.institutionId)
+    .not("membre_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  const derniereActiviteParMembre = new Map<string, { action: string; created_at: string }>();
+  for (const j of journalRecent ?? []) {
+    if (j.membre_id && !derniereActiviteParMembre.has(j.membre_id)) {
+      derniereActiviteParMembre.set(j.membre_id, { action: j.action, created_at: j.created_at });
+    }
+  }
+
+  const membresEnrichis = (data ?? []).map((m) => ({ ...m, derniere_activite: derniereActiviteParMembre.get(m.id) ?? null }));
+
+  return NextResponse.json({ membres: membresEnrichis, role: membre.role, membreId: membre.membreId });
 }
 
 export async function POST(req: NextRequest) {
@@ -83,6 +107,7 @@ export async function POST(req: NextRequest) {
       nom: nom.trim(),
       role,
       doit_changer_pin: true,
+      fonction: typeof body?.fonction === "string" && body.fonction.trim() ? body.fonction.trim() : null,
     })
     .select("id")
     .single();
@@ -139,6 +164,7 @@ export async function PATCH(req: NextRequest) {
   if (can(membre.role, "equipe.write")) {
     if (typeof body?.prenom === "string" && body.prenom.trim()) updates.prenom = body.prenom.trim();
     if (typeof body?.nom === "string" && body.nom.trim()) updates.nom = body.nom.trim();
+    if (typeof body?.fonction === "string") updates.fonction = body.fonction.trim() || null;
     if (isMembreRole(body?.role) && !cible.compte_principal) updates.role = body.role;
     if (typeof body?.actif === "boolean" && !cible.compte_principal) updates.actif = body.actif;
   }

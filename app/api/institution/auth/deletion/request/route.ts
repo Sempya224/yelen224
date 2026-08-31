@@ -47,6 +47,17 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     const scheduledPurgeAt = new Date(now.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000)
 
+    // institution_sessions (dette technique comblée 30/08/2026, remplace
+    // institutions.session_revoked_at de GAP-04-04) — invalide toute session
+    // active, y compris celle-ci, en plus des cookies déjà effacés
+    // ci-dessous et des remember-tokens/credentials WebAuthn déjà purgés.
+    const { error: revokeError } = await supabaseAdmin
+      .from('institution_sessions')
+      .update({ revoked_at: now.toISOString(), revoked_reason: 'deletion_request' })
+      .eq('institution_id', institutionId)
+      .is('revoked_at', null)
+    if (revokeError) console.error('[INSTITUTION DELETION REQUEST] Erreur révocation session:', revokeError.message)
+
     const { error: upsertError } = await supabaseAdmin
       .from('institution_deletion_requests')
       .upsert(

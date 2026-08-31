@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,18 +8,7 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
 const DELAI_ACTIVATION_MS = 48 * 60 * 60 * 1000
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  return payload
-}
 
 // Génère une URL signée temporaire pour la pièce d'identité — le bucket
 // "documents-citoyens" est privé (pas de policy publique), un admin ne peut
@@ -32,7 +21,7 @@ async function urlSigneeDocument(path: string | null): Promise<string | null> {
 
 export async function GET(request: NextRequest) {
   try {
-    await verifyToken(request)
+    await authorizeAdmin(request, 'recuperation.manage')
 
     const { searchParams } = new URL(request.url)
     const statut = searchParams.get('statut') || 'en_attente'
@@ -55,8 +44,8 @@ export async function GET(request: NextRequest) {
     })))
 
     return NextResponse.json(demandes)
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }
 
@@ -67,7 +56,7 @@ export async function GET(request: NextRequest) {
 // rapprochement automatique par ancien_phone a échoué).
 export async function PATCH(request: NextRequest) {
   try {
-    const admin = await verifyToken(request)
+    const admin = await authorizeAdmin(request, 'recuperation.manage')
 
     const body = await request.json().catch(() => null)
     const id = body?.id
@@ -142,6 +131,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof AdminAuthError) return adminAuthErrorResponse(error)
     console.error('[ADMIN RECUPERATION PATCH ERROR]', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }

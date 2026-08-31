@@ -1,5 +1,5 @@
-import { CompteEcranVide } from "@/components/CompteEcranVide";
+import { PaiementsClient } from "./paiements-client";
 
 export default function Page() {
-  return <CompteEcranVide titre="Mes paiements"/>;
+  return <PaiementsClient/>;
 }

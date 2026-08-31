@@ -31,6 +31,7 @@
 // déclenchée (marquer un RDV terminé doit réussir même si l'attribution
 // de points échoue) — toujours logguée, jamais levée.
 import { createClient } from "@supabase/supabase-js";
+import { envoyerNotification, salutation } from "./notificationEngine";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -62,7 +63,7 @@ export async function accorderPoints(params: AccorderPointsParams): Promise<void
   try {
     const { data: rule, error: ruleErr } = await sb
       .from("reward_rules")
-      .select("id, points_delta, actif, label")
+      .select("id, points_delta, actif, label, conditions")
       .eq("code", params.eventType)
       .maybeSingle();
 
@@ -71,6 +72,29 @@ export async function accorderPoints(params: AccorderPointsParams): Promise<void
       return;
     }
     if (!rule || !rule.actif) return;
+
+    // Plafond anti-abus (22/08/2026, décision CEO) — seul type de condition
+    // supporté à ce jour, cohérent avec la philosophie déjà écrite dans la
+    // migration reward_rules ("ajouter une règle sur un type de condition
+    // déjà supporté = une ligne insérée, jamais du code"). Compte les
+    // reward_events déjà émis pour ce citoyen + ce type d'événement sur la
+    // fenêtre glissante — jamais un compteur dénormalisé qui pourrait
+    // diverger de la source de vérité (reward_events).
+    const conditions = (rule.conditions ?? {}) as { max_par_periode?: { count: number; jours: number } };
+    if (conditions.max_par_periode) {
+      const depuis = new Date(Date.now() - conditions.max_par_periode.jours * 86400000).toISOString();
+      const { count: nbRecents, error: capErr } = await sb
+        .from("reward_events")
+        .select("id", { count: "exact", head: true })
+        .eq("citoyen_id", params.citoyenId)
+        .eq("event_type", params.eventType)
+        .gte("created_at", depuis);
+      if (capErr) {
+        console.error("[rewardsEngine] vérification plafond échouée:", capErr.message);
+        return;
+      }
+      if ((nbRecents ?? 0) >= conditions.max_par_periode.count) return; // plafond atteint, no-op silencieux
+    }
 
     const { data: insertedEvents, error: eventErr } = await sb
       .from("reward_events")
@@ -112,7 +136,19 @@ export async function accorderPoints(params: AccorderPointsParams): Promise<void
 
     if (txErr) {
       console.error("[rewardsEngine] insertion points_transactions échouée:", txErr.message);
+      return;
     }
+
+    const { data: citoyen } = await sb.from("users").select("prenom").eq("id", params.citoyenId).maybeSingle();
+    const signe = rule.points_delta >= 0 ? "+" : "";
+    await envoyerNotification({
+      destinataireId: params.citoyenId,
+      destinataireType: "citoyen",
+      rdvId: params.sourceType === "rdv" ? params.sourceId : null,
+      type: "reward_points",
+      titre: salutation(citoyen?.prenom || "cher client"),
+      message: `${signe}${rule.points_delta} points Yelen Rewards — ${rule.label}.`,
+    });
   } catch (err) {
     console.error("[rewardsEngine] erreur inattendue:", err);
   }

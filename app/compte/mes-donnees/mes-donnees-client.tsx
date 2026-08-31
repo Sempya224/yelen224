@@ -53,7 +53,7 @@ export function MesDonneesClient() {
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Télécharger mes données"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "18px", padding: "20px" }}>
           <div style={{ width: "44px", height: "44px", borderRadius: "14px", background: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", marginBottom: "16px" }}><IcDown/></div>
           <div style={{ color: t1, fontSize: "16px", fontWeight: 800, marginBottom: "6px" }}>Télécharger mes données</div>

@@ -1,28 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { getAuthenticatedInstitutionId } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-
-const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
-
-async function getAuthenticatedInstitutionId(request: NextRequest): Promise<string | null> {
-  const token = request.cookies.get('yelen224_institution_session')?.value
-  if (!token) return null
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET, {
-      issuer: 'yelen224-institution',
-      audience: 'yelen224-institution-dashboard',
-    })
-    return typeof payload.institutionId === 'string' ? payload.institutionId : null
-  } catch {
-    return null
-  }
-}
 
 // Révoque UN appareil mémorisé ciblé par id — distinct de remember/forget (pré-auth,
 // ne peut agir que sur le cookie du navigateur courant). Ici l'institution est déjà
@@ -41,18 +25,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Identifiant manquant', code: 'MISSING_FIELDS' }, { status: 400 })
     }
 
-    const { data: deleted, error: deleteError } = await supabaseAdmin
+    // Trusted Device (30/08/2026) — status='revoked' plutôt qu'un DELETE :
+    // conserve l'historique de l'appareil (liste "Vos appareils"). Même
+    // limite assumée que côté citoyen (voir securite/remember/revoke
+    // citoyen) : ceci invalide la confiance/le raccourci pour les
+    // prochaines connexions, pas une session déjà ouverte sur cet
+    // appareil précis — institution n'a pas de table de session par
+    // appareil (contrairement à admin_sessions côté admin).
+    const { data: revoked, error: updateError } = await supabaseAdmin
       .from('institution_remember_tokens')
-      .delete()
+      .update({ status: 'revoked', revoked_at: new Date().toISOString() })
       .eq('id', tokenId)
       .eq('institution_id', institutionId)
       .select('id')
 
-    if (deleteError) {
-      console.error('[INSTITUTION REMEMBER REVOKE ERROR]', deleteError.code, deleteError.message)
+    if (updateError) {
+      console.error('[INSTITUTION REMEMBER REVOKE ERROR]', updateError.code, updateError.message)
       return NextResponse.json({ error: 'Erreur lors de la révocation', code: 'DELETE_ERROR' }, { status: 500 })
     }
-    if (!deleted || deleted.length === 0) {
+    if (!revoked || revoked.length === 0) {
       return NextResponse.json({ error: 'Appareil introuvable', code: 'NOT_FOUND' }, { status: 404 })
     }
 

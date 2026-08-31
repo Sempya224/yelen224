@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type SectionType = "text" | "warn" | "tip" | "info" | "list" | "checklist" | "steps" | "plans";
@@ -377,7 +378,7 @@ export default function GuidePrestatairePage() {
             <h3 style={{ color: "#1a1200", fontSize: "18px", fontWeight: "900", margin: "0 0 6px" }}>Guide terminé !</h3>
             <p style={{ color: "#6b5000", fontSize: "13px", margin: "0 0 16px", lineHeight: 1.6 }}>Vous êtes prêt à lancer votre présence professionnelle sur Yelen224.</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <a href="/institution/inscription" style={{ background: "linear-gradient(135deg,#F5A623,#e8950f)", color: "#1a1200", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", textDecoration: "none", textAlign: "center", boxShadow: "0 4px 16px rgba(245,166,35,0.4)" }}>Inscrire mon institution →</a>
+              <Link href="/institution/inscription" style={{ background: "linear-gradient(135deg,#F5A623,#e8950f)", color: "#1a1200", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", textDecoration: "none", textAlign: "center", boxShadow: "0 4px 16px rgba(245,166,35,0.4)" }}>Inscrire mon institution →</Link>
               <a href="/contact" style={{ background: "rgba(255,255,255,0.7)", border: "1.5px solid rgba(200,140,0,0.25)", color: "#1a1200", fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", textAlign: "center" }}>Parler à l&apos;équipe</a>
             </div>
           </div>
@@ -424,7 +425,7 @@ export default function GuidePrestatairePage() {
               })}
             </div>
             <div style={{ padding: "16px", borderTop: "1px solid rgba(200,140,0,0.15)" }}>
-              <a href="/institution/inscription" style={{ display: "block", textAlign: "center", background: "#F5A623", color: "#1a1200", fontWeight: "900", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 4px 14px rgba(245,166,35,0.35)" }}>S&apos;inscrire gratuitement →</a>
+              <Link href="/institution/inscription" style={{ display: "block", textAlign: "center", background: "#F5A623", color: "#1a1200", fontWeight: "900", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 4px 14px rgba(245,166,35,0.35)" }}>S&apos;inscrire gratuitement →</Link>
             </div>
           </div>
         </>

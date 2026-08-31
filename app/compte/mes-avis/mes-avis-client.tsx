@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
-import { SECTEUR_LABELS } from "@/lib/secteurs";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 
 const P = { pointerEvents: "none" as const };
 const Ic = {
@@ -64,7 +66,6 @@ export function MesAvisClient() {
   const t3   = isDark ? "#636366" : "#AEAEB2";
   const brd  = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
 
-  const [userId, setUserId] = useState<string | null>(null);
   const [avis, setAvis] = useState<Avis[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
@@ -110,9 +111,14 @@ export function MesAvisClient() {
     let id: string | null = null;
     try { id = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     if (!id) { router.replace("/inscription"); return; }
-    setUserId(id);
     void (async () => { setLoading(true); await charger(id); setLoading(false); })();
   }, [router, charger]);
+
+  const rafraichir = useCallback(async () => {
+    let id: string | null = null;
+    try { id = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
+    if (id) await charger(id);
+  }, [charger]);
 
   const avisFiltres = useMemo(() => {
     if (!avis) return [];
@@ -190,8 +196,21 @@ export function MesAvisClient() {
     const { error } = await supabase.from("avis").update({
       titre: editTitre.trim() || null, note: editNote, commentaire: editCommentaire.trim() || null, brouillon: nouveauBrouillon,
     }).eq("id", edition.id);
-    if (!error && publier && edition.rdv_id) {
-      await supabase.from("rdv").update({ avis_demande: false }).eq("id", edition.rdv_id);
+    // rdv.avis_demande=false + notification institution passent par cette
+    // route service_role — la policy RLS du citoyen sur `rdv` est lecture
+    // seule, un UPDATE client-direct échouait silencieusement ici comme
+    // dans app/mes-rdv/page.tsx (bug réel corrigé le 15/08/2026).
+    if (!error && publier) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await fetch("/api/citoyen/avis/notifier-publication", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ avisId: edition.id }),
+          });
+        }
+      } catch {}
     }
     setBusy(null);
     if (error) { showToast("Impossible d'enregistrer les modifications.", "error"); return; }
@@ -217,19 +236,15 @@ export function MesAvisClient() {
   ];
 
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Mes avis"/>;
   }
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Mes avis"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={rafraichir} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "4px 4px 20px" }}>
           <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5, flex: 1 }}>Vos expériences partagées avec les établissements Yelen.</p>
           <span style={{ color: t2, fontSize: "12.5px", fontWeight: 700, whiteSpace: "nowrap", marginLeft: "12px" }}>{kpi.publies} avis</span>
@@ -237,7 +252,7 @@ export function MesAvisClient() {
 
         {/* Résumé */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", marginBottom: "20px" }}>
-          <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "12px 6px", textAlign: "center" }}>
+          <div style={{ backgroundColor: card, borderRadius: "14px", padding: "12px 6px", textAlign: "center" }}>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: "4px" }}><Stars note={Math.round(kpi.noteMoyenne)}/></div>
             <div style={{ color: t2, fontSize: "10px", fontWeight: 700 }}>Note moyenne</div>
           </div>
@@ -246,7 +261,7 @@ export function MesAvisClient() {
             { label: "Réponses", valeur: kpi.reponses },
             { label: "Établissements", valeur: kpi.etablissements },
           ].map((k) => (
-            <div key={k.label} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "12px 6px", textAlign: "center" }}>
+            <div key={k.label} style={{ backgroundColor: card, borderRadius: "14px", padding: "12px 6px", textAlign: "center" }}>
               <div style={{ color: t1, fontSize: "18px", fontWeight: 900 }}>{k.valeur}</div>
               <div style={{ color: t2, fontSize: "10px", fontWeight: 700, marginTop: "2px" }}>{k.label}</div>
             </div>
@@ -273,7 +288,7 @@ export function MesAvisClient() {
           <div style={{ textAlign: "center", padding: "48px 20px" }}>
             <div style={{ color: t3, marginBottom: "16px", display: "flex", justifyContent: "center" }}><Ic.Building/></div>
             <div style={{ color: t1, fontSize: "16px", fontWeight: 800, marginBottom: "6px" }}>Aucun avis publié</div>
-            <div style={{ color: t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "20px" }}>Après chaque rendez-vous terminé, vous pourrez partager votre expérience afin d'aider les autres citoyens.</div>
+            <div style={{ color: t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "20px" }}>Après chaque rendez-vous terminé, vous pourrez partager votre expérience afin d&apos;aider les autres citoyens.</div>
             <Link href="/mes-rdv" className="tap" style={{ display: "inline-block", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "14px", padding: "13px 22px", borderRadius: "14px", textDecoration: "none" }}>Voir mes RDV</Link>
           </div>
         )}
@@ -284,10 +299,10 @@ export function MesAvisClient() {
         {/* Liste */}
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {avisFiltres.map((a) => (
-            <div key={a.id} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "18px", padding: "16px" }}>
+            <div key={a.id} style={{ backgroundColor: card, borderRadius: "18px", padding: "16px" }}>
               <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
-                <div style={{ width: "38px", height: "38px", borderRadius: "12px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
-                  {a.institutions?.logo ? <img src={a.institutions.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ color: "#F5A623", fontWeight: 800, fontSize: "13px" }}>{(a.institutions?.name ?? "?").slice(0, 2).toUpperCase()}</span>}
+                <div style={{ width: "38px", height: "38px", position: "relative", borderRadius: "12px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                  {a.institutions?.logo ? <Image src={a.institutions.logo} alt="" fill sizes="38px" style={{ objectFit: "cover" }}/> : <span style={{ color: "#F5A623", fontWeight: 800, fontSize: "13px" }}>{(a.institutions?.name ?? "?").slice(0, 2).toUpperCase()}</span>}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: t1, fontSize: "14px", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.institutions?.name ?? "Établissement"}</div>
@@ -349,6 +364,7 @@ export function MesAvisClient() {
           ))}
         </div>
       </main>
+      </PullToRefresh>
 
       {/* Pop-up édition */}
       {edition && (

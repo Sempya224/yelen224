@@ -8,10 +8,11 @@ import { YelenLoader } from "@/components/YelenLoader";
 // le flash constaté à l'ouverture de l'app (avant que globals.css/
 // l'hydratation React ne posent le fond réel).
 // Fond doré de marque (retour Bryan 27/07/2026 : "branding Yelen jaune
-// fond"), identique au dégradé hero déjà utilisé ailleurs dans l'app —
-// fixe, indépendant du thème clair/sombre choisi par l'utilisateur (un
-// splash de marque ne doit pas dépendre d'un état pas encore résolu à ce
-// stade, ThemeProvider n'a pas encore lu localStorage).
+// fond") — fixe, indépendant du thème clair/sombre choisi par
+// l'utilisateur (un splash de marque ne doit pas dépendre d'un état pas
+// encore résolu à ce stade, ThemeProvider n'a pas encore lu localStorage).
+// Doré plat #F5A623 (09/08/2026, retour Bryan) — plus de dégradé, cohérent
+// avec l'aplatissement des CTA fait le même jour ailleurs dans l'app.
 // ⚠️ Le doré n'est plus dupliqué sur html/body (app/layout.tsx) — retiré le
 // 29/07/2026, cette duplication débordait en bas de plusieurs écrans une
 // fois l'app pleinement chargée (viewport dynamique iOS plus grand que le
@@ -43,7 +44,7 @@ export function SplashScreen() {
         position: "fixed",
         inset: 0,
         zIndex: 9999,
-        background: "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)",
+        background: "#F5A623",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",

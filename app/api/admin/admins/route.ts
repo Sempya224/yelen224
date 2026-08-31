@@ -1,42 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
 import bcrypt from 'bcryptjs'
+import { authorizeAdmin, adminAuthErrorResponse, verifyRecentReauth, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyAdmin(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
-  })
-  if (payload.role !== 'super_admin') throw new Error('FORBIDDEN')
-  return payload
-}
 
 export async function GET(request: NextRequest) {
   try {
-    await verifyAdmin(request)
+    await authorizeAdmin(request, 'admins.manage')
     const { data, error } = await supabaseAdmin
       .from('admin_users')
       .select('id, email, nom, prenom, role, is_active, last_login, created_at')
       .order('created_at', { ascending: false })
     if (error) throw error
     return NextResponse.json(data || [])
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'admins.manage')
+    // Réauthentification récente obligatoire (Mission Hardening Admin,
+    // point 5, 30/08/2026) — créer un compte admin est explicitement listé
+    // dans le brief ("modifier les permissions d'un autre administrateur").
+    await verifyRecentReauth(admin)
     const body = await request.json()
     const { email, password, nom, prenom, role } = body
 
@@ -64,6 +57,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data)
   } catch (err) {
+    if (err instanceof AdminAuthError) return adminAuthErrorResponse(err)
     console.error('[ADMINS POST]', err)
     return NextResponse.json({ error: 'Erreur création' }, { status: 500 })
   }

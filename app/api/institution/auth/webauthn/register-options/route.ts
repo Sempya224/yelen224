@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify, SignJWT } from 'jose'
+import { SignJWT } from 'jose'
 import { generateRegistrationOptions } from '@simplewebauthn/server'
+import { getAuthenticatedInstitutionId } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,23 +22,6 @@ function getWebAuthnRpID(request: NextRequest): string {
     try { return new URL(envUrl).hostname } catch {}
   }
   return new URL(request.url).hostname
-}
-
-// Aucune route institution existante ne vérifie encore la session cookie —
-// à corriger ici puisqu'on enregistre un facteur d'authentification pour un
-// compte précis, jamais sans savoir de façon certaine lequel.
-async function getAuthenticatedInstitutionId(request: NextRequest): Promise<string | null> {
-  const token = request.cookies.get('yelen224_institution_session')?.value
-  if (!token) return null
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET, {
-      issuer: 'yelen224-institution',
-      audience: 'yelen224-institution-dashboard',
-    })
-    return typeof payload.institutionId === 'string' ? payload.institutionId : null
-  } catch {
-    return null
-  }
 }
 
 export async function POST(request: NextRequest) {

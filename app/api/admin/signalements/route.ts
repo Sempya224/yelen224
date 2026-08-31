@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,22 +8,9 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  if (!['super_admin', 'moderateur', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
-  return payload
-}
-
 export async function GET(request: NextRequest) {
   try {
-    await verifyToken(request)
+    await authorizeAdmin(request, 'signalements.moderate')
 
     const { searchParams } = new URL(request.url)
     // 'nouveau' n'est pas une valeur réelle de l'enum statut_signalement
@@ -34,9 +21,18 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20')
     const page = parseInt(searchParams.get('page') || '0')
 
+    // `signalements` sert aussi au case management institution/citoyen
+    // (Lot 1, 08/08/2026) — colonnes différentes (motif, type_signaleur,
+    // rdv_id...), lifecycle différent (voir app/api/admin/signalements-cas/).
+    // Ces lignes ont toujours type_signaleur renseigné ('institution' ou
+    // 'citoyen'), jamais les signalements Communauté de cet écran — filtre
+    // corrigé le 15/08/2026 après audit : sans lui, "Marquer résolu"/
+    // "Ignorer" pouvaient corrompre un dossier institution/citoyen en
+    // contournant son graphe de transition (bypassTransitionCheck).
     let query = supabaseAdmin
       .from('signalements')
       .select('id, type, description, statut, created_at, priorite, cible_type, cible_id, auteur_id')
+      .is('type_signaleur', null)
       .order('created_at', { ascending: false })
       .range(page * limit, (page + 1) * limit - 1)
 
@@ -48,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(data || [])
 
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }

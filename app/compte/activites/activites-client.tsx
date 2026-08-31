@@ -6,7 +6,8 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
 
 const P = { pointerEvents: "none" as const };
 const Ic = {
@@ -80,6 +81,12 @@ export function ActivitesClient() {
   const [detail, setDetail] = useState<Activite | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   function showToast(msg: string, type: "success" | "error" = "success") {
     setToast({ msg, type });
@@ -111,12 +118,11 @@ export function ActivitesClient() {
   const activitesFiltrees = useMemo(() => {
     if (!activites) return [];
     const q = recherche.trim().toLowerCase();
-    const now = Date.now();
     return activites.filter((a) => {
       if (categorie && a.categorie !== categorie) return false;
       if (statutFiltre !== "tous" && a.statut !== statutFiltre) return false;
       if (fenetre !== "tous") {
-        const jours = (now - new Date(a.date).getTime()) / (1000 * 60 * 60 * 24);
+        const jours = (nowTick - new Date(a.date).getTime()) / (1000 * 60 * 60 * 24);
         if (fenetre === "aujourdhui" && jours > 1) return false;
         if (fenetre === "7jours" && jours > 7) return false;
         if (fenetre === "30jours" && jours > 30) return false;
@@ -125,7 +131,7 @@ export function ActivitesClient() {
       if (!q) return true;
       return a.titre.toLowerCase().includes(q) || (a.description ?? "").toLowerCase().includes(q) || (a.institution_nom ?? "").toLowerCase().includes(q);
     });
-  }, [activites, recherche, categorie, statutFiltre, fenetre]);
+  }, [activites, recherche, categorie, statutFiltre, fenetre, nowTick]);
 
   const groupes = useMemo(() => {
     const map = new Map<string, Activite[]>();
@@ -156,7 +162,7 @@ export function ActivitesClient() {
   const bilan = useMemo(() => {
     const list = activites ?? [];
     const compteCree = list.find((a) => a.type === "compte_cree");
-    const joursDepuis = compteCree ? Math.floor((Date.now() - new Date(compteCree.date).getTime()) / 86400000) : null;
+    const joursDepuis = compteCree ? Math.floor((nowTick - new Date(compteCree.date).getTime()) / 86400000) : null;
 
     function texteDepuis(j: number): string {
       if (j < 30) return `${j} jour${j > 1 ? "s" : ""}`;
@@ -176,7 +182,7 @@ export function ActivitesClient() {
       documentsCeMois: ceMois.filter((a) => a.categorie === "document").length,
       totalCeMois: ceMois.length,
     };
-  }, [activites]);
+  }, [activites, nowTick]);
 
   async function handleUpload() {
     if (!detail || !uploadFile) return;
@@ -218,19 +224,15 @@ export function ActivitesClient() {
   });
 
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Activités passées"/>;
   }
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Activités passées"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ padding: "4px 4px 20px" }}>
           <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5 }}>Retrouvez toutes les actions réalisées avec votre compte Yelen.</p>
         </div>
@@ -261,14 +263,14 @@ export function ActivitesClient() {
                 </div>
               </>
             ) : (
-              <div style={{ color: t2, fontSize: "12px" }}>Aucune activité pour l'instant ce mois-ci.</div>
+              <div style={{ color: t2, fontSize: "12px" }}>Aucune activité pour l&apos;instant ce mois-ci.</div>
             )}
           </div>
         )}
 
         {/* Résumé */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "10px" }}>
-          <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "14px 8px", textAlign: "center", gridColumn: "span 3" }}>
+          <div style={{ backgroundColor: card, borderRadius: "14px", padding: "14px 8px", textAlign: "center", gridColumn: "span 3" }}>
             <div style={{ color: t1, fontSize: "26px", fontWeight: 900 }}>{kpi.total}</div>
             <div style={{ color: t2, fontSize: "11px", fontWeight: 700, marginTop: "2px" }}>activités au total</div>
           </div>
@@ -280,7 +282,7 @@ export function ActivitesClient() {
             { label: "Paiements", valeur: kpi.paiements },
             { label: "Avis", valeur: kpi.avis },
           ].map((k) => (
-            <div key={k.label} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "12px 6px", textAlign: "center" }}>
+            <div key={k.label} style={{ backgroundColor: card, borderRadius: "14px", padding: "12px 6px", textAlign: "center" }}>
               <div style={{ color: t1, fontSize: "16px", fontWeight: 900 }}>{k.valeur}</div>
               <div style={{ color: t2, fontSize: "9.5px", fontWeight: 700, marginTop: "2px" }}>{k.label}</div>
             </div>
@@ -338,7 +340,7 @@ export function ActivitesClient() {
               {items.map((a) => {
                 const IconComp = ICON_PAR_CATEGORIE[a.categorie] ?? Ic.Doc;
                 return (
-                  <button key={a.id} onClick={() => setDetail(a)} className="tap" style={{ display: "flex", alignItems: "center", gap: "12px", backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "12px 14px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                  <button key={a.id} onClick={() => setDetail(a)} className="tap" style={{ display: "flex", alignItems: "center", gap: "12px", backgroundColor: card, borderRadius: "16px", padding: "12px 14px", cursor: "pointer", textAlign: "left", width: "100%" }}>
                     <div style={{ width: "38px", height: "38px", borderRadius: "12px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#F5A623" }}><IconComp/></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: t1, fontSize: "13.5px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.institution_nom ? `${a.institution_nom} — ${a.titre}` : a.titre}</div>
@@ -353,6 +355,7 @@ export function ActivitesClient() {
           </div>
         ))}
       </main>
+      </PullToRefresh>
 
       {/* Détail activité */}
       {detail && (
@@ -377,12 +380,12 @@ export function ActivitesClient() {
                 <Link href="/mes-rdv" className="tap" style={{ textAlign: "center", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "13.5px", padding: "12px", borderRadius: "12px", textDecoration: "none" }}>Voir mes rendez-vous</Link>
               )}
               {detail.institution_id && (
-                <Link href={`/institution/${detail.institution_id}`} className="tap" style={btnGhost}>Voir l'établissement</Link>
+                <Link href={`/institution/${detail.institution_id}`} className="tap" style={btnGhost}>Voir l&apos;établissement</Link>
               )}
               {detail.type === "document_demande" && detail.statut === "attente" && (
                 <>
                   <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "10px", padding: "9px 11px", color: t2, fontSize: "11px", lineHeight: 1.5 }}>
-                    Assurez-vous de reconnaître cette demande avant d'envoyer un document sensible. En cas de doute, ne l'envoyez pas et signalez l'établissement.
+                    Assurez-vous de reconnaître cette demande avant d&apos;envoyer un document sensible. En cas de doute, ne l&apos;envoyez pas et signalez l&apos;établissement.
                   </div>
                   <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} style={{ color: t2, fontSize: "12px" }}/>
                   <button disabled={!uploadFile || uploading} onClick={handleUpload} className="tap" style={{ ...btnGhost, justifyContent: "center", background: "rgba(245,166,35,0.12)", borderColor: "rgba(245,166,35,0.4)", color: "#F5A623", opacity: !uploadFile || uploading ? 0.5 : 1 }}>

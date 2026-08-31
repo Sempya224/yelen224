@@ -18,7 +18,9 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import type { DocumentStatut } from "@/lib/citoyenDocumentsConstants";
 
 const P = { pointerEvents: "none" as const };
 const Ic = {
@@ -33,14 +35,24 @@ const Ic = {
 
 type Document = {
   id: string; institution_id: string; rdv_id: string; sens: "demande" | "envoi"; type: string;
-  label: string; description: string | null; statut: "en_attente" | "televerse" | "envoye" | "annule";
+  label: string; description: string | null; statut: DocumentStatut;
   taille: number | null; type_mime: string | null; created_at: string; traite_le: string | null;
   institutions: { name: string } | null;
 };
 
-const STATUT_INFO: Record<Document["statut"], { label: string; color: string }> = {
-  en_attente: { label: "En attente", color: "#F5A623" }, televerse: { label: "Reçu", color: "#22c55e" },
-  envoye: { label: "Envoyé", color: "#22c55e" }, annule: { label: "Annulé", color: "#8E8E93" },
+// Documents clients — Lot 1 (09/08/2026) : statut aligné sur le nouveau
+// lifecycle (lib/citoyenDocumentsConstants.ts). Cet écran garde son UI
+// d'origine (refonte prévue en Lot 2/3) — seul ce mapping est mis à jour
+// pour ne pas afficher un badge vide/cassé après la migration des valeurs
+// stockées.
+const STATUT_INFO: Record<DocumentStatut, { label: string; color: string }> = {
+  en_attente: { label: "En attente", color: "#F5A623" },
+  recu: { label: "Reçu", color: "#3b82f6" },
+  a_verifier: { label: "En vérification", color: "#F5A623" },
+  valide: { label: "Validé", color: "#22c55e" },
+  refuse: { label: "Refusé", color: "#ef4444" },
+  archive: { label: "Archivé", color: "#8E8E93" },
+  disponible: { label: "Disponible", color: "#22c55e" },
 };
 
 function formatDate(iso: string): string {
@@ -138,19 +150,15 @@ export function MesDocumentsClient() {
   };
 
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Mes documents"/>;
   }
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Mes documents"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ padding: "4px 4px 16px" }}>
           <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5 }}>Documents demandés ou envoyés par les établissements, tous confondus.</p>
         </div>
@@ -159,15 +167,15 @@ export function MesDocumentsClient() {
         <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "14px", padding: "14px 16px", marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
             <span style={{ color: "#ef4444" }}><Ic.Shield/></span>
-            <span style={{ color: t1, fontSize: "13.5px", fontWeight: 800 }}>Avant d'envoyer un document</span>
+            <span style={{ color: t1, fontSize: "13.5px", fontWeight: 800 }}>Avant d&apos;envoyer un document</span>
           </div>
           <ul style={{ margin: 0, padding: "0 0 0 18px", color: t2, fontSize: "12px", lineHeight: 1.6 }}>
-            <li>Vérifiez que la demande concerne bien un rendez-vous que vous reconnaissez, avec l'établissement concerné.</li>
-            <li>Ne transmettez jamais un document sensible (pièce d'identité, justificatif) si la demande vous semble inhabituelle ou non justifiée.</li>
+            <li>Vérifiez que la demande concerne bien un rendez-vous que vous reconnaissez, avec l&apos;établissement concerné.</li>
+            <li>Ne transmettez jamais un document sensible (pièce d&apos;identité, justificatif) si la demande vous semble inhabituelle ou non justifiée.</li>
             <li>Yelen ne vous demande jamais de document en dehors de cet écran — seul un établissement, via un rendez-vous réel, peut le faire ici.</li>
           </ul>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "10px", color: "#ef4444", fontSize: "12px", fontWeight: 700 }}>
-            <Ic.Alert/> En cas de doute, contactez immédiatement Yelen et signalez l'établissement.
+            <Ic.Alert/> En cas de doute, contactez immédiatement Yelen et signalez l&apos;établissement.
           </div>
         </div>
 
@@ -194,7 +202,7 @@ export function MesDocumentsClient() {
         {/* Liste */}
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {documentsFiltres.map((d) => (
-            <div key={d.id} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "18px", padding: "16px" }}>
+            <div key={d.id} style={{ backgroundColor: card, borderRadius: "18px", padding: "16px" }}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "6px", gap: "10px" }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ color: t1, fontSize: "14px", fontWeight: 800 }}>{d.label}</div>
@@ -210,7 +218,7 @@ export function MesDocumentsClient() {
                     <Ic.Upload/> Téléverser
                   </button>
                 )}
-                {(d.statut === "televerse" || d.statut === "envoye") && (
+                {d.statut !== "en_attente" && (
                   <button disabled={busy === d.id} className="tap" style={{ ...btnGhost, opacity: busy === d.id ? 0.5 : 1 }} onClick={() => handleTelecharger(d)}>
                     <Ic.Download/> Télécharger
                   </button>
@@ -223,6 +231,7 @@ export function MesDocumentsClient() {
           ))}
         </div>
       </main>
+      </PullToRefresh>
 
       {/* Pop-up téléversement */}
       {uploadCible && (
@@ -232,7 +241,7 @@ export function MesDocumentsClient() {
             <div style={{ color: t2, fontSize: "12.5px", marginBottom: "14px" }}>Demandé par {uploadCible.institutions?.name ?? "l'établissement"}</div>
 
             <div style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "12px", padding: "10px 12px", marginBottom: "16px", color: t2, fontSize: "11.5px", lineHeight: 1.5 }}>
-              Assurez-vous de reconnaître cette demande avant d'envoyer un document sensible. En cas de doute, annulez et signalez l'établissement.
+              Assurez-vous de reconnaître cette demande avant d&apos;envoyer un document sensible. En cas de doute, annulez et signalez l&apos;établissement.
             </div>
 
             <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} style={{ width: "100%", marginBottom: "16px", color: t2, fontSize: "12px" }}/>

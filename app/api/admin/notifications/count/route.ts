@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
-
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
+import { authorizeAdmin, adminAuthErrorResponse } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,24 +8,14 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-async function verifyAdminToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  return payload
-}
-
 // Centre de notifications admin — chantier refonte admin 26/07/2026, Lot B.
-// Agrégat live des 8 files d'attente réelles (aucune ligne persistée par
+// Agrégat live des files d'attente réelles (aucune ligne persistée par
 // événement, le compteur EST l'état "à traiter" : il descend dès que
 // l'admin agit sur l'élément sous-jacent). Même idiome que
 // app/api/admin/kpis/route.ts (Promise.allSettled + count exact head).
 export async function GET(request: NextRequest) {
   try {
-    await verifyAdminToken(request)
+    await authorizeAdmin(request, 'notifications.count')
 
     const settled = await Promise.allSettled([
       supabaseAdmin.from('institutions').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente'),
@@ -39,6 +27,9 @@ export async function GET(request: NextRequest) {
       supabaseAdmin.from('institution_deletion_requests').select('id', { count: 'exact', head: true }).is('cancelled_at', null).is('purged_at', null),
       supabaseAdmin.from('feedback').select('id', { count: 'exact', head: true }).eq('statut', 'nouveau'),
       supabaseAdmin.from('posts').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente_validation'),
+      // Révisions de suspension (chantier "Espace suspendu" v2, 17/08/2026)
+      // — câblage de la réception admin, voir app/admin/revisions/page.tsx.
+      supabaseAdmin.from('institution_suspension_revisions').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente'),
     ])
 
     function getCount(r: (typeof settled)[number]): number {
@@ -57,10 +48,11 @@ export async function GET(request: NextRequest) {
       { key: 'suppressions',  label: 'Suppressions de compte',    count: getCount(settled[6]), href: '/admin/institutions' },
       { key: 'feedback',      label: 'Nouveau feedback',          count: getCount(settled[7]), href: '/admin/feedback' },
       { key: 'posts',         label: 'Publications à valider',    count: getCount(settled[8]), href: '/admin/posts' },
+      { key: 'revisions',     label: 'Révisions de suspension',   count: getCount(settled[9]), href: '/admin/revisions' },
     ]
 
     return NextResponse.json({ categories, total: categories.reduce((s, c) => s + c.count, 0) })
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }

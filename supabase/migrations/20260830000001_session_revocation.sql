@@ -1,0 +1,36 @@
+-- Session Revocation — Lot 2 sécurité (GAP-04-04, 30/08/2026).
+--
+-- Contexte : les sessions JWT institution/admin (stateless, signées,
+-- 8h de durée de vie) ne pouvaient jusqu'ici jamais être invalidées côté
+-- serveur avant leur expiration naturelle. Logout, changement de mot de
+-- passe, désactivation 2FA, "déconnecter tous les autres appareils" et
+-- demande de suppression de compte ne touchaient que des cookies et des
+-- tables *_remember_tokens — jamais le JWT lui-même. Un jeton volé restait
+-- donc exploitable jusqu'à 8h après toute action corrective légitime.
+--
+-- Solution minimale : un timestamp de révocation par compte, comparé au
+-- claim `iat` (issued at) du JWT à chaque vérification de session
+-- (lib/institutionAuth.ts). Tout JWT émis avant ce timestamp est traité
+-- comme invalide, quelle que soit sa signature.
+--
+-- Scope : institutions uniquement. employees (Clock In Shift) exclu :
+-- aucun flux de type "compromise recovery" (changement de mot de passe,
+-- désactivation 2FA, déconnexion globale) n'existe encore côté employé
+-- pour justifier d'écrire cette colonne — à ajouter le jour où un tel
+-- flux employé est construit, pas avant.
+--
+-- admin_users retiré de cette migration (amendée le 30/08/2026, même
+-- jour, jamais exécutée entre-temps) : remplacé par une vraie table
+-- `admin_sessions` par session individuelle (migration
+-- 20260830000002_admin_sessions.sql) — le mécanisme "révoquer tout le
+-- compte" ne suffisait plus dès que la mission Hardening Admin a demandé
+-- la révocation par session précise et la rotation d'ID de session
+-- (point 7 du brief). `admin_users.session_revoked_at` n'aurait jamais
+-- été qu'une étape intermédiaire, remplacée avant même d'avoir tourné en
+-- base — pas de colonne morte laissée dans le schéma.
+--
+-- Nullable, sans défaut : NULL = aucune révocation active, comportement
+-- identique à avant cette migration pour toute institution qui n'a
+-- jamais déclenché d'action de révocation.
+
+ALTER TABLE institutions ADD COLUMN session_revoked_at timestamptz;

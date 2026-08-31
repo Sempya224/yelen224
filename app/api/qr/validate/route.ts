@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: RDV_HORS_CRENEAU_MESSAGE.message, hors_creneau: true, titre: RDV_HORS_CRENEAU_MESSAGE.titre }, { status: 403 });
     }
 
-    const citoyen = rdv.users as any;
+    const citoyen = rdv.users as unknown as { prenom: string | null; nom: string | null; phone: string | null } | null;
 
     return NextResponse.json({
       success: true,
@@ -89,9 +89,9 @@ export async function POST(req: NextRequest) {
         citoyen_phone: citoyen?.phone || "",
       },
     });
-  } catch (err: any) {
+  } catch {
     return NextResponse.json(
-      { error: "Erreur serveur", details: err.message },
+      { error: "Erreur serveur" },
       { status: 500 }
     );
   }
@@ -184,9 +184,9 @@ export async function PUT(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, status: action });
-  } catch (err: any) {
+  } catch {
     return NextResponse.json(
-      { error: "Erreur serveur", details: err.message },
+      { error: "Erreur serveur" },
       { status: 500 }
     );
   }

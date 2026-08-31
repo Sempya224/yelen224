@@ -3,10 +3,14 @@
   "navigation": {
     "language": {
       "title": "Langue",
-      "description": "Choisissez la langue d'affichage de Yelen. L'arabe arrivera plus tard.",
+      "intro": "Choisissez la langue de Yelen",
+      "description": "Sélectionnez la langue dans laquelle vous souhaitez utiliser Yelen.",
+      "available": "Langues disponibles",
+      "comingSoon": "Bientôt disponible",
       "options": {
         "fr": "Français",
-        "en": "English"
+        "en": "English",
+        "ar": "العربية"
       },
       "saved": "Langue mise à jour."
     }

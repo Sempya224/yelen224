@@ -48,11 +48,32 @@ type Decision = {
   preuves: PreuveSnapshot[]
 }
 
+// Chantier Taxonomie des activités (Phase 4, 20/08/2026, spec §3ter) —
+// bloc additif, toujours null pour une institution origine_type='guinee'
+// (immense majorité des dossiers).
+type IdentiteInternationale = {
+  pays_origine: string; denomination_legale_officielle: string; nom_commercial_international: string | null
+  numero_immatriculation_origine: string | null; type_identifiant_registre: string | null; nom_registre_origine: string | null
+  siege_social_origine: string | null; site_web_officiel: string | null; type_structure_internationale: string | null
+  statut_presence_guinee: string; zone_intervention: string | null
+}
+
+const STATUT_PRESENCE_GUINEE_LABEL: Record<string, string> = {
+  societe_guineenne_groupe_etranger: "Société guinéenne appartenant à un groupe étranger",
+  filiale: "Filiale d'une société étrangère",
+  succursale: "Succursale d'une société étrangère",
+  bureau_representation: "Bureau de représentation",
+  prestataire_depuis_etranger: "Prestataire opérant depuis l'étranger",
+  partenariat_representation_locale: "Partenariat / représentation locale",
+  autre_a_verifier: "Autre — à examiner par Yelen",
+}
+
 type Dossier = {
   institution: {
     id: string; name: string; statut: string; statut_juridique: string | null
-    secteur: string | null; badge_verifie: boolean; niveau_confiance: string; created_at: string
+    secteur: string | null; origine_type: string | null; badge_verifie: boolean; niveau_confiance: string; created_at: string
   }
+  identite_internationale: IdentiteInternationale | null
   responsable: { prenom: string; nom: string; role: string | null; phone: string | null; email: string | null } | null
   requis: { type: string; label: string; description: string; obligatoire: boolean }[]
   documents: DocumentEntry[]
@@ -215,10 +236,39 @@ function DossierPanel({ institutionId, toast, onClosed }: {
           {fieldRow('Statut du compte', dossier.institution.statut)}
           {fieldRow('Statut juridique', dossier.institution.statut_juridique || '—')}
           {fieldRow('Secteur', dossier.institution.secteur || '—')}
+          {fieldRow('Origine', dossier.institution.origine_type === 'etrangere' ? 'Étrangère' : 'Guinée')}
           {fieldRow('Niveau de confiance affiché', dossier.institution.niveau_confiance)}
           {fieldRow('Badge public', dossier.institution.badge_verifie ? 'Accordé' : 'Non accordé')}
         </div>
       </div>
+
+      {/* ── Identité internationale (chantier Taxonomie des activités,
+           Phase 4, 20/08/2026, spec §3ter) — additif, affiché uniquement
+           pour une institution origine_type='etrangere'. Rappel : la seule
+           publication possible (institutions.statut='validee') passe par
+           une décision favorable de l'axe Identité ci-dessous — voir le
+           contrôle de code dans api/admin/institutions/[id]/valider/route.ts. ── */}
+      {dossier.institution.origine_type === 'etrangere' && (
+        <div>
+          <SectionLabel text="Identité internationale" />
+          {dossier.identite_internationale ? (
+            <div style={{ backgroundColor: D.surface2, borderRadius: D.radiusSm, border: `1px solid ${D.border}`, overflow: 'hidden' }}>
+              {fieldRow('Pays d’origine', dossier.identite_internationale.pays_origine)}
+              {fieldRow('Dénomination légale officielle', dossier.identite_internationale.denomination_legale_officielle)}
+              {fieldRow('Nom commercial international', dossier.identite_internationale.nom_commercial_international || '—')}
+              {fieldRow('Numéro d’immatriculation d’origine', dossier.identite_internationale.numero_immatriculation_origine || '—')}
+              {fieldRow('Registre d’origine', [dossier.identite_internationale.nom_registre_origine, dossier.identite_internationale.type_identifiant_registre].filter(Boolean).join(' — ') || '—')}
+              {fieldRow('Siège social d’origine', dossier.identite_internationale.siege_social_origine || '—')}
+              {fieldRow('Site web officiel', dossier.identite_internationale.site_web_officiel || '—')}
+              {fieldRow('Type de structure', dossier.identite_internationale.type_structure_internationale || '—')}
+              {fieldRow('Statut de présence en Guinée', STATUT_PRESENCE_GUINEE_LABEL[dossier.identite_internationale.statut_presence_guinee] || dossier.identite_internationale.statut_presence_guinee)}
+              {fieldRow('Zone d’intervention', dossier.identite_internationale.zone_intervention || '—')}
+            </div>
+          ) : (
+            <EmptyNote text="Organisation déclarée étrangère, mais aucune identité internationale renseignée pour le moment — la publication restera bloquée tant que ce bloc n'est pas complété par l'institution puis vérifié." />
+          )}
+        </div>
+      )}
 
       {/* ── Responsable / Autorité déclarée ── */}
       <div>

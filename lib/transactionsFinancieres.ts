@@ -1,4 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import type { NextRequest } from "next/server";
+import { extraireContexteRequete } from "./journalActivite";
 
 // Ledger financier — distinct de journal_activite (générique, polymorphe,
 // aucune colonne montant typée). Insert non-bloquant, même esprit que
@@ -18,8 +20,20 @@ export async function enregistrerTransaction(params: {
   motif?: string | null;
   membreId: string;
   membreNom: string;
-}): Promise<void> {
-  const { error } = await sb.from("transactions_financieres").insert({
+  // Lot 1 (refonte "journal financier Enterprise", décision CEO 06/08/2026)
+  // — contexte de requête (IP/appareil), même mécanisme que
+  // journal_activite. Optionnel et rétrocompatible : les appelants qui ne
+  // le passent pas obtiennent simplement une ligne sans contexte, jamais
+  // une erreur.
+  req?: NextRequest;
+}): Promise<string | null> {
+  // Retourne désormais l'id de la ligne insérée (Lot B, reçu Yelen —
+  // recus.transaction_id doit pouvoir lier la transaction d'encaissement
+  // qui l'a déclenché). Les appelants existants qui ignorent la valeur de
+  // retour (fire-and-forget) restent inchangés, `Promise<string | null>`
+  // est un sur-ensemble compatible de l'ancien `Promise<void>`.
+  const { ip, userAgent, navigateur, os } = extraireContexteRequete(params.req);
+  const { data, error } = await sb.from("transactions_financieres").insert({
     institution_id: params.institutionId,
     paid_booking_id: params.paidBookingId ?? null,
     type_transaction: params.typeTransaction,
@@ -29,6 +43,11 @@ export async function enregistrerTransaction(params: {
     motif: params.motif ?? null,
     membre_id: params.membreId,
     membre_nom: params.membreNom,
-  });
-  if (error) console.error("[TransactionsFinancieres] Erreur insertion:", error.message);
+    ip,
+    user_agent: userAgent,
+    navigateur,
+    os,
+  }).select("id").single();
+  if (error) { console.error("[TransactionsFinancieres] Erreur insertion:", error.message); return null; }
+  return data.id;
 }

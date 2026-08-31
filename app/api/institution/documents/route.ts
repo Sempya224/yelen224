@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
-import { getRequiredDocuments, MAX_DOCUMENT_SIZE } from "@/lib/documentsInstitution";
+import { getRequiredDocuments, getRequiredDocumentsInternational, MAX_DOCUMENT_SIZE } from "@/lib/documentsInstitution";
 import { validateUpload } from "@/lib/uploadSecurity";
 import { createHash } from "crypto";
 
@@ -23,12 +23,23 @@ export async function GET(req: NextRequest) {
 
   const { data: inst, error: instErr } = await sb
     .from("institutions")
-    .select("statut, statut_juridique")
+    .select("statut, statut_juridique, origine_type")
     .eq("id", authInstId)
     .maybeSingle();
   if (instErr || !inst) return NextResponse.json({ error: "Institution introuvable" }, { status: 404 });
 
-  const required = getRequiredDocuments(inst.statut_juridique);
+  let required = getRequiredDocuments(inst.statut_juridique);
+  // Chantier Taxonomie des activités (Phase 4, 20/08/2026) — bloc Identité
+  // internationale (spec §3ter), documents additionnels uniquement pour une
+  // institution étrangère, dérivés de son statut_presence_guinee déclaré.
+  if (inst.origine_type === "etrangere") {
+    const { data: identite } = await sb
+      .from("institution_identite_internationale")
+      .select("statut_presence_guinee")
+      .eq("institution_id", authInstId)
+      .maybeSingle();
+    required = [...required, ...getRequiredDocumentsInternational(identite?.statut_presence_guinee)];
+  }
 
   const { data: rows, error: rowsErr } = await sb
     .from("documents_institution")
@@ -74,12 +85,20 @@ export async function POST(req: NextRequest) {
 
   const { data: inst, error: instErr } = await sb
     .from("institutions")
-    .select("statut_juridique")
+    .select("statut_juridique, origine_type")
     .eq("id", authInstId)
     .maybeSingle();
   if (instErr || !inst) return NextResponse.json({ error: "Institution introuvable" }, { status: 404 });
 
-  const required = getRequiredDocuments(inst.statut_juridique);
+  let required = getRequiredDocuments(inst.statut_juridique);
+  if (inst.origine_type === "etrangere") {
+    const { data: identite } = await sb
+      .from("institution_identite_internationale")
+      .select("statut_presence_guinee")
+      .eq("institution_id", authInstId)
+      .maybeSingle();
+    required = [...required, ...getRequiredDocumentsInternational(identite?.statut_presence_guinee)];
+  }
   if (typeof type !== "string" || !required.some((r) => r.type === type)) {
     return NextResponse.json({ error: "Type de document invalide pour ce profil" }, { status: 400 });
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
-import { jwtVerify } from 'jose'
+import { verifyAdminSession } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,25 +9,13 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  return payload
-}
-
 // Exige le mot de passe actuel (comme /change-password) — la session
 // seule ne suffit pas pour désactiver un facteur de sécurité.
 export async function POST(request: NextRequest) {
   let adminId: string
   try {
-    const payload = await verifyToken(request)
-    adminId = payload.adminId as string
+    const payload = await verifyAdminSession(request)
+    adminId = payload.adminId
   } catch {
     return NextResponse.json({ error: 'Session invalide' }, { status: 401 })
   }
@@ -56,6 +44,17 @@ export async function POST(request: NextRequest) {
       .update({ totp_secret: null, totp_enabled: false, totp_backup_codes: null })
       .eq('id', adminId)
     if (error) throw error
+
+    // admin_sessions (Mission Hardening Admin, point 7, 30/08/2026,
+    // remplace session_revoked_at de GAP-04-04) — révoque toutes les
+    // sessions actives. Désactiver un facteur de sécurité est le scénario
+    // même que la révocation vise à couvrir (reprise de contrôle après
+    // compromission du 2e facteur).
+    await supabaseAdmin
+      .from('admin_sessions')
+      .update({ revoked_at: new Date().toISOString(), revoked_reason: '2fa_disable' })
+      .eq('admin_id', adminId)
+      .is('revoked_at', null)
 
     await supabaseAdmin.from('admin_logs').insert({
       admin_id: adminId,

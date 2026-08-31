@@ -100,9 +100,23 @@ async function main() {
   log("Document 'rccm' créé avec statut='valide'.");
   log("");
 
-  // 4. Fabrication du cookie de session — même secret/issuer/audience que lib/institutionAuth.ts.
+  // 4. Fabrication du cookie de session — même secret/issuer/audience que
+  // lib/institutionAuth.ts. Depuis la révocation par session individuelle
+  // (30/08/2026), getAuthenticatedMembre exige un claim `sid` référençant
+  // une ligne institution_sessions réelle, non révoquée, non expirée — sans
+  // ça la route renverrait 401 avant même d'atteindre la règle métier
+  // testée ici. Ligne supprimée automatiquement par le CASCADE sur
+  // institutions au nettoyage (pas de DELETE dédié nécessaire).
+  const { data: session, error: sessionErr } = await sb
+    .from("institution_sessions")
+    .insert({ institution_id: instId, user_agent: "verify-test4-route-guard", expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() })
+    .select("id")
+    .single();
+  if (sessionErr || !session) { log(`ERREUR création institution_sessions : ${sessionErr?.message}`); return cleanup(instId, membre.id); }
+  log(`Session de test créée : ${session.id}`);
+
   const secret = new TextEncoder().encode(INSTITUTION_JWT_SECRET);
-  const token = await new SignJWT({ institutionId: instId, membreId: membre.id, role: "admin" })
+  const token = await new SignJWT({ institutionId: instId, membreId: membre.id, role: "admin", sid: session.id })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer("yelen224-institution")
     .setAudience("yelen224-institution-dashboard")

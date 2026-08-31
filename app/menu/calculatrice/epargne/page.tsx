@@ -54,7 +54,7 @@ export default function Page() {
             <circle cx="33" cy="46" r="2.4" fill="#FBBF24"/>
           </svg>
         </div>
-        <div style={{ color: t1, fontSize: "20px", fontWeight: "900", marginBottom: "6px" }}>Simulateur d'épargne</div>
+        <div style={{ color: t1, fontSize: "20px", fontWeight: "900", marginBottom: "6px" }}>Simulateur d&apos;épargne</div>
         <div style={{ color: t2, fontSize: "13px" }}>Tontine, épargne mobile ou IMF — trois scénarios réels, pas un taux inventé</div>
       </div>
 
@@ -106,7 +106,7 @@ export default function Page() {
         </div>
 
         <div style={{ marginTop: "16px", padding: "16px 4px 32px", color: t3, fontSize: "12px", lineHeight: "1.6" }}>
-          Une tontine n'offre pas d'intérêt (0%) — le fonds tourne simplement entre les membres. Les scénarios OMIG et IMF utilisent les taux réellement publiés par ces produits, pas une moyenne nationale supposée.
+          Une tontine n&apos;offre pas d&apos;intérêt (0%) — le fonds tourne simplement entre les membres. Les scénarios OMIG et IMF utilisent les taux réellement publiés par ces produits, pas une moyenne nationale supposée.
         </div>
       </div>
     </div>

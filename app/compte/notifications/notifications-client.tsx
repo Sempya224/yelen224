@@ -17,7 +17,8 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { souscrirePush } from "@/lib/pushClient";
 
 function Section({ titre, t1, children }: { titre: string; t1: string; children: React.ReactNode }) {
@@ -129,12 +130,7 @@ export function NotificationsClient() {
   }
 
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Notifications"/>;
   }
 
   const pushLabel: Record<EtatPush, string> = {
@@ -153,9 +149,10 @@ export function NotificationsClient() {
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Notifications"/>
 
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
       <div style={{ padding: "20px 16px 60px" }}>
         <Section titre="Notifications push" t1={t1}>
-          <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", border: `1px solid ${brd}` }}>
+          <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: pushEtat === "refuse" ? "10px" : 0 }}>
               <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: `${pushColor[pushEtat]}18`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: pushColor[pushEtat] }}>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -177,12 +174,12 @@ export function NotificationsClient() {
             )}
           </div>
           <div style={{ color: t3, fontSize: "11px", lineHeight: 1.6, marginTop: "8px", padding: "0 4px" }}>
-            Reçues même l'application fermée, uniquement sur cet appareil — vous devrez réactiver séparément sur chaque nouvel appareil.
+            Reçues même l&apos;application fermée, uniquement sur cet appareil — vous devrez réactiver séparément sur chaque nouvel appareil.
           </div>
         </Section>
 
         <Section titre="Préférences de communication" t1={t1}>
-          <div style={{ backgroundColor: card, borderRadius: "16px", border: `1px solid ${brd}`, overflow: "hidden" }}>
+          <div style={{ backgroundColor: card, borderRadius: "16px", overflow: "hidden" }}>
             {commPrefs && [
               { label: "Communications Yelen", on: commPrefs.communications_yelen },
               { label: "Communications établissements", on: commPrefs.communications_etablissements },
@@ -200,6 +197,7 @@ export function NotificationsClient() {
           </div>
         </Section>
       </div>
+      </PullToRefresh>
 
       {toast && (
         <div style={{

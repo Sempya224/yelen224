@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,23 +8,9 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  // Durcissement rôle (chantier refonte admin 26/07/2026, Lot I).
-  if (!['super_admin', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
-  return payload
-}
-
 export async function GET(request: NextRequest) {
   try {
-    await verifyToken(request)
+    await authorizeAdmin(request, 'citoyens.read')
 
     const { searchParams } = new URL(request.url)
     const limit  = parseInt(searchParams.get('limit') || '25')
@@ -46,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(data || [])
 
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }

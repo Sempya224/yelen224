@@ -217,10 +217,6 @@ export async function verifierRappels(userId: string, userType: "citoyen" | "ins
   const demainStr = new Date(now.getTime() + 24 * 60 * 60 * 1000)
     .toISOString().split("T")[0];
 
-  const filter = userType === "citoyen"
-    ? { citoyen_id: userId }
-    : { institution_id: userId };
-
   const { data: rdvs } = await supabase
     .from("rdv")
     .select(`

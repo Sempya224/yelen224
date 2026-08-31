@@ -7,6 +7,7 @@ import {
   extraireServiceDepuisObjet, estAnnuleParInstitution, calculerSignaux,
   calculerScoreReputation, genererRecommandationsIA, type StatService,
 } from "@/lib/reputationScore";
+import { creerSignalement } from "@/lib/signalements";
 
 // avis/rdv/rdv_events/signalements n'ont aucune policy RLS exploitable
 // depuis ce contexte (mêmes raisons que rdv/events/route.ts et
@@ -149,19 +150,23 @@ export async function GET(req: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    // Insert non-bloquant : une erreur ici ne doit jamais faire échouer le
-    // chargement de l'écran (même esprit que enregistrerAction() dans
+    // Création non-bloquante : une erreur ici ne doit jamais faire échouer
+    // le chargement de l'écran (même esprit que enregistrerAction() dans
     // lib/journalActivite.ts). Aucune fermeture automatique — ceci ne fait
     // que remonter le dossier à un admin Yelen pour examen humain.
+    // creerSignalement() (lib/signalements.ts, Lot 1 case management
+    // 08/08/2026) génère aussi numero_public + l'événement d'audit
+    // "created" — plus un insert brut comme avant ce lot.
     if (!alerteRecente) {
-      await sb.from("signalements").insert({
-        institution_id: authInstId,
-        type_signaleur: "system",
-        type_cible: "institution",
+      await creerSignalement({
+        institutionId: authInstId,
+        typeSignaleur: "system",
+        typeCible: "institution",
+        citoyenId: null,
         motif: "Alerte réputation automatique",
         description: `Score de santé du compte à ${resultatCourant.score}/100 (zone critique). ${resultatCourant.phrase} Recommandation : examiner le dossier de l'établissement (avis récents, annulations, réclamations).`,
-        statut: "en_cours",
         priorite: "haute",
+        acteur: { type: "system", id: null, nom: "Système Yelen" },
       });
     }
   }

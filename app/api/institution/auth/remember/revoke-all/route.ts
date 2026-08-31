@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
 import crypto from 'crypto'
+import { getAuthenticatedInstitutionId, getAuthenticatedMembre, getInstitutionSessionSid } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,51 +9,75 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
-
-async function getAuthenticatedInstitutionId(request: NextRequest): Promise<string | null> {
-  const token = request.cookies.get('yelen224_institution_session')?.value
-  if (!token) return null
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET, {
-      issuer: 'yelen224-institution',
-      audience: 'yelen224-institution-dashboard',
-    })
-    return typeof payload.institutionId === 'string' ? payload.institutionId : null
-  } catch {
-    return null
-  }
-}
-
 // "Déconnecter tous les autres appareils" — exclut volontairement l'appareil courant
-// (identifié par le cookie yelen224_institution_remember du navigateur qui fait l'appel),
-// sinon l'action se couperait elle-même de son propre accès rapide immédiatement après.
+// (identifié par son `sid` de session), sinon l'action se couperait elle-même de son
+// propre accès rapide immédiatement après.
+//
+// Dette technique comblée 30/08/2026 (mirroring admin_sessions) : révoque
+// maintenant réellement toute session institution_sessions active d'un autre
+// appareil (id != sid courant), pas seulement les remember-tokens comme avant
+// GAP-04-04. Simplification par rapport à l'ancien mécanisme
+// (institutions.session_revoked_at, timestamp global) : la session courante
+// n'a plus besoin d'être réémise avec un `iat` postérieur pour survivre à sa
+// propre révocation — elle est simplement exclue du bulk update ci-dessous,
+// sa ligne institution_sessions reste intacte.
 export async function POST(request: NextRequest) {
   try {
-    const institutionId = await getAuthenticatedInstitutionId(request)
+    // getAuthenticatedMembre échoue silencieusement (retourne null) pour une
+    // session compte_principal sans membreId (JWT signé avant la fondation
+    // multi-comptes, ou institution_membres.compte_principal absent) —
+    // repli sur getAuthenticatedInstitutionId dans ce cas, comme avant ce
+    // changement.
+    const membre = await getAuthenticatedMembre(request)
+    const institutionId = membre?.institutionId ?? (await getAuthenticatedInstitutionId(request))
     if (!institutionId) {
       return NextResponse.json({ error: 'Non authentifié', code: 'NO_SESSION' }, { status: 401 })
     }
+    const currentSid = await getInstitutionSessionSid(request)
 
     const currentRememberToken = request.cookies.get('yelen224_institution_remember')?.value
     const currentTokenHash = currentRememberToken
       ? crypto.createHash('sha256').update(currentRememberToken).digest('hex')
       : null
 
+    // Trusted Device (30/08/2026) — status='revoked' plutôt qu'un DELETE,
+    // historique conservé (voir remember/revoke/route.ts). Cette route
+    // révoque aussi les sessions institution_sessions ci-dessous — les
+    // autres appareils perdent donc réellement leur session, pas
+    // seulement leur statut de confiance.
     let query = supabaseAdmin
       .from('institution_remember_tokens')
-      .delete()
+      .update({ status: 'revoked', revoked_at: new Date().toISOString() })
       .eq('institution_id', institutionId)
+      .neq('status', 'revoked')
 
     if (currentTokenHash) {
       query = query.neq('token_hash', currentTokenHash)
     }
 
-    const { error: deleteError } = await query
+    const { error: updateError } = await query
 
-    if (deleteError) {
-      console.error('[INSTITUTION REMEMBER REVOKE ALL ERROR]', deleteError.code, deleteError.message)
+    if (updateError) {
+      console.error('[INSTITUTION REMEMBER REVOKE ALL ERROR]', updateError.code, updateError.message)
       return NextResponse.json({ error: 'Erreur lors de la révocation', code: 'DELETE_ERROR' }, { status: 500 })
+    }
+
+    // institution_sessions — révoque toute session active d'un AUTRE
+    // appareil (id != sid courant). currentSid peut être null (session
+    // signée avant ce déploiement, sans claim sid) : dans ce cas, on ne
+    // peut pas distinguer "cet appareil" des autres, donc on ne revoque
+    // aucune session par prudence plutôt que de risquer de couper l'appelant.
+    if (currentSid) {
+      const { error: sessionsError } = await supabaseAdmin
+        .from('institution_sessions')
+        .update({ revoked_at: new Date().toISOString(), revoked_reason: 'revoked_all_other_devices' })
+        .eq('institution_id', institutionId)
+        .neq('id', currentSid)
+        .is('revoked_at', null)
+      if (sessionsError) {
+        console.error('[INSTITUTION REMEMBER REVOKE ALL ERROR] institution_sessions:', sessionsError.message)
+        return NextResponse.json({ error: 'Erreur lors de la révocation', code: 'DELETE_ERROR' }, { status: 500 })
+      }
     }
 
     return NextResponse.json({ success: true })

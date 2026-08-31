@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { submitWireTransferPayment } from "./actions";
+import { SubmitWireTransferButton } from "./submit-button";
 
 type PageProps = {
   searchParams: Promise<{ success?: string; error?: string }>;
@@ -211,12 +212,7 @@ export default async function InstitutionAbonnementPage({ searchParams }: PagePr
                   className="mt-2 w-full rounded-xl border border-white/15 bg-[#1A1A2E] px-3 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none transition-colors focus:border-[#F5A623]/60"
                 />
               </div>
-              <button
-                type="submit"
-                className="inline-flex h-12 w-full items-center justify-center rounded-full bg-[#F5A623] px-6 text-sm font-semibold text-[#1A1A2E] transition-opacity hover:opacity-90"
-              >
-                J&apos;ai effectue le virement
-              </button>
+              <SubmitWireTransferButton/>
             </form>
           </section>
         </div>
