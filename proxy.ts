@@ -373,21 +373,6 @@ export async function proxy(request: NextRequest) {
   const estCheminAdminViaToken = !!prefixeAdminToken &&
     (pathname === `${prefixeAdminToken}/admin` || pathname.startsWith(`${prefixeAdminToken}/admin/`))
 
-  // Admin Entry Security V2 — Lot 3 (30/08/2026) : coexistence OBLIGATOIRE
-  // avec V1 pendant toute la migration (décision CEO, section 6) — un
-  // grant WebAuthn valide (/entree-admin) lève le même 404 muet qu'un
-  // accès via le lien secret ADMIN_ENTRY_TOKEN, sans que V1 soit modifiée
-  // d'aucune façon (le test du token ci-dessous, plus bas dans ce fichier,
-  // reste identique). Un grant seul ne fait que passer cette porte — il
-  // n'est jamais accepté par la vérification JWT/admin_sessions qui suit
-  // immédiatement (bloc ci-dessous), donc n'accède jamais au dashboard.
-  if (estCheminAdminBrut && ADMIN_ENTRY_TOKEN && !request.cookies.get('yelen224_admin_session')?.value) {
-    const grantValide = await verifierGrantEntreeAdmin(request)
-    if (!grantValide) {
-      return appliquerHeadersSecurite(NextResponse.rewrite(new URL('/__route_inexistante__', request.url)))
-    }
-  }
-
   if (estCheminAdminBrut || estCheminAdminViaToken) {
     // Chemin réel côté app (sans le préfixe secret, qui n'existe pas sur
     // disque — les pages restent à app/admin/*, seule l'URL publique
@@ -403,13 +388,44 @@ export async function proxy(request: NextRequest) {
       return appliquerHeadersSecurite(NextResponse.rewrite(url))
     }
 
+    // Revue critique 31/08/2026 (écart Lot 3) — validité RÉELLE de la
+    // session calculée une seule fois ici, réutilisée plus bas. Avant ce
+    // correctif, le garde-fou grant/token juste en dessous ne testait que
+    // la PRÉSENCE du cookie `yelen224_admin_session`, jamais sa validité :
+    // un client HTTP direct (curl/Burp, aucun navigateur requis) envoyant
+    // `Cookie: yelen224_admin_session=n'importe-quoi` faisait sauter le
+    // garde-fou entièrement, atteignait la route publique /admin/login
+    // (PUBLIC_ADMIN_ROUTES, plus bas) SANS jamais vérifier le JWT — bypass
+    // complet de l'obscurcissement (point 1 du brief : un visiteur jamais
+    // authentifié ne doit jamais découvrir que la console existe), sans
+    // connaître ADMIN_ENTRY_TOKEN ni posséder de credential WebAuthn.
+    // Coût : un JWT présent mais expiré/révoqué (session normale expirée
+    // en cours de navigation) tombe désormais aussi sous le garde-fou
+    // grant/token au lieu d'un redirect direct vers /admin/login — compromis
+    // assumé (sécurité avant confort), l'admin repasse par /entree-admin
+    // (WebAuthn) ou l'URL à token.
+    const adminToken = request.cookies.get('yelen224_admin_session')?.value
+    const sessionAdmin = adminToken ? await verifierTokenAdmin(adminToken) : { valide: false, mfaEnabled: false }
+
+    // Admin Entry Security V2 — Lot 3 (30/08/2026) : coexistence OBLIGATOIRE
+    // avec V1 pendant toute la migration (décision CEO, section 6) — un
+    // grant WebAuthn valide (/entree-admin) lève le même 404 muet qu'un
+    // accès via le lien secret ADMIN_ENTRY_TOKEN, sans que V1 soit modifiée
+    // d'aucune façon (le test du token ci-dessous reste identique). Un
+    // grant seul ne fait que passer cette porte — il n'est jamais accepté
+    // par la vérification JWT/admin_sessions qui suit, donc n'accède
+    // jamais au dashboard.
+    if (estCheminAdminBrut && ADMIN_ENTRY_TOKEN && !sessionAdmin.valide) {
+      const grantValide = await verifierGrantEntreeAdmin(request)
+      if (!grantValide) {
+        return appliquerHeadersSecurite(NextResponse.rewrite(new URL('/__route_inexistante__', request.url)))
+      }
+    }
+
     // Routes publiques → laisser passer (réécrites en interne si accès via token)
     if (PUBLIC_ADMIN_ROUTES.some(route => cheminInterne.startsWith(route))) {
       return reecrireSiBesoin(response)
     }
-
-    // Vérifier le token de session admin
-    const adminToken = request.cookies.get('yelen224_admin_session')?.value
 
     if (!adminToken) {
       // Pas de session → redirect login (vers l'URL publique réellement
@@ -419,10 +435,9 @@ export async function proxy(request: NextRequest) {
       return appliquerHeadersSecurite(NextResponse.redirect(loginUrl))
     }
 
-    // Vérification réelle de la signature JWT (plus un simple contrôle
-    // de format) — un token invalide/expiré/forgé est rejeté ici, avant
-    // d'atteindre la page.
-    const { valide, mfaEnabled } = await verifierTokenAdmin(adminToken)
+    // Vérification réelle de la signature JWT déjà faite ci-dessus
+    // (sessionAdmin) — réutilisée ici, jamais recalculée deux fois.
+    const { valide, mfaEnabled } = sessionAdmin
     if (!valide) {
       logSecurite('admin_token_invalide', { path: cheminInterne, ip: extraireIpClient(request) })
       const loginUrl = new URL(`${basePublique}/admin/login`, request.url)
