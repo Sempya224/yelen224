@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import { construireSemaineState } from "@/lib/semaineStateBuilder";
 import { calculerSemaine, type SemaineSourceType } from "@/lib/semaineEngine";
 import { enregistrerEvenementDecouverte, enregistrerImpressions } from "@/lib/discoveryMemory";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,9 +28,7 @@ const SOURCES_VALIDES = new Set<SemaineSourceType>(["depense", "demarche", "rdv"
 async function authentifier(request: NextRequest) {
   const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
   if (!accessToken) return null;
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !user) return null;
-  return user;
+  return await verifierCitoyenToken(accessToken);
 }
 
 export async function GET(request: NextRequest) {

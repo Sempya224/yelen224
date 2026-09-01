@@ -2104,3 +2104,226 @@ prochaine disponibilité.
 revérifié en conditions réelles**. Aucun commit, conforme à la consigne
 "attendre une nouvelle décision" avant de considérer le Lot 3 clos.
 **Date** : 31/08/2026.
+
+### DEC-2026-08-31-06 — Revalidation live des Écarts 1 et 2, confirmée en conditions réelles
+
+**Description** : après redémarrage machine, Bryan exécute le protocole
+de revalidation en 4 étapes laissé en attente par DEC-2026-08-31-05.
+**Résultat** : les 4 étapes passent. Credential inconnu/révoqué →
+réponse identique confirmée en direct (Écart 1). Vérification WebAuthn
+réelle → grant émis → connexion admin réelle (mot de passe + TOTP) →
+`admin_entry_grants.consumed_at` rempli juste après (`revoked_at` null,
+consommé ~18 min avant `expires_at`) — **Écart 2 confirmé fonctionnel en
+conditions réelles**, pas seulement type-vérifié comme au lot précédent.
+**Contrôle** : aucune valeur brute de cookie/credential/secret manipulée
+ni redemandée à Bryan, conforme à la contrainte permanente de ce
+chantier.
+**Statut** : ✅ **Écarts 1 et 2 clos**, y compris en conditions réelles.
+**Preuve** : `docs/security/YELEN_ADMIN_ENTRY_V2_DECISION.md`, section
+"CORRECTIONS DE CONFORMITÉ" mise à jour. **Date** : 31/08/2026.
+
+### DEC-2026-08-31-07 — Trouvaille post-clôture : bypass du garde-fou `/admin/login` par cookie forgé, corrigé
+
+**Description** : à la demande de Bryan ("fais une revue critique toi-même,
+pas un agent"), lecture complète de `proxy.ts` (hors périmètre des 11
+tests de la spec Lot 3, qui testent le grant lui-même, pas la condition
+qui déclenche son exigence). Trouvaille : le garde-fou grant/token ne
+testait que la **présence** du cookie `yelen224_admin_session`
+(`!request.cookies.get(...)?.value`), jamais sa validité.
+**Risque** : un client HTTP direct (curl/Burp, aucun navigateur requis)
+envoyant `Cookie: yelen224_admin_session=n'importe-quoi` sautait le
+garde-fou entièrement et atteignait `/admin/login`
+(`PUBLIC_ADMIN_ROUTES`) normalement, **sans jamais vérifier le JWT** —
+défaisait complètement l'obscurcissement de la console admin (section 1
+du brief "Sécurisation de l'accès Administration", 30/08/2026), sans
+connaître `ADMIN_ENTRY_TOKEN` ni posséder de credential WebAuthn. Les
+autres pages `/admin/*` restaient protégées (JWT vérifié plus loin dans
+le même fichier) — seule la route publique de login était exposée par ce
+chemin précis.
+**Contrôle/correction** : `proxy.ts` calcule désormais la validité réelle
+de la session (`verifierTokenAdmin()`) **une seule fois**, dès l'entrée
+dans le bloc `/admin/*`, réutilisée pour le garde-fou grant/token ET la
+vérification JWT normale plus bas (zéro double appel). Le garde-fou se
+base sur `!sessionAdmin.valide` au lieu de la présence du cookie.
+**Compromis assumé** (décision explicite de Bryan — "assure-toi en toute
+prudence et sécurité") : un JWT présent mais expiré/révoqué tombe
+désormais aussi sous le garde-fou (404 muet si pas de grant/token valide)
+au lieu d'un redirect direct vers `/admin/login` — sécurité priorisée sur
+le confort.
+**Tests** : `npx tsc --noEmit` → 0 erreur. `npx eslint proxy.ts` → 0
+erreur/warning (2 runs, confirmés par notification de tâche). **Non
+retesté en conditions réelles** (garbage cookie, session valide, entrée
+par token) — à faire avant tout push.
+**Statut** : 🟡 NEEDS REVIEW — correctif appliqué et type/lint-vérifié,
+commité **localement uniquement** (`a1e1d9c`, aucun push). Commits de
+sauvegarde locaux associés au même chantier : `903d7ca` (snapshot de
+l'accumulation de chantiers en cours, ~650 fichiers, demandé
+explicitement par Bryan après redémarrage machine) et `45e585b` (retrait
+de 7 fichiers de debug glissés par erreur dans ce snapshot).
+**Preuve** : `docs/security/YELEN_ADMIN_ENTRY_V2_DECISION.md`, section
+"TROUVAILLE POST-CLÔTURE". **Date** : 31/08/2026.
+
+---
+
+### DEC-2026-08-31-08 — LOT 4 : Database & Storage Security (audit)
+
+**Description** : suite du master plan après la clôture du Lot 3
+(section 40) — Bryan hors domicile, aucun accès SQL Editor/navigateur
+disponible. Audit en lecture seule des items restants de la section 06
+(vues, triggers, extensions) et premier passage sur la section 11
+(Storage), sans exécution SQL ni modification de code.
+**Résultat vues/triggers/extensions** : 🟢 VERIFIED — 0 vue, 20 triggers
+inventoriés (13 immuabilité + 7 logique métier, tous cohérents avec les
+patterns déjà connus), 2 extensions seulement (`pg_cron`/`pg_net`,
+usage justifié). Rien à corriger.
+**Nouvelle constatation (GAP-11-01)** : inventaire de 12 buckets Storage
+référencés dans le code, croisé avec `getPublicUrl`/`createSignedUrl`
+utilisés par chaque route. 3 buckets contenant des données sensibles
+(`recus-paiement`, `documents-travail`, `messagerie-images`) doivent
+être **Privés** d'après l'usage du code lui-même, mais n'ont **jamais**
+été mentionnés dans la checklist manuelle de vérification des buckets
+(contrairement aux 4 autres buckets privés déjà connus) — statut
+Public/Privé réel jamais confirmé, réglage dashboard hors du code
+(NOT VERIFIED).
+**Risque** : si l'un des trois est resté Public, `createSignedUrl()`
+donne une fausse impression de contrôle d'accès — le fichier reste lisible
+via l'URL publique du bucket sans jamais passer par la signature.
+**Contrôle** : aucun (audit uniquement) — ajouté à la checklist
+`/actions-manuelles-en-attente` de CLAUDE.md pour vérification par Bryan
+au prochain accès dashboard.
+**Statut** : 🟡 NEEDS REVIEW (GAP-11-01) — reste du Lot 4 🟢 VERIFIED.
+**Correction annexe** : GAP-06-07 (résumé exécutif du gap analysis)
+corrigé de 🟡 à 🟢 VERIFIED & CORRIGÉ — resté à tort non mis à jour depuis
+le 16/08 alors que le trigger `admin_logs_immuable` est confirmé en base
+depuis le 30/08 (Mission 2 Hardening Admin, DEC-2026-08-30-11).
+**Non fait** : GAP-06-08 (grants trop larges, resserrement par migration
+à rédiger) laissé pour un lot dédié, aucune priorité tranchée par Bryan
+sur ce point précis.
+**Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
+"LOT 4 — DATABASE & STORAGE SECURITY". **Date** : 31/08/2026.
+
+**Statut journée du 31/08/2026 (suite)** : Admin Entry V2 (bypass
+proxy.ts corrigé, commité localement, en attente de retest réel) + Lot 4
+(audit Database/Storage, GAP-11-01 nouveau) traités. Aucun commit sur ce
+Lot 4 (documentation uniquement, zéro fichier de code touché). Rapport
+présenté, pas de Lot 5 avant validation de Bryan.
+
+---
+
+### DEC-2026-08-31-09 — LOT 4 (suite) : GAP-08-01 corrigé, centralisation de l'auth citoyen
+
+**Description** : sur demande explicite de Bryan (lancement imminent,
+"corrige, pas seulement documente"), seul GAP-08-01 était un correctif de
+code faisable sans SQL/dashboard/navigateur parmi tout ce qui restait
+ouvert. Nouveau `lib/citoyenAuth.ts::verifierCitoyenToken()`, 44 routes
+`app/api/citoyen/**` basculées, zéro changement de comportement externe
+(même texte/code/statut HTTP par route, préservés un par un). Détail
+complet, liste exhaustive des 44 fichiers, et justification de chaque
+choix de conception dans `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`,
+section "LOT 4 (suite)".
+**Risque avant** : logique de vérification dupliquée 44 fois — un futur
+correctif de sécurité sur ce point (ex. blacklist de token, log
+centralisé) aurait dû être répété 44 fois avec un vrai risque d'oubli
+partiel.
+**Contrôle** : point d'entrée unique, `tsc --noEmit` exit 0 confirmé par
+code de sortie explicite (pas une lecture anticipée).
+**Exception au protocole** : 45 fichiers modifiés en une fois (largement
+au-delà de "2 fichiers max") — exception explicitement demandée et
+accordée par Bryan pour ce chantier précis, pas une dérive silencieuse.
+**Statut** : 🟠 IN PROGRESS — code prêt, **non commité, non testé en
+conditions réelles** (aucun navigateur disponible ce soir). Bryan doit
+naviguer les parcours citoyen principaux (connexion, Mes RDV, Favoris,
+Sécurité, Confidentialité) avant tout commit/push.
+**Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
+"LOT 4 (suite)". **Date** : 31/08/2026.
+
+---
+
+### DEC-2026-09-01-01 — GAP-06-09 (Critical) : fuite `mot_de_passe_hash` public, corrigée
+
+**Description** : trouvé incidemment pendant l'audit Phase 0 "Booking
+externe" (mission séparée, `docs/product/YELEN_BOOKING_EXTERNAL_INTEGRATION_PHASE0.md`) —
+`InstitutionPublicClient.tsx:586` faisait `select("*")` sur `institutions`
+avec le client anon. RLS filtre par ligne (`institutions_public_read`,
+`statut='validee'`), jamais par colonne — `mot_de_passe_hash` était donc
+renvoyé en clair (haché, mais toujours une donnée d'authentification)
+dans la réponse JSON de chaque fiche publique, sans authentification,
+indépendamment de toute intégration externe.
+**Risque** : identifiant de connexion institution exposé publiquement,
+exploitable par simple lecture réseau, aucune barrière.
+**Contrôle/correction** : `select()` explicite limité aux colonnes
+réellement consommées, chaque nom vérifié individuellement (recoupement
+avec 2 `select()` déjà en production ailleurs + migrations réelles) pour
+ne jamais casser la requête. 3 colonnes très récentes (migration
+`20260831000001`, untracked, exécution non confirmée) d'abord exclues
+par prudence, **réintégrées le même jour** après confirmation de Bryan
+que la migration a bien été exécutée. Détail complet dans
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section "GAP-06-09".
+**Statut** : 🟢 CORRIGÉ, `tsc --noEmit` exit 0 (×2) — **non commité, non
+testé en navigateur réel**. Action requise de Bryan : recharger une
+fiche publique et vérifier dans l'onglet Réseau que `mot_de_passe_hash`
+a disparu, et que l'affichage (dont les dates "Écrit le" du popup
+Conditions/Informations) est correct, avant tout commit/déploiement.
+**Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
+"GAP-06-09". **Date** : 01/09/2026.
+
+---
+
+### DEC-2026-09-01-02 — Revue critique express, posture "pour toujours" (audit uniquement)
+
+**Description** : demande explicite de Bryan — revue critique de tout le
+système, mode expert cybersécurité, standard visé Amazon/Facebook.
+**Aucune correction dans cette phase**, fait personnellement (pas
+d'agent). Détail complet dans
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section "REVUE CRITIQUE
+EXPRESS".
+**2 nouveaux gaps applicatifs trouvés** : GAP-04-05 (secret de repli
+codé en dur sur `QR_SECRET_KEY`, High si la variable venait à manquer
+sur un environnement réel) et GAP-08-02 (aucune validation serveur
+créneau/capacité/institution à la création d'un RDV, Medium-High —
+recoupe une lacune déjà documentée dans la Phase 0 Booking externe).
+**Escalade** : nouvelle CVE Next.js non trackée jusqu'ici
+("Unauthenticated disclosure of internal Server Function endpoints",
+GHSA-955p-x3mx-jcvp) sur `npm audit` réel de ce soir — directement
+pertinente vu l'usage massif de Server Actions dans ce projet, augmente
+la priorité de l'upgrade `next` déjà en attente (GAP-14-01).
+**Reconfirmé sain** : zéro secret dans Git, `.gitignore` correct, zéro
+`dangerouslySetInnerHTML`, `lib/uploadSecurity.ts` mature (magic bytes
+réels, jamais `file.type`/extension client).
+**Constat honnête de dette structurelle** (pas des gaps applicatifs,
+des fondations jamais construites) : observabilité/alerting,
+sauvegardes jamais testées, aucun runbook de reprise après sinistre,
+WAF Cloudflare toujours pas déployé, secrets en variables
+d'environnement brutes sans rotation, facteur bus (un seul développeur),
+zéro SAST/DAST en CI, zéro canal de disclosure de vulnérabilité.
+**Solution proposée** : liste priorisée immédiat/moyen terme/long terme
+dans le gap analysis — rien implémenté, uniquement proposé.
+**Statut** : GAP-04-05 et GAP-08-02 🟢 **corrigés le même soir** (Bryan :
+"Corige d'abord") — voir DEC-2026-09-01-03. Le reste (observabilité/DR/
+secrets/organisation) reste un constat structurel, pas une action à
+trancher immédiatement.
+**Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
+"REVUE CRITIQUE EXPRESS". **Date** : 01/09/2026.
+
+---
+
+### DEC-2026-09-01-03 — GAP-04-05 et GAP-08-02 corrigés
+
+**Description** : sur demande de Bryan ("Corige d'abord"), les 2 gaps
+applicatifs trouvés pendant la revue critique express sont corrigés
+avant tout commit.
+**Correctifs** : (1) `app/api/qr/generate/route.ts` — suppression du
+secret de repli codé en dur sur `QR_SECRET_KEY`, échec explicite si
+absent. (2) `app/rdv/[id]/actions.ts` — nouvelle fonction
+`validerCreneauServeur()` dans `createRdv` : institution
+existe/validée, créneau cohérent avec `disponibilites` (fenêtre 28
+jours, identique au wizard), capacité non dépassée. Détail technique
+complet dans `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
+"REVUE CRITIQUE EXPRESS".
+**Test** : `npx tsc --noEmit` → exit 0.
+**Statut** : 🟢 CORRIGÉ (code), **non commité, non testé en conditions
+réelles** — Bryan doit valider en navigateur (réservation valide
+acceptée, créneau complet/hors disponibilités refusé) avant tout
+commit/push.
+**Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
+"REVUE CRITIQUE EXPRESS". **Date** : 01/09/2026.

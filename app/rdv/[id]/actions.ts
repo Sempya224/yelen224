@@ -3,8 +3,61 @@
 import { createClient } from "@supabase/supabase-js";
 import { createAuthedSupabaseClient } from "@/lib/supabase";
 import { notifierReservation } from "@/lib/notificationEngine";
+import { generateSlotsInRange } from "@/lib/disponibilites";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+// Correctif sécurité (01/09/2026, revue critique express) — avant, rien
+// côté serveur ne vérifiait que l'institution existe/est validée, que le
+// créneau correspond à ses disponibilités réelles, ou que sa capacité
+// n'était pas dépassée : seul un filtre côté UI (app/rdv/[id]/page.tsx)
+// empêchait ça, jamais revérifié à l'insertion elle-même. Fenêtre de 28
+// jours identique à celle du wizard (page.tsx:658,
+// generateSlotsInRange(institution.disponibilites, 28)) pour ne jamais
+// rejeter un créneau que l'écran a lui-même proposé. Comptage par tally
+// JS (pas .eq("heure_rdv", ...) exact) — mêmes pattern et raison déjà
+// éprouvés dans app/api/rdv-disponibilite/route.ts : heure_rdv peut
+// revenir avec des secondes ("09:00:00") selon le type Postgres, seule la
+// comparaison sur les 5 premiers caractères est fiable.
+const JOURS_FENETRE_CRENEAUX = 28;
+
+async function validerCreneauServeur(
+  institutionId: string,
+  dateRdv: string,
+  heureRdv: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: institution, error: instErr } = await sb
+    .from("institutions")
+    .select("statut, disponibilites, capacite_par_creneau")
+    .eq("id", institutionId)
+    .maybeSingle();
+  if (instErr || !institution) {
+    return { ok: false, error: "Cet établissement est introuvable." };
+  }
+  if (institution.statut !== "validee") {
+    return { ok: false, error: "Cet établissement n'est plus disponible pour la réservation." };
+  }
+
+  const heureCourte = heureRdv.slice(0, 5);
+  const slots = generateSlotsInRange(institution.disponibilites, JOURS_FENETRE_CRENEAUX);
+  const creneauExiste = slots.some((s) => s.dateRdv === dateRdv && s.heureRdv === heureCourte);
+  if (!creneauExiste) {
+    return { ok: false, error: "Ce créneau n'est plus disponible. Merci de sélectionner un autre horaire." };
+  }
+
+  const [{ data: rdvRows }, { data: bookingRows }] = await Promise.all([
+    sb.from("rdv").select("heure_rdv").eq("institution_id", institutionId).eq("date_rdv", dateRdv).neq("statut", "annule"),
+    sb.from("paid_bookings").select("heure_rdv").eq("institution_id", institutionId).eq("date_rdv", dateRdv).neq("statut", "annule"),
+  ]);
+  const capacite = Number(institution.capacite_par_creneau ?? 1);
+  const dejaPris = [...(rdvRows ?? []), ...(bookingRows ?? [])]
+    .filter((r) => (r.heure_rdv || "").slice(0, 5) === heureCourte).length;
+  if (dejaPris >= capacite) {
+    return { ok: false, error: "Ce créneau est complet. Merci de sélectionner un autre horaire." };
+  }
+
+  return { ok: true };
+}
 
 export type CreateRdvResult = { ok: true } | { ok: false; error: string };
 
@@ -49,6 +102,11 @@ export async function createRdv(payload: {
         error: "Nom et téléphone requis pour un rendez-vous pour autrui.",
       };
     }
+  }
+
+  const verifCreneau = await validerCreneauServeur(i, payload.dateRdv.trim(), payload.heureRdv.trim());
+  if (!verifCreneau.ok) {
+    return verifCreneau;
   }
 
   const row: Record<string, unknown> = {

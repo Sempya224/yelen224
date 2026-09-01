@@ -44,10 +44,14 @@ de ce premier lot.
 | GAP-04-03 | 2FA admin optionnelle par compte, non imposée globalement | **Medium** | ✅ **Chantier MFA Admin clôturé** (validation CEO 13/08) — gate implémenté (`middleware.ts` + `login/route.ts`), `tsc`/`build` propres. Amélioration future notée (régénération de session après activation 2FA), hors périmètre. |
 | GAP-14-02 | Aucun CI/CD (`.github/workflows/` absent) — zéro test/scan automatisé | **Medium** | 🟠 IN PROGRESS — workflow minimal préparé Lot 1.1, activation de la protection de branche restant à Bryan |
 | GAP-14-03 | Branch protection / revue de PR GitHub — état réel non vérifiable en local | **Low-Medium** | 🟡 NEEDS REVIEW |
-| GAP-08-01 | Vérification d'auth citoyen dupliquée localement par route (pas de fonction centrale unique, contrairement à institution/admin/employé) | **Low** | 🟡 NEEDS REVIEW |
+| GAP-08-01 | Vérification d'auth citoyen dupliquée localement par route (pas de fonction centrale unique, contrairement à institution/admin/employé) | **Low** | 🟢 CORRIGÉ 31/08/2026 — centralisé dans `lib/citoyenAuth.ts` (`verifierCitoyenToken`), les 44 routes concernées basculées, zéro changement de comportement externe. `tsc --noEmit` exit 0. **Non commité, non retesté en conditions réelles** — voir section "LOT 4 (suite)" |
 | GAP-06-06 | `documents_institution.examine_par` — fichier de migration périmé (référence `admins` au lieu de `admin_users`), base réelle correcte (trouvé pendant l'audit Trust Model, 16/08/2026) | Low (doc seulement) | 🟢 VERIFIED 16/08/2026 — base saine, ne bloque plus le Lot 2, correction cosmétique du fichier source recommandée |
-| GAP-06-07 | `admin_logs` n'a aucun trigger d'immuabilité, contrairement à `journal_activite`/`signalement_events` — modifiable/supprimable sans trace même par `service_role` (trouvé pendant l'audit Trust Model, 16/08/2026) | **Medium** | 🟡 NEEDS REVIEW — décision de gouvernance, pas une requête SQL |
+| GAP-06-07 | `admin_logs` n'a aucun trigger d'immuabilité, contrairement à `journal_activite`/`signalement_events` — modifiable/supprimable sans trace même par `service_role` (trouvé pendant l'audit Trust Model, 16/08/2026) | **Medium** | 🟢 VERIFIED & CORRIGÉ 30/08/2026 — trigger `admin_logs_immuable` livré (Mission 2 Hardening Admin, point 8), migration `20260830000003` confirmée exécutée en base par Bryan (DEC-2026-08-30-11). Statut mis à jour ici le 31/08, resté à tort 🟡 dans ce tableau depuis le 16/08. |
 | GAP-06-08 | 9 tables testées (dont `admin_logs`, `documents_institution`, `signalements`) ont toutes des grants complets `anon`+`authenticated` — pattern systémique, pas limité aux 14 tables d'origine (trouvé pendant la clôture Lot 1, 16/08/2026) | **Medium** | 🟢 VERIFIED 16/08/2026 — neutralisé par RLS actif sur les 9, aucune exploitation réelle aujourd'hui |
+| GAP-11-01 | 3 buckets Storage contenant des données sensibles (`recus-paiement`, `documents-travail`, `messagerie-images`) jamais mentionnés dans la checklist manuelle de création/vérification de buckets — statut Public/Privé réel jamais confirmé, contrairement aux 4 autres buckets privés déjà sur la checklist (trouvé pendant l'audit Lot 4, 31/08/2026) | **Medium-High** | 🟡 NEEDS REVIEW — voir section "LOT 4" ci-dessous, action requise de Bryan (dashboard Supabase) |
+| GAP-06-09 | `InstitutionPublicClient.tsx` faisait `select("*")` sur `institutions` avec le client **anon** — la policy RLS `institutions_public_read` (lecture publique) filtre par ligne, jamais par colonne, donc `mot_de_passe_hash` (identifiants de connexion institution) était renvoyé dans la réponse JSON de **chaque fiche publique**, pour **chaque institution validée**, sans authentification (trouvé pendant l'audit Phase 0 "Booking externe", 01/09/2026) | **Critical** | 🟢 CORRIGÉ 01/09/2026 — `select()` explicite (colonnes réellement consommées, vérifiées une par une), `mot_de_passe_hash` exclu. `tsc` exit 0. **Non commité, non testé en navigateur réel** |
+| GAP-04-05 | `QR_SECRET_KEY \|\| "yelen224-secret"` — secret de repli codé en dur signant les tokens QR de présence ; si la variable manque sur un environnement, la clé HMAC est publique (trouvé pendant la revue critique express, 01/09/2026) | **High** | 🟢 CORRIGÉ 01/09/2026 — repli supprimé, échec explicite (500) si `QR_SECRET_KEY` absente. `tsc` exit 0. **Non commité.** Reste `NOT VERIFIED` : que la variable soit bien définie sur tous les environnements Netlify actifs |
+| GAP-08-02 | Aucune validation serveur (institution existe/validée, créneau cohérent, capacité non dépassée) à la création d'un RDV (`createRdv`) — RLS n'exige que `auth.uid()=citoyen_id`, tout le reste n'est qu'un filtre UI (trouvé initialement pendant l'audit Phase 0 Booking externe, reporté ici comme gap de sécurité applicative à part entière, 01/09/2026) | **Medium-High** | 🟢 CORRIGÉ 01/09/2026 — `validerCreneauServeur()` ajoutée dans `createRdv` (institution validée + créneau cohérent avec `disponibilites` + capacité non dépassée). `tsc` exit 0. **Non commité, non testé en conditions réelles** |
 
 **Aucune vulnérabilité "Critical" confirmée dans ce Lot 1.** Aucun secret
 trouvé dans Git (historique inclus). Zéro IDOR confirmé sur l'échantillon
@@ -2136,3 +2140,444 @@ seul `tsc` avait été vérifié).
 **Statut** : revue critique + Lot 3 clos pour ce qui était raisonnable
 dans ce lot. Aucun commit, aucun déploiement — décision de Bryan à
 suivre.
+
+---
+
+## LOT 4 — DATABASE & STORAGE SECURITY, audit (31/08/2026)
+
+Suite logique du master plan après la clôture du Lot 3 (Authorization).
+Périmètre : compléter les items de la section 06 non couverts au Lot 1
+(vues, triggers, extensions) + premier passage sur la section 11
+(Storage). Audit en lecture seule uniquement — aucune exécution SQL,
+aucun changement de code, cohérent avec l'absence d'accès SQL
+Editor/navigateur de Bryan au moment de ce lot.
+
+### Vues, triggers, extensions (section 06, items restants)
+
+**Vues** : 0 `CREATE VIEW`/`CREATE MATERIALIZED VIEW` trouvée dans
+`supabase/migrations/` (recherche exhaustive, insensible à la casse).
+🟢 VERIFIED — rien à auditer côté vues. Réserve identique à celle déjà
+actée pour les 6 tables historiques sans trace de migration : si une vue
+existe en base sans être passée par une migration versionnée, elle reste
+invisible depuis cet environnement (NOT VERIFIED pour ce cas précis).
+
+**Triggers** : 20 `CREATE TRIGGER` inventoriés sur 16 fichiers de
+migration. Deux familles cohérentes, aucun trigger orphelin ou
+inattendu : (1) immuabilité — 13 occurrences, le pattern déjà documenté
+dans `/pieges-techniques-connus` de CLAUDE.md (`journal_activite`,
+`points_transactions`, `attendance_logs`/`attendance_audit_logs`,
+`recus`, `signalement_events`, `document_events`,
+`verification_decisions`/`verification_decision_preuves`,
+`documents_institution` partiel, `activite_historique`,
+`activite_demandes`/`activite_demande_decisions` partiel,
+`auth_security_events`, `admin_logs`) ; (2) logique métier applicative —
+7 occurrences (recalcul moyenne avis institution, solde/paliers points,
+protection réponse institution sur avis, validation conversation RDV,
+protection identité/contenu messagerie Yelen-citoyen, limite de
+fréquence questions institution, recalcul nb abonnés institution). Aucun
+trigger `SECURITY DEFINER` caché en dehors de la fonction déjà auditée
+au Lot 1 (`appliquer_recuperations_dues`). 🟢 VERIFIED.
+
+**Extensions** : seules `pg_cron` et `pg_net` déclarées
+(`CREATE EXTENSION IF NOT EXISTS`, répétées de façon idempotente dans 7
+fichiers de migration — sans risque, un des fichiers le documente même
+explicitement en commentaire). Aucune extension à risque trouvée
+(`pg_stat_statements` exposée, usage détourné de `pgcrypto`, etc.).
+🟢 VERIFIED — surface minimale, cohérente avec les jobs cron déjà
+documentés dans CLAUDE.md (rappels RDV/démarches, recalcul
+`daily_attendance`, récupération de compte).
+
+### Storage — inventaire complet et nouvelle constatation (GAP-11-01)
+
+**Méthode** : recherche exhaustive de `storage.from(...)` sur
+`app/api/**` (~60 points d'appel), croisée avec la méthode d'accès
+utilisée par le code lui-même sur chaque bucket
+(`getPublicUrl()` vs `createSignedUrl()`) — un choix qui, fait par le
+développeur au moment d'écrire la route, révèle son intention réelle sur
+le statut Public/Privé attendu du bucket, indépendamment de ce qui est
+documenté ailleurs.
+
+| Bucket | Méthode utilisée dans le code | Doit être | Sur la checklist manuelle CLAUDE.md ? |
+|---|---|---|---|
+| `avatars` | `getPublicUrl` + 2 policies RLS `storage.objects` (upload direct citoyen) | Public | Oui — bucket d'origine |
+| `offres` | `getPublicUrl` | Public | Non — jamais mentionné |
+| `annonces` | `getPublicUrl` | Public | Non — jamais mentionné |
+| `post-images` | `getPublicUrl` | Public | Non — jamais mentionné |
+| `documents-citoyens` | `createSignedUrl` uniquement | **Privé** | Oui |
+| `documents-employes` | `createSignedUrl` uniquement | **Privé** | Oui |
+| `signalements-preuves` | `createSignedUrl` uniquement | **Privé** | Oui |
+| `documents` | `createSignedUrl` uniquement | **Privé** | Oui (déjà trouvé cassé le 14/08 — bucket jamais créé) |
+| `recus-paiement` | `createSignedUrl` uniquement | **Privé** | **Non — absent de la checklist** |
+| `documents-travail` | `createSignedUrl` uniquement | **Privé** | **Non — absent de la checklist** |
+| `messagerie-images` | `createSignedUrl` uniquement | **Privé** | **Non — absent de la checklist** |
+
+**Constat structurel (rassurant)** : tous les accès Storage passent par
+le client `service_role` server-side (`supabaseAdmin`/`sb`,
+`SUPABASE_SERVICE_ROLE_KEY`) — confirmé sur l'intégralité des ~60 points
+d'appel grep-és, jamais un accès direct client anon/authenticated, sauf
+`avatars` (2 policies RLS légitimes pour l'upload direct citoyen, déjà
+en place depuis le 17/07/2026). RLS `storage.objects` est donc **non
+pertinent** pour 11 des 12 buckets (`service_role` la contourne de toute
+façon, par conception) — le contrôle de sécurité réel est le seul flag
+**Public/Privé du bucket**, réglage du dashboard Supabase, hors du code
+et donc **NOT VERIFIED** depuis cet environnement.
+
+**Risque réel identifié** : `createSignedUrl()` appelé sur un bucket qui
+serait resté **Public** par erreur (ou jamais explicitement mis en
+Privé) rend le contrôle d'accès illusoire — quiconque devine ou observe
+un `storage_path` (réponse API, log, énumération) peut lire le fichier
+directement via l'URL publique du bucket, sans jamais passer par la
+signature à durée limitée. `recus-paiement`, `documents-travail` et
+`messagerie-images` contiennent des données `Confidential`/`Highly
+Sensitive` au sens de la section 03 du master plan (reçus de paiement,
+documents financiers/RH institution, images échangées en messagerie
+privée citoyen↔institution) et **n'ont jamais été confirmés Privés nulle
+part dans la documentation existante**, contrairement aux 4 buckets déjà
+sur la checklist manuelle de CLAUDE.md.
+
+**Action requise de Bryan (NOT VERIFIED, dashboard Supabase → Storage →
+bucket → toggle Public)** : confirmer `recus-paiement`,
+`documents-travail` et `messagerie-images` marqués **Privé**, au même
+titre que les 4 déjà connus. Si l'un des trois est Public, c'est un gap
+réel à corriger immédiatement (décocher Public dans le dashboard — pas
+un correctif de code). Ajouté à la checklist
+`/actions-manuelles-en-attente` de CLAUDE.md.
+
+**Priorité** : Medium-High (données sensibles réelles en jeu, mais
+aucune preuve d'exploitation — seulement une vérification jamais faite
+ni documentée).
+
+**Non fait dans ce Lot 4** (périmètre restant, à reprendre si priorisé) :
+GAP-06-08 (grants `anon`+`authenticated` trop larges sur 9 tables,
+neutralisés par RLS mais jamais resserrés) — resserrement possible par
+migration à rédiger, non fait ici faute de décision explicite sur la
+priorité ; audit des permissions PostgreSQL par rôle au-delà des grants
+déjà connus ; audit `service_role` lui-même (rotation de clé, exposition)
+— dépend de réglages Supabase, hors code.
+
+**Test** : aucun (audit en lecture seule, zéro fichier de code modifié
+dans ce lot — seuls les documents de sécurité sont mis à jour).
+
+**Statut** : 🟢 VERIFIED pour vues/triggers/extensions — 🟡 NEEDS REVIEW
+pour GAP-11-01 (Storage), action requise de Bryan. Conforme à la
+consigne du master plan : rapport présenté, pas de Lot 5 avant validation
+de Bryan.
+
+---
+
+## GAP-06-09 — Fuite `mot_de_passe_hash` via `select("*")` public, corrigée (01/09/2026)
+
+Trouvé pendant l'audit "Phase 0 — Booking externe"
+(`docs/product/YELEN_BOOKING_EXTERNAL_INTEGRATION_PHASE0.md`), hors du
+fil de travail sécurité habituel — corrigé immédiatement sur demande de
+Bryan vu la sévérité (Critical), avant de reprendre le reste.
+
+**Avant** : `app/institution/[id]/InstitutionPublicClient.tsx:586` —
+```ts
+const { data: row } = await supabase.from("institutions").select("*").eq("id", id).maybeSingle();
+```
+Client Supabase **anon** (navigateur, sans authentification). La seule
+policy RLS SELECT sur `institutions`
+(`supabase/migrations/20260709000014_policy_institutions_public_read.sql:6-8`,
+`FOR SELECT TO anon, authenticated USING (statut = 'validee')`) filtre
+par **ligne**, jamais par colonne — RLS Postgres ne sait pas faire
+autrement. `select("*")` renvoyait donc **toutes** les colonnes
+d'`institutions` (~35, dont `mot_de_passe_hash`) dans la réponse JSON, à
+chaque chargement de la fiche publique de n'importe quelle institution
+validée. Exploitable sans authentification, sans intégration externe,
+juste en ouvrant l'onglet Réseau du navigateur sur `/institution/{id}`.
+
+**Modification** : `select()` explicite, limité aux colonnes réellement
+consommées par le composant (vérifiées une par une en lisant chaque
+`r.xxx` du bloc `setInst({...})` et les usages ultérieurs de `r`/`row`
+dans le même fichier) :
+```
+id,slug,name,category,secteur,description,conditions_entreprise,
+informations_importantes,informations_legales,conditions_entreprise_le,
+informations_importantes_le,informations_legales_le,
+equipements_etablissement,adresse,ville,quartier,phone,whatsapp,email,
+website,logo,banniere,moyenne_avis,nb_avis,badge_verifie,horaires,
+services,disponibilites,annee_creation,capacite,langue,
+activite_categorie_id
+```
+**Méthode de vérification de chaque nom de colonne** (pour ne jamais
+casser la requête en nommant une colonne inexistante — un nom faux fait
+échouer tout PostgREST avec une erreur 400, contrairement à `select("*")`
+qui ne peut jamais échouer sur ce point) :
+- `name`/`category`/`phone` confirmés réels par recoupement avec 2
+  `select()` déjà en production ailleurs (`app/api/citoyen/favoris/route.ts`,
+  `app/rdv/[id]/page.tsx:563`) — **exclu** `nom`/`categorie`/`telephone`
+  (repli JS défensif dans le même fichier, jamais de vraies colonnes,
+  drift déjà documenté dans `CLAUDE.md` `/schema`).
+- `langue` confirmé réel (migration `20260711000002_institution_responsable_et_fix_langue.sql:7-8`,
+  déjà `langue confirmée jsonb par Bryan 14/08/2026` selon GAP-06-03).
+- `capacite` confirmé réel (mentionné explicitement comme "champ texte
+  libre" pré-existant dans le commentaire de
+  `20260720000005_institutions_capacite_creneau.sql:3`, distinct de
+  `capacite_par_creneau`).
+- `annee_creation` confirmé réel par un point d'écriture existant
+  (`app/api/institution/profile/route.ts`, `app/[slug]/[id]/components/ProfilEntrepriseTab.tsx`
+  — écran de configuration institution qui l'édite).
+- `equipements_etablissement`, `conditions_entreprise`/`informations_importantes`/
+  `informations_legales` (+ leurs `_le`) confirmés par migrations commitées
+  plus anciennes (`20260821000012`, `20260724000016`, `20260724000017`).
+- `conditions_entreprise_creee_le`/`informations_importantes_creee_le`/
+  `informations_legales_creee_le` (migration
+  `20260831000001_institutions_conditions_creation_dates.sql`) — d'abord
+  **exclues par prudence** (untracked dans git au moment du premier
+  correctif, exécution non confirmée), **réintégrées le 01/09/2026** :
+  Bryan a confirmé que la migration a bien été exécutée en base. Champ
+  `dateCreation` consommé dans le popup "Conditions de l'entreprise /
+  Informations importantes / Informations légales"
+  (`InstitutionPublicClient.tsx:2495,2499,2503`).
+
+**Test** : `npx tsc --noEmit` → exit 0 (×2 — après le correctif initial
+et après la réintégration des 3 colonnes).
+
+**Non fait** : audit colonne par colonne des ~35 colonnes d'`institutions`
+pour confirmer que `mot_de_passe_hash` était la seule donnée réellement
+sensible exposée par l'ancien `select("*")` — hors périmètre de ce
+correctif ponctuel. Aucun test en navigateur réel (page publique à fort
+trafic potentiel — recommandé avant tout commit/déploiement) : Bryan a
+signalé ne pas avoir vérifié visuellement si les dates "Écrit le"
+s'affichent réellement sur la fiche (indépendant de ce correctif — ce
+popup existait avant, jamais revérifié visuellement selon Bryan).
+
+**Statut** : 🟢 CORRIGÉ, type-vérifié, colonnes complètes — **non
+commité, non testé en conditions réelles**. Action requise de Bryan avant
+push : recharger une fiche publique en navigateur réel, vérifier dans
+l'onglet Réseau que la réponse ne contient plus `mot_de_passe_hash`, et
+que l'affichage (dont les dates "Écrit le" du popup Conditions/Informations)
+est correct.
+**Date** : 01/09/2026 (correctif initial + réintégration le même jour).
+
+---
+
+## LOT 4 (suite) — GAP-08-01 : centralisation de l'auth citoyen (31/08/2026, même soir)
+
+Consigne de Bryan (lancement imminent) : ne pas se limiter à documenter,
+corriger ce qui est sûr et purement code — sans SQL, sans navigateur,
+sans dépasser la portée validée. Seul GAP-08-01 (parmi tout ce qui était
+encore ouvert au moment de la demande) était un vrai correctif de code
+faisable dans ces conditions ; les autres gaps ouverts dépendent tous de
+SQL Editor, d'un dashboard (Supabase/Netlify/GitHub) ou d'un test
+navigateur réel — aucun n'a été traité ce soir, aucun forcé.
+
+**Avant** : `supabaseAdmin.auth.getUser(accessToken)` (ou `sb.auth.getUser`)
+dupliqué indépendamment dans 44 fichiers `app/api/citoyen/**`, chacun
+avec sa propre gestion d'erreur.
+
+**Modification** : nouveau fichier `lib/citoyenAuth.ts`
+(`verifierCitoyenToken(accessToken)`, retourne l'utilisateur Supabase ou
+`null`) — seul point d'appel désormais pour vérifier un token citoyen.
+Les 44 routes basculées une par une, remplaçant uniquement le bloc
+`const { data: { user }, error } = await client.auth.getUser(accessToken); if (error || !user) return ...;`
+par `const user = await verifierCitoyenToken(accessToken); if (!user) return ...;`
+— **le texte, le code HTTP et le `code` de chaque réponse d'erreur
+existante sont restés strictement identiques**, route par route (certaines
+renvoient "Non authentifié" pour un token absent ET invalide, d'autres
+distinguent "Non authentifié"/"Session invalide ou expirée", certaines
+incluent un `code: "NO_SESSION"`, d'autres non — chaque variante
+préservée telle quelle, aucune harmonisation forcée qui aurait changé un
+contrat d'API sans le tester). Méthode d'extraction du token également
+inchangée par route (header `Authorization`, query string, body JSON ou
+`form-data` selon le fichier). Les fonctions locales préexistantes
+(`getAuthenticatedCitoyenId`, `authentifier`) gardent leur signature
+exacte, elles délèguent simplement à la fonction centrale en interne.
+
+**Fichiers touchés** : `lib/citoyenAuth.ts` (nouveau) + 44 fichiers sous
+`app/api/citoyen/**` (liste complète : `activites`, `assistant`,
+`attention`, `avis/notifier-publication`, `bio`, `communaute/signaler`,
+`confidentialite/{consentement,communication,partage,visibilite,status}`,
+`decouverte`, `demarches/notifier-creation`, `documents`,
+`documents/upload`, `donnees/export`, `favoris`, `feedback`,
+`messagerie/{upload-image,image-url}`, `paid-bookings/declarer-paiement`,
+`paiements`, `post-suggestions`, `posts`, `posts/media`, `profil/photo`,
+`recus/[id]/pdf`, `rewards`, `securite/status`,
+`securite/pin/{route,set,verify}`,
+`securite/remember/{revoke,revoke-all}`,
+`securite/totp/{setup,verify,disable}`,
+`securite/webauthn/{register-options,register-verify,revoke}`,
+`semaine`, `signalements`, `suivis`, `verification-identite/upload`) —
+largement au-delà de la règle "2 fichiers max" du protocole, exception
+explicitement demandée et accordée par Bryan pour ce chantier précis.
+
+**Test** : `npx tsc --noEmit` → **exit 0**, confirmé par le code de sortie
+de la notification de fin de tâche (pas une lecture anticipée de sortie —
+leçon de méthode du 30/08/2026 appliquée). **Aucun test fonctionnel réel
+possible** ce soir (pas de navigateur disponible) — comportement identique
+par construction (même appel Supabase, mêmes réponses d'erreur), mais pas
+encore prouvé en conditions réelles.
+
+**Non fait, explicitement hors périmètre de ce soir** : `lib/citoyenAuth.ts`
+ne factorise que l'appel `auth.getUser()` lui-même, pas l'extraction du
+token (qui varie légitimement par route) ni le format de réponse
+d'erreur (qui aurait changé un contrat d'API sans pouvoir le vérifier en
+navigateur) — décision volontairement conservatrice. La duplication
+`supabaseAdmin`/`sb` (client Supabase instancié séparément dans chacun des
+44 fichiers) n'a pas été touchée non plus — DRY, pas un gap de sécurité,
+laissé pour ne pas élargir davantage la portée.
+
+**Statut** : 🟠 IN PROGRESS — code corrigé et type-vérifié, **non commité,
+non poussé, non testé en conditions réelles**. Action requise de Bryan
+avant tout push : se reconnecter/naviguer sur au moins les parcours
+citoyen les plus fréquents (connexion, Mes RDV, Favoris, Sécurité,
+Confidentialité) pour confirmer 0 régression, puis commit à son
+initiative.
+**Preuve** : `lib/citoyenAuth.ts`, diff des 44 fichiers listés ci-dessus,
+sortie `tsc`. **Date** : 31/08/2026.
+
+---
+
+## REVUE CRITIQUE EXPRESS — Posture "doit survivre pour toujours" (01/09/2026)
+
+Demande explicite de Bryan : revue critique de tout le système, mode
+expert cybersécurité, standard visé = plateforme durable niveau
+Amazon/Facebook. **Audit uniquement — aucune correction dans cette
+phase**, conforme à la consigne. Fait personnellement (pas d'agent),
+lecture directe du code + `npm audit` réel.
+
+Ce n'est **pas** un Lot 1 refait de zéro — les Lots 1-4 déjà présents
+dans ce document restent valides et ne sont pas repris ici en détail.
+Cette section couvre : (a) ce qui a changé depuis (nouveau CVE), (b) ce
+qu'une passe fraîche et sceptique a trouvé de nouveau, (c) une évaluation
+honnête de ce qui manque structurellement pour l'ambition "pour
+toujours" — au-delà du code, à l'échelle organisation/infrastructure.
+
+### Constats nouveaux ou aggravés depuis le dernier audit
+
+| ID | Constat | Preuve | Sévérité |
+|---|---|---|---|
+| GAP-14-01 (aggravé) | `npm audit` réel ce soir : les 5 vulnérabilités déjà connues sont **toujours présentes**, mais une **nouvelle CVE Next.js non trackée jusqu'ici** apparaît : "Unauthenticated disclosure of internal Server Function endpoints" (GHSA-955p-x3mx-jcvp) | `npm audit --omit=dev`, sortie ce soir | **High** — directement pertinent : ce projet utilise massivement les Server Actions (`"use server"`, 9+ fichiers déjà recensés dans un audit précédent — `createRdv`, `annulerRdv`, etc.) |
+| GAP-04-05 (nouveau) | `QR_SECRET_KEY` a un **secret de repli codé en dur** : `process.env.QR_SECRET_KEY \|\| "yelen224-secret"` — si la variable est absente d'un environnement (Netlify preview, nouvel environnement, oubli de config), la clé HMAC signant les tokens de présence QR devient une chaîne **publique, présente dans ce document et dans le code source**. N'importe qui pourrait alors forger un `qr_token` valide pour n'importe quel `rdv_id`/`citoyen_id`/date et se faire scanner "présent" frauduleusement | `app/api/qr/generate/route.ts:66` | **High** si la variable venait à manquer sur un environnement réel — **NOT VERIFIED** que `QR_SECRET_KEY` est bien définie partout (aucun accès aux variables d'environnement Netlify depuis cet outil) |
+| GAP-08-02 (nouveau) | Aucune validation serveur de la cohérence créneau/institution/capacité à la création d'un RDV (`createRdv`, `app/rdv/[id]/actions.ts:54-72`) — RLS n'exige que `auth.uid() = citoyen_id`. Un `institution_id` inexistant/non validée, un créneau hors des disponibilités réelles, ou un dépassement de `capacite_par_creneau` ne sont bloqués **nulle part côté serveur**, seulement suggérés côté UI. Déjà documenté en détail dans `docs/product/YELEN_BOOKING_EXTERNAL_INTEGRATION_PHASE0.md` (section Contraintes actuelles, points 2-3) — reporté ici car c'est un vrai gap de sécurité applicative, pas seulement un sujet d'intégration externe | `app/rdv/[id]/actions.ts:54-72`, `supabase/migrations/20260720000004...sql:17-19` | **Medium-High** — overbooking/abus possible dès aujourd'hui, sans avoir besoin d'aucune intégration tierce |
+| — (hygiène, pas un gap réel) | 5 routes de médias institution/citoyen construisent le nom de fichier Storage avec `Date.now() + Math.random().toString(36)` plutôt que `crypto.randomUUID()` (utilisé partout ailleurs dans le projet pour ce même besoin) — entropie plus faible, chemin théoriquement plus devinable | `app/api/institution/services/media/route.ts:50`, `offres/media/route.ts:29`, `communaute-posts/media/route.ts:32`, `annonces/media/route.ts:48`, `app/api/citoyen/posts/media/route.ts:37` | **Low** — ces buckets (`offres`, `annonces`, `post-images`) sont déjà publics par conception (`getPublicUrl`, voir GAP-11-01), la confidentialité du nom de fichier n'est pas un contrôle de sécurité ici ; signalé pour cohérence de code, pas comme faille exploitable |
+| — | Zéro secret trouvé dans Git (historique inclus), `.gitignore` couvre bien `.env*`, zéro `dangerouslySetInnerHTML` sur tout `app/` — **reconfirmé sain** par recherche fraîche ce soir, pas juste hérité de l'audit du 13/08 | `git log --all -- .env*` (vide), `.gitignore:` `.env*`, grep exhaustif `dangerouslySetInnerHTML` (0 résultat) | 🟢 VERIFIED |
+| — | `lib/uploadSecurity.ts` reconfirmé mature à la lecture directe : détection par signature binaire réelle (magic bytes, jamais `file.type`/extension client), chemin de stockage toujours généré serveur (`crypto.randomUUID()` dans la quasi-totalité des routes, sauf les 5 citées ci-dessus), cas legacy CFB (.doc/.xls) correctement restreint à une liste fermée. Rien à corriger | `lib/uploadSecurity.ts:106-129` | 🟢 VERIFIED |
+
+### Ce qui manque structurellement pour "survivre pour toujours" (au-delà du code)
+
+Un système qui doit tenir indéfiniment à l'échelle d'une plateforme
+nationale ne se juge pas seulement sur ses routes API. Sections du
+master plan (`YELEN_SECURITY_MASTER.md`) **jamais construites à ce
+jour**, honnêtement listées plutôt que passées sous silence :
+
+1. **Observabilité (section 21-22)** : aucun système de métriques/traces/
+   alerting actif — les logs existent (`console.warn` structuré dans
+   `lib/edgeSecurity.ts`, tables d'audit immuables) mais **rien ne les
+   surveille**. Un pic d'attaque, une chute de disponibilité, ou une
+   dérive de comportement ne déclenchent aujourd'hui **aucune alerte** —
+   ils ne seraient découverts qu'a posteriori, en lisant les logs
+   manuellement.
+2. **Sauvegardes & continuité (sections 18-19)** : RPO/RTO jamais
+   définis pour aucun système. Aucune preuve qu'une restauration ait
+   jamais été testée (`YELEN_SECURITY_MASTER.md` section 19 : "un backup
+   qui n'a jamais été restauré est une hypothèse"). Dépend entièrement du
+   tier Supabase souscrit (PITR, fréquence des backups) — **NOT
+   VERIFIED**, réglage dashboard hors de portée de cet environnement.
+3. **Reprise après sinistre (section 20)** : aucun `DISASTER_RECOVERY_RUNBOOK.md`
+   n'existe. Scénarios non préparés : compromission de compte, fuite de
+   secret, panne Supabase/Netlify prolongée, perte d'accès admin.
+4. **WAF / anti-DDoS réel** : le plan Cloudflare est acté en décision
+   (`/mission-securite-geo-restriction` de `CLAUDE.md`) mais **non
+   déployé** — la seule défense actuelle est un rate limiting en mémoire
+   d'instance edge (`lib/edgeSecurity.ts`), déjà documenté comme
+   insuffisant sous charge distribuée réelle (GAP-10-01).
+5. **Gestion des secrets** : tous les secrets vivent en variables
+   d'environnement brutes (Netlify), jamais dans un vrai coffre-fort
+   (Vault/AWS Secrets Manager/Doppler). Aucune politique de rotation
+   documentée pour `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_JWT_SECRET`,
+   `INSTITUTION_JWT_SECRET`, etc. — un secret compromis aujourd'hui n'a
+   pas de procédure de rotation d'urgence écrite.
+6. **Facteur bus / continuité organisationnelle (section 36)** : un seul
+   développeur (Bryan) a la connaissance complète du système et l'accès
+   à tous les secrets. Aucune séparation des privilèges, aucun second
+   accès de secours documenté — risque organisationnel, pas technique,
+   mais réel pour une plateforme "pour toujours".
+7. **Tests de sécurité formels (section 30)** : aucun SAST/DAST
+   automatisé en CI (le `.github/workflows/ci.yml` du 13/08 ne fait que
+   `tsc`/`build`/`npm audit` informationnel), aucun pentest externe
+   jamais réalisé.
+8. **Disclosure de vulnérabilité (section 34)** : aucun `security.txt`,
+   aucun canal de signalement pour un chercheur externe qui trouverait
+   une faille.
+
+### Solution robuste proposée — priorisée, pas un mur de recommandations
+
+**Immédiat (avant tout, indépendant de toute nouvelle fonctionnalité)** :
+1. Confirmer `QR_SECRET_KEY` définie sur **tous** les environnements
+   Netlify (production + preview) — sinon le secret de repli en dur est
+   une vraie clé publique. Envisager, dans un futur lot de code (pas
+   maintenant), de faire échouer explicitement la génération de QR si la
+   variable est absente plutôt que de retomber sur une valeur devinable
+   — même discipline déjà appliquée à `INSTITUTION_OTP_FALLBACK`.
+2. Ajouter une validation serveur minimale à `createRdv` (institution
+   existe + `statut='validee'` + créneau cohérent avec `disponibilites` +
+   capacité non dépassée) — un futur lot de code, pas ce soir, mais à
+   prioriser avant toute exposition externe (cohérent avec la Phase 0
+   déjà documentée).
+3. Programmer l'upgrade `next` (16.2.1→16.3.x) comme chantier dédié
+   testable — la nouvelle CVE "Server Function endpoints" concerne
+   directement l'architecture Server Actions de ce projet, ce n'est plus
+   seulement une bonne pratique générale.
+
+**Moyen terme (fondations avant la montée en charge)** :
+4. Déployer Cloudflare devant Netlify (déjà décidé, jamais exécuté) —
+   WAF managé + DDoS L3/L4/L7 + Bot Management, remplace la défense
+   edge actuelle qui ne survit pas un redémarrage d'instance.
+5. Basculer la CSP de Report-Only vers bloquant, une fois la navigation
+   réelle confirmée (déjà en attente depuis le 13/08, GAP-16-01).
+6. Construire une alerting minimale (Slack/email sur pic d'erreurs 5xx,
+   sur seuil de rate limiting dépassé, sur échec de sauvegarde) — même
+   un système simple vaut mieux que zéro visibilité active.
+7. Documenter RPO/RTO réels par système critique, et **tester** une
+   restauration au moins une fois — actuellement une hypothèse, jamais
+   une preuve.
+8. Écrire `INCIDENT_RESPONSE_PLAN.md` et `DISASTER_RECOVERY_RUNBOOK.md`
+   (sections 20/32 du master plan, jamais commencées) — même un document
+   simple change radicalement le temps de réaction en cas d'incident réel.
+
+**Long terme (ambition "pour toujours")** :
+9. Migrer les secrets vers un vrai gestionnaire de secrets avec
+   rotation programmée, pas des variables d'environnement statiques.
+10. SAST/dependency scanning automatisé en CI (bloquant, pas seulement
+    informationnel), premier pentest externe une fois le produit en
+    charge réelle.
+11. `security.txt` + canal de disclosure — signal de maturité vis-à-vis
+    de tout chercheur qui trouverait une faille, mieux vaut qu'il la
+    signale que la vende.
+12. Réduire le facteur bus : documentation d'urgence accessible à une
+    personne de confiance désignée, accès de secours (break-glass)
+    documenté et testé.
+
+**Rien de tout ceci n'a été implémenté dans cette phase — audit et
+proposition uniquement, conforme à la consigne de Bryan.**
+
+**Mise à jour — GAP-04-05 et GAP-08-02 corrigés le même soir** (Bryan :
+"Corige d'abord") :
+- `app/api/qr/generate/route.ts` — repli `"yelen224-secret"` supprimé,
+  échec explicite (500 `QR_SECRET_MISSING` côté log, message générique
+  côté client) si `QR_SECRET_KEY` est absente au moment de générer un
+  nouveau token (un token déjà valide continue d'être réutilisé sans
+  cette vérification, comportement inchangé).
+- `app/rdv/[id]/actions.ts` — nouvelle fonction `validerCreneauServeur()`,
+  appelée dans `createRdv` avant toute écriture : institution existe et
+  `statut='validee'`, créneau présent dans
+  `generateSlotsInRange(institution.disponibilites, 28)` (même fenêtre de
+  28 jours que le wizard, `app/rdv/[id]/page.tsx:658` — jamais de rejet
+  d'un créneau que l'écran propose lui-même), capacité non dépassée
+  (comptage `rdv`+`paid_bookings` par tally JS sur les 5 premiers
+  caractères de `heure_rdv`, même pattern déjà éprouvé dans
+  `app/api/rdv-disponibilite/route.ts` — évite un risque de non-
+  correspondance si la colonne renvoie des secondes).
+- **Test** : `npx tsc --noEmit` → exit 0.
+- **Non fait** : aucun test fonctionnel réel (navigateur) — Bryan doit
+  tester une réservation de bout en bout (créneau valide accepté,
+  créneau complet/hors disponibilités refusé avec le bon message) avant
+  tout commit/push.
+
+**Statut** : 🟢 CORRIGÉ (code) pour GAP-04-05 et GAP-08-02 — **non
+commité, non testé en conditions réelles**. Le reste (observabilité/DR/
+secrets/organisation) reste un constat honnête de dette structurelle,
+pas une action de code.
+**Date** : 01/09/2026.

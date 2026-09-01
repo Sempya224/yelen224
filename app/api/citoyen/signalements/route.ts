@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { validateUpload } from "@/lib/uploadSecurity";
 import { creerSignalement, ajouterPieceJointe } from "@/lib/signalements";
 import { isSignalementMotifCitoyen } from "@/lib/signalementsConstants";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 // Signalements — Lot 1 (case management, 08/08/2026). Remplace l'accès
 // direct anon-client de app/signalement/page.tsx (aucune policy RLS
@@ -18,8 +19,8 @@ export async function GET(request: NextRequest) {
   const accessToken = request.nextUrl.searchParams.get("accessToken");
   if (!accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
 
   const { data, error } = await sb.from("signalements")
     .select("id, numero_public, motif, description, preuve_url, statut, created_at, institution_id")
@@ -55,8 +56,8 @@ export async function POST(request: NextRequest) {
   const file = form.get("file");
 
   if (typeof accessToken !== "string" || !accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
 
   if (typeof institutionId !== "string" || !institutionId) return NextResponse.json({ error: "Sélectionnez une institution." }, { status: 400 });
   if (typeof rdvId !== "string" || !rdvId) return NextResponse.json({ error: "Sélectionnez le rendez-vous concerné." }, { status: 400 });

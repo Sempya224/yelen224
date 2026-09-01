@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { validateUpload } from "@/lib/uploadSecurity";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 // Feedback technique citoyen — écran /compte/feedback (24/08/2026), même
 // motivation que app/api/citoyen/signalements/route.ts : authentification
@@ -20,8 +21,8 @@ export async function POST(request: NextRequest) {
   const file = form.get("file");
 
   if (typeof accessToken !== "string" || !accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
 
   if (typeof message !== "string" || message.trim().length < 10) {
     return NextResponse.json({ error: "Décrivez le problème en au moins 10 caractères." }, { status: 400 });

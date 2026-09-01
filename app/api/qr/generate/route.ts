@@ -60,10 +60,25 @@ export async function POST(req: NextRequest) {
     let qr_expires_at = rdv.qr_expires_at;
 
     if (!tokenValide) {
+      // Correctif sécurité (01/09/2026) : plus de secret de repli codé en
+      // dur ("yelen224-secret") — si QR_SECRET_KEY est absente, la clé HMAC
+      // signant les tokens de présence serait une chaîne publique connue
+      // (visible dans ce fichier), permettant de forger un qr_token valide
+      // pour n'importe quel rdv_id/citoyen_id. Échec explicite plutôt qu'un
+      // repli devinable, même discipline que INSTITUTION_OTP_FALLBACK.
+      const qrSecret = process.env.QR_SECRET_KEY;
+      if (!qrSecret) {
+        console.error("[QR GENERATE] QR_SECRET_KEY manquante — génération de token refusée.");
+        return NextResponse.json(
+          { error: "Configuration serveur incomplète. Contactez le support." },
+          { status: 500 }
+        );
+      }
+
       // Générer un nouveau token
       const rawToken = `${rdv_id}:${citoyen_id}:${rdv.date_rdv}:${Date.now()}`;
       qr_token = crypto
-        .createHmac("sha256", process.env.QR_SECRET_KEY || "yelen224-secret")
+        .createHmac("sha256", qrSecret)
         .update(rawToken)
         .digest("hex");
 

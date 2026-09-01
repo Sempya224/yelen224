@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import { construireDiscoveryState } from "@/lib/discoveryStateBuilder";
 import { calculerDecouverte, FEATURE_CATALOGUE, type DiscoverySourceType } from "@/lib/discoveryEngine";
 import { enregistrerEvenementDecouverte, enregistrerImpressions } from "@/lib/discoveryMemory";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,9 +26,7 @@ const supabaseAdmin = createClient(
 async function authentifier(request: NextRequest) {
   const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
   if (!accessToken) return null;
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !user) return null;
-  return user;
+  return await verifierCitoyenToken(accessToken);
 }
 
 export async function GET(request: NextRequest) {

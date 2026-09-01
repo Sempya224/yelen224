@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 // Signalements — Lot 1 (08/08/2026). `signalements` passe en RLS activé
 // zéro policy (migration 20260808000004) — ce seul insert (Communauté
@@ -16,9 +17,8 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 async function getAuthenticatedCitoyenId(req: NextRequest): Promise<string | null> {
   const accessToken = req.headers.get("authorization")?.replace("Bearer ", "");
   if (!accessToken) return null;
-  const { data: { user }, error } = await sb.auth.getUser(accessToken);
-  if (error || !user) return null;
-  return user.id;
+  const user = await verifierCitoyenToken(accessToken);
+  return user?.id ?? null;
 }
 
 export async function POST(req: NextRequest) {

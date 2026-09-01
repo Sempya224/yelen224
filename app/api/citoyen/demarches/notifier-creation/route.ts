@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 // Chantier notifications (04/08/2026) — l'insert dans citoyen_demarches
 // reste client-direct (RLS auth.uid()=citoyen_id, voir mes-demarches-client.tsx),
@@ -18,8 +19,8 @@ export async function POST(request: NextRequest) {
   try {
     const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
     if (!accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authError || !user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
     const { demarcheId } = await request.json();
     if (!demarcheId) return NextResponse.json({ error: "demarcheId requis" }, { status: 400 });

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { parseHoraires, isOuvertNow } from "@/lib/horaires";
 import { generateSlotsInRange, toISODate } from "@/lib/disponibilites";
 import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const JOURS_FENETRE_CRENEAUX = 28;
 const JOURS_FENETRE_ATTENTE = 90;
@@ -17,9 +18,8 @@ const supabaseAdmin = createClient(
 async function getAuthenticatedCitoyenId(request: NextRequest): Promise<string | null> {
   const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
   if (!accessToken) return null;
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !user) return null;
-  return user.id;
+  const user = await verifierCitoyenToken(accessToken);
+  return user?.id ?? null;
 }
 
 // Lot B (chantier Favoris citoyen) — un seul appel pour peupler l'écran,

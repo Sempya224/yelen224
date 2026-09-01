@@ -64,6 +64,7 @@ type Institution = {
   annee_creation?: string; capacite?: string; langue?: string[];
   conditions_entreprise: string | null; informations_importantes: string | null; informations_legales: string | null;
   conditions_entreprise_le: string | null; informations_importantes_le: string | null; informations_legales_le: string | null;
+  conditions_entreprise_creee_le: string | null; informations_importantes_creee_le: string | null; informations_legales_creee_le: string | null;
   // Équipements structurés Hôtel (21/08/2026, lib/hotelEquipements.tsx) —
   // établissement uniquement, distinct des équipements par chambre
   // (PrestationHotel.equipements_chambre).
@@ -582,7 +583,23 @@ function InstitutionProfilePageInner() {
   useEffect(() => {
     if (!id) return;
     (async () => {
-      const { data: row } = await supabase.from("institutions").select("*").eq("id", id).maybeSingle();
+      // Correctif sécurité (01/09/2026) : select("*") sur ce client anon
+      // renvoyait mot_de_passe_hash (et toute autre colonne sensible) à
+      // chaque chargement de fiche publique — RLS filtre par ligne, jamais
+      // par colonne. Liste explicite = uniquement les colonnes réellement
+      // consommées ci-dessous, vérifiées une par une (croisé avec les
+      // select() déjà en production dans favoris/route.ts et
+      // rdv/[id]/page.tsx, et avec les migrations réelles). `nom`/`categorie`/
+      // `telephone` (repli JS ci-dessous) ne sont pas de vraies colonnes —
+      // drift déjà documenté dans CLAUDE.md (name/category/phone).
+      // conditions_entreprise_creee_le/informations_importantes_creee_le/
+      // informations_legales_creee_le (migration 20260831000001) réintégrées
+      // le 01/09/2026 — exécution en base confirmée par Bryan.
+      const { data: row } = await supabase
+        .from("institutions")
+        .select("id,slug,name,category,secteur,description,conditions_entreprise,informations_importantes,informations_legales,conditions_entreprise_le,informations_importantes_le,informations_legales_le,conditions_entreprise_creee_le,informations_importantes_creee_le,informations_legales_creee_le,equipements_etablissement,adresse,ville,quartier,phone,whatsapp,email,website,logo,banniere,moyenne_avis,nb_avis,badge_verifie,horaires,services,disponibilites,annee_creation,capacite,langue,activite_categorie_id")
+        .eq("id", id)
+        .maybeSingle();
       if (!row) { setLoading(false); return; }
       const r = row as Record<string, unknown>;
       setInst({
@@ -598,6 +615,9 @@ function InstitutionProfilePageInner() {
         conditions_entreprise_le: r.conditions_entreprise_le ? String(r.conditions_entreprise_le) : null,
         informations_importantes_le: r.informations_importantes_le ? String(r.informations_importantes_le) : null,
         informations_legales_le: r.informations_legales_le ? String(r.informations_legales_le) : null,
+        conditions_entreprise_creee_le: r.conditions_entreprise_creee_le ? String(r.conditions_entreprise_creee_le) : null,
+        informations_importantes_creee_le: r.informations_importantes_creee_le ? String(r.informations_importantes_creee_le) : null,
+        informations_legales_creee_le: r.informations_legales_creee_le ? String(r.informations_legales_creee_le) : null,
         equipements_etablissement: Array.isArray(r.equipements_etablissement) ? r.equipements_etablissement as string[] : [],
         adresse: String(r.adresse ?? ""), ville: String(r.ville ?? ""), quartier: String(r.quartier ?? ""),
         phone: String(r.phone ?? r.telephone ?? ""),
@@ -998,6 +1018,8 @@ function InstitutionProfilePageInner() {
   // urlExterneSure() revalide au rendu (défense en profondeur, données
   // historiques potentiellement non validées à l'écriture).
   const websiteHref = urlExterneSure(inst.website);
+  const adresseTexte = [inst.adresse, inst.quartier, inst.ville].filter(Boolean).join(", ");
+  const mapsHref = adresseTexte ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(adresseTexte)}` : null;
   // CTA V1 (17/08/2026) — source unique de vérité des capacités/CTA,
   // voir lib/prestataireCapacites.ts et docs/ui/YELEN_PRESTATAIRE_CTA_V1_SPEC.md.
   // Ne jamais dupliquer cette logique ailleurs dans ce fichier (hero et
@@ -1090,17 +1112,17 @@ function InstitutionProfilePageInner() {
       {(() => {
         const hBg      = isDark ? "rgba(7,7,22,0.97)" : "rgba(255,255,255,0.97)";
         const hText    = C.text;
-        const hChip    = inputBg;
-        const hChipBrd = inputBord;
         return (
         <header style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
           {/* Grille 1fr/auto/1fr (au lieu de space-between) — garde le
-              titre centré indépendamment de la largeur du chip retour. */}
+              titre centré indépendamment de la largeur du bouton retour.
+              Icônes retour/favoris/partager alignées sur le traitement de
+              CompteHeader (components/CompteEcranVide.tsx) : icône seule,
+              sans chip ni bordure (retour Bryan 31/08/2026, cohérence
+              entre la fiche établissement et les ~29 écrans /compte/*). */}
           <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-            <Link href="/recherche" className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", textDecoration: "none", color: hText, minWidth: 0 }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "9px", backgroundColor: hChip, border: `1px solid ${hChipBrd}`, display: "flex", alignItems: "center", justifyContent: "center", color: hText, flexShrink: 0 }}>
-                <Icons.Back />
-              </div>
+            <Link href="/recherche" className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", textDecoration: "none", background: "none", border: "none", padding: "4px 6px 4px 0", color: hText, minWidth: 0 }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
             </Link>
             <div style={{ minWidth: 0, maxWidth: "180px", textAlign: "center" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
@@ -1108,11 +1130,11 @@ function InstitutionProfilePageInner() {
                 {inst.badge_verifie && <MetaVerifiedBadge size={14}/>}
               </div>
             </div>
-            <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: "8px" }}>
-              <button onClick={handleToggleFavori} className="tap" aria-label={estFavori ? "Retirer des favoris" : "Ajouter aux favoris"} style={{ width: "36px", height: "36px", borderRadius: "9px", backgroundColor: hChip, border: `1px solid ${hChipBrd}`, display: "flex", alignItems: "center", justifyContent: "center", color: hText, cursor: "pointer", flexShrink: 0 }}>
-                {Icons.Heart(estFavori, estFavori ? "#ef4444" : hText, 18)}
+            <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: "10px" }}>
+              <button onClick={handleToggleFavori} className="tap" aria-label={estFavori ? "Retirer des favoris" : "Ajouter aux favoris"} style={{ background: "none", border: "none", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", color: hText, cursor: "pointer", flexShrink: 0 }}>
+                {Icons.Heart(estFavori, estFavori ? "#ef4444" : hText, 20)}
               </button>
-              <button onClick={handlePartager} className="tap" aria-label="Partager" style={{ width: "36px", height: "36px", borderRadius: "9px", backgroundColor: hChip, border: `1px solid ${hChipBrd}`, display: "flex", alignItems: "center", justifyContent: "center", color: hText, cursor: "pointer", flexShrink: 0 }}>
+              <button onClick={handlePartager} className="tap" aria-label="Partager" style={{ background: "none", border: "none", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", color: hText, cursor: "pointer", flexShrink: 0 }}>
                 <Icons.Share/>
               </button>
             </div>
@@ -1150,9 +1172,9 @@ function InstitutionProfilePageInner() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", margin: "0 0 3px" }}>
               <h1 style={{ color: C.text, fontSize: "20px", fontWeight: "900", margin: 0, lineHeight: 1.15, letterSpacing: "-0.5px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst.name}</h1>
               {websiteHref && (
-                <a href={websiteHref} target="_blank" rel="noreferrer" className="tap" style={{ display: "flex", alignItems: "center", gap: "5px", flexShrink: 0, background: C.cardBg, border: "1px solid #F5A623", borderRadius: "20px", padding: "6px 12px", color: C.text, fontSize: "11.5px", fontWeight: 700, textDecoration: "none" }}>
+                <a href={websiteHref} target="_blank" rel="noreferrer" className="tap" style={{ display: "flex", alignItems: "center", gap: "5px", flexShrink: 0, background: "#F5A623", borderRadius: "20px", padding: "6px 12px", color: "#080812", fontSize: "11.5px", fontWeight: 700, textDecoration: "none" }}>
                   Site web
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg>
                 </a>
               )}
             </div>
@@ -1176,11 +1198,16 @@ function InstitutionProfilePageInner() {
           <Stars note={noteMoyenne} size={14} isDark={isDark}/>
           <span style={{ color: C.textSubtle, fontSize: "12px", fontWeight: "600" }}>({nbAvis} avis)</span>
           {horaireAujd && (
-            <span style={{ background: ouvert ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)", border: `1px solid ${ouvert ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, color: ouvert ? "#22c55e" : "#ef4444", fontSize: "9px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>
+            <span style={{ background: "transparent", border: `1px solid ${ouvert ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, color: ouvert ? "#22c55e" : "#ef4444", fontSize: "9px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>
               {ouvert
                 ? `● OUVERT${horaireAujd.fin ? ` · Ferme à ${horaireAujd.fin}` : ""}`
                 : `● FERMÉ${prochaineOuv ? ` · Ouvre ${prochaineOuv.label === "aujourd'hui" ? "" : prochaineOuv.label + " "}à ${prochaineOuv.debut}` : ""}`}
             </span>
+          )}
+          {mapsHref && (
+            <a href={mapsHref} target="_blank" rel="noreferrer" className="tap" aria-label="Itinéraire" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "26px", height: "26px", borderRadius: "10px", background: C.sectionAlt, border: `1px solid ${C.borderCard}`, flexShrink: 0 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+            </a>
           )}
           {annonces.length > 0 && (
             <span style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", color: "#F5A623", fontSize: "9px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
@@ -1207,7 +1234,7 @@ function InstitutionProfilePageInner() {
               )}
               {ctaQuickSecondary && (
                 <a href={ctaHref(ctaQuickSecondary)} target={ctaQuickSecondary === "phone" ? undefined : "_blank"} rel={ctaQuickSecondary === "phone" ? undefined : "noreferrer"} className="tap" style={ctaQuickSecondary === "whatsapp"
-                  ? { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "rgba(37,211,102,0.1)", border: "1.5px solid rgba(37,211,102,0.3)", color: "#22c55e", fontWeight: "700", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none" }
+                  ? { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "transparent", border: `1px solid ${inputBord}`, color: "#22c55e", fontWeight: "700", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none" }
                   : { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontWeight: "700", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none" }}>
                   {ctaQuickSecondary === "whatsapp" ? <Icons.Whatsapp /> : <Icons.Phone />} {CTA_LABELS[ctaQuickSecondary]}
                 </a>
@@ -1353,11 +1380,11 @@ function InstitutionProfilePageInner() {
             )}
 
             <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "16px" }}>
-              <SectionTitle icon={<Icons.Phone />} label="Contacts" color="#22c55e"/>
+              <SectionTitle icon={<Icons.Phone />} label="Contacts" color="#F5A623"/>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {inst.adresse && (
                   <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.07)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#F5A623" }}><Icons.MapPin /></div>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#fff" }}><Icons.MapPin /></div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>Adresse</div>
                       <div style={{ color: C.text, fontSize: "13px", fontWeight: "600", lineHeight: 1.4 }}>{inst.adresse}</div>
@@ -1367,34 +1394,42 @@ function InstitutionProfilePageInner() {
                 )}
                 {inst.phone && (
                   <a href={`tel:${inst.phone}`} style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "rgba(34,197,94,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icons.Phone /></div>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17v-.08z"/></svg>
+                    </div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>Téléphone</div>
-                      <div style={{ color: "#22c55e", fontSize: "14px", fontWeight: "700" }}>{inst.phone}</div>
+                      <div style={{ color: C.text, fontSize: "14px", fontWeight: "700" }}>{inst.phone}</div>
                     </div>
                   </a>
                 )}
                 {inst.whatsapp && (
                   <a href={`https://wa.me/${inst.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "rgba(34,197,94,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icons.Whatsapp /></div>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <svg width="16" height="16" fill="#25D366" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.890-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                    </div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>WhatsApp</div>
-                      <div style={{ color: "#22c55e", fontSize: "14px", fontWeight: "700" }}>{inst.whatsapp}</div>
+                      <div style={{ color: C.text, fontSize: "14px", fontWeight: "700" }}>{inst.whatsapp}</div>
                     </div>
                   </a>
                 )}
                 {inst.email && (
                   <a href={`mailto:${inst.email}`} style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: isDark ? "rgba(59,130,246,0.08)" : "rgba(59,130,246,0.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icons.Mail /></div>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2" strokeLinecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                    </div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>Email</div>
-                      <div style={{ color: "#60a5fa", fontSize: "13px", fontWeight: "600" }}>{inst.email}</div>
+                      <div style={{ color: "#F5A623", fontSize: "13px", fontWeight: "600" }}>{inst.email}</div>
                     </div>
                   </a>
                 )}
                 {websiteHref && (
                   <a href={websiteHref} target="_blank" rel="noreferrer" style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icons.Globe /></div>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                    </div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>Site web</div>
                       <div style={{ color: "#F5A623", fontSize: "13px", fontWeight: "600" }}>Visiter le site →</div>
@@ -1427,6 +1462,10 @@ function InstitutionProfilePageInner() {
 
         {/* HORAIRES */}
         <div ref={horairesRef} style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "24px", scrollMarginTop: "calc(52px + env(safe-area-inset-top) + 64px)" }}>
+            <div>
+              <SectionTitle icon={<Icons.Clock />} label="Horaires" color={C.text}/>
+              <p style={{ color: C.textSubtle, fontSize: "12px", margin: "-8px 0 0", lineHeight: 1.5 }}>Retrouvez les jours et horaires d&apos;ouverture de {inst.name} pour planifier votre visite.</p>
+            </div>
             {inst.horaires.length === 0 ? (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center" }}>
                 <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}><Icons.Clock /></div>
@@ -1448,11 +1487,11 @@ function InstitutionProfilePageInner() {
                   {inst.horaires.map((h, i) => {
                     const isToday = h.jour.toLowerCase() === jourAujd.toLowerCase();
                     return (
-                      <div key={h.jour} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: i < inst.horaires.length - 1 ? `1px solid ${C.borderSubtle}` : "none", backgroundColor: isToday ? (isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)") : "transparent" }}>
+                      <div key={h.jour} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: i < inst.horaires.length - 1 ? `1px solid ${C.borderSubtle}` : "none" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           {isToday && <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#F5A623", flexShrink: 0 }}/>}
                           <span style={{ color: isToday ? "#F5A623" : C.text, fontSize: "14px", fontWeight: isToday ? "800" : "600" }}>{h.jour}</span>
-                          {isToday && <span style={{ background: "rgba(245,166,35,0.12)", color: "#F5A623", fontSize: "9px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px" }}>Aujourd&apos;hui</span>}
+                          {isToday && <span style={{ background: "#F5A623", color: "#fff", fontSize: "9px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px" }}>Aujourd&apos;hui</span>}
                         </div>
                         <span style={{ color: h.ouvert ? C.text : C.textSubtle, fontSize: "13px", fontWeight: h.ouvert ? "700" : "500", fontStyle: h.ouvert ? "normal" : "italic" }}>{formatHoraire(h)}</span>
                       </div>
@@ -1469,6 +1508,8 @@ function InstitutionProfilePageInner() {
             "l'ajout des chambres avec image est obligatoire", l'ancienne
             liste texte sans photo était insuffisante pour un hôtel). */}
         <div ref={servicesRef} style={{ marginTop: "24px", scrollMarginTop: "calc(52px + env(safe-area-inset-top) + 64px)" }}>
+          <SectionTitle icon={isHotel ? <Icons.Building /> : <Icons.Note />} label={isHotel ? "Chambres" : "Services"} color={C.text}/>
+          <p style={{ color: C.textSubtle, fontSize: "12px", margin: "-8px 0 14px", lineHeight: 1.5 }}>{isHotel ? `Découvrez les chambres disponibles chez ${inst.name}, avec photos et tarifs.` : `Découvrez les services proposés par ${inst.name} et prenez rendez-vous en quelques clics.`}</p>
           {isHotel ? (
             chambresHotel.length === 0 ? (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center" }}>
@@ -1675,9 +1716,9 @@ function InstitutionProfilePageInner() {
             const avisRepondu = avis.find(a => a.reponse_institution);
             if (!avisRepondu) return null;
             return (
-              <div style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 15px", marginBottom: "14px" }}>
+              <div style={{ backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "14px", padding: "14px 15px", marginBottom: "14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "9px", marginBottom: "8px" }}>
-                  <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "linear-gradient(135deg,rgba(245,166,35,0.2),rgba(245,166,35,0.08))", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "900", color: "#F5A623", flexShrink: 0 }}>
+                  <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
                     {avisRepondu.nom.slice(0, 2).toUpperCase()}
                   </div>
                   <div>
@@ -1686,11 +1727,11 @@ function InstitutionProfilePageInner() {
                   </div>
                 </div>
                 {avisRepondu.commentaire && (
-                  <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 8px", fontStyle: "italic" }}>&quot;{avisRepondu.commentaire}&quot;</p>
+                  <p style={{ color: C.text, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 8px", fontStyle: "italic", fontWeight: "600" }}>&quot;{avisRepondu.commentaire}&quot;</p>
                 )}
-                <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.05)", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "10px", padding: "8px 10px" }}>
-                  <div style={{ color: "#F5A623", fontSize: "10.5px", fontWeight: "800", marginBottom: "3px" }}>
-                    Réponse de l&apos;établissement{avisRepondu.reponse_le ? ` · ${new Date(avisRepondu.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}
+                <div style={{ padding: "8px 10px" }}>
+                  <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "700", marginBottom: "3px" }}>
+                    {inst.name}{avisRepondu.reponse_le ? ` · ${new Date(avisRepondu.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}
                   </div>
                   <div style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.5 }}>{avisRepondu.reponse_institution}</div>
                 </div>
@@ -1918,7 +1959,7 @@ function InstitutionProfilePageInner() {
             </div>
 
             {/* Info politique */}
-            <div style={{ background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.15)", borderRadius: "12px", padding: "11px 13px", display: "flex", alignItems: "flex-start", gap: "8px" }}>
+            <div style={{ background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${C.borderCard}`, borderRadius: "12px", padding: "11px 13px", display: "flex", alignItems: "flex-start", gap: "8px" }}>
               <span style={{ color: "#3b82f6", flexShrink: 0 }}><Icons.Lock /></span>
               <span style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.55 }}>Seuls les citoyens ayant effectué un rendez-vous peuvent laisser un avis. Les avis vérifiés sont marqués d&apos;un badge.</span>
             </div>
@@ -1929,7 +1970,7 @@ function InstitutionProfilePageInner() {
                 <div key={a.id} style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 15px", animation: `fadeUp 0.2s ease ${i * 0.04}s both` }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-                      <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "linear-gradient(135deg,rgba(245,166,35,0.2),rgba(245,166,35,0.08))", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", color: "#F5A623", flexShrink: 0 }}>
+                      <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
                         {a.nom.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
@@ -1955,11 +1996,11 @@ function InstitutionProfilePageInner() {
                   )}
 
                   {a.reponse_institution && (
-                    <div style={{ background: isDark ? "rgba(245,166,35,0.06)" : "rgba(245,166,35,0.05)", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "10px", padding: "8px 10px", marginBottom: "8px" }}>
-                      <div style={{ color: "#F5A623", fontSize: "10.5px", fontWeight: "800", marginBottom: "3px" }}>
-                        Réponse de l&apos;établissement{a.reponse_le ? ` · ${new Date(a.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
+                    <div style={{ background: "#F5A623", borderRadius: "10px", padding: "8px 10px", marginBottom: "8px" }}>
+                      <div style={{ color: "#080812", fontSize: "10.5px", fontWeight: "800", marginBottom: "3px" }}>
+                        {inst.name}{a.reponse_le ? ` · ${new Date(a.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
                       </div>
-                      <div style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.5 }}>{a.reponse_institution}</div>
+                      <div style={{ color: "#080812", fontSize: "12px", lineHeight: 1.5 }}>{a.reponse_institution}</div>
                     </div>
                   )}
 
@@ -2444,17 +2485,23 @@ function InstitutionProfilePageInner() {
       ══════════════════════════════════════════════════════ */}
       {infoOpen && (() => {
         const meta = {
+          // Icônes maison (pas des glyphes génériques réutilisés d'ailleurs
+          // dans le fichier) — un pictogramme par nature de contenu :
+          // document signé (conditions), cloche (informations importantes),
+          // balance (informations légales). Couleur Yelen unique pour les 3
+          // (retour Bryan 31/08/2026, cohérence avec le reste de la fiche —
+          // fond doré plein, icône foncée, comme CTA/avatars/pill site web).
           conditions: {
-            titre: "Conditions de l'entreprise", texte: inst?.conditions_entreprise, date: inst?.conditions_entreprise_le, color: "#a855f7",
-            icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l2 2 4-4"/><path d="M20 12a8 8 0 1 1-3.5-6.6"/></svg>,
+            titre: "Conditions de l'entreprise", texte: inst?.conditions_entreprise, date: inst?.conditions_entreprise_le, dateCreation: inst?.conditions_entreprise_creee_le, color: "#F5A623",
+            icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>,
           },
           importantes: {
-            titre: isHotel ? "Règles du séjour" : "Informations importantes", texte: inst?.informations_importantes, date: inst?.informations_importantes_le, color: "#60a5fa",
-            icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
+            titre: isHotel ? "Règles du séjour" : "Informations importantes", texte: inst?.informations_importantes, date: inst?.informations_importantes_le, dateCreation: inst?.informations_importantes_creee_le, color: "#F5A623",
+            icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
           },
           legales: {
-            titre: "Informations légales", texte: inst?.informations_legales, date: inst?.informations_legales_le, color: "#94a3b8",
-            icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6z"/></svg>,
+            titre: "Informations légales", texte: inst?.informations_legales, date: inst?.informations_legales_le, dateCreation: inst?.informations_legales_creee_le, color: "#F5A623",
+            icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v18"/><path d="M9 21h6"/><path d="M5 8h14"/><path d="m5 8-3 6a4 4 0 0 0 8 0z"/><path d="m19 8-3 6a4 4 0 0 0 8 0z"/></svg>,
           },
         }[infoOpen];
         return (
@@ -2470,16 +2517,27 @@ function InstitutionProfilePageInner() {
             </header>
             <div style={{ padding: "8px 20px 24px", maxWidth: "560px", margin: "0 auto" }}>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}>
-                <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: `${meta.color}18`, border: `1px solid ${meta.color}35`, display: "flex", alignItems: "center", justifyContent: "center", color: meta.color }}>
+                <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: meta.color, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {meta.icon}
                 </div>
               </div>
               <h1 style={{ color: C.text, fontSize: "19px", fontWeight: "900", textAlign: "center", margin: "0 0 20px", letterSpacing: "-0.3px" }}>{meta.titre}</h1>
               {meta.texte ? (
                 <div style={{ backgroundColor: C.cardBg, borderRadius: "18px", padding: "22px 20px" }}>
+                  <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "10px" }}>{meta.titre}</div>
                   <p style={{ color: C.textMuted, fontSize: "14.5px", lineHeight: 1.85, margin: 0, whiteSpace: "pre-wrap" }}>{meta.texte}</p>
-                  <p style={{ color: C.textFaint, fontSize: "11px", margin: "16px 0 0", paddingTop: "14px", borderTop: `1px solid ${C.borderCard}` }}>
-                    Écrit par {inst?.name}{meta.date ? ` · mis à jour le ${new Date(meta.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                  <p style={{ color: "#080812", background: "#F5A623", borderRadius: "10px", fontSize: "11px", fontWeight: "700", margin: "16px 0 0", padding: "8px 10px" }}>
+                    {(() => {
+                      const fmt = (d: string) => new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+                      // dateCreation absente (contenu écrit avant la migration
+                      // 20260831000001) : repli sur meta.date, seule date
+                      // connue pour cette ligne — jamais de "mis à jour"
+                      // affiché dans ce cas, faute de vraie date de création
+                      // à comparer.
+                      const dateEcrit = meta.dateCreation ?? meta.date;
+                      const misAJour = meta.dateCreation && meta.date && meta.date !== meta.dateCreation ? meta.date : null;
+                      return <>Écrit par {inst?.name}{dateEcrit ? ` · écrit le ${fmt(dateEcrit)}` : ""}{misAJour ? ` · a été mis à jour le ${fmt(misAJour)}` : ""}</>;
+                    })()}
                   </p>
                 </div>
               ) : (

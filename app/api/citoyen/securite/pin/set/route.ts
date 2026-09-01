@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,8 +42,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce code est trop simple (chiffres répétés ou suite logique). Choisissez-en un autre.", code: "WEAK_PIN" }, { status: 400 });
     }
 
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authErr || !user) {
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) {
       return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
     }
 

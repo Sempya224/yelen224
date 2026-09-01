@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -13,8 +14,8 @@ const BIO_MAX = 160;
 export async function GET(req: NextRequest) {
   const accessToken = req.headers.get("authorization")?.replace("Bearer ", "");
   if (!accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
 
   const userId = req.nextUrl.searchParams.get("userId");
   if (!userId) return NextResponse.json({ error: "userId requis" }, { status: 400 });
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest) {
   const bioPropre = typeof bio === "string" ? bio.trim() : "";
   if (bioPropre.length > BIO_MAX) return NextResponse.json({ error: `Bio trop longue (max ${BIO_MAX} caractères)` }, { status: 400 });
 
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
 
   const { error } = await sb.from("users").update({ bio: bioPropre || null }).eq("id", user.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

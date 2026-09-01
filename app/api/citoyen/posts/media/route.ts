@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { validateUpload } from "@/lib/uploadSecurity";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 // Upload d'image de post citoyen — mirroring exact de
 // app/api/citoyen/profil/photo/route.ts (l'upload direct client vers
@@ -25,8 +26,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
   }
 
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) {
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) {
     return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
   }
 

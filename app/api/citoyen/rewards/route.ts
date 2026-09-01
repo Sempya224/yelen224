@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,9 +11,8 @@ const supabaseAdmin = createClient(
 async function getAuthenticatedCitoyenId(request: NextRequest): Promise<string | null> {
   const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
   if (!accessToken) return null;
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !user) return null;
-  return user.id;
+  const user = await verifierCitoyenToken(accessToken);
+  return user?.id ?? null;
 }
 
 const HISTORIQUE_LIMITE_DEFAUT = 30;

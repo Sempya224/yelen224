@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { validateUpload } from "@/lib/uploadSecurity";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 // Upload photo de profil citoyen via service_role. La policy RLS ajoutée sur
 // storage.objects (migration 20260720000011) n'a pas suffi en pratique — le
@@ -29,8 +30,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
   }
 
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) {
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) {
     return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
   }
 

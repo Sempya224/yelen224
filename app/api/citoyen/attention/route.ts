@@ -9,6 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import { construireCitizenState } from "@/lib/citizenStateBuilder";
 import { calculerEtatDattention } from "@/lib/attentionEngine";
 import { lireMemoire, mettreAJourMemoire } from "@/lib/attentionMemory";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,8 +21,8 @@ export async function GET(request: NextRequest) {
   try {
     const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
     if (!accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authError || !user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
     const [state, memoire] = await Promise.all([
       construireCitizenState(supabaseAdmin, user.id),
