@@ -194,6 +194,58 @@ describe("authSecurity — escalade des cycles de blocage", () => {
   });
 });
 
+describe("authSecurity — correctif 12/09/2026 (bypass via 'trouve'/'code_envoye')", () => {
+  it("un attaquant qui répète lookup/send-otp sans jamais vérifier le code finit par être bloqué (avant le correctif : jamais, car 'trouve' et 'code_envoye' réinitialisaient le compteur)", async () => {
+    const sb = creerFauxSupabase();
+    const deviceId = "attaquant-lookup", ip = "8.8.8.8";
+    const t1 = await enregistrerTentative(sb, { endpointCategory: ENDPOINT, deviceId, ip, outcome: "trouve" });
+    expect(t1.state).toBe("normal");
+    const t2 = await enregistrerTentative(sb, { endpointCategory: ENDPOINT, deviceId, ip, outcome: "trouve" });
+    expect(t2.state).toBe("normal");
+    const t3 = await enregistrerTentative(sb, { endpointCategory: "institution_register", deviceId, ip, outcome: "code_envoye" });
+    expect(t3.state).toBe("warning");
+    const t4 = await enregistrerTentative(sb, { endpointCategory: "institution_register", deviceId, ip, outcome: "code_envoye" });
+    expect(t4.state).toBe("blocked");
+    expect(t4.retryAfterS).toBeGreaterThan(0);
+  });
+
+  it("un vrai succès (code_correct) réinitialise attempts_in_window mais préserve block_cycles_24h", async () => {
+    const sb = creerFauxSupabase({
+      auth_device_security: [{
+        device_id: "device-8", ip_last: "1.1.1.1", state: "warning", blocked_until: null,
+        window_started_at: new Date().toISOString(), attempts_in_window: 3,
+        state_changed_at: new Date().toISOString(), block_cycles_24h: 2,
+        cycles_window_started_at: new Date().toISOString(), blocked_reason: null,
+      }],
+      auth_ip_security: [{
+        ip: "1.1.1.1", state: "warning", blocked_until: null,
+        window_started_at: new Date().toISOString(), attempts_in_window: 3,
+        state_changed_at: new Date().toISOString(), block_cycles_24h: 2,
+        cycles_window_started_at: new Date().toISOString(), blocked_reason: null,
+      }],
+    });
+    const r = await enregistrerTentative(sb, { endpointCategory: ENDPOINT, deviceId: "device-8", ip: "1.1.1.1", outcome: "code_correct" });
+    expect(r.state).toBe("normal");
+    const rowDevice = sb._tables.auth_device_security.find((row) => row.device_id === "device-8");
+    expect(rowDevice?.attempts_in_window).toBe(0);
+    expect(rowDevice?.block_cycles_24h).toBe(2); // historique d'abus 24h non effacé par un succès isolé
+    const rowIp = sb._tables.auth_ip_security.find((row) => row.ip === "1.1.1.1");
+    expect(rowIp?.attempts_in_window).toBe(0);
+    expect(rowIp?.block_cycles_24h).toBe(2);
+  });
+
+  it("un flux de connexion légitime répété (trouve -> code_correct) n'atteint jamais warning, même deux fois de suite en 15 min (non-régression du correctif du 03/09)", async () => {
+    const sb = creerFauxSupabase();
+    const deviceId = "citoyen-legitime", ip = "10.10.10.10";
+    for (let i = 0; i < 3; i++) {
+      const tLookup = await enregistrerTentative(sb, { endpointCategory: ENDPOINT, deviceId, ip, outcome: "trouve" });
+      expect(tLookup.state).toBe("normal");
+      const tVerify = await enregistrerTentative(sb, { endpointCategory: ENDPOINT, deviceId, ip, outcome: "code_correct" });
+      expect(tVerify.state).toBe("normal");
+    }
+  });
+});
+
 describe("authSecurity — inscription répétée / connexion répétée sur plusieurs endpoints", () => {
   it("compte les tentatives indépendamment de endpointCategory pour un même scope device", async () => {
     // Le compteur est par device/ip, pas par endpoint — un même appareil

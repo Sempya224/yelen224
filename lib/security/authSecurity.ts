@@ -295,10 +295,70 @@ async function incrementerEtEvaluer(
   return { state: nouvelEtat, retryAfterS: blockedUntil ? Math.ceil((new Date(blockedUntil).getTime() - maintenant) / 1000) : undefined };
 }
 
+// Correctif "blocage même avec infos correctes" (03/09/2026) — avant ce
+// correctif, TOUTE tentative (y compris un succès) incrémentait
+// attempts_in_window. Le flow citoyen normal fait 2 appels par connexion
+// réussie (lookup 'trouve' + verify 'code_correct') : 2 connexions
+// légitimes en 15 min suffisaient à atteindre SEUIL_BLOCAGE et à bloquer
+// le citoyen à la porte dès sa 3e tentative, pourtant elle aussi correcte.
+// Pratique standard (NIST 800-63B / façon Google-GitHub) : seuls les
+// ÉCHECS comptent vers l'escalade, un succès authentifié remet la fenêtre
+// courte à zéro (sans effacer block_cycles_24h — l'historique d'abus sur
+// 24h reste, un succès isolé au milieu d'une vague d'attaque ne doit pas
+// l'effacer). Liste vérifiée par grep sur tous les appelants réels de
+// enregistrerTentative/enregistrerTentativeAdmin/enregistrerTentativeAdminEntry
+// du repo — tout outcome absent de cette liste reste classé échec par
+// défaut (fail-secure), y compris pour des catégories pas encore auditées.
+//
+// ⚠️ Revue sécurité 12/09/2026 : 'trouve' et 'code_envoye' RETIRÉS de ce
+// set (présents dans la version du 03/09, bug réel trouvé ici). Ces deux
+// outcomes signalent seulement "un OTP vient d'être généré/envoyé" — AVANT
+// toute vérification de code, donc sans aucune preuve d'identité. Comme
+// ils partagent le même compteur device+IP que l'étape de vérification qui
+// suit (citoyen_login, institution_login/institution_register), un
+// attaquant pouvait rappeler lookup/send-otp entre chaque tentative de
+// code pour remettre son compteur d'échecs à zéro et neutraliser
+// complètement l'escalade (warning/blocage) sur ces flux. Le correctif
+// d'origine (2 connexions légitimes qui bloquaient à tort) reste résolu :
+// c'est 'code_correct' — une vraie preuve — qui réinitialise déjà le
+// compteur à la fin d'un cycle complet réussi.
+const OUTCOMES_SUCCES = new Set([
+  "code_correct", // OTP/PIN/mot de passe/TOTP correct
+  "compte_cree", // inscription aboutie
+  "demande_creee", // récupération de compte : demande créée
+  "verification_ok", // WebAuthn : assertion vérifiée
+]);
+
+/** Remet la fenêtre courte à zéro après un succès prouvé — ne touche pas
+ * block_cycles_24h (voir commentaire ci-dessus). No-op si aucune ligne
+ * n'existe encore pour ce device/ip. */
+async function reinitialiserApresSucces(
+  sb: SupabaseClient,
+  scope: Scope,
+  valeur: string,
+  tables: TableSet = TABLES_DEFAUT
+): Promise<EvaluationSecurite> {
+  const { table, colonne } = tableEtColonne(scope, tables);
+  const nowIso = new Date().toISOString();
+  await sb
+    .from(table)
+    .update({
+      attempts_in_window: 0,
+      state: "normal",
+      state_changed_at: nowIso,
+      blocked_until: null,
+      blocked_reason: null,
+      last_seen_at: nowIso,
+    })
+    .eq(colonne, valeur);
+  return { state: "normal" };
+}
+
 /** Enregistre une tentative RÉELLE d'authentification (jamais un simple
  * clic UI) — à appeler après résolution de l'opération métier (trouvé/
  * not_found, code correct/incorrect, etc.), jamais avant. Écrit l'audit
- * trail immuable et met à jour device+ip. */
+ * trail immuable et met à jour device+ip (échec : incrémente et escalade ;
+ * succès : réinitialise, voir OUTCOMES_SUCCES ci-dessus). */
 export async function enregistrerTentative(
   sb: SupabaseClient,
   params: {
@@ -311,9 +371,14 @@ export async function enregistrerTentative(
   },
   tables: TableSet = TABLES_DEFAUT
 ): Promise<EvaluationSecurite> {
+  const succes = OUTCOMES_SUCCES.has(params.outcome);
   const [deviceRes, ipRes] = await Promise.all([
-    incrementerEtEvaluer(sb, "device", params.deviceId, params.endpointCategory, params.ip, tables),
-    incrementerEtEvaluer(sb, "ip", params.ip, params.endpointCategory, params.ip, tables),
+    succes
+      ? reinitialiserApresSucces(sb, "device", params.deviceId, tables)
+      : incrementerEtEvaluer(sb, "device", params.deviceId, params.endpointCategory, params.ip, tables),
+    succes
+      ? reinitialiserApresSucces(sb, "ip", params.ip, tables)
+      : incrementerEtEvaluer(sb, "ip", params.ip, params.endpointCategory, params.ip, tables),
   ]);
   const pire = pireEtat(deviceRes, ipRes);
 

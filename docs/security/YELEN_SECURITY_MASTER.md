@@ -2327,3 +2327,39 @@ acceptée, créneau complet/hors disponibilités refusé) avant tout
 commit/push.
 **Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
 "REVUE CRITIQUE EXPRESS". **Date** : 01/09/2026.
+
+---
+
+### DEC-2026-09-12-01 — GAP-10-01 : correctif du contournement de rate limiting (`trouve`/`code_envoye`) + 3 tests de régression
+
+**Description** : dans le cadre de la revue de sécurité complète
+demandée par Bryan, reprise de la session en cours (non commitée) sur
+`lib/security/authSecurity.ts`. 2 bugs réels confirmés en la testant :
+(1) 03/09 — un succès comptait comme une tentative, bloquant un citoyen
+légitime dès sa 3e connexion correcte en 15 min ; (2) 12/09 — le
+correctif du 03/09 avait classé `trouve`/`code_envoye` (étapes
+préalables à toute vérification) comme des succès, permettant à un
+attaquant de neutraliser complètement l'escalade en rappelant
+`lookup`/`send-otp` en boucle sans jamais tenter de code. Détail complet
+(cause/impact/correctif) dans
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section "MISE À JOUR —
+12/09/2026".
+**Correctif** : `OUTCOMES_SUCCES` restreint aux 4 outcomes qui prouvent
+réellement une identité (`code_correct`, `compte_cree`, `demande_creee`,
+`verification_ok`) ; `trouve`/`code_envoye` retombent dans le chemin
+échec normal.
+**Test** : 13 tests vitest (`lib/security/authSecurity.test.ts`, 10
+préexistants + 3 nouveaux couvrant explicitement l'exploit du 12/09, la
+préservation de `block_cycles_24h` après succès, et la non-régression du
+flux légitime) → 13 passed. `npx tsc --noEmit` sur tout le projet →
+exit 0.
+**Statut** : 🟠 IN PROGRESS — correctif testé unitairement, prêt pour
+commit dédié. Déploiement réel toujours bloqué sur les 3 mêmes
+conditions que GAP-10-01 depuis le 30/08 (migration
+`20260828000004_auth_security.sql` non confirmée exécutée, chantier
+`authSecurity.ts` non commité dans son ensemble, aucune vérification en
+production). **Aucun test en conditions réelles** (navigateur/Supabase
+réel) — dépend de la confirmation de la migration.
+**Preuve** : `lib/security/authSecurity.ts`,
+`lib/security/authSecurity.test.ts`, sortie vitest/tsc ci-dessus.
+**Date** : 12/09/2026.

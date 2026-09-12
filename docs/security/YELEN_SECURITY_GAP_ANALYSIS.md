@@ -39,7 +39,7 @@ de ce premier lot.
 | GAP-14-01 | 8 vulnérabilités npm en production (2 moderate, 6 high), dont `next` lui-même | **Medium-High** | 🟠 IN PROGRESS — 5/10 corrigées Lot 1.1 (`ws`/`js-yaml`), reste 5 : analyse détaillée faite 13/08 (`--force` volontairement non exécuté), chantier dédié testable à planifier |
 | GAP-06-03 | Doublon de migration au même horodatage (`20260711000002`, deux fichiers créant `institution_responsables`) | **Medium** | 🟢 VERIFIED — `institutions.langue` confirmée `jsonb` par Bryan 14/08/2026, `institution_responsable_et_fix_langue.sql` est la migration réellement exécutée, l'autre fichier est un brouillon obsolète |
 | GAP-06-04 | Fonction `SECURITY DEFINER` `appliquer_recuperations_dues()` sans paramètre, privilèges `EXECUTE` réels non confirmés | **Medium** | 🟢 VERIFIED & CORRIGÉ — `anon` avait bien `EXECUTE` (confirmé `true` 14/08/2026), `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated` exécuté par Bryan, revérifié `false` |
-| GAP-10-01 | Rate limiting basé sur des `Map` en mémoire locale à l'instance serverless — efficacité réelle sur Netlify Functions non garantie | **Medium** | ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** (13/08, DEC-2026-08-13-02), 5 conditions de levée définies |
+| GAP-10-01 | Rate limiting basé sur des `Map` en mémoire locale à l'instance serverless — efficacité réelle sur Netlify Functions non garantie | **Medium** | 🟠 IN PROGRESS — solution `authSecurity.ts` complète pour les 5 flux + 2 bugs réels trouvés et corrigés en la testant (03/09 : succès comptés comme échecs ; 12/09 : contournement du compteur via `trouve`/`code_envoye`), 13 tests vitest verts, `tsc` exit 0. **Toujours non commité, non déployé** — voir section "MISE À JOUR — 12/09/2026" en fin de document |
 | GAP-04-02 | OTP citoyen/institution : code unique partagé (`*_OTP_FALLBACK`) tant qu'aucun fournisseur SMS n'est branché, aucun garde `NODE_ENV` | **Medium** | ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** (13/08, DEC-2026-08-13-04), décision explicite de Bryan de ne pas bloquer |
 | GAP-04-03 | 2FA admin optionnelle par compte, non imposée globalement | **Medium** | ✅ **Chantier MFA Admin clôturé** (validation CEO 13/08) — gate implémenté (`middleware.ts` + `login/route.ts`), `tsc`/`build` propres. Amélioration future notée (régénération de session après activation 2FA), hors périmètre. |
 | GAP-14-02 | Aucun CI/CD (`.github/workflows/` absent) — zéro test/scan automatisé | **Medium** | 🟠 IN PROGRESS — workflow minimal préparé Lot 1.1, activation de la protection de branche restant à Bryan |
@@ -2581,3 +2581,107 @@ commité, non testé en conditions réelles**. Le reste (observabilité/DR/
 secrets/organisation) reste un constat honnête de dette structurelle,
 pas une action de code.
 **Date** : 01/09/2026.
+
+---
+
+## MISE À JOUR — 12/09/2026 : GAP-10-01, correctif du contournement du rate limiting (`trouve`/`code_envoye`) + suite de tests
+
+Dans le cadre de la revue de sécurité complète demandée par Bryan
+(architecture + audit exécutable), reprise de la session en cours sur
+`lib/security/authSecurity.ts` (modifiée, non commitée) pour la vérifier,
+la tester et la documenter avant tout commit — conformément à la
+consigne explicite : "ne laisse pas ce correctif non commité ou non
+testé."
+
+### Cause (2 bugs réels, trouvés à deux dates différentes en testant ce module)
+
+1. **03/09/2026** — avant ce correctif, `enregistrerTentative()`
+   incrémentait `attempts_in_window` pour **toute** tentative, y compris
+   un succès. Le flux citoyen normal fait 2 appels par connexion réussie
+   (`lookup` → outcome `trouve`, puis `verify` → outcome `code_correct`) :
+   2 connexions légitimes en 15 minutes suffisaient à atteindre
+   `SEUIL_BLOCAGE` (4) et bloquaient un citoyen honnête dès sa 3e
+   connexion, elle aussi correcte.
+2. **12/09/2026 (trouvé en revérifiant le correctif du 03/09 pour cet
+   audit)** — le correctif du 03/09 avait classé `trouve` (compte trouvé,
+   `lookup`) et `code_envoye` (OTP généré/envoyé, `send-otp`) comme des
+   **succès**, au même titre que `code_correct`. Ces deux outcomes ne
+   prouvent pourtant rien : ils signalent seulement qu'une étape
+   *préalable* à la vérification a eu lieu, avant toute preuve
+   d'identité. Comme ils partagent le même compteur device+IP que
+   l'étape de vérification qui suit, un attaquant pouvait rappeler
+   `lookup`/`send-otp` en boucle pour remettre son compteur d'échecs à
+   zéro à chaque itération et **neutraliser complètement l'escalade
+   warning/blocked/support_only** sur les flux `citoyen_login`,
+   `institution_login` et `institution_register` — sans jamais avoir
+   besoin de deviner un seul code.
+
+### Impact potentiel
+
+Le rate limiting device+IP censé protéger les 5 flux de connexion
+(`citoyen_login`, `citoyen_register`, `institution_login`,
+`institution_register`, `recuperation`) était, pour les 2 endpoints
+`lookup`/`send-otp`, **entièrement contournable** — un attaquant capable
+d'appeler ces routes en boucle ne déclenchait jamais de blocage, tant
+qu'il ne tentait pas réellement un code. Combiné à l'OTP de repli statique
+documenté (`GAP-04-02`, `TEMPORARY ACCEPTED GAP`), ce bug aggravait
+concrètement le risque de credential stuffing sur ces deux flux — sans
+lui, un attaquant énumérant des numéros de téléphone/comptes via `lookup`
+n'aurait jamais été freiné.
+
+### Correctif (`lib/security/authSecurity.ts`)
+
+`OUTCOMES_SUCCES` ne contient plus que les outcomes qui constituent une
+**preuve d'identité réelle** : `code_correct` (OTP/PIN/mot de
+passe/TOTP), `compte_cree` (inscription aboutie), `demande_creee`
+(récupération de compte), `verification_ok` (WebAuthn). `trouve` et
+`code_envoye` retombent désormais dans le chemin échec/incrément normal
+— confirmé par grep exhaustif de tous les appelants réels
+(`enregistrerTentative`/`enregistrerTentativeAdmin`/
+`enregistrerTentativeAdminEntry`, 15 fichiers `app/api/**`) : aucun autre
+outcome de type "étape intermédiaire sans preuve" n'est classé succès à
+tort. `reinitialiserApresSucces()` (ajoutée le 03/09) reste inchangée :
+un vrai succès remet `attempts_in_window` à 0 sans effacer
+`block_cycles_24h` — l'historique d'abus sur 24h d'un device/IP donné
+n'est jamais effacé par un succès isolé au milieu d'une vague d'attaque.
+
+### Preuve / tests
+
+- **13 tests vitest** dans `lib/security/authSecurity.test.ts` (10
+  préexistants + 3 ajoutés pour ce correctif) — `npx vitest run
+  lib/security/authSecurity.test.ts` → **13 passed (13)**, 0 échec :
+  1. *Régression de l'exploit du 12/09* : un device/IP qui répète
+     `trouve` puis `code_envoye` sans jamais vérifier de code atteint
+     bien `warning` puis `blocked` (avant le correctif : jamais).
+  2. *Non-régression du succès (03/09)* : un `code_correct` réinitialise
+     `attempts_in_window` à 0 sur les scopes device **et** ip, tout en
+     préservant `block_cycles_24h` (vérifié explicitement, pas seulement
+     supposé par lecture du code).
+  3. *Non-régression du flux légitime* : une séquence
+     `trouve` → `code_correct` répétée 3 fois de suite en moins de 15
+     minutes ne déclenche jamais `warning` (garde contre une
+     réintroduction du bug du 03/09).
+- `npx tsc --noEmit` sur l'ensemble du projet → **exit 0** (aucune
+  régression de type malgré ~150 fichiers modifiés en parallèle par
+  d'autres chantiers en cours dans le working tree).
+- **Non fait, honnêteté explicite** : aucun test en conditions réelles
+  (navigateur/API contre une vraie instance Supabase) — les tables
+  `auth_device_security`/`auth_ip_security` dépendent de la migration
+  `20260828000004_auth_security.sql`, dont l'exécution en base n'est
+  toujours pas confirmée (voir GAP-10-01 ci-dessus et section "P0-1"
+  demandée par Bryan) ; un test réel contre ces tables sans confirmation
+  romprait potentiellement la connexion en environnement réel si la
+  migration n'a pas tourné.
+
+### Statut
+
+🟠 IN PROGRESS — correctif complet et testé unitairement, prêt pour
+commit (voir commit dédié `fix(security): OTP envoye/compte trouve ne
+doivent jamais compter comme echec du rate limiting`). Le déploiement
+réel reste bloqué sur les mêmes 3 conditions que GAP-10-01 depuis le
+30/08 : (1) confirmation/exécution de la migration
+`20260828000004_auth_security.sql`, (2) commit + déploiement de
+l'ensemble du chantier `authSecurity.ts` (~16 fichiers de routes
+concernés au total, pas seulement ce correctif), (3) vérification en
+production équivalente au Lot 1.5.
+**Date** : 12/09/2026.
