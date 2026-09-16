@@ -8,7 +8,8 @@
 // offre_clics), aucun chiffre fabriqué.
 import { useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens } from "../theme";
+import { Card } from "@/components/ui/Card";
 
 export type LignePerf = { date: string; vues: number; clics: number };
 
@@ -36,7 +37,7 @@ export function MesOffresPerformanceChart({ parJour }: { parJour: LignePerf[] })
   const totalClics = data.reduce((s, d) => s + d.clics, 0);
 
   return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "18px", marginBottom: "16px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>Performance des offres</div>
         <div style={{ display: "flex", gap: "6px" }}>
@@ -65,6 +66,6 @@ export function MesOffresPerformanceChart({ parJour }: { parJour: LignePerf[] })
           <polyline points={toPolyline(data, "clics", maxVal)} fill="none" stroke={C.blue} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
         </svg>
       )}
-    </div>
+    </Card>
   );
 }

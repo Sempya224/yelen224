@@ -9,7 +9,9 @@
 // fichier pour laisser nommer/annoter avant l'envoi réel.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { CATEGORIES_DOCUMENT_TRAVAIL, MAX_DOCUMENT_TRAVAIL_SIZE } from "@/lib/documentsTravail";
 import { YelenLoader } from "@/components/YelenLoader";
 
@@ -133,11 +135,11 @@ export function DocumentsSection({ instId, onToast }: { instId: string; onToast:
   return (
     <div>
       <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
-        <div style={{ flex: 1, backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "0 12px", display: "flex", alignItems: "center", gap: "8px" }}>
+        <Card tokens={toCardTokens(C)} padding="0 12px" style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px" }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher un document…" style={{ flex: 1, padding: "10px 0", fontSize: "13px", background: "transparent", border: "none", color: C.t1 }}/>
-        </div>
-        <button onClick={() => fileInput.current?.click()} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "0 18px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0 }}>+ Ajouter</button>
+        </Card>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flexShrink: 0 }} onClick={() => fileInput.current?.click()}>+ Ajouter</Button>
         <input ref={fileInput} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFileChosen(f); e.target.value = ""; }}/>
       </div>
 
@@ -153,18 +155,18 @@ export function DocumentsSection({ instId, onToast }: { instId: string; onToast:
           <YelenLoader size={24}/>
         </div>
       ) : filteredSorted.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "48px 20px", textAlign: "center", border: `1px solid ${C.border}` }}>
+        <Card tokens={toCardTokens(C)} padding="48px 20px" style={{ textAlign: "center" }}>
           <div style={{ fontSize: "32px", marginBottom: "10px" }}>📁</div>
           <div style={{ fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>{documents.length === 0 ? "Aucun document pour l'instant" : "Aucun résultat"}</div>
           <p style={{ color: C.t3, fontSize: "12px", marginBottom: documents.length === 0 ? "16px" : "0" }}>
             {documents.length === 0 ? "Centralisez vos contrats, PV, modèles et factures ici." : "Essayez une autre recherche ou catégorie."}
           </p>
           {documents.length === 0 && (
-            <button onClick={() => fileInput.current?.click()} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Ajouter un document</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => fileInput.current?.click()}>+ Ajouter un document</Button>
           )}
-        </div>
+        </Card>
       ) : (
-        <div style={{ overflowX: "auto", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px" }}>
+        <Card tokens={toCardTokens(C)} padding="0" style={{ overflowX: "auto" }}>
           <div style={{ minWidth: "720px" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 90px 150px 100px 150px", gap: "8px", padding: "11px 16px", borderBottom: `1px solid ${C.border}`, backgroundColor: C.bg3 }}>
               {COLONNES.map(col => (
@@ -192,7 +194,7 @@ export function DocumentsSection({ instId, onToast }: { instId: string; onToast:
                   <span style={{ color: C.t2, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{auteur || "—"}</span>
                   <span style={{ color: C.t3, fontSize: "11.5px" }}>{new Date(d.uploaded_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "8px" }}>
-                    <button onClick={() => telecharger(d)} style={{ backgroundColor: `${C.blue}12`, border: `1px solid ${C.blue}30`, color: C.blue, fontSize: "10.5px", fontWeight: "700", padding: "6px 10px", borderRadius: "8px", cursor: "pointer", flexShrink: 0 }}>Télécharger</button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.blue, border: `1px solid ${C.blue}30`, backgroundColor: `${C.blue}12`, flexShrink: 0 }} onClick={() => telecharger(d)}>Télécharger</Button>
                     {peutSupprimer(d) ? (
                       <button onClick={() => supprimer(d.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", flexShrink: 0 }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
@@ -205,7 +207,7 @@ export function DocumentsSection({ instId, onToast }: { instId: string; onToast:
               );
             })}
           </div>
-        </div>
+        </Card>
       )}
 
       {pendingFile && (
@@ -252,10 +254,8 @@ function UploadModal({ C, file, onClose, onUploaded, onToast }: {
         <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", marginBottom: "5px" }}>Note (optionnel)</div>
         <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Ajouter une note sur ce document…" rows={3} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12px", marginBottom: "16px", color: C.t1, resize: "none" }}/>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-          <button onClick={onClose} disabled={uploading} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-          <button onClick={envoyer} disabled={uploading || !nom.trim()} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: uploading || !nom.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-            {uploading ? <><YelenLoader size={12} color="#000"/>Envoi…</> : "Envoyer"}
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={uploading} onClick={onClose}>Annuler</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!nom.trim()} loading={uploading} onClick={envoyer}>Envoyer</Button>
         </div>
       </div>
     </div>

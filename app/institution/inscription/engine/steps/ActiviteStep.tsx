@@ -341,7 +341,7 @@ export function ActiviteStep({ state, updateState, onNext, initialSubStep }: {
   }
   function handleActiviteNext() {
     setError("");
-    if (!state.activite.activitePrincipaleId) { setError("Sélectionnez votre activité principale."); return; }
+    if (!state.activite.activitePrincipaleId) { setError("Merci de sélectionner votre activité principale."); return; }
     setSub("statut");
   }
   function selectStatut(id: string) {
@@ -350,8 +350,8 @@ export function ActiviteStep({ state, updateState, onNext, initialSubStep }: {
   }
   function handlePresentationNext() {
     setError("");
-    if (!state.activite.name.trim()) { setError("Le nom de votre activité est requis."); return; }
-    if (!state.activite.ville.trim()) { setError("La ville est requise."); return; }
+    if (!state.activite.name.trim()) { setError("Merci d'indiquer le nom de votre activité."); return; }
+    if (!state.activite.ville.trim()) { setError("Merci d'indiquer votre ville."); return; }
     onNext();
   }
 
@@ -440,7 +440,7 @@ export function ActiviteStep({ state, updateState, onNext, initialSubStep }: {
             )
           )}
 
-          {error && <ErrorBanner msg={error} C={C}/>}
+          {error && <ErrorBanner msg={error} C={C} onClose={() => setError("")}/>}
 
           {sub === "activite" && (
             <>
@@ -607,7 +607,7 @@ export function ActiviteStep({ state, updateState, onNext, initialSubStep }: {
         </div>
       </details>
 
-      {error && <ErrorBanner msg={error} C={C}/>}
+      {error && <ErrorBanner msg={error} C={C} onClose={() => setError("")}/>}
 
       <PrimaryButton onClick={handlePresentationNext} C={C}>Continuer</PrimaryButton>
 

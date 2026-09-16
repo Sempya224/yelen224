@@ -89,7 +89,7 @@ async function getStatsPartenariat(ownId: string | null, ownSecteur: string | nu
 export async function POST(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "profil_entreprise.write")) {
+  if (!can(membre.role, "profil_entreprise.write", membre.accesRestreints)) {
     return NextResponse.json({ error: "Action non autorisée pour votre rôle" }, { status: 403 });
   }
 

@@ -9,10 +9,11 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { CompteHeader } from "@/components/CompteEcranVide";
 import { getConversations, type Conversation } from "@/lib/messagerie";
-import { verifierRappels, fetchNotifications, marquerNotifsLues } from "@/lib/notifications";
-import { annulerRdv, reporterRdv } from "./actions";
-import { rdvEstEnRetard, rdvEstAbsent } from "@/lib/rdvGating";
+import { verifierRappels, countNotifsNonLues } from "@/lib/notifications";
+import { annulerRdv, reporterRdv, soumettreAvis } from "./actions";
+import { rdvEstEnRetard, rdvEstAbsent, rdvNonTraite, calculerEtatQr, RDV_QR_EXPIRE_DEFINITIF_MESSAGE } from "@/lib/rdvGating";
 import { YelenLoader } from "@/components/YelenLoader";
+import { PullToRefresh } from "@/components/PullToRefresh";
 
 // Refonte complète (retour Bryan 29/07/2026) : écran jugé "trop chargé, pas
 // assez compréhensible" — chaque carte de la liste affichait en permanence
@@ -42,11 +43,18 @@ type Rdv = {
   phone_autre: string | null;
   presence: boolean;
   presence_status: string | null;
+  qr_expires_at: string | null;
+  qr_regenere_le: string | null;
   created_at: string;
   motif_annulation: string | null;
   motif_report: string | null;
   motif_refus: string | null;
   avis_demande: boolean;
+  reference: string;
+  accepte_le: string | null;
+  presence_confirmed_at: string | null;
+  termine_at: string | null;
+  qr_token: string | null;
   institutions: {
     id: string;
     name: string;
@@ -61,13 +69,11 @@ type Rdv = {
   } | null;
 };
 
-type Notif = {
+type RdvEvent = {
   id: string;
-  type: string;
-  titre: string;
-  message: string;
-  lu: boolean;
-  rdv_id: string | null;
+  auteur_type: "citoyen" | "institution" | "system";
+  action: "creation" | "confirmation" | "annulation" | "report" | "termine" | "absent" | "message" | "depasse";
+  motif: string | null;
   created_at: string;
 };
 
@@ -75,12 +81,12 @@ type ModalType =
   | { type: "annuler"; rdv: Rdv }
   | { type: "reporter"; rdv: Rdv }
   | { type: "avis"; rdv: Rdv }
-  | { type: "notifs" }
+  | { type: "aide-detail" }
   | null;
 
 // "tous" volontairement en dernier (retour Bryan 29/07/2026) — l'ordre de ce
 // tableau pilote directement l'ordre des chips de filtre affichées.
-type FiltreKey = "avenir" | "en_attente" | "confirme" | "termine" | "annule" | "absent" | "historique" | "tous";
+type FiltreKey = "avenir" | "en_attente" | "confirme" | "termine" | "annule" | "absent" | "non_honore" | "historique" | "tous";
 
 // ─── Icônes ───────────────────────────────────────────────────────────────────
 
@@ -113,22 +119,6 @@ const Ic = {
   Star:     (filled: boolean, size = 13) => <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
 };
 
-function notifIcon(type: string) {
-  switch (type) {
-    case "confirmation":  return <span style={{ color: "#34D399" }}>{Ic.CheckCircle()}</span>;
-    case "rappel_24h":    return <span style={{ color: "#F5A623" }}>{Ic.AlarmClock()}</span>;
-    case "rappel_30min":  return <span style={{ color: "#F5A623" }}>{Ic.Bell()}</span>;
-    case "heure_rdv":     return <span style={{ color: "#34D399" }}>{Ic.Pulse()}</span>;
-    case "rdv_termine":   return <span style={{ color: "#A78BFA" }}>{Ic.Flag()}</span>;
-    case "rdv_annule":    return <span style={{ color: "#F87171" }}>{Ic.XCircle()}</span>;
-    case "rdv_reporte":   return <span style={{ color: "#F5A623" }}>{Ic.RefreshCcw()}</span>;
-    case "rdv_depasse":   return <span style={{ color: "#F87171" }}>{Ic.AlertTriangle()}</span>;
-    case "message":       return <span style={{ color: "#60A5FA" }}>{Ic.MessageCircle()}</span>;
-    case "avis":          return Ic.Star(true, 16);
-    default:              return <span style={{ color: "#64748B" }}>{Ic.Bell()}</span>;
-  }
-}
-
 // ─── Statut config ────────────────────────────────────────────────────────────
 
 const STATUT: Record<string, { label: string; color: string; bg: string }> = {
@@ -139,7 +129,7 @@ const STATUT: Record<string, { label: string; color: string; bg: string }> = {
   refuse:     { label: "Refusé",     color: "#F87171", bg: "rgba(248,113,113,0.12)" },
   termine:    { label: "Terminé",    color: "#A78BFA", bg: "rgba(167,139,250,0.12)" },
   absent:     { label: "Absent",     color: "#9CA3AF", bg: "rgba(156,163,175,0.12)" },
-  en_retard:  { label: "En retard",  color: "#F87171", bg: "rgba(248,113,113,0.12)" },
+  non_honore: { label: "Non honoré", color: "#F87171", bg: "rgba(248,113,113,0.12)" },
 };
 
 // ─── Helpers — FIX TIMEZONE ───────────────────────────────────────────────────
@@ -173,14 +163,6 @@ function formatRelative(dateStr: string): string {
   if (days > 1 && days <= 7) return `Dans ${days} jours`;
   if (days < -1 && days >= -7) return `Il y a ${Math.abs(days)} jours`;
   return parseDateLocale(dateStr).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
-}
-
-function formatMsgTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  if (diff < 60000) return "À l'instant";
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}min`;
-  if (diff < 86400000) return new Date(dateStr).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  return new Date(dateStr).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
 }
 
 function getInitials(name: string): string {
@@ -223,60 +205,98 @@ function estAbsent(r: Rdv): boolean {
 }
 
 /** Badge affiché sur la carte — ajoute l'état "Aujourd'hui", "Absent" et
- * "En retard" par-dessus le statut brut. */
+ * "Non honoré" par-dessus le statut brut. */
 function badgeFor(r: Rdv): { label: string; color: string; bg: string } {
   if (estAbsent(r)) return STATUT.absent;
   if (r.statut === "confirme" && !isPasse(r.date_rdv) && getDaysUntil(r.date_rdv) === 0) {
     return { ...STATUT.confirme, label: "Aujourd'hui" };
   }
-  if ((r.statut === "en_attente" || r.statut === "nouveau") && r.presence_status !== "present" && rdvEstEnRetard(r.date_rdv, r.heure_rdv)) {
-    return STATUT.en_retard;
+  if (rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)) {
+    return STATUT.non_honore;
   }
   return STATUT[r.statut] ?? STATUT.en_attente;
 }
 
 // ─── Timeline de suivi ──────────────────────────────────────────────────────────
 
-function Timeline({ rdv, t1, t3, lineTodo, ov }: {
-  rdv: Rdv; t1: string; t3: string; lineTodo: string; ov: (a: number) => string;
-}) {
-  type Step = { label: string; state: "done" | "current" | "todo" | "cancelled" };
-  let steps: Step[];
+/** "25 août 2026 · 14:32" — jamais appelé sur une valeur null (voir Step.date). */
+function formatDateHeure(iso: string): string {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+}
 
-  if (rdv.statut === "annule") {
-    steps = [
-      { label: "Réservation envoyée", state: "done" },
-      { label: "Annulé", state: "cancelled" },
-    ];
-  } else if (rdv.statut === "refuse") {
-    steps = [
-      { label: "Réservation envoyée", state: "done" },
-      { label: "Refusé par l'institution", state: "cancelled" },
-    ];
-  } else {
-    // "confirme" (statut) signifie présence déjà scannée, PAS "accepté par
-    // l'établissement" (c'est "en_attente" qui porte ce sens dans ce
-    // projet — voir CLAUDE.md /schema). Utiliser "confirme" ici pour
-    // l'étape d'acceptation créait exactement le mélange que ce correctif
-    // supprime (retour Bryan 29/07/2026) : nommer l'étape avec le nom réel
-    // de l'établissement plutôt qu'un mot("confirmée") déjà pris par un
-    // autre sens ailleurs dans l'écran.
-    const accepte = rdv.statut !== "nouveau";
-    const presenceOk = !!rdv.presence;
-    const termine = rdv.statut === "termine";
-    const instNom = rdv.institutions?.name || "L'établissement";
-    steps = [
-      { label: "Réservation envoyée", state: "done" },
-      { label: `${instNom} a accepté votre rendez-vous`, state: accepte ? "done" : "current" },
-      { label: "Confirmation de présence", state: presenceOk ? "done" : accepte ? "current" : "todo" },
-      { label: "Rendez-vous terminé", state: termine ? "done" : "todo" },
-    ];
+type Step = { label: string; date: string | null; sub?: string | null; state: "done" | "current" | "todo" | "cancelled" };
+
+/** Construit la chronologie à partir des seules données réellement
+ * enregistrées (chantier "Détail du rendez-vous" 03/09/2026, brief CEO —
+ * "ne jamais créer artificiellement une valeur") : rdv.created_at (toujours
+ * réel), rdv_events (événements réellement journalisés, avec leur vrai
+ * auteur et motif), rdv.presence_confirmed_at/termine_at (colonnes réelles).
+ * Une étape peut être affichée "done" sans date si le fait est certain
+ * (le statut a progressé) mais l'instant précis n'a pas été capturé avant
+ * ce chantier (accepte_le n'existe que pour les RDV acceptés depuis le
+ * 03/09/2026) — jamais de date inventée pour la remplacer. */
+function buildSteps(rdv: Rdv, events: RdvEvent[]): Step[] {
+  const instNom = rdv.institutions?.name || "L'établissement";
+  const confirmation = events.find(e => e.action === "confirmation");
+  const reports = events.filter(e => e.action === "report");
+  const annulation = events.find(e => e.action === "annulation");
+  const accepte = rdv.statut !== "nouveau";
+
+  const steps: Step[] = [{ label: "Réservation envoyée", date: rdv.created_at, state: "done" }];
+
+  if (accepte || confirmation || rdv.accepte_le) {
+    steps.push({ label: `${instNom} a accepté votre rendez-vous`, date: confirmation?.created_at ?? rdv.accepte_le, state: "done" });
   }
+
+  for (const r of reports) {
+    steps.push({
+      label: r.auteur_type === "citoyen" ? "Rendez-vous reporté par vous" : `Rendez-vous reporté par ${instNom}`,
+      date: r.created_at, state: "done",
+    });
+  }
+
+  if (rdv.statut === "annule" || rdv.statut === "refuse") {
+    steps.push({
+      label: annulation?.auteur_type === "citoyen" ? "Vous avez annulé le rendez-vous"
+        : annulation?.auteur_type === "institution" ? `${instNom} a annulé le rendez-vous`
+        // "system" (annulation automatique, RDV imminent non honorable —
+        // voir docs/product/YELEN_RDV_NOSHOW_RESTRICTIONS.md §7) : libellé
+        // neutre, jamais le mot "suspendu"/"suspension" côté citoyen.
+        : annulation?.auteur_type === "system" ? "Annulé par le système"
+        : "Rendez-vous annulé",
+      date: annulation?.created_at ?? null,
+      state: "cancelled",
+    });
+    return steps;
+  }
+
+  if (!accepte) {
+    steps[0].state = "done";
+    steps.push({ label: `${instNom} a accepté votre rendez-vous`, date: null, state: "current" });
+    return steps;
+  }
+
+  if (estAbsent(rdv)) {
+    steps.push({ label: "Rendez-vous marqué absent", date: rdv.presence_confirmed_at, state: "cancelled" });
+    return steps;
+  }
+
+  const presenceOk = !!rdv.presence;
+  steps.push({ label: "Confirmation de présence", date: rdv.presence_confirmed_at, state: presenceOk ? "done" : "current" });
+  steps.push({ label: "Rendez-vous terminé", date: rdv.termine_at, state: rdv.statut === "termine" ? "done" : "todo" });
+  return steps;
+}
+
+function Timeline({ rdv, events, t1, t3, lineTodo, ov }: {
+  rdv: Rdv; events: RdvEvent[]; t1: string; t3: string; lineTodo: string; ov: (a: number) => string;
+}) {
+  const steps = buildSteps(rdv, events);
 
   return (
     <div style={{ padding: "2px 0 4px" }}>
       {steps.map((s, i) => (
-        <div key={s.label} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <div key={`${s.label}-${i}`} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 16, flexShrink: 0 }}>
             <div style={{
               width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
@@ -292,8 +312,12 @@ function Timeline({ rdv, t1, t3, lineTodo, ov }: {
             </div>
             {i < steps.length - 1 && <div style={{ width: 2, flex: 1, minHeight: 18, background: s.state === "done" ? "#34D399" : lineTodo }}/>}
           </div>
-          <div style={{ paddingBottom: 16, fontSize: 12.5, fontWeight: s.state === "current" ? 700 : 600, color: s.state === "todo" ? t3 : s.state === "cancelled" ? "#F87171" : t1 }}>
-            {s.label}
+          <div style={{ paddingBottom: 16 }}>
+            <div style={{ fontSize: 12.5, fontWeight: s.state === "current" ? 700 : 600, color: s.state === "todo" ? t3 : s.state === "cancelled" ? "#F87171" : t1 }}>
+              {s.label}
+            </div>
+            {s.date && <div style={{ fontSize: 11, color: t3, marginTop: 2 }}>{formatDateHeure(s.date)}</div>}
+            {s.sub && <div style={{ fontSize: 11.5, color: t3, marginTop: 3, lineHeight: 1.5 }}>{s.sub}</div>}
           </div>
         </div>
       ))}
@@ -329,23 +353,38 @@ export default function MesRdvPage() {
   // RDV actuellement ouvert en pop plein écran ("Détail du rendez-vous") —
   // remplace l'ancien affichage systématique de tout le détail dans la liste.
   const [detailRdv, setDetailRdv] = useState<Rdv | null>(null);
+  // Timeline réelle du RDV ouvert (rdv_events, chantier "Détail du
+  // rendez-vous" 03/09/2026) — rdv_events n'a aucune policy RLS, chargé via
+  // /api/citoyen/rdv/events plutôt qu'un accès direct Supabase.
+  const [detailEvents, setDetailEvents] = useState<RdvEvent[] | null>(null);
+  // Paiement lié au RDV ouvert (rdv.qr_token === paid_bookings.confirmation_code,
+  // même clé de rapprochement que app/api/institution/clients/route.ts) —
+  // uniquement pour afficher "Télécharger le reçu" quand un reçu existe déjà.
+  const [detailPaiement, setDetailPaiement] = useState<{ id: string; recu: { id: string } | null } | null>(null);
+  const [detailPaiementChargement, setDetailPaiementChargement] = useState(false);
   const [motif, setMotif]         = useState("");
   const [nouvelleDate, setNouvelleDate] = useState("");
   const [nouvelleHeure, setNouvelleHeure] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast]         = useState<{ msg: string; ok: boolean } | null>(null);
-  const [notifs, setNotifs]       = useState<Notif[]>([]);
   const [nbNotifs, setNbNotifs]   = useState(0);
   const [avisNote, setAvisNote]   = useState(0);
   const [avisTitre, setAvisTitre] = useState("");
   const [avisCommentaire, setAvisCommentaire] = useState("");
   const [avisEnvoye, setAvisEnvoye] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [avisMap, setAvisMap]     = useState<Record<string, { note: number; commentaire: string | null }>>({});
+  const [avisMap, setAvisMap]     = useState<Record<string, { note: number; commentaire: string | null; created_at: string }>>({});
   const [userLat, setUserLat]     = useState<number | null>(null);
   const [userLng, setUserLng]     = useState<number | null>(null);
   const [now, setNow]             = useState(new Date());
   const channelRef = useRef<RealtimeChannel | null>(null);
+  // Barre de scroll custom (même pattern que app/menu/depenses) — le
+  // scrollbar natif est masqué globalement sur cet écran (voir <style>
+  // ::-webkit-scrollbar{display:none}), ce repère doré la remplace.
+  const [scrollPct, setScrollPct] = useState(0);
+  const [scrollThumbH, setScrollThumbH] = useState(0);
+  const [scrollBarShown, setScrollBarShown] = useState(false);
+  const scrollHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Toast ──────────────────────────────────────────────────────────────────
   const showToast = (msg: string, ok = true) => {
@@ -366,6 +405,34 @@ export default function MesRdvPage() {
     return () => clearInterval(t);
   }, []);
 
+  // ── Barre de scroll custom ───────────────────────────────────────────────
+  useEffect(() => {
+    const onScrollPct = () => {
+      const viewport = window.innerHeight;
+      // Repli body/documentElement (retour Bryan 04/09/2026 : la barre ne
+      // réagissait jamais) — sur certains rendus mobiles, scrollHeight de
+      // documentElement seul peut sous-évaluer la hauteur réelle du
+      // contenu ; même chose pour scrollY vs le scrollTop des deux
+      // éléments racine selon le navigateur.
+      const total = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+      const y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      const max = total - viewport;
+      setScrollPct(max > 0 ? Math.min(Math.max(y / max, 0), 1) : 0);
+      setScrollThumbH(total > 0 ? Math.min(Math.max(viewport / total, 0.08), 1) : 1);
+      setScrollBarShown(true);
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+      scrollHideTimer.current = setTimeout(() => setScrollBarShown(false), 900);
+    };
+    onScrollPct();
+    window.addEventListener("scroll", onScrollPct, { passive: true });
+    document.addEventListener("scroll", onScrollPct, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScrollPct);
+      document.removeEventListener("scroll", onScrollPct);
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+    };
+  }, []);
+
   // ── Fetch RDVs ─────────────────────────────────────────────────────────────
   const fetchRdvs = useCallback(async (uid?: string) => {
     const id = uid || userId;
@@ -375,8 +442,8 @@ export default function MesRdvPage() {
       .from("rdv")
       .select(`
         id, date_rdv, heure_rdv, objet, statut,
-        pour_autre, nom_autre, phone_autre, presence, presence_status, created_at,
-        motif_annulation, motif_report, motif_refus, avis_demande,
+        pour_autre, nom_autre, phone_autre, presence, presence_status, qr_expires_at, qr_regenere_le, created_at,
+        motif_annulation, motif_report, motif_refus, avis_demande, reference, accepte_le, presence_confirmed_at, termine_at, qr_token,
         institutions!rdv_institution_id_fkey ( id, name, category, logo, ville, adresse, phone, latitude, longitude, badge_verifie )
       `)
       .eq("citoyen_id", id)
@@ -392,16 +459,51 @@ export default function MesRdvPage() {
   // pas publié, sinon le citoyen croirait avoir déjà terminé son avis.
   const fetchAvis = useCallback(async (ids: string[]) => {
     if (ids.length === 0) { setAvisMap({}); return; }
-    const { data } = await supabase.from("avis").select("rdv_id,note,commentaire").in("rdv_id", ids).eq("brouillon", false);
-    const map: Record<string, { note: number; commentaire: string | null }> = {};
-    type AvisRow = { rdv_id: string | null; note: number; commentaire: string | null };
-    ((data || []) as unknown as AvisRow[]).forEach((a) => { if (a.rdv_id) map[a.rdv_id] = { note: a.note, commentaire: a.commentaire }; });
+    const { data } = await supabase.from("avis").select("rdv_id,note,commentaire,created_at").in("rdv_id", ids).eq("brouillon", false);
+    const map: Record<string, { note: number; commentaire: string | null; created_at: string }> = {};
+    type AvisRow = { rdv_id: string | null; note: number; commentaire: string | null; created_at: string };
+    ((data || []) as unknown as AvisRow[]).forEach((a) => { if (a.rdv_id) map[a.rdv_id] = { note: a.note, commentaire: a.commentaire, created_at: a.created_at }; });
     setAvisMap(map);
   }, []);
 
   useEffect(() => {
     fetchAvis(rdvs.filter(r => r.statut === "termine").map(r => r.id));
   }, [rdvs, fetchAvis]);
+
+  // ── Fetch timeline réelle (rdv_events) du RDV ouvert en détail ──────────────
+  useEffect(() => {
+    if (!detailRdv) { setDetailEvents(null); return; }
+    let annule = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setDetailEvents([]); return; }
+      const res = await fetch(`/api/citoyen/rdv/events?rdv_id=${detailRdv.id}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json().catch(() => null);
+      if (!annule) setDetailEvents(res.ok ? (json?.entrees ?? []) : []);
+    })();
+    return () => { annule = true; };
+  }, [detailRdv]);
+
+  // ── Fetch paiement lié au RDV ouvert (pour "Télécharger le reçu") ───────────
+  useEffect(() => {
+    if (!detailRdv?.qr_token) { setDetailPaiement(null); setDetailPaiementChargement(false); return; }
+    let annule = false;
+    setDetailPaiementChargement(true);
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { if (!annule) { setDetailPaiement(null); setDetailPaiementChargement(false); } return; }
+      const res = await fetch("/api/citoyen/paiements", { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const json = await res.json().catch(() => null);
+      if (annule) return;
+      type PaiementRow = { id: string; reference: string; recu: { id: string } | null };
+      const match = res.ok ? (json?.paiements as PaiementRow[] ?? []).find(p => p.reference === detailRdv.qr_token) : undefined;
+      setDetailPaiement(match ? { id: match.id, recu: match.recu } : null);
+      setDetailPaiementChargement(false);
+    })();
+    return () => { annule = true; };
+  }, [detailRdv]);
 
   const loadConversations = useCallback(async (uid?: string) => {
     const id = uid || userId;
@@ -422,11 +524,7 @@ export default function MesRdvPage() {
     fetchRdvs(uid);
     loadConversations(uid);
 
-    fetchNotifications(uid, 30).then(data => {
-      const notifs = data as Notif[];
-      setNotifs(notifs);
-      setNbNotifs(notifs.filter((n) => !n.lu).length);
-    });
+    countNotifsNonLues(uid).then(setNbNotifs);
 
     verifierRappels(uid, "citoyen").catch(console.error);
 
@@ -438,10 +536,7 @@ export default function MesRdvPage() {
         () => loadConversations(uid))
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications",
         filter: `destinataire_id=eq.${uid}` },
-        (payload) => {
-          setNotifs(prev => [payload.new as Notif, ...prev]);
-          setNbNotifs(n => n + 1);
-        })
+        () => setNbNotifs(n => n + 1))
       .subscribe();
 
     channelRef.current = channel;
@@ -498,44 +593,26 @@ export default function MesRdvPage() {
     setNouvelleHeure("");
   }
 
-  // Fire-and-forget : ne doit jamais bloquer le toast, une erreur ici est
-  // sans conséquence pour l'utilisateur.
-  async function notifierPublicationAvis(avisId: string) {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      await fetch("/api/citoyen/avis/notifier-publication", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ avisId }),
-      });
-    } catch {}
-  }
-
   // ── Envoyer avis ───────────────────────────────────────────────────────────
+  // GAP-09-03 (audit sécurité 15/09/2026) — passe désormais par un Server
+  // Action (app/mes-rdv/actions.ts::soumettreAvis) qui revérifie
+  // l'appartenance et le statut "terminé" du rdv côté serveur, au lieu d'un
+  // insert direct navigateur (confirmé par Bryan : la seule policy RLS sur
+  // `avis` ne vérifiait que citoyen_id = auth.uid()). Gère aussi la
+  // notification à l'institution en interne, plus besoin du round-trip
+  // séparé vers /api/citoyen/avis/notifier-publication.
   async function handleEnvoyerAvis(brouillon = false) {
     if (!modal || modal.type !== "avis" || avisNote === 0 || !userId) return;
     const rdv = modal.rdv;
     setActionLoading(rdv.id);
     try {
-      const { data: avisCree } = await supabase.from("avis").insert({
-        institution_id: rdv.institutions!.id,
-        citoyen_id: userId,
-        rdv_id: rdv.id,
-        note: avisNote,
-        titre: avisTitre.trim() || null,
-        commentaire: avisCommentaire.trim() || null,
-        brouillon,
-      }).select("id").single();
-      // Un brouillon n'est pas terminé — avis_demande reste true pour que
-      // le citoyen soit toujours invité à publier (via Mes avis) plus tard.
-      // rdv.avis_demande=false est mis à jour par notifierPublicationAvis()
-      // côté serveur (service_role) — la policy RLS du citoyen sur `rdv`
-      // est lecture seule, un UPDATE client-direct échouait silencieusement
-      // (bug réel corrigé le 15/08/2026, voir notifier-publication/route.ts).
-      if (!brouillon && avisCree?.id) {
-        void notifierPublicationAvis(avisCree.id);
-      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { showToast("Session expirée, reconnectez-vous.", false); setActionLoading(null); return; }
+      const res = await soumettreAvis({
+        rdvId: rdv.id, note: avisNote, titre: avisTitre.trim(), commentaire: avisCommentaire.trim(),
+        brouillon, accessToken: session.access_token,
+      });
+      if (!res.ok) { showToast(res.error, false); setActionLoading(null); return; }
       setAvisEnvoye(true);
       showToast(brouillon ? "Brouillon enregistré." : "Avis envoyé, merci !");
       setTimeout(() => {
@@ -554,22 +631,37 @@ export default function MesRdvPage() {
 
   // ── Listes filtrées ────────────────────────────────────────────────────────
   // !estAbsent(r) sur avenir/en_attente/confirme (retour Bryan 29/07/2026) —
-  // un RDV absent ne doit plus être compté ailleurs que dans "Absents".
-  const rdvsAvenir     = rdvs.filter(r => !isPasse(r.date_rdv) && (r.statut === "en_attente" || r.statut === "confirme") && !estAbsent(r));
+  // un RDV absent ne doit plus être compté ailleurs que dans "Absents". Même
+  // principe pour !rdvNonTraite(...) (retour Bryan 09/09/2026) — un RDV
+  // "Non honoré" ne doit plus être compté dans "À venir"/"Acceptés".
+  // statut === "nouveau" ajouté ici (trou trouvé 14/09/2026) — un RDV tout
+  // juste réservé, pas encore accepté par l'établissement, disparaissait
+  // entièrement de "À venir" (donc de l'écran) alors que le reste du fichier
+  // le gérait déjà correctement (STATUT.nouveau ligne 125, detailEnRetard
+  // ligne 716, message dédié ligne 1138) : le filtre de liste était le seul
+  // maillon manquant.
+  const rdvsAvenir     = rdvs.filter(r => !isPasse(r.date_rdv) && (r.statut === "en_attente" || r.statut === "confirme" || r.statut === "nouveau") && !estAbsent(r) && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv, now));
   const rdvsHistorique = rdvs.filter(r => isPasse(r.date_rdv) || r.statut === "annule" || r.statut === "termine" || r.statut === "refuse");
-  const rdvsEnAttente  = rdvs.filter(r => r.statut === "en_attente" && !estAbsent(r));
+  const rdvsEnAttente  = rdvs.filter(r => r.statut === "en_attente" && !estAbsent(r) && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv, now));
   const rdvsConfirmes  = rdvs.filter(r => r.statut === "confirme" && !estAbsent(r));
   const rdvsTermines   = rdvs.filter(r => r.statut === "termine");
   const rdvsAnnules    = rdvs.filter(r => r.statut === "annule" || r.statut === "refuse");
   const rdvsAbsents    = rdvs.filter(estAbsent);
+  // "Non honoré" (retour Bryan 09/09/2026) — l'établissement n'a jamais
+  // traité la demande (ni accepté, ni refusé, ni marqué absent) et l'heure
+  // prévue est dépassée. Réutilise rdvNonTraite() (lib/rdvGating.ts),
+  // formule déjà canonique côté dashboard institution — jamais recalculée
+  // différemment ici.
+  const rdvsNonHonores = rdvs.filter(r => rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv, now));
   const totalUnread    = conversations.reduce((s, c) => s + c.non_lus, 0);
   const rdvsAvisDemande = rdvs.filter(r => r.avis_demande && r.statut === "termine");
 
   const FILTRES: { key: FiltreKey; label: string; list: Rdv[] }[] = [
     { key: "avenir",     label: "À venir",     list: rdvsAvenir },
-    { key: "en_attente", label: "En attente",  list: rdvsEnAttente },
+    { key: "en_attente", label: "Acceptés",    list: rdvsEnAttente },
     { key: "confirme",   label: "Confirmés",   list: rdvsConfirmes },
     { key: "absent",     label: "Absents",     list: rdvsAbsents },
+    { key: "non_honore", label: "Non honoré",  list: rdvsNonHonores },
     { key: "termine",    label: "Terminés",    list: rdvsTermines },
     { key: "annule",     label: "Annulés",     list: rdvsAnnules },
     { key: "historique", label: "Historique",  list: rdvsHistorique },
@@ -614,6 +706,12 @@ export default function MesRdvPage() {
   const detailDist = detail?.institutions?.latitude != null && detail?.institutions?.longitude != null && userLat != null && userLng != null
     ? distanceKm(userLat, userLng, detail.institutions.latitude, detail.institutions.longitude) : null;
   const detailEnRetard = detail ? (detail.statut === "en_attente" || detail.statut === "nouveau") && detail.presence_status !== "present" && rdvEstEnRetard(detail.date_rdv, detail.heure_rdv) : false;
+  // Cycle borné du QR gratuit (décision CEO 01/09/2026, voir
+  // lib/rdvGating.ts) — n'est jamais déclenché pour un RDV payant (son code
+  // ne passe jamais par ce cycle, qr_expires_at y reste toujours null),
+  // affiché seulement à l'ouverture de la fiche détail (une action explicite
+  // du citoyen), jamais sur la carte compacte de la liste.
+  const detailQrExpireDefinitif = detail ? detail.presence_status !== "present" && !estAbsent(detail) && calculerEtatQr(detail.qr_expires_at, detail.qr_regenere_le) === "expire_definitif" : false;
 
   // ─────────────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -650,6 +748,8 @@ export default function MesRdvPage() {
 
       <CompteHeader titre="Mes réservations" fondNeutre/>
 
+      <PullToRefresh onRefresh={() => fetchRdvs()} isDark={isDark}>
+
       {/* ══ CTA AVIS ════════════════════════════════════════════════════════ */}
       {rdvsAvisDemande.length > 0 && (
         <div style={{ margin: "16px 16px 0" }}>
@@ -671,14 +771,14 @@ export default function MesRdvPage() {
         <div style={{ margin: "16px 16px 0" }} onClick={() => setDetailRdv(prochainRdv)} className="tap">
           <div style={{ background: card, border: "1px solid rgba(245,166,35,0.3)", borderRadius: 20, padding: "18px", animation: "fadeUp 0.3s ease", cursor: "pointer" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ color: "#F5A623", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>Prochain rendez-vous</div>
+                <div style={{ color: "#000", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>Prochain rendez-vous</div>
                 <div style={{ color: t1, fontSize: 15, fontWeight: 800, marginTop: 1 }}>{prochainRdv.institutions?.name}</div>
               </div>
-              <div style={{ background: "rgba(245,166,35,0.14)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 800, color: "#F5A623", flexShrink: 0 }}>
+              <div style={{ border: "1px solid #000", borderRadius: 0, padding: "6px 12px", fontSize: 12, fontWeight: 800, color: "#000", flexShrink: 0 }}>
                 {formatCountdown(prochainRdv.date_rdv, prochainRdv.heure_rdv, now)}
               </div>
             </div>
@@ -690,12 +790,12 @@ export default function MesRdvPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>{Ic.Pin()}<span>{prochainRdv.institutions.adresse}{prochainDistance != null && ` · ${prochainDistance.toFixed(1)} km`}</span></div>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ background: badgeFor(prochainRdv).bg, color: badgeFor(prochainRdv).color, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>{badgeFor(prochainRdv).label}</span>
+                <span style={{ background: badgeFor(prochainRdv).color, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 0 }}>{badgeFor(prochainRdv).label}</span>
               </div>
             </div>
 
             {getDaysUntil(prochainRdv.date_rdv) === 0 && (
-              <button onClick={e => { e.stopPropagation(); router.push("/mon-qr"); }} className="tap" style={{ width: "100%", marginTop: 16, background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: 14, padding: "14px", borderRadius: 16, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <button onClick={e => { e.stopPropagation(); router.push("/mon-qr"); }} className="tap" style={{ width: "100%", marginTop: 16, background: "#F5A623", color: "#080812", fontWeight: 800, fontSize: 14, padding: "14px", borderRadius: 16, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 {Ic.QR()} Scanner mon QR
               </button>
             )}
@@ -705,7 +805,7 @@ export default function MesRdvPage() {
 
       {/* ══ NOTIFICATIONS (entrée compacte, header n'en a plus la place) ═════ */}
       <div style={{ padding: "16px 16px 0" }}>
-        <button onClick={() => { setModal({ type: "notifs" }); marquerNotifsLues(userId!).then(() => setNbNotifs(0)); }} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: card, border: `1px solid ${nbNotifs > 0 ? "rgba(245,166,35,0.3)" : brd}`, borderRadius: 14, padding: "12px 14px", cursor: "pointer" }}>
+        <button onClick={() => router.push("/?notifications=1")} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: card, border: `1px solid ${nbNotifs > 0 ? "rgba(245,166,35,0.3)" : brd}`, borderRadius: 14, padding: "12px 14px", cursor: "pointer" }}>
           <span style={{ color: nbNotifs > 0 ? "#F5A623" : t3, flexShrink: 0 }}>{Ic.Bell()}</span>
           <span style={{ flex: 1, textAlign: "left", color: t1, fontSize: 13, fontWeight: 700 }}>
             {nbNotifs > 0 ? `${nbNotifs} nouvelle${nbNotifs > 1 ? "s" : ""} notification${nbNotifs > 1 ? "s" : ""}` : "Notifications"}
@@ -735,7 +835,7 @@ export default function MesRdvPage() {
           return (
             <button key={f.key} onClick={() => setFiltre(f.key)} className="tap chip" style={{
               padding: "9px 14px", borderRadius: 30, border: "none",
-              background: active ? "linear-gradient(135deg,#F5A623,#C8940A)" : card2,
+              background: active ? "#F5A623" : card2,
               color: active ? "#080812" : t2, fontSize: 12.5, fontWeight: active ? 800 : 600,
               cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
               boxShadow: active ? "0 2px 6px rgba(0,0,0,0.15)" : "none",
@@ -776,14 +876,24 @@ export default function MesRdvPage() {
 
         {displayed.length === 0 && (
           <div style={{ textAlign: "center", padding: "56px 24px", animation: "fadeUp 0.3s ease" }}>
-            <div style={{ color: t3, display: "flex", justifyContent: "center", marginBottom: 16 }}>
-              {search ? Ic.SearchOff() : filtre === "historique" ? <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg> : filtre === "avenir" ? Ic.Inbox() : Ic.List()}
-            </div>
+            {!search && filtre === "avenir" ? (
+              <Image src="/illustrations/mes-reservations-vide.png" alt="Aucun rendez-vous à venir" width={1536} height={1024} style={{ width: "200px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
+            ) : !search && filtre === "en_attente" ? (
+              <Image src="/illustrations/rdv-acceptes-vide.png" alt="Aucun rendez-vous accepté" width={1024} height={1536} style={{ width: "200px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
+            ) : !search && (filtre === "confirme" || filtre === "absent" || filtre === "termine" || filtre === "annule" || filtre === "non_honore" || filtre === "tous") ? (
+              <Image src="/illustrations/rdv-confirmes-vide.png" alt="Aucun rendez-vous" width={1536} height={1024} style={{ width: "200px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
+            ) : !search && filtre === "historique" ? (
+              <Image src="/illustrations/rdv-historique-vide.png" alt="Aucun historique" width={1536} height={1024} style={{ width: "200px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
+            ) : (
+              <div style={{ color: t3, display: "flex", justifyContent: "center", marginBottom: 16 }}>
+                {Ic.SearchOff()}
+              </div>
+            )}
             <div style={{ color: t2, fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
               {search ? "Aucun résultat" : `Aucun rendez-vous — ${FILTRES.find(f => f.key === filtre)?.label.toLowerCase()}`}
             </div>
             <div style={{ color: t3, fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
-              {search ? "Essayez un autre établissement ou service." : "Prenez rendez-vous depuis la carte des institutions."}
+              {search ? "Essayez un autre établissement ou service." : "Prenez rendez-vous en explorant les établissements disponibles."}
             </div>
             {!search && (
               <button onClick={() => router.push("/recherche")} className="tap" style={{ background: "#F5A623", color: "#080812", border: "none", borderRadius: 12, padding: "13px 28px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
@@ -814,7 +924,7 @@ export default function MesRdvPage() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                   <div style={{ color: t1, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{inst?.name ?? "Institution"}</div>
-                  <span style={{ background: badge.bg, color: badge.color, fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 20, flexShrink: 0 }}>{badge.label}</span>
+                  <span style={{ background: badge.color, color: "#fff", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 0, flexShrink: 0 }}>{badge.label}</span>
                 </div>
                 <div style={{ color: t3, fontSize: 11.5, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {inst?.category ?? ""}{inst?.ville ? ` · ${inst.ville}` : ""}
@@ -832,9 +942,38 @@ export default function MesRdvPage() {
         })}
       </div>
 
+      </PullToRefresh>
+
+      {/* ══ BARRE DE SCROLL CUSTOM ═════════════════════════════════════════════ */}
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          top: "calc(env(safe-area-inset-top) + 60px)",
+          bottom: "calc(env(safe-area-inset-bottom) + 12px)",
+          right: "3px",
+          width: "3px",
+          zIndex: 90,
+          pointerEvents: "none",
+          opacity: scrollBarShown ? 1 : 0,
+          transition: "opacity 0.4s ease",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: `${scrollPct * (1 - scrollThumbH) * 100}%`,
+            height: `${scrollThumbH * 100}%`,
+            width: "100%",
+            borderRadius: "3px",
+            background: isDark ? "rgba(245,166,35,0.55)" : "rgba(8,8,18,0.35)",
+          }}
+        />
+      </div>
+
       {/* ══ BOUTON NOUVEAU RDV ═══════════════════════════════════════════════ */}
       <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 100 }}>
-        <button onClick={() => router.push("/recherche")} className="tap" style={{ width: 52, height: 52, borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", border: "none", boxShadow: "0 6px 24px rgba(245,166,35,0.45)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+        <button onClick={() => router.push("/recherche")} className="tap" style={{ width: 52, height: 52, borderRadius: "50%", background: "#F5A623", border: "none", boxShadow: "0 6px 24px rgba(245,166,35,0.45)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
@@ -854,6 +993,14 @@ export default function MesRdvPage() {
       {detail && (() => {
         const inst = detail.institutions;
         const badge = badgeFor(detail);
+        const events = detailEvents ?? [];
+        // Dernière mise à jour — rdv n'a pas de colonne updated_at générique
+        // (vérifié dans les migrations) : dérivée du plus récent des
+        // horodatages RÉELS déjà connus, jamais une date fabriquée côté
+        // frontend (brief CEO, section 14).
+        const derniereMiseAJour = [detail.created_at, detail.accepte_le, detail.presence_confirmed_at, detail.termine_at, ...events.map(e => e.created_at)]
+          .filter((d): d is string => !!d)
+          .reduce((max, d) => (new Date(d) > new Date(max) ? d : max), detail.created_at);
         return (
         <div style={{ position: "fixed", inset: 0, zIndex: 300, backgroundColor: bg, overflowY: "auto", animation: "screenIn 0.2s ease" }}>
           <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${brd}`, padding: "env(safe-area-inset-top) 16px 0" }}>
@@ -895,7 +1042,7 @@ export default function MesRdvPage() {
 
             {/* Statut + date/heure */}
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 18 }}>
-              <span style={{ background: badge.bg, color: badge.color, fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 20 }}>{badge.label}</span>
+              <span style={{ background: badge.color, color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 0 }}>{badge.label}</span>
               <span style={{ display: "flex", alignItems: "center", gap: 5, background: card2, color: t2, fontSize: 12, fontWeight: 600, padding: "5px 11px", borderRadius: 20 }}>{Ic.Cal()}{parseDateLocale(detail.date_rdv).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</span>
               <span style={{ display: "flex", alignItems: "center", gap: 5, background: card2, color: t2, fontSize: 12, fontWeight: 600, padding: "5px 11px", borderRadius: 20 }}>{Ic.Clock()}{detail.heure_rdv}</span>
             </div>
@@ -907,17 +1054,22 @@ export default function MesRdvPage() {
               </div>
             )}
 
+            {/* Suivi — chronologie réelle (rdv_events + colonnes rdv), pour
+                tous les états y compris annulé/absent (brief CEO, section
+                9 : "raconter correctement comment le rendez-vous s'est
+                terminé"). detailEvents === null tant que le fetch est en
+                cours — évite un flash de timeline incomplète. */}
+            <div style={{ background: card, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+              <div style={{ color: t3, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Suivi</div>
+              {detailEvents !== null
+                ? <Timeline rdv={detail} events={events} t1={t1} t3={t3} lineTodo={brd} ov={ov}/>
+                : <div style={{ display: "flex", justifyContent: "center", padding: "14px 0" }}><YelenLoader size={20} color="#F5A623"/></div>}
+            </div>
+
             {detail.motif_annulation && (
               <div style={{ background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
                 <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Motif d&apos;annulation</div>
                 <div style={{ color: t2, fontSize: 13, lineHeight: 1.5 }}>{detail.motif_annulation}</div>
-              </div>
-            )}
-
-            {detail.motif_refus && (
-              <div style={{ background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
-                <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Motif du refus</div>
-                <div style={{ color: t2, fontSize: 13, lineHeight: 1.5 }}>{detail.motif_refus}</div>
               </div>
             )}
 
@@ -934,18 +1086,27 @@ export default function MesRdvPage() {
                 <div style={{ marginBottom: detailAvis.commentaire ? 4 : 0 }}>
                   {[1,2,3,4,5].map(n => <span key={n} style={{ color: n <= detailAvis.note ? "#F5A623" : card2 }}>{Ic.Star(n <= detailAvis.note)}</span>)}
                 </div>
-                {detailAvis.commentaire && <div style={{ color: t2, fontSize: 12.5, lineHeight: 1.5 }}>{detailAvis.commentaire}</div>}
+                {detailAvis.commentaire && <div style={{ color: t2, fontSize: 12.5, lineHeight: 1.5, marginBottom: 6 }}>{detailAvis.commentaire}</div>}
+                <div style={{ color: t3, fontSize: 10.5 }}>Avis publié le {formatDateHeure(detailAvis.created_at)}</div>
               </div>
             )}
 
-            {/* Timeline — masquée pour absent/annulé/refusé, peu utile une
-                fois la situation figée. */}
-            {!estAbsent(detail) && detail.statut !== "annule" && detail.statut !== "refuse" && (
-              <div style={{ background: card, borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
-                <div style={{ color: t3, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Suivi</div>
-                <Timeline rdv={detail} t1={t1} t3={t3} lineTodo={brd} ov={ov}/>
-              </div>
-            )}
+            {/* Informations du rendez-vous — référence lisible (RDV-année-
+                compteur, générée en base) + horodatages réels. */}
+            <div style={{ background: card, borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
+              <div style={{ color: t3, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Informations du rendez-vous</div>
+              {[
+                ["Référence", detail.reference],
+                ["Créé le", formatDateHeure(detail.created_at)],
+                ["Date prévue", `${parseDateLocale(detail.date_rdv).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · ${detail.heure_rdv}`],
+                ["Dernière mise à jour", formatDateHeure(derniereMiseAJour)],
+              ].map(([label, value]) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", fontSize: 12.5 }}>
+                  <span style={{ color: t3 }}>{label}</span>
+                  <span style={{ color: t1, fontWeight: 600, textAlign: "right" }}>{value}</span>
+                </div>
+              ))}
+            </div>
 
             {/* Rappel avis à laisser */}
             {detail.avis_demande && detail.statut === "termine" && (
@@ -962,22 +1123,53 @@ export default function MesRdvPage() {
             {/* Information importante — "en_attente" signifie "accepté par
                 l'établissement, en attente du jour J" ; "confirme" signifie
                 présence déjà scannée. */}
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", color: detailEnRetard ? "#F87171" : t3, fontSize: 12, lineHeight: 1.5, marginBottom: 20 }}>
-              <span style={{ flexShrink: 0, marginTop: 1 }}>{Ic.Info()}</span>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", color: (detailQrExpireDefinitif || detailEnRetard) ? "#F87171" : t3, fontSize: 12, lineHeight: 1.5, marginBottom: 20 }}>
+              <button onClick={() => setModal({ type: "aide-detail" })} aria-label="Comment fonctionne cet écran ?" className="tap" style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 7, background: "#F5A623", color: "#080812", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>{Ic.Info()}</button>
               <span>
-                {detail.statut === "nouveau" && !detailEnRetard && "Votre demande est en attente de réponse de l'établissement."}
-                {detailEnRetard && "Ce rendez-vous a dépassé l'heure prévue sans confirmation de votre présence. Contactez l'établissement si vous êtes toujours sur place."}
-                {detail.statut === "en_attente" && !detailEnRetard && getDaysUntil(detail.date_rdv) === 0 && "C'est aujourd'hui ! Présentez-vous avec votre QR code à l'heure prévue."}
-                {detail.statut === "en_attente" && !detailEnRetard && getDaysUntil(detail.date_rdv) !== 0 && "Présentez-vous 10 minutes avant l'heure prévue avec votre QR code. Une pièce d'identité pourra être demandée."}
-                {detail.statut === "confirme" && "Votre présence a été confirmée — votre rendez-vous est en cours."}
+                {detailQrExpireDefinitif && `${RDV_QR_EXPIRE_DEFINITIF_MESSAGE.titre} — ${RDV_QR_EXPIRE_DEFINITIF_MESSAGE.message.replace(/\n\n/g, " ")}`}
+                {!detailQrExpireDefinitif && detail.statut === "nouveau" && !detailEnRetard && "Votre demande est en attente de réponse de l'établissement."}
+                {!detailQrExpireDefinitif && detailEnRetard && "Ce rendez-vous a dépassé l'heure prévue sans confirmation de votre présence. Contactez l'établissement si vous êtes toujours sur place."}
+                {!detailQrExpireDefinitif && detail.statut === "en_attente" && !detailEnRetard && getDaysUntil(detail.date_rdv) === 0 && "C'est aujourd'hui ! Présentez-vous avec votre QR code à l'heure prévue."}
+                {!detailQrExpireDefinitif && detail.statut === "en_attente" && !detailEnRetard && getDaysUntil(detail.date_rdv) !== 0 && "Présentez-vous 10 minutes avant l'heure prévue avec votre QR code. Une pièce d'identité pourra être demandée."}
+                {!detailQrExpireDefinitif && detail.statut === "confirme" && "Votre présence a été confirmée — votre rendez-vous est en cours."}
                 {estAbsent(detail) && "Ce rendez-vous a été marqué absent — la situation est réglée, aucune action n'est requise."}
               </span>
+            </div>
+
+            {/* Reçu — visible uniquement si ce RDV est une réservation
+                payante ET qu'un reçu existe déjà (même garde que
+                app/compte/paiements : proposer un téléchargement qui ne
+                mène nulle part serait pire que ne rien afficher). Ouvre
+                Mes paiements avec la fiche déjà ouverte plutôt que de
+                dupliquer ici la logique de téléchargement PDF. */}
+            {detailPaiementChargement && (
+              <div style={{ width: "100%", height: 52, borderRadius: 16, background: card, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+                <YelenLoader size={18} color="#F5A623"/>
+              </div>
+            )}
+
+            {!detailPaiementChargement && detailPaiement?.recu && (
+              <button onClick={() => router.push(`/compte/paiements?paiement=${detailPaiement.id}`)} className="tap" style={{ width: "100%", height: 52, borderRadius: 16, border: "none", background: "#F5A623", color: "#080812", fontSize: 14, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Télécharger le reçu
+              </button>
+            )}
+
+            {/* Aide — réutilise la route de contact existante (voir menu
+                "Aide et support" de app/page.tsx), aucun nouveau mécanisme. */}
+            <div onClick={() => router.push("/contact")} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 4px", cursor: "pointer", marginBottom: detailCanAct ? 12 : 0 }}>
+              <span style={{ color: t3 }}>{Ic.MessageCircle()}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: t1, fontSize: 12.5, fontWeight: 700 }}>Besoin d&apos;aide ?</div>
+                <div style={{ color: t3, fontSize: 11 }}>Une question sur ce rendez-vous ? Contactez l&apos;assistance</div>
+              </div>
+              <span style={{ color: t3 }}>{Ic.ChevR()}</span>
             </div>
 
             {/* Actions */}
             {detailCanAct && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <button onClick={() => { setModal({ type: "reporter", rdv: detail }); setMotif(""); setNouvelleDate(""); setNouvelleHeure(""); }} className="tap" style={{ height: 52, borderRadius: 16, border: "none", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontSize: 14, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+                <button onClick={() => { setModal({ type: "reporter", rdv: detail }); setMotif(""); setNouvelleDate(""); setNouvelleHeure(""); }} className="tap" style={{ height: 52, borderRadius: 16, border: "none", background: "#F5A623", color: "#080812", fontSize: 14, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
                   {Ic.Reschedule()} Reporter
                 </button>
                 <button onClick={() => { setModal({ type: "annuler", rdv: detail }); setMotif(""); }} className="tap" style={{ height: 52, borderRadius: 16, border: "1px solid rgba(248,113,113,0.35)", background: "rgba(248,113,113,0.08)", color: "#F87171", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
@@ -1064,7 +1256,7 @@ export default function MesRdvPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
                 <button onClick={() => setModal(null)} className="tap" style={{ padding: 14, borderRadius: 14, border: `1px solid ${brd}`, background: "transparent", color: t2, fontSize: 14, cursor: "pointer" }}>Retour</button>
                 <button onClick={handleReporter} disabled={!motif.trim() || !nouvelleDate || !nouvelleHeure || actionLoading === modal.rdv.id} className="tap" style={{ padding: 14, borderRadius: 14, border: "none", background: (motif.trim() && nouvelleDate && nouvelleHeure) ? "#F5A623" : "rgba(245,166,35,0.2)", color: (motif.trim() && nouvelleDate && nouvelleHeure) ? "#080812" : "#F5A623", fontSize: 14, fontWeight: 800, cursor: (motif.trim() && nouvelleDate && nouvelleHeure) ? "pointer" : "not-allowed" }}>
-                  {actionLoading === modal.rdv.id ? "..." : "Confirmer le report"}
+                  {actionLoading === modal.rdv.id ? "Report…" : "Confirmer le report"}
                 </button>
               </div>
             </div>
@@ -1124,36 +1316,45 @@ export default function MesRdvPage() {
         </div>
       )}
 
-      {/* ══ MODAL NOTIFICATIONS ══════════════════════════════════════════════ */}
-      {modal?.type === "notifs" && (
+      {/* Sheet d'aide — explique le fonctionnement de l'écran "Détail du
+          rendez-vous" (Suivi/Informations/Reçu), pas une donnée du RDV
+          lui-même : contenu statique, identique pour tous les RDV. */}
+      {modal?.type === "aide-detail" && (
         <div onClick={() => setModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 500, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: card, border: `1px solid ${brd}`, borderRadius: "24px 24px 0 0", width: "100%", maxWidth: 480, maxHeight: "80svh", display: "flex", flexDirection: "column", animation: "slideUp 0.28s ease" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: card, border: `1px solid ${brd}`, borderRadius: "24px 24px 0 0", width: "100%", maxWidth: 480, maxHeight: "85svh", display: "flex", flexDirection: "column", animation: "slideUp 0.28s ease" }}>
             <div style={{ padding: "12px 24px 14px", borderBottom: `1px solid ${brd}`, flexShrink: 0 }}>
               <div style={{ width: 40, height: 4, borderRadius: 2, background: brd, margin: "0 auto 16px" }}/>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ color: t1, fontSize: 17, fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>{Ic.Bell()} Notifications</div>
+                <div style={{ color: t1, fontSize: 17, fontWeight: 800, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 10, background: "#F5A623", color: "#080812", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{Ic.Info()}</span>
+                  Informations utiles
+                </div>
                 <button onClick={() => setModal(null)} style={{ background: card2, border: "none", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: t3 }}>{Ic.X()}</button>
               </div>
             </div>
-            <div style={{ overflowY: "auto", flex: 1 }}>
-              {notifs.length === 0 ? (
-                <div style={{ padding: "48px 24px", textAlign: "center" }}>
-                  <div style={{ color: t3, display: "flex", justifyContent: "center", marginBottom: 10 }}>{Ic.BellOff()}</div>
-                  <div style={{ color: t3, fontSize: 14 }}>Aucune notification</div>
-                </div>
-              ) : notifs.map((n, i) => (
-                <div key={n.id} onClick={() => { if (n.rdv_id) { router.push(`/messagerie?rdv_id=${n.rdv_id}`); setModal(null); } }} style={{ padding: "14px 20px", borderBottom: i < notifs.length - 1 ? `1px solid ${brd}` : "none", background: n.lu ? "transparent" : "rgba(245,166,35,0.05)", cursor: n.rdv_id ? "pointer" : "default", display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: card2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
-                    {notifIcon(n.type)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: t1, fontSize: 13, fontWeight: n.lu ? 500 : 700, marginBottom: 3 }}>{n.titre}</div>
-                    <div style={{ color: t2, fontSize: 12, lineHeight: 1.5, marginBottom: 4 }}>{n.message}</div>
-                    <div style={{ color: t3, fontSize: 10 }}>{formatMsgTime(n.created_at)}</div>
-                  </div>
-                  {!n.lu && <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#F5A623", flexShrink: 0, marginTop: 5 }}/>}
+            <div style={{ overflowY: "auto", flex: 1, padding: "18px 24px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+              {[
+                {
+                  titre: "Suivi",
+                  texte: "La chronologie retrace les étapes réellement enregistrées pour ce rendez-vous — envoi, acceptation par l'établissement, présence, fin. Chaque étape franchie affiche la date et l'heure exactes quand Yelen les a capturées. Pour certains rendez-vous plus anciens, une étape peut apparaître comme faite sans horodatage précis : la date exacte n'a pas été enregistrée à l'époque, jamais une date approximative n'est affichée à la place.",
+                },
+                {
+                  titre: "Informations du rendez-vous",
+                  texte: "La référence identifie ce rendez-vous de façon unique — utile si vous contactez l'assistance. « Créé le » correspond à l'instant de votre réservation, « Date prévue » au rendez-vous lui-même, et « Dernière mise à jour » au dernier changement réel enregistré sur ce dossier (acceptation, présence, fin, annulation…).",
+                },
+                {
+                  titre: "Reçu",
+                  texte: "Pour une réservation payante, le bouton « Télécharger le reçu » apparaît dès que votre paiement est confirmé et que le reçu Yelen correspondant a été généré. Il vous redirige vers Mes paiements, où l'historique complet de la transaction est disponible.",
+                },
+              ].map((s) => (
+                <div key={s.titre}>
+                  <div style={{ color: t1, fontSize: 13.5, fontWeight: 800, marginBottom: 6 }}>{s.titre}</div>
+                  <div style={{ color: t2, fontSize: 12.5, lineHeight: 1.6 }}>{s.texte}</div>
                 </div>
               ))}
+              <button onClick={() => setModal(null)} className="tap" style={{ width: "100%", height: 52, borderRadius: 16, border: "none", background: "#F5A623", color: "#080812", fontSize: 14, fontWeight: 800, cursor: "pointer", marginTop: 4 }}>
+                Compris
+              </button>
             </div>
           </div>
         </div>

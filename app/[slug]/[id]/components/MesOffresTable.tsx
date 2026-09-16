@@ -34,7 +34,7 @@ function OffreCoverMini({ logo, image, titre, size = 40 }: { logo: string | null
       {visuel ? (
         <Image src={visuel} alt="" fill sizes={`${size}px`} style={{ objectFit: "cover" }}/>
       ) : (
-        <span style={{ color: "#fff", fontWeight: 900, fontSize: `${Math.round(size * 0.34)}px` }}>{titre.slice(0, 2).toUpperCase()}</span>
+        <span style={{ color: "#fff", fontWeight: 800, fontSize: `${Math.round(size * 0.34)}px` }}>{titre.slice(0, 2).toUpperCase()}</span>
       )}
     </div>
   );

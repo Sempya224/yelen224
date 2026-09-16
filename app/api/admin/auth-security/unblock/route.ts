@@ -67,6 +67,10 @@ export async function POST(request: NextRequest) {
 
     await supabaseAdmin.from('auth_security_events').insert({
       event_type: 'admin_unblock',
+      // resulting_state = 'normal' (état après, brief refonte Protection
+      // Auth 03/09/2026) — toujours vrai pour un déblocage, voir l'update
+      // juste au-dessus qui force state='normal' sans exception.
+      resulting_state: 'normal',
       device_id: colonne === 'device_id' ? value : null,
       ip: colonne === 'ip' ? value : null,
       admin_id: session.adminId,

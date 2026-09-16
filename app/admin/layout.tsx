@@ -12,6 +12,8 @@ import { useRouter, usePathname } from 'next/navigation'
 import { Ic } from './adminIcons'
 import { AdminNotifBell, type Categorie } from './AdminNotifBell'
 import { YelenLoader } from '@/components/YelenLoader'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { uiTokens } from './adminTheme'
 
 type NavItem = { href: string; label: string; icon: (c?: string) => React.ReactNode; exact?: boolean; roles?: string[] }
 type NavGroup = { label: string | null; items: NavItem[] }
@@ -41,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
   ]},
   { label: 'Utilisateurs', items: [
     { href: '/admin/citoyens',              label: 'Citoyens',              icon: Ic.Users,  roles: ['super_admin','admin'] },
+    { href: '/admin/rdv-restrictions',      label: 'Restrictions RDV',      icon: Ic.Lock,   roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/recuperation-comptes',  label: 'Récupération comptes',  icon: Ic.Unlock, roles: ['super_admin'] },
     { href: '/admin/admins',                label: 'Admins',                icon: Ic.Key,    roles: ['super_admin'] },
   ]},
@@ -53,12 +56,14 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/feedback',    label: 'Feedback',           icon: Ic.MessageSquare, roles: ['super_admin','support','admin'] },
     { href: '/admin/satisfaction',label: 'Satisfaction',       icon: Ic.Star,          roles: ['super_admin','support','admin'] },
     { href: '/admin/messagerie',  label: 'Messagerie',         icon: Ic.Mail,          roles: ['super_admin','support','admin'] },
+    { href: '/admin/support',     label: 'Support',            icon: Ic.Headset,       roles: ['super_admin','support','admin'] },
     { href: '/admin/documents',   label: 'Documents citoyens', icon: Ic.File,          roles: ['super_admin','support','admin'] },
   ]},
   { label: 'Système', items: [
     { href: '/admin/analytiques', label: 'Analytiques',   icon: Ic.BarChart, roles: ['super_admin','admin'] },
     { href: '/admin/logs',        label: 'Logs système',  icon: Ic.Logs,     roles: ['super_admin'] },
     { href: '/admin/security',    label: 'Sécurité',      icon: Ic.Lock },
+    { href: '/admin/protection-auth', label: 'Protection Auth', icon: Ic.Shield, roles: ['super_admin'] },
   ]},
 ]
 
@@ -94,6 +99,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(true)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [categories, setCategories] = useState<Categorie[]>([])
+
+  // Sécurisation Logout Admin (décision CEO 03/09/2026) — confirmation
+  // obligatoire avant toute terminaison de session, jamais un logout
+  // déclenché par un simple clic. logoutError garde le popup ouvert avec
+  // un message clair au lieu de faire croire à une déconnexion réussie.
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [logoutError, setLogoutError] = useState(false)
 
   // Compteurs live des files d'attente (app/api/admin/notifications/count),
   // partagés entre la cloche de notifications et les badges rouges de la
@@ -137,9 +149,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       })
   }, [router, pathname])
 
-  async function handleLogout() {
-    await fetch('/api/admin/auth/logout', { method: 'POST' })
-    router.push('/admin/login')
+  // Terminaison de session réelle (décision CEO 03/09/2026) — le serveur
+  // (POST /api/admin/auth/logout) reste l'unique source de vérité :
+  // révoque admin_sessions.sid côté base, journalise LOGOUT dans
+  // admin_logs, puis supprime le cookie httpOnly — jamais un simple
+  // router.push('/login') ni une suppression de cookie côté client. Cette
+  // route renvoie déjà `success:true` même si la session était absente/
+  // déjà expirée (cas normal, cf. commentaire dans la route) : tout 200 est
+  // donc traité comme un succès, seul un échec réseau/HTTP réel (res.ok
+  // false ou fetch qui lève) déclenche le message d'erreur avec possibilité
+  // de réessayer, sans jamais prétendre à un succès non confirmé par le
+  // serveur.
+  async function executerLogout() {
+    setLogoutError(false)
+    try {
+      const res = await fetch('/api/admin/auth/logout', { method: 'POST' })
+      if (!res.ok) throw new Error('logout_failed')
+      // Nettoyage de l'état client lié à la session — évite qu'un ancien
+      // `admin` en mémoire soit encore lu par un composant avant que la
+      // navigation vers /admin/login ne démonte cette arborescence.
+      setAdmin(null)
+      setLogoutConfirmOpen(false)
+      router.push('/admin/login')
+    } catch {
+      setLogoutError(true)
+    }
   }
 
   function isActive(href: string, exact?: boolean) {
@@ -326,7 +360,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           )}
           <button
-            onClick={handleLogout}
+            onClick={() => setLogoutConfirmOpen(true)}
             title={sidebarCollapsed ? 'Déconnexion' : undefined}
             style={{
               width: '100%',
@@ -448,6 +482,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {children}
         </main>
       </div>
+
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        onClose={() => { setLogoutConfirmOpen(false); setLogoutError(false) }}
+        onConfirm={executerLogout}
+        tokens={uiTokens}
+        level={1}
+        title="Se déconnecter ?"
+        description="Vous allez fermer votre session administrateur sur cet appareil."
+        confirmLabel="Se déconnecter"
+        errorMessage={logoutError ? "La déconnexion n'a pas pu être finalisée." : undefined}
+      />
     </div>
   )
 }

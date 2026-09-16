@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { YelenLogo } from "@/components/YelenLogo";
 import { SecondaryButton } from "./ui";
 import { useSignupTheme } from "./theme";
 
@@ -12,10 +11,9 @@ const CSS = `
   .signup-tap:active{opacity:.8;transform:scale(.98)}
   .signup-cta:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.03)}
   .signup-footer-link:hover{color:var(--signup-gold);text-decoration:underline}
-  .signup-header-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;text-decoration:none}
-  .signup-header-icon:hover{background:var(--signup-goldbg2)}
   .signup-card{width:100%;max-width:480px}
   .signup-card-close{display:none}
+  .signup-split-illustration{display:none}
 
   /* ── Mobile-first : liste inline visible par défaut, déclencheur/modale
      desktop invisibles (et donc inatteignables au clic — aucune détection
@@ -43,6 +41,10 @@ const CSS = `
     .signup-split{display:flex;flex-direction:row;align-items:flex-start;gap:64px}
     .signup-split .signup-split-side{flex:0 0 280px;text-align:left}
     .signup-split .signup-split-body{flex:1;min-width:0}
+    /* Colonne élargie pour l'étape Téléphone (retour Bryan 07/09/2026) — la
+       seule à afficher l'illustration réelle plutôt qu'une simple icône. */
+    .signup-split.signup-split-illustrated .signup-split-side{flex:0 0 340px}
+    .signup-split-illustration{display:block}
     .signup-mobile-only{display:none}
     .signup-desktop-only{display:block}
   }
@@ -64,33 +66,14 @@ export function SignupShell({ children, onBack, backLabel, wide, hideClose }: {
       ["--signup-gold" as string]: C.gold,
       ["--signup-shadow" as string]: C.shadow,
       ["--signup-border" as string]: C.border,
-      ["--signup-goldbg2" as string]: C.goldBg2,
       ["--signup-card-bg" as string]: C.card,
     } as React.CSSProperties}>
       <style>{CSS}</style>
 
-      {/* HEADER */}
-      <header style={{ padding: "calc(16px + env(safe-area-inset-top)) 24px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, backgroundColor: `${C.card}E6`, backdropFilter: "blur(20px)", position: "sticky", top: 0, zIndex: 10 }}>
-        <Link href="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
-          <div style={{ width: "36px", height: "36px", background: C.gold, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${C.gold}40`, flexShrink: 0 }}>
-            <YelenLogo size={18} color="#111"/>
-          </div>
-          <div>
-            <div style={{ color: C.dark, fontSize: "15px", fontWeight: 900, letterSpacing: "0.5px", lineHeight: 1 }}>YELEN224</div>
-            <div style={{ color: C.gold, fontSize: "9px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase" }}>Espace professionnel</div>
-          </div>
-        </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <Link href="/faq" className="signup-header-icon" aria-label="Aide" title="Aide">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          </Link>
-          <Link href="/guide-prestataire" className="signup-header-icon" aria-label="Guide" title="Guide">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          </Link>
-        </div>
-      </header>
-
-      {/* CONTENU */}
+      {/* CONTENU — décision CEO 07/09/2026 : plus de header sur l'écran
+          d'inscription (logo/FAQ/Guide retirés), la carte devient le seul
+          contenu de la page. Le lien "Quitter l'inscription" (signup-card-
+          close) reste l'unique sortie desktop. */}
       <main style={{ flex: 1, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px 60px" }}>
         <div className={`signup-card${wide ? " signup-card-wide" : ""}`} style={{ animation: "signupFadeUp 0.3s ease" }}>
           {/* Fermeture desktop — même en-tête que les popups internes du
@@ -114,17 +97,17 @@ export function SignupShell({ children, onBack, backLabel, wide, hideClose }: {
               </SecondaryButton>
             </div>
           )}
+
+          {/* Liens légaux — dans la carte, façon Google Sign-in, plutôt
+              qu'une barre de pied de page séparée (retour Bryan 07/09/2026,
+              même traitement que app/institution/connexion/page.tsx). */}
+          <div style={{ marginTop: "28px", paddingTop: "18px", borderTop: `1px solid ${C.border}`, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: "14px", fontSize: "11px", color: C.gray }}>
+            <Link href="/confidentialite" className="signup-footer-link" style={{ color: C.gray, textDecoration: "none" }}>Confidentialité</Link>
+            <Link href="/cgu" className="signup-footer-link" style={{ color: C.gray, textDecoration: "none" }}>CGU</Link>
+            <Link href="/contact" className="signup-footer-link" style={{ color: C.gray, textDecoration: "none" }}>Contact</Link>
+          </div>
         </div>
       </main>
-
-      {/* FOOTER */}
-      <footer style={{ borderTop: `1px solid ${C.border}`, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: "14px", padding: "16px 20px", fontSize: "11.5px", color: C.gray }}>
-        <Link href="/confidentialite" className="signup-footer-link" style={{ color: C.gray, textDecoration: "none" }}>Confidentialité</Link>
-        <span aria-hidden="true">·</span>
-        <Link href="/cgu" className="signup-footer-link" style={{ color: C.gray, textDecoration: "none" }}>CGU</Link>
-        <span aria-hidden="true">·</span>
-        <Link href="/contact" className="signup-footer-link" style={{ color: C.gray, textDecoration: "none" }}>Contact</Link>
-      </footer>
 
       <style>{`@keyframes signupFadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
     </div>

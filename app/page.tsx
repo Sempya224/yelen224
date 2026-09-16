@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense, type ReactElement } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
-import { YELEN224_USER_ID_KEY, YELEN224_LAST_TAB_KEY, YELEN224_COMMUNAUTE_SEEN_KEY, YELEN224_RECHERCHE_SEEN_KEY, YELEN224_OFFRES_SEEN_KEY } from "@/lib/auth/constants";
+import { YELEN224_USER_ID_KEY, YELEN224_LAST_TAB_KEY, YELEN224_COMMUNAUTE_SEEN_KEY, YELEN224_RECHERCHE_SEEN_KEY, YELEN224_OFFRES_SEEN_KEY, YELEN224_CGU_LIEN_OUVERT_KEY } from "@/lib/auth/constants";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { isWebAuthnSupported, registerBiometrie, authenticateBiometrie } from "@/lib/auth/citoyenBiometrie";
 import { MonAssistant } from "@/components/MonAssistant";
+import { ParcoursYelenBandeau } from "@/components/ParcoursYelenBandeau";
 import { formatYelenId } from "@/lib/citoyenIdentite";
 import { souscrirePush } from "@/lib/pushClient";
 import { NotifPanel } from "@/components/NotifPanel";
@@ -38,6 +39,7 @@ import ProfilAuteurOverlay from "@/components/ProfilAuteurOverlay";
 import ProfilInstitutionCommunauteOverlay from "@/components/ProfilInstitutionCommunauteOverlay";
 import SignalerCommunauteModal from "@/components/SignalerCommunauteModal";
 import MesPublicationsOverlay from "@/components/MesPublicationsOverlay";
+import ChercherCommunauteOverlay from "@/components/ChercherCommunauteOverlay";
 import CreerPostOverlay from "@/components/CreerPostOverlay";
 import { POST_CATEGORIES } from "@/lib/communauteCategories";
 
@@ -631,7 +633,7 @@ function PromoBandeauDepuisSpec({ spec, isDark }: { spec: (typeof PROMO_BANDEAUX
   );
 }
 
-type RDV = { id: string; date_rdv: string; heure_rdv?: string; statut: string; objet?: string; institution_id?: string; institution_name?: string; institution_secteur?: string | null; presence?: boolean; presence_status?: string };
+type RDV = { id: string; date_rdv: string; heure_rdv?: string; statut: string; objet?: string; institution_id?: string; institution_name?: string; institution_secteur?: string | null; institution_logo?: string | null; presence?: boolean; presence_status?: string };
 type Inst = { id: string; name: string; category?: string; secteur?: string; ville?: string; quartier?: string; adresse?: string; latitude?: number; longitude?: number; phone?: string; logo?: string; moyenne_avis?: number; nb_avis?: number; badge_verifie?: boolean; plan?: string; disponibilites?: unknown };
 // "Cette semaine" (Home V2) — mêmes formes exactes que /api/citoyen/assistant
 // (upcoming/avisAttente/annonces), voir components/MonAssistant.tsx pour la
@@ -678,6 +680,7 @@ function stInfo(s: string) {
   switch (s) {
     case "confirme":   return { c: "#22c55e", bg: "rgba(34,197,94,0.12)",   l: "Confirmé" };
     case "en_attente": return { c: "#F5A623", bg: "rgba(245,166,35,0.12)",  l: "En attente" };
+    case "nouveau":    return { c: "#F5A623", bg: "rgba(245,166,35,0.12)",  l: "Non confirmé" };
     case "annule":     return { c: "#ef4444", bg: "rgba(239,68,68,0.12)",   l: "Annulé" };
     case "effectue":   return { c: "#3b82f6", bg: "rgba(59,130,246,0.12)",  l: "Effectué" };
     case "present":    return { c: "#22c55e", bg: "rgba(34,197,94,0.12)",   l: "Présent ✓" };
@@ -745,34 +748,82 @@ function WelcomeCelebration({ prenom, bg, t1, t2, onDismiss }: {
   prenom: string; bg: string; t1: string; t2: string; onDismiss: () => void;
 }) {
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 600, backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", animation: "fadeIn 0.25s ease" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, backgroundColor: bg, display: "flex", flexDirection: "column", animation: "fadeIn 0.25s ease" }}>
       <style>{`
         @keyframes weTrophyIn{0%{transform:scale(0) rotate(-20deg);opacity:0}60%{transform:scale(1.15) rotate(6deg);opacity:1}100%{transform:scale(1) rotate(0deg);opacity:1}}
         @keyframes weRingPulse{0%{box-shadow:0 0 0 0 rgba(245,166,35,0.45)}100%{box-shadow:0 0 0 26px rgba(245,166,35,0)}}
         @keyframes weConfetti{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(0.4);opacity:0}}
         @keyframes weTextIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
       `}</style>
-      <div style={{ textAlign: "center", maxWidth: "360px", width: "100%" }}>
-        <div style={{ position: "relative", width: "84px", height: "84px", margin: "0 auto 24px" }}>
-          {WELCOME_CONFETTI.map((c, i) => (
-            <div key={i} style={{ position: "absolute", top: "50%", left: "50%", width: "8px", height: "8px", borderRadius: "2px", backgroundColor: c.color, "--dx": `${c.dx}px`, "--dy": `${c.dy}px`, animation: `weConfetti 0.9s ease-out ${c.delay}s both` } as React.CSSProperties}/>
-          ))}
-          <div style={{ position: "relative", width: "84px", height: "84px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", animation: "weTrophyIn 0.6s cubic-bezier(.34,1.56,.64,1) both, weRingPulse 1.4s ease-out 0.6s", boxShadow: "0 8px 24px rgba(245,166,35,0.35)" }}>
-            <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.6" strokeLinecap="round">
-              <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
-            </svg>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+        <div style={{ textAlign: "center", maxWidth: "360px", width: "100%" }}>
+          <div style={{ position: "relative", width: "220px", margin: "0 auto 20px" }}>
+            {WELCOME_CONFETTI.map((c, i) => (
+              <div key={i} style={{ position: "absolute", top: "50%", left: "50%", width: "8px", height: "8px", borderRadius: "2px", backgroundColor: c.color, "--dx": `${c.dx}px`, "--dy": `${c.dy}px`, animation: `weConfetti 0.9s ease-out ${c.delay}s both` } as React.CSSProperties}/>
+            ))}
+            <div style={{ position: "relative", animation: "weTrophyIn 0.6s cubic-bezier(.34,1.56,.64,1) both" }}>
+              <Image src="/illustrations/bienvenue-equipe-yelen.png" alt="L'équipe Yelen vous souhaite la bienvenue" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }} priority/>
+            </div>
           </div>
+          <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: "800", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "10px", animation: "weTextIn 0.4s ease 0.25s both" }}>Bienvenue chez vous</div>
+          <h1 style={{ color: t1, fontSize: "24px", fontWeight: "900", margin: "0 0 10px", letterSpacing: "-0.5px", lineHeight: 1.2, animation: "weTextIn 0.4s ease 0.32s both" }}>
+            Ravi de vous avoir{prenom ? `, ${prenom}` : ""} 👋
+          </h1>
+          <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.7, margin: 0, animation: "weTextIn 0.4s ease 0.38s both" }}>
+            Votre espace Yelen est prêt, pensé pour vous. Ravi de vous compter parmi nous.
+          </p>
         </div>
-        <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: "800", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "10px", animation: "weTextIn 0.4s ease 0.25s both" }}>Bienvenue sur Yelen224</div>
-        <h1 style={{ color: t1, fontSize: "24px", fontWeight: "900", margin: "0 0 10px", letterSpacing: "-0.5px", lineHeight: 1.2, animation: "weTextIn 0.4s ease 0.32s both" }}>
-          Ravi de vous avoir{prenom ? `, ${prenom}` : ""} 👋
-        </h1>
-        <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.7, margin: "0 0 28px", animation: "weTextIn 0.4s ease 0.38s both" }}>
-          Votre espace citoyen guinéen est prêt. Prenez vos rendez-vous en toute simplicité, où que vous soyez.
-        </p>
-        <button onClick={onDismiss} className="tap" style={{ width: "100%", padding: "15px", borderRadius: "16px", background: "linear-gradient(135deg,#F5A623,#C8940A)", border: "none", color: "#080812", fontWeight: "800", fontSize: "15px", cursor: "pointer", boxShadow: "0 8px 24px rgba(245,166,35,0.3)", animation: "weTextIn 0.4s ease 0.44s both" }}>
-          Commencer →
+      </div>
+      <div style={{ flexShrink: 0, maxWidth: "360px", width: "100%", margin: "0 auto", padding: "0 24px 28px" }}>
+        <button onClick={onDismiss} className="tap" style={{ width: "100%", padding: "15px", borderRadius: "16px", background: "#F5A623", border: "none", color: "#080812", fontWeight: "800", fontSize: "15px", cursor: "pointer", animation: "weTextIn 0.4s ease 0.44s both" }}>
+          Découvrir Yelen →
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// RAPPEL CGU — pop plein écran affiché juste après WelcomeCelebration si le
+// citoyen n'a cliqué aucun des deux liens CGU/Confidentialité pendant
+// l'inscription (`app/inscription/page.tsx`, flag YELEN224_CGU_LIEN_OUVERT_KEY).
+// Retour Bryan 11/09/2026 — jamais de fond noir sur un élément hero
+// (convention projet), même structure que WelcomeCelebration.
+// ============================================================
+function RappelCguOverlay({ bg, t1, t2, isDark, onDismiss, onClose }: {
+  bg: string; t1: string; t2: string; isDark: boolean; onDismiss: () => void; onClose: () => void;
+}) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, backgroundColor: bg, display: "flex", flexDirection: "column", animation: "fadeIn 0.25s ease" }}>
+      <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", padding: "calc(16px + env(safe-area-inset-top)) 16px 0" }}>
+        <button onClick={onClose} aria-label="Fermer" className="tap" style={{ width: "30px", height: "30px", borderRadius: "50%", border: "none", background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: t2 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+        <div style={{ textAlign: "center", maxWidth: "360px", width: "100%" }}>
+          <div style={{ width: "100%", maxWidth: "300px", margin: "0 auto 20px" }}>
+            <Image src="/illustrations/protection-donnees.png" alt="Protéger vos informations est notre priorité" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block", borderRadius: "18px" }} priority/>
+          </div>
+          <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: "800", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "10px" }}>Sécurité &amp; confiance</div>
+          <h1 style={{ color: t1, fontSize: "22px", fontWeight: "900", margin: "0 0 10px", letterSpacing: "-0.5px", lineHeight: 1.25 }}>
+            Protéger vos informations est notre priorité
+          </h1>
+          <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.7, margin: 0 }}>
+            Votre compte est prêt, mais nous tenons à ce que vous sachiez exactement comment vos données sont traitées. Veuillez prendre connaissance de nos{" "}
+            <Link href="/cgu" onClick={() => { try { localStorage.setItem(YELEN224_CGU_LIEN_OUVERT_KEY, "1"); } catch {} }} style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>CGU</Link>
+            {" "}et de notre{" "}
+            <Link href="/confidentialite" onClick={() => { try { localStorage.setItem(YELEN224_CGU_LIEN_OUVERT_KEY, "1"); } catch {} }} style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de confidentialité</Link>.
+          </p>
+        </div>
+      </div>
+      <div style={{ flexShrink: 0, maxWidth: "360px", width: "100%", margin: "0 auto", padding: "0 24px 28px" }}>
+        <button onClick={onDismiss} className="tap" style={{ width: "100%", padding: "15px", borderRadius: "16px", background: "#F5A623", border: "none", color: "#080812", fontWeight: "800", fontSize: "15px", cursor: "pointer", marginBottom: "12px" }}>
+          J&apos;ai pris connaissance
+        </button>
+        <Link href="/cgu" onClick={() => { try { localStorage.setItem(YELEN224_CGU_LIEN_OUVERT_KEY, "1"); } catch {} }} style={{ display: "block", textAlign: "center", fontSize: "13px", fontWeight: "700", color: t2, textDecoration: "none" }}>
+          Lire les conditions
+        </Link>
       </div>
     </div>
   );
@@ -881,7 +932,16 @@ function BiometrieModal({ onSuccess, onClose, prenom, isDark, card, t1, t2, brd,
           {phase === "unsupported" && "La biométrie n'est pas disponible sur cet appareil."}
         </div>
 
-        {/* Cercle biométrique */}
+        {/* Cercle biométrique — illustration réelle (retour Bryan
+            07/09/2026, chantier "illustrations sur mesure") uniquement
+            pour la phase "unsupported" ; les autres phases (wait/scanning/
+            success/fail) gardent le cercle dynamique existant, les
+            designers travaillent séparément sur leurs illustrations. */}
+        {phase === "unsupported" ? (
+          <div style={{ width: "180px", margin: "0 auto 32px" }}>
+            <Image src="/illustrations/biometrie-non-disponible.png" alt="" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }}/>
+          </div>
+        ) : (
         <div style={{ position: "relative", width: "120px", height: "120px", margin: "0 auto 32px" }}>
           {phase === "scanning" && (
             <>
@@ -915,6 +975,7 @@ function BiometrieModal({ onSuccess, onClose, prenom, isDark, card, t1, t2, brd,
             }
           </div>
         </div>
+        )}
 
         {phase === "wait" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -968,16 +1029,17 @@ function BiometrieOptInModal({ onActivate, onIgnore, prenom, isDark, card, t1, t
     <div style={{ position: "fixed", inset: 0, zIndex: 8500, backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(16px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0" }}>
       <div style={{ backgroundColor: card, borderRadius: "28px 28px 0 0", padding: "32px 24px 40px", maxWidth: "480px", width: "100%", border: `1px solid ${brd}`, boxShadow: "0 -20px 60px rgba(0,0,0,0.4)" }}>
         <div style={{ width: "40px", height: "4px", background: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)", borderRadius: "2px", margin: "0 auto 28px" }}/>
-        <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "20px" }}>
-          <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: isDark ? "rgba(255,255,255,0.06)" : "rgba(8,8,18,0.05)", border: `2px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#080812" }}>
-            {Ic.Finger()}
+        {/* Illustration réelle (retour Bryan 07/09/2026, chantier
+            "illustrations sur mesure") à la place du badge empreinte
+            générique. */}
+        <div style={{ width: "160px", margin: "0 auto 16px" }}>
+          <Image src="/illustrations/connexion-biometrique.png" alt="" width={1214} height={1295} style={{ width: "100%", height: "auto", display: "block" }}/>
+        </div>
+        <div style={{ textAlign: "center", marginBottom: "20px" }}>
+          <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "4px" }}>
+            Connexion biométrique
           </div>
-          <div>
-            <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "4px" }}>
-              Connexion biométrique
-            </div>
-            <div style={{ color: t2, fontSize: "13px" }}>Empreinte digitale · Face ID</div>
-          </div>
+          <div style={{ color: t2, fontSize: "13px" }}>Empreinte digitale · Face ID</div>
         </div>
 
         <p style={{ color: t2, fontSize: "14px", lineHeight: 1.6, marginBottom: "20px" }}>
@@ -1005,6 +1067,170 @@ function BiometrieOptInModal({ onActivate, onIgnore, prenom, isDark, card, t1, t
             Pas maintenant
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SHEET "CONDITIONS DES OFFRES" — gate obligatoire avant tout accès à
+// l'onglet Offres (retour Bryan 03/09/2026). Même convention visuelle que
+// BiometrieOptInModal juste au-dessus (bottom sheet, grip, badge icône
+// plein, liste de points, CTA primaire + secondaire) — pas un nouveau
+// langage inventé pour cette seule sheet.
+// ============================================================
+function OffresConditionsGateSheet({ onAccepter, onRefuser, isDark, card, t1, t2, brd }: {
+  onAccepter: () => void; onRefuser: () => void;
+  isDark: boolean; card: string; t1: string; t2: string; brd: string;
+}) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 9200, backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(16px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0" }}>
+      <div style={{ backgroundColor: card, borderRadius: "28px 28px 0 0", padding: "32px 24px calc(24px + env(safe-area-inset-bottom))", maxWidth: "480px", width: "100%", border: `1px solid ${brd}`, boxShadow: "0 -20px 60px rgba(0,0,0,0.4)" }}>
+        <div style={{ width: "40px", height: "4px", background: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)", borderRadius: "2px", margin: "0 auto 24px" }}/>
+
+        <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+        </div>
+
+        <div style={{ color: t1, fontSize: "18px", fontWeight: "900", textAlign: "center", marginBottom: "8px", lineHeight: 1.3 }}>
+          Avant d&apos;accéder aux Offres
+        </div>
+        <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.55, textAlign: "center", marginBottom: "20px" }}>
+          Les Offres Yelen sont proposées par des partenaires vérifiés. Merci de prendre connaissance de leur fonctionnement avant d&apos;y accéder.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
+          {[
+            { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>, text: "Chaque offre peut rediriger vers le site du partenaire" },
+            { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>, text: "Yelen Reward n'assure pas la disponibilité d'une offre" },
+            { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>, text: "Vérifiez toujours les conditions auprès du partenaire" },
+          ].map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderRadius: "12px" }}>
+              {f.icon}
+              <span style={{ color: t1, fontSize: "12.5px", fontWeight: "600" }}>{f.text}</span>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ color: t2, fontSize: "12px", textAlign: "center", marginBottom: "20px" }}>
+          Le détail complet figure dans les{" "}
+          <Link href="/offres/conditions" style={{ color: "#F5A623", fontWeight: "700", textDecoration: "none" }}>Conditions des Offres</Link>.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <button onClick={onAccepter} className="tap" style={{ width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "16px", padding: "16px", borderRadius: "16px", border: "none", cursor: "pointer" }}>
+            J&apos;accepte
+          </button>
+          <button onClick={onRefuser} className="tap" style={{ width: "100%", background: "none", border: `1px solid ${brd}`, color: t2, fontWeight: "600", fontSize: "15px", padding: "14px", borderRadius: "16px", cursor: "pointer" }}>
+            Refuser
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SHEET "IDENTITÉ NON VÉRIFIÉE" — onglet Communauté (retour Bryan
+// 03/09/2026). Contrairement à OffresConditionsGateSheet juste au-dessus :
+// non bloquante, un X et un "Plus tard" ferment simplement la sheet sans
+// rien empêcher — le fil reste consultable dans tous les cas, seule la
+// publication reste fermée tant que l'identité n'est pas vérifiée (déjà
+// géré ailleurs par le bandeau composeur existant).
+// ============================================================
+function CommunauteVerificationSheet({ onVerifier, onFermer, isDark, card, t1, t2, brd }: {
+  onVerifier: () => void; onFermer: () => void;
+  isDark: boolean; card: string; t1: string; t2: string; brd: string;
+}) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 9200, backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(16px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0" }}>
+      <div style={{ position: "relative", backgroundColor: card, borderRadius: "28px 28px 0 0", padding: "32px 24px calc(24px + env(safe-area-inset-bottom))", maxWidth: "480px", width: "100%", border: `1px solid ${brd}`, boxShadow: "0 -20px 60px rgba(0,0,0,0.4)" }}>
+        <button onClick={onFermer} className="tap" aria-label="Fermer" style={{ position: "absolute", top: "16px", right: "16px", width: "30px", height: "30px", borderRadius: "50%", border: "none", background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "center", color: t2, cursor: "pointer" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+
+        <div style={{ width: "40px", height: "4px", background: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)", borderRadius: "2px", margin: "0 auto 24px" }}/>
+
+        <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+        </div>
+
+        <div style={{ color: t1, fontSize: "18px", fontWeight: "900", textAlign: "center", marginBottom: "8px", lineHeight: 1.3 }}>
+          Prêt à publier sur Yelen ?
+        </div>
+        <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.55, textAlign: "center", marginBottom: "20px" }}>
+          Vous pouvez déjà parcourir le fil, liker et commenter librement. Pour publier vos propres idées, on vous demande de vérifier votre identité — ça protège la communauté Yelen des faux comptes.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
+          {[
+            { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>, text: "Parcourir, liker, commenter : déjà ouvert" },
+            { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>, text: "Publier : réservé aux identités vérifiées" },
+            { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>, text: "Quelques minutes suffisent" },
+          ].map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderRadius: "12px" }}>
+              {f.icon}
+              <span style={{ color: t1, fontSize: "12.5px", fontWeight: "600" }}>{f.text}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <button onClick={onVerifier} className="tap" style={{ width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "16px", padding: "16px", borderRadius: "16px", border: "none", cursor: "pointer" }}>
+            Vérifier mon identité
+          </button>
+          <button onClick={onFermer} className="tap" style={{ width: "100%", background: "none", border: `1px solid ${brd}`, color: t2, fontWeight: "600", fontSize: "15px", padding: "14px", borderRadius: "16px", cursor: "pointer" }}>
+            Plus tard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SHEET "DÉCOUVERTE D'ONGLET" — générique, réutilisée par Mes réservations
+// et Recherche (retour Bryan 03/09/2026) : icône, titre, description,
+// points optionnels, un seul bouton "J'ai compris". Pas de duplication —
+// un seul composant, contenu fourni par l'appelant.
+// ============================================================
+function TabDecouverteSheet({ icon, titre, description, points, boutonLabel, onFermer, isDark, card, t1, t2, brd }: {
+  icon: React.ReactNode; titre: string; description: string; points?: string[]; boutonLabel: string;
+  onFermer: () => void;
+  isDark: boolean; card: string; t1: string; t2: string; brd: string;
+}) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 9200, backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(16px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0" }}>
+      <div style={{ backgroundColor: card, borderRadius: "28px 28px 0 0", padding: "32px 24px calc(24px + env(safe-area-inset-bottom))", maxWidth: "480px", width: "100%", border: `1px solid ${brd}`, boxShadow: "0 -20px 60px rgba(0,0,0,0.4)" }}>
+        <div style={{ width: "40px", height: "4px", background: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)", borderRadius: "2px", margin: "0 auto 24px" }}/>
+
+        <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          {icon}
+        </div>
+
+        <div style={{ color: t1, fontSize: "18px", fontWeight: "900", textAlign: "center", marginBottom: "8px", lineHeight: 1.3 }}>
+          {titre}
+        </div>
+        <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.55, textAlign: "center", marginBottom: points && points.length > 0 ? "20px" : "24px" }}>
+          {description}
+        </p>
+
+        {points && points.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "24px" }}>
+            {points.map((p, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderRadius: "12px" }}>
+                <span style={{ color: "#F5A623", flexShrink: 0, display: "inline-flex" }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                <span style={{ color: t1, fontSize: "12.5px", fontWeight: "600" }}>{p}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button onClick={onFermer} className="tap" style={{ width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "16px", padding: "16px", borderRadius: "16px", border: "none", cursor: "pointer" }}>
+          {boutonLabel}
+        </button>
       </div>
     </div>
   );
@@ -1106,30 +1332,38 @@ function CarteIdentiteCompte({ userId, userName, userPhone, userPhoto, initials,
 // ============================================================
 // QUICK ACTIONS
 // ============================================================
-function QuickActions({ t1, t2, card, brd }: { router: PageRouter; t1: string; t2: string; card: string; brd: string; isDark: boolean }) {
-  const actions = [
+type QuickAction = { label: string; sub: string; href: string; hot?: boolean; soon?: boolean; image?: string; grad?: string; icon?: ReactElement };
+
+function QuickActions({ t1, t2, card, brd, demarchesCount }: { router: PageRouter; t1: string; t2: string; card: string; brd: string; isDark: boolean; demarchesCount: number }) {
+  const actions: QuickAction[] = [
     {
       label: "Prendre un RDV",
       sub: "Trouver une institution",
       href: "/recherche",
-      grad: "#fff",
-      icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14" strokeWidth="3"/><line x1="12" y1="14" x2="12" y2="14" strokeWidth="3"/><line x1="16" y1="14" x2="16" y2="14" strokeWidth="3"/></svg>,
+      image: "/illustrations/prendre-rdv-icone.png",
       hot: true,
     },
     {
-      label: "Mon QR Code",
+      label: "Mon QR code",
       sub: "Confirmer ma présence",
       href: "/mon-qr",
-      grad: "linear-gradient(135deg,#3b82f6,#1d4ed8)",
-      icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM17 17h3v3h-3z"/></svg>,
+      image: "/illustrations/mon-qr-code.png",
     },
     {
-      label: "Payer une Facture",
+      label: "Payer une facture",
       sub: "Eau · Électricité · Mobile",
       href: "/paiement",
-      grad: "linear-gradient(135deg,#a855f7,#7c3aed)",
-      icon: <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
+      image: "/illustrations/payer-facture.png",
       soon: true,
+    },
+    {
+      // Sous-titre dynamique (jamais un texte figé) : réutilise
+      // demarchesEnCours déjà chargé pour "Vos démarches en cours" (voir
+      // /chantier-mes-demarches, CLAUDE.md) plutôt qu'un second fetch.
+      label: "Mes démarches",
+      sub: demarchesCount > 0 ? `${demarchesCount} en cours` : "Créer un suivi",
+      href: "/compte/mes-demarches",
+      image: "/illustrations/mes-demarches-icone.png",
     },
   ];
 
@@ -1144,18 +1378,32 @@ function QuickActions({ t1, t2, card, brd }: { router: PageRouter; t1: string; t
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         {actions.map(a => (
           <Link key={a.label} href={a.href} style={{ textDecoration: "none" }}>
-            <div style={{ backgroundColor: card, borderRadius: "18px", padding: "16px", position: "relative", overflow: "hidden" }} className="tap">
+            <div style={{ backgroundColor: card, borderRadius: "18px", position: "relative", overflow: "hidden" }} className="tap">
               {a.hot && (
-                <div style={{ position: "absolute", top: "10px", right: "10px", background: "#ef4444", borderRadius: "20px", padding: "2px 8px", fontSize: "9px", fontWeight: "800", color: "#fff" }}>POPULAIRE</div>
+                <div style={{ position: "absolute", top: "10px", left: "10px", zIndex: 2, background: "#ef4444", borderRadius: "20px", padding: "2px 8px", fontSize: "9px", fontWeight: "800", color: "#fff" }}>POPULAIRE</div>
               )}
               {a.soon && (
-                <div style={{ position: "absolute", top: "10px", right: "10px", background: "rgba(168,85,247,0.15)", borderRadius: "20px", padding: "2px 8px", fontSize: "9px", fontWeight: "800", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>BIENTÔT</div>
+                <div style={{ position: "absolute", top: "10px", right: "10px", zIndex: 2, background: "rgba(168,85,247,0.15)", borderRadius: "20px", padding: "2px 8px", fontSize: "9px", fontWeight: "800", color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)" }}>BIENTÔT</div>
               )}
-              <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: a.grad, border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
-                {a.icon}
-              </div>
-              <div style={{ color: t1, fontSize: "14px", fontWeight: "800", marginBottom: "3px", lineHeight: 1.2 }}>{a.label}</div>
-              <div style={{ color: t2, fontSize: "11px", fontWeight: "500" }}>{a.sub}</div>
+              {a.image ? (
+                <>
+                  <div style={{ position: "relative", width: "100%", height: "100px" }}>
+                    <Image src={a.image} alt="" fill sizes="(max-width: 480px) 50vw, 240px" style={{ objectFit: "cover" }}/>
+                  </div>
+                  <div style={{ padding: "12px 16px 16px" }}>
+                    <div style={{ color: t1, fontSize: "14px", fontWeight: "800", marginBottom: "3px", lineHeight: 1.2 }}>{a.label}</div>
+                    <div style={{ color: t2, fontSize: "11px", fontWeight: "500" }}>{a.sub}</div>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: "16px" }}>
+                  <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: a.grad, border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
+                    {a.icon}
+                  </div>
+                  <div style={{ color: t1, fontSize: "14px", fontWeight: "800", marginBottom: "3px", lineHeight: 1.2 }}>{a.label}</div>
+                  <div style={{ color: t2, fontSize: "11px", fontWeight: "500" }}>{a.sub}</div>
+                </div>
+              )}
             </div>
           </Link>
         ))}
@@ -1713,10 +1961,10 @@ function CetteSemaine({ t1, t2, card, card2, brd, router }: {
 // HERO SLIDES
 // ============================================================
 const HERO_SLIDES_GUEST = [
-  { titre: "Votre RDV en un clic", sous: "Ne vous déplacez plus au hasard : planifiez, réservez, et gagnez du temps depuis votre mobile.", badge: "🇬🇳 Officiel" },
+  { titre: "Votre RDV en un clic", sous: "Ne vous déplacez plus pour rien : planifiez, réservez et gagnez du temps depuis votre mobile.", badge: "🇬🇳 Officiel" },
   { titre: "Guinée numérique", sous: "Les services publics et privés à portée de votre téléphone. Hôpitaux, mairies, banques.", badge: "🏛️ État" },
-  { titre: "Réservez en 30 sec", sous: "Fini les queues interminables — prenez rendez-vous depuis chez vous en toute sécurité.", badge: "⚡ Rapide" },
-  { titre: "Diaspora Guinea", sous: "La diaspora guinéenne peut aussi accéder à tous les services depuis l'étranger.", badge: "🌍 54 pays" },
+  { titre: "Réservez en 30 sec", sous: "Fini les files d'attente interminables — prenez rendez-vous depuis chez vous en toute sécurité.", badge: "⚡ Rapide" },
+  { titre: "Diaspora guinéenne", sous: "La diaspora guinéenne peut aussi accéder à tous les services depuis l'étranger.", badge: "🌍 54 pays" },
 ];
 
 // Carrousel marketing — uniquement pour les visiteurs non connectés (aucun
@@ -1896,7 +2144,7 @@ const SEARCH_PLACEHOLDERS = [
   "Rechercher une institution",
   "Trouver un professionnel",
   "Planifier un rendez-vous",
-  "Hôpitaux, mairies, banques...",
+  "Trouver un hôpital, une mairie, une banque",
   "Trouver une ambassade",
 ];
 
@@ -1932,7 +2180,7 @@ function AboutYelen({ isDark, t1, t2, brd }: { isDark: boolean; t1: string; t2: 
     <div style={{ borderRadius: "22px", overflow: "hidden", background: isDark ? "#1C1C1E" : "#FFFFFF" }}>
       <div style={{ padding: "18px 20px 20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
-          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
           </div>
           <div>
@@ -1972,7 +2220,7 @@ function AboutYelen({ isDark, t1, t2, brd }: { isDark: boolean; t1: string; t2: 
 // ============================================================
 const POURQUOI_YELEN = [
   {
-    titre: "Zéro file d'attente",
+    titre: "Fini les files d'attente",
     texte: "Réservez votre créneau à l'avance et présentez-vous directement à l'heure prévue.",
     bg: "#FFF4E0",
     illu: (
@@ -2107,6 +2355,29 @@ export default function YelenApp() {
   const [logoutOpen, setLogoutOpen]     = useState(false);   // flux de déconnexion
   const [menuOpen, setMenuOpen]         = useState(false);   // menu engagement (ex-logo Accueil)
   const [showWelcome, setShowWelcome]   = useState(false);   // célébration post-inscription (?welcome=1)
+  const [showCguRappel, setShowCguRappel] = useState(false); // rappel CGU/confidentialité affiché après la célébration si jamais cliqués à l'inscription
+  // Gate "Conditions des Offres" (retour Bryan 03/09/2026) — sheet
+  // obligatoire avant tout accès à l'onglet Offres tant que la décision
+  // n'a pas été prise. Persisté en localStorage (même convention que
+  // yelen224_assistant_dismissed_until) plutôt qu'en base : décision
+  // produit légère, pas un consentement légal signé façon cgu_acceptee_le.
+  const [offresConditionsAcceptees, setOffresConditionsAcceptees] = useState<boolean | null>(null); // null = pas encore lu
+  const [offresConditionsSheetOuverte, setOffresConditionsSheetOuverte] = useState(false);
+  useEffect(() => {
+    try { setOffresConditionsAcceptees(localStorage.getItem("yelen224_offres_conditions_acceptees") === "1"); }
+    catch { setOffresConditionsAcceptees(false); }
+  }, []);
+  useEffect(() => {
+    if (tab === "offres" && offresConditionsAcceptees === false) setOffresConditionsSheetOuverte(true);
+  }, [tab, offresConditionsAcceptees]);
+  function accepterOffresConditions() {
+    try { localStorage.setItem("yelen224_offres_conditions_acceptees", "1"); } catch {}
+    setOffresConditionsAcceptees(true);
+    setOffresConditionsSheetOuverte(false);
+  }
+  function refuserOffresConditions() {
+    setOffresConditionsSheetOuverte(false);
+  }
   // Teaser "Paiement en attente" sur l'onglet RDV (08/08/2026) — seule
   // info réellement perdue en supprimant app/dashboard/dashboard-client.tsx
   // (sa section "Mes paiements") non visible ailleurs sans quitter cet
@@ -2339,6 +2610,8 @@ export default function YelenApp() {
   const [mesPublications, setMesPublications] = useState<{ id: string; statut: string; contenu: string | null; created_at: string; motif_refus: string | null }[]>([]);
   const [mesPublicationsLoaded, setMesPublicationsLoaded] = useState(false);
   const [mesPublicationsOuvert, setMesPublicationsOuvert] = useState(false);
+  // Recherche Community — Lot 1 (09/09/2026), voir ChercherCommunauteOverlay.tsx.
+  const [chercherCommunauteOuvert, setChercherCommunauteOuvert] = useState(false);
   const mesPubEnAttente = mesPublications.filter(p => p.statut === "en_attente_validation").length;
   useEffect(() => {
     if (tab !== "offres") return;
@@ -2364,6 +2637,76 @@ export default function YelenApp() {
   const [userSexe, setUserSexe]     = useState<string | null>(null);
   const [identiteVerifiee, setIdentiteVerifiee] = useState(false);
   const [cinStatut, setCinStatut]   = useState<string | null>(null);
+  // Sheet "Identité non vérifiée" — onglet Communauté (retour Bryan
+  // 03/09/2026). Contrairement à la gate Offres ci-dessus : jamais montrée
+  // si le compte est déjà vérifié, et non bloquante si non vérifié — le
+  // fil reste consultable (liker/commenter/parcourir), seule la
+  // publication reste fermée (déjà géré par le bandeau composeur existant
+  // plus bas, `identiteVerifiee ? composer : notice`). Rappel périodique
+  // (retour Bryan 03/09/2026, correction du "une seule fois" initial) :
+  // masquée 30 jours après chaque fermeture (X, "Plus tard" ou "Vérifier
+  // mon identité"), puis reproposée tant que le compte n'est pas vérifié.
+  const [communauteVerifSheetOuverte, setCommunauteVerifSheetOuverte] = useState(false);
+  useEffect(() => {
+    if (tab !== "communaute" || identiteVerifiee) return;
+    try {
+      const masqueeJusqua = localStorage.getItem("yelen224_communaute_verif_sheet_masquee_jusqua");
+      if (masqueeJusqua && new Date(masqueeJusqua).getTime() > Date.now()) return;
+    } catch { /* ignore */ }
+    setCommunauteVerifSheetOuverte(true);
+  }, [tab, identiteVerifiee]);
+  function fermerCommunauteVerifSheet() {
+    try {
+      const dans30Jours = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      localStorage.setItem("yelen224_communaute_verif_sheet_masquee_jusqua", dans30Jours);
+    } catch { /* ignore */ }
+    setCommunauteVerifSheetOuverte(false);
+  }
+
+  // Bandeau illustré "Vérifiez votre identité" du fil Communauté (retour
+  // Bryan 09/09/2026) — X dédié, masqué 24h après fermeture (rappel plus
+  // léger que communauteVerifSheetOuverte ci-dessus, masquée 30 jours),
+  // puis reproposé tant que le compte n'est pas vérifié.
+  const [bandeauCommunauteVerifFerme, setBandeauCommunauteVerifFerme] = useState(false);
+  useEffect(() => {
+    try {
+      const masqueJusqua = localStorage.getItem("yelen224_communaute_verif_bandeau_masque_jusqua");
+      if (masqueJusqua && new Date(masqueJusqua).getTime() > Date.now()) setBandeauCommunauteVerifFerme(true);
+    } catch { /* ignore */ }
+  }, []);
+  function fermerBandeauCommunauteVerif() {
+    try {
+      const dans24h = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      localStorage.setItem("yelen224_communaute_verif_bandeau_masque_jusqua", dans24h);
+    } catch { /* ignore */ }
+    setBandeauCommunauteVerifFerme(true);
+  }
+
+  // Sheets "Découverte d'onglet" (Mes réservations / Recherche, retour
+  // Bryan 03/09/2026) — brève explication de l'écran + bouton unique
+  // "J'ai compris", affichées une seule fois par appareil et jamais
+  // reproposées (contrairement à la sheet Communauté ci-dessus) : simple
+  // découverte, pas un rappel périodique.
+  const [rdvDecouverteSheetOuverte, setRdvDecouverteSheetOuverte] = useState(false);
+  const [rechercheDecouverteSheetOuverte, setRechercheDecouverteSheetOuverte] = useState(false);
+  useEffect(() => {
+    if (tab !== "rdv") return;
+    try { if (localStorage.getItem("yelen224_decouverte_rdv_vue") === "1") return; } catch { /* ignore */ }
+    setRdvDecouverteSheetOuverte(true);
+  }, [tab]);
+  useEffect(() => {
+    if (tab !== "recherche") return;
+    try { if (localStorage.getItem("yelen224_decouverte_recherche_vue") === "1") return; } catch { /* ignore */ }
+    setRechercheDecouverteSheetOuverte(true);
+  }, [tab]);
+  function fermerRdvDecouverteSheet() {
+    try { localStorage.setItem("yelen224_decouverte_rdv_vue", "1"); } catch { /* ignore */ }
+    setRdvDecouverteSheetOuverte(false);
+  }
+  function fermerRechercheDecouverteSheet() {
+    try { localStorage.setItem("yelen224_decouverte_recherche_vue", "1"); } catch { /* ignore */ }
+    setRechercheDecouverteSheetOuverte(false);
+  }
   const [rdvs, setRdvs]             = useState<RDV[]>([]);
   // Distingue "en cours de chargement" de "confirmé vide" pour l'onglet RDV
   // (retour Bryan 27/08/2026, refonte état zéro) — rdvs démarre à [] comme
@@ -2697,7 +3040,30 @@ export default function YelenApp() {
       setShowWelcome(true);
       router.replace("/", { scroll: false });
     }
+    // Deep-link vers le panneau de notifications plein écran (retour Bryan
+    // 09/09/2026) — app/mes-rdv/page.tsx redirige ici avec
+    // `?notifications=1` au lieu de rouvrir son propre sheet local
+    // (ancienne UX, retirée), pour que "Notifications" pointe partout vers
+    // ce même écran principal (NotifPanel).
+    if (params.get("notifications") === "1") {
+      setNotifOpen(true);
+      setNotifCount(0);
+      router.replace("/", { scroll: false });
+    }
   }, []);
+
+  // Rappel CGU/confidentialité (retour Bryan 11/09/2026) — s'affiche à
+  // chaque ouverture de l'app tant que le citoyen n'a jamais cliqué les
+  // liens CGU/Confidentialité (inscription ou ce rappel lui-même) ni tapé
+  // "J'ai pris connaissance". `showWelcome` déjà à true couvre le cas
+  // "juste après inscription" (chaîné depuis son onDismiss ci-dessous) —
+  // ce useEffect couvre lui toutes les ouvertures suivantes.
+  useEffect(() => {
+    if (!userId || showWelcome) return;
+    let dejaLu = true;
+    try { dejaLu = localStorage.getItem(YELEN224_CGU_LIEN_OUVERT_KEY) === "1"; } catch {}
+    if (!dejaLu) setShowCguRappel(true);
+  }, [userId, showWelcome]);
 
   // Ouvre la popup de détail d'une notification quand l'app est démarrée
   // depuis un clic sur une push (app fermée, ou nouvelle fenêtre ouverte
@@ -2812,18 +3178,19 @@ export default function YelenApp() {
         // plus de 10 RDV (signalé par Bryan le 20/07/2026 — "les données
         // étaient cachées", pas un problème de mise en page de la carte).
         type RdvRow = { id: string; date_rdv: string; heure_rdv?: string; statut: string; objet?: string; institution_id?: string; presence?: boolean; presence_status?: string };
-        type InstNameRow = { id: string; name: string | null; secteur: string | null };
+        type InstNameRow = { id: string; name: string | null; secteur: string | null; logo: string | null };
         const rD = await ft(supabase.from("rdv").select("id,date_rdv,heure_rdv,statut,objet,institution_id,presence,presence_status").eq("citoyen_id", id).order("date_rdv", { ascending: false }), 5000);
         if (rD && (rD as DataResult<RdvRow[]>)?.data) {
           const rows = (rD as DataResult<RdvRow[]>)!.data!;
           const ids = [...new Set(rows.map((r) => r.institution_id).filter(Boolean))];
           const m: Record<string, string> = {};
           const secteurParId: Record<string, string | null> = {};
+          const logoParId: Record<string, string | null> = {};
           if (ids.length) {
-            const nD = await ft(supabase.from("institutions").select("id,name,secteur").in("id", ids), 4000);
-            if (nD && (nD as DataResult<InstNameRow[]>)?.data) (nD as DataResult<InstNameRow[]>)!.data!.forEach((x) => { m[x.id] = x.name || "Institution"; secteurParId[x.id] = x.secteur || null; });
+            const nD = await ft(supabase.from("institutions").select("id,name,secteur,logo").in("id", ids), 4000);
+            if (nD && (nD as DataResult<InstNameRow[]>)?.data) (nD as DataResult<InstNameRow[]>)!.data!.forEach((x) => { m[x.id] = x.name || "Institution"; secteurParId[x.id] = x.secteur || null; logoParId[x.id] = x.logo || null; });
           }
-          setRdvs(rows.map((r) => ({ ...r, institution_name: m[r.institution_id ?? ""] || "Institution", institution_secteur: secteurParId[r.institution_id ?? ""] || null })));
+          setRdvs(rows.map((r) => ({ ...r, institution_name: m[r.institution_id ?? ""] || "Institution", institution_secteur: secteurParId[r.institution_id ?? ""] || null, institution_logo: logoParId[r.institution_id ?? ""] || null })));
           setRdvsError(false);
         } else {
           setRdvsError(true);
@@ -3171,6 +3538,69 @@ export default function YelenApp() {
     fetch(`/api/citoyen/posts/${post.id}/partager`, { method: "POST" }).catch(() => {});
   }
 
+  // Extrait du fil (09/09/2026, Lot 3 recherche Community) — même carte,
+  // mêmes handlers que le fil principal ci-dessous, réutilisée telle
+  // quelle dans les résultats "Publications" de ChercherCommunauteOverlay
+  // (jamais une seconde carte de post, voir consigne du brief recherche).
+  function renderPostCard(post: Post) {
+    return (
+      <PostCard
+        key={post.id}
+        post={post}
+        card={card} t1={t1} t2={t2} t3={t3} brd={brd}
+        liked={postLikes[post.id]?.likedByMoi ?? false}
+        likeCount={postLikes[post.id]?.count ?? 0}
+        commentCount={postCommentCounts[post.id] ?? 0}
+        onToggleLike={() => togglePostLike(post.id)}
+        onPartager={() => partagerPost(post)}
+        onOpenPost={() => ouvrirPostDetail(post)}
+        onOpenAuteur={() => post.auteur_type === "institution" ? setInstitutionProfilId(post.institution_auteur_id) : setProfilAuteurPost(post)}
+        onSignalerPost={() => setSignalementCible({ type: "post", id: post.id, label: post.author_nom })}
+        onSignalerAuteur={() => setSignalementCible({ type: "auteur", id: (post.auteur_type === "institution" ? post.institution_auteur_id : post.auteur_id) ?? "", label: post.author_nom })}
+        onOuvrirImage={(images, index) => setImageViewer({ images, index, post })}
+        onOuvrirInteractions={() => ouvrirInteractions(post.id)}
+        estAbonne={!!post.institution_auteur_id && abonnementsIds.has(post.institution_auteur_id)}
+        onToggleAbonnement={() => { if (post.institution_auteur_id) toggleAbonnement(post.institution_auteur_id, post.author_nom); }}
+        onOuvrirMention={ouvrirMention}
+      />
+    );
+  }
+
+  // Ouvre la fiche d'un professionnel depuis les résultats de recherche
+  // Community (09/09/2026, Lot 3) — même overlay que "Mon profil"
+  // (ProfilAuteurOverlay), objet Post minimal synthétique (aucun vrai post
+  // sélectionné), même convention que le bouton "Mon profil" du header
+  // Communauté ci-dessous.
+  function ouvrirProfilProfessionnel(pro: { id: string; nom: string; photo: string | null; verifie: boolean; membreDepuis: string }) {
+    setProfilAuteurPost({
+      id: "recherche", auteur_id: pro.id, auteur_type: "citoyen", institution_auteur_id: null, categorie: "",
+      author_nom: pro.nom, author_photo_url: pro.photo, author_verifie: pro.verifie, author_membre_depuis: pro.membreDepuis,
+      contenu: null, images: null, nb_partages: 0, created_at: pro.membreDepuis,
+    });
+  }
+
+  // Ouvre le profil visé par une mention @[Nom](type:id) cliquée dans un
+  // post (09/09/2026, Lot mentions) — une institution s'ouvre directement
+  // (ProfilInstitutionCommunauteOverlay se charge lui-même), un citoyen
+  // nécessite de retrouver sa photo/badge/date d'inscription (non encodés
+  // dans la mention elle-même) via l'annuaire déjà utilisé par la
+  // recherche Community ; repli sur le seul nom si l'appel échoue plutôt
+  // qu'un profil qui ne s'ouvre pas.
+  async function ouvrirMention(type: "citoyen" | "institution", id: string, nom: string) {
+    if (type === "institution") { setInstitutionProfilId(id); return; }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { ouvrirProfilProfessionnel({ id, nom, photo: null, verifie: false, membreDepuis: new Date().toISOString() }); return; }
+      const res = await fetch("/api/citoyen/communaute/professionnels", { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const j = await res.json().catch(() => null);
+      const trouve = res.ok && Array.isArray(j?.professionnels) ? j.professionnels.find((p: { id: string }) => p.id === id) : null;
+      if (trouve) ouvrirProfilProfessionnel({ id: trouve.id, nom: trouve.nom, photo: trouve.photo, verifie: trouve.verifie, membreDepuis: trouve.membreDepuis });
+      else ouvrirProfilProfessionnel({ id, nom, photo: null, verifie: false, membreDepuis: new Date().toISOString() });
+    } catch {
+      ouvrirProfilProfessionnel({ id, nom, photo: null, verifie: false, membreDepuis: new Date().toISOString() });
+    }
+  }
+
   function choisirFichiersPost(fichiers: FileList | null) {
     if (!fichiers) return;
     const nouveaux = Array.from(fichiers).filter(f => f.type.startsWith("image/") && f.size <= 5 * 1024 * 1024);
@@ -3237,10 +3667,33 @@ export default function YelenApp() {
       const done = localStorage.getItem("yelen224_onboarding_done");
       if (!done) { router.replace("/onboarding"); return; }
     } catch {}
-    setReady(true);
 
     let id: string | null = null;
     try { id = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
+
+    (async () => {
+    if (id) {
+      // Garde-fou : un compte dont l'onboarding post-inscription
+      // (/premiers-pas) n'a jamais été marqué complété ne doit jamais
+      // atterrir directement sur l'accueil — sinon les écrans centres
+      // d'intérêt/usage/attentes/acquisition sont silencieusement sautés.
+      // Avant ce garde-fou, seule la redirection ponctuelle en fin
+      // d'inscription (app/inscription/page.tsx) envoyait vers
+      // /premiers-pas — un raté ponctuel (app relancée pendant l'attente,
+      // navigation interrompue) n'était alors plus jamais rattrapé (retour
+      // Bryan 11/09/2026, cas réel constaté). `onboarding_complete` à
+      // `null` (comptes créés avant l'ajout de la colonne) n'est pas
+      // considéré comme incomplet — seule la valeur explicite `false`
+      // redirige, pour ne pas renvoyer rétroactivement d'anciens comptes
+      // vers l'onboarding.
+      const { data: onboardingRow } = await supabase.from("users").select("onboarding_complete").eq("id", id).maybeSingle();
+      if (onboardingRow?.onboarding_complete === false) {
+        router.replace("/premiers-pas");
+        return;
+      }
+    }
+
+    setReady(true);
     setUserId(id);
 
     if (id) {
@@ -3276,6 +3729,7 @@ export default function YelenApp() {
     }
 
     loadDashboardData(id);
+    })();
   }, [router, loadDashboardData]);
 
   if (!ready) return null;
@@ -3382,7 +3836,7 @@ export default function YelenApp() {
   // entièrement au clic — ces items y restent aussi, pas de suppression.
   const ACTIONS_RAPIDES_COMPTE = [
     { l: "Mes rendez-vous", h: "/mes-rdv",             i: Ic.Cal() },
-    { l: "Mon QR Code",     h: "/mon-qr",               i: Ic.QR() },
+    { l: "Mon QR code",     h: "/mon-qr",               i: Ic.QR() },
     { l: "Messagerie",      h: "/messagerie/citoyen",   i: Ic.Msg(false, msgCount) },
     { l: "Paramètres",      h: "/compte/parametres",   i: Ic.Settings() },
   ];
@@ -3416,16 +3870,23 @@ export default function YelenApp() {
     });
   }
 
-  // Plus de minHeight:100svh forcé (retour Bryan 29/07/2026) — sur un écran
-  // au contenu court (invité non connecté, etc.), ce minimum étirait ce
-  // conteneur jusqu'au bas du viewport et laissait un grand espace vide
-  // (fond de page) entre la fin du vrai contenu et le menu fixe du bas. Le
-  // conteneur épouse désormais sa hauteur réelle ; le menu du bas reste
-  // ancré au viewport (position:fixed), indépendant de cette hauteur. Sans
-  // impact sur les écrans à contenu long (RDV, Offres...) dont le contenu
-  // dépassait déjà 100svh.
+  // Retour sur minHeight (décision inverse du 29/07/2026, régression
+  // trouvée par Bryan 03/09/2026) — sans minimum, un écran au contenu court
+  // (invité non connecté sur Mes réservations/Compte) rend un document plus
+  // court que le viewport. `position:fixed` reste bien ancré au viewport en
+  // théorie, mais sur mobile (iOS Safari notamment) un document plus court
+  // que l'écran ne peut pas absorber le moindre geste de scroll/rebond : le
+  // moteur recalcule alors la zone visible réelle (barre d'outils qui se
+  // déploie puisqu'aucun scroll n'a eu lieu) et le menu fixe se retrouve
+  // positionné par rapport à cette zone recalculée, pas le bas visuel réel
+  // de l'écran — d'où l'impression que "le menu monte". 100dvh (unité
+  // dynamique, contrairement à 100svh figé sur la plus petite variante)
+  // garantit que ce conteneur occupe toujours l'écran réellement visible,
+  // menu fixe compris, quel que soit l'état de la barre d'outils. Le "grand
+  // espace vide" que le retrait de 29/07 voulait éviter est un état vide
+  // normal (mêmes proportions que n'importe quelle appli), pas un bug.
   return (
-    <div style={{ backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif", color: t1, overflowX: "hidden", paddingBottom: "calc(84px + env(safe-area-inset-bottom))" }}>
+    <div style={{ backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif", color: t1, overflowX: "hidden", minHeight: "100dvh", paddingBottom: "calc(84px + env(safe-area-inset-bottom))" }}>
       <style>{`
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
         html,body{max-width:100vw;background:${bg};-webkit-text-size-adjust:100%}
@@ -3462,6 +3923,50 @@ export default function YelenApp() {
         />
       )}
 
+      {/* ── GATE "CONDITIONS DES OFFRES" — voir tab === "offres" plus bas ── */}
+      {offresConditionsSheetOuverte && (
+        <OffresConditionsGateSheet
+          isDark={isDark} card={card} t1={t1} t2={t2} brd={brd}
+          onAccepter={accepterOffresConditions}
+          onRefuser={refuserOffresConditions}
+        />
+      )}
+
+      {/* ── SHEET "IDENTITÉ NON VÉRIFIÉE" — voir tab === "communaute" plus bas, non bloquante ── */}
+      {communauteVerifSheetOuverte && (
+        <CommunauteVerificationSheet
+          isDark={isDark} card={card} t1={t1} t2={t2} brd={brd}
+          onVerifier={() => { fermerCommunauteVerifSheet(); router.push("/compte/verification-identite"); }}
+          onFermer={fermerCommunauteVerifSheet}
+        />
+      )}
+
+      {/* ── SHEET DÉCOUVERTE — Mes réservations (une seule fois) ── */}
+      {rdvDecouverteSheetOuverte && (
+        <TabDecouverteSheet
+          isDark={isDark} card={card} t1={t1} t2={t2} brd={brd}
+          icon={<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
+          titre="Bienvenue dans Mes réservations"
+          description="Retrouvez ici tous vos rendez-vous — à venir, en retard ou terminés — avec leur statut à jour en temps réel."
+          points={["Prenez un nouveau RDV en un tap (bouton +)", "Suivez le statut de chaque rendez-vous", "Retrouvez tout votre historique"]}
+          boutonLabel="J'ai compris"
+          onFermer={fermerRdvDecouverteSheet}
+        />
+      )}
+
+      {/* ── SHEET DÉCOUVERTE — Recherche (une seule fois) ── */}
+      {rechercheDecouverteSheetOuverte && (
+        <TabDecouverteSheet
+          isDark={isDark} card={card} t1={t1} t2={t2} brd={brd}
+          icon={<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>}
+          titre="Bienvenue dans Recherche"
+          description="Trouvez rapidement un établissement vérifié près de chez vous : hôpitaux, mairies, banques, ambassades et plus encore."
+          points={["Filtrez par catégorie ou secteur", "Basculez entre carte et liste", "Accédez directement à la prise de RDV"]}
+          boutonLabel="J'ai compris"
+          onFermer={fermerRechercheDecouverteSheet}
+        />
+      )}
+
       {/* ── AUTH BIOMÉTRIE — WebAuthn réel ── */}
       {bioAuthOpen && userId && (
         <>
@@ -3492,7 +3997,16 @@ export default function YelenApp() {
 
       {menuOpen && <CitoyenMenu isDark={isDark} onClose={() => setMenuOpen(false)} onOpenCompte={() => { setMenuOpen(false); changeTab("compte"); }} userId={userId} userName={userName} userPhoto={userPhoto} initials={initials} identiteVerifiee={identiteVerifiee} />}
 
-      {showWelcome && <WelcomeCelebration prenom={userName} bg={bg} t1={t1} t2={t2} onDismiss={() => setShowWelcome(false)}/>}
+      {showWelcome && <WelcomeCelebration prenom={userName} bg={bg} t1={t1} t2={t2} onDismiss={() => {
+        setShowWelcome(false);
+        let dejaLu = true;
+        try { dejaLu = localStorage.getItem(YELEN224_CGU_LIEN_OUVERT_KEY) === "1"; } catch {}
+        if (!dejaLu) setShowCguRappel(true);
+      }}/>}
+      {showCguRappel && <RappelCguOverlay bg={bg} t1={t1} t2={t2} isDark={isDark} onDismiss={() => {
+        try { localStorage.setItem(YELEN224_CGU_LIEN_OUVERT_KEY, "1"); } catch {}
+        setShowCguRappel(false);
+      }} onClose={() => setShowCguRappel(false)}/>}
 
       {notifOpen && <NotifPanel onClose={() => { setNotifOpen(false); setNotifCount(0); }} isDark={isDark} bg={bg} t1={t1} t2={t2} t3={t3} card={card} card2={card2} brd={brd} userId={userId} userName={userName}/>}
       {notifDetailFromPush && (
@@ -3510,6 +4024,9 @@ export default function YelenApp() {
           citoyenInterets={citoyenInterets}
           isDark={isDark} bg={bg} card={card} t1={t1} t2={t2} t3={t3} brd={brd}
           onClose={() => setProfilAuteurPost(null)}
+          identiteVerifiee={identiteVerifiee}
+          onCreerPost={() => { setProfilAuteurPost(null); ouvrirComposer(); }}
+          onVerifierIdentite={() => { setProfilAuteurPost(null); router.push("/compte/verification-identite"); }}
         />
       )}
       {institutionProfilId && (
@@ -3551,6 +4068,20 @@ export default function YelenApp() {
           publications={mesPublications}
           bg={bg} card={card} card2={card2} t1={t1} t2={t2} t3={t3} brd={brd}
           onClose={() => setMesPublicationsOuvert(false)}
+          identiteVerifiee={identiteVerifiee}
+          onCreerPost={() => { setMesPublicationsOuvert(false); ouvrirComposer(); }}
+          onVerifierIdentite={() => { setMesPublicationsOuvert(false); router.push("/compte/verification-identite"); }}
+        />
+      )}
+
+      {chercherCommunauteOuvert && (
+        <ChercherCommunauteOverlay
+          onClose={() => setChercherCommunauteOuvert(false)}
+          onApplyCategorie={choisirCategorieFiltre}
+          onOpenInstitution={id => setInstitutionProfilId(id)}
+          onOpenProfessionnel={ouvrirProfilProfessionnel}
+          renderPost={renderPostCard}
+          isDark={isDark} bg={bg} card={card} card2={card2} t1={t1} t2={t2} t3={t3} brd={brd}
         />
       )}
 
@@ -3567,6 +4098,7 @@ export default function YelenApp() {
           onSignalerPost={() => setSignalementCible({ type: "post", id: imageViewer.post.id, label: imageViewer.post.author_nom })}
           onSignalerAuteur={() => setSignalementCible({ type: "auteur", id: (imageViewer.post.auteur_type === "institution" ? imageViewer.post.institution_auteur_id : imageViewer.post.auteur_id) ?? "", label: imageViewer.post.author_nom })}
           onClose={() => setImageViewer(null)}
+          onOuvrirMention={ouvrirMention}
         />
       )}
 
@@ -3591,6 +4123,7 @@ export default function YelenApp() {
           onClose={() => setPostDetail(null)}
           estAbonne={!!postDetail.institution_auteur_id && abonnementsIds.has(postDetail.institution_auteur_id)}
           onToggleAbonnement={() => { if (postDetail.institution_auteur_id) toggleAbonnement(postDetail.institution_auteur_id, postDetail.author_nom); }}
+          onOuvrirMention={ouvrirMention}
         />
       )}
 
@@ -3672,20 +4205,11 @@ export default function YelenApp() {
         // pour Offres puis RDV — seul Compte garde le fond doré plein).
         const hBg     = (tab === "communaute" || tab === "offres" || tab === "rdv") ? (isDark ? bg : "#fff") : isDark ? bg : tab === "accueil" ? (accueilHeroPasse ? "#fff" : "#F5A623") : tab === "compte" ? "#F5A623" : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)";
         const hText   = (tab === "communaute" || tab === "offres" || tab === "rdv") ? t1 : isDark ? t1 : "#080812";
-        // Chip translucide neutre au lieu d'un fond doré plein — retour CEO
-        // 23/07/2026 : "le doré partout cache l'image de marque", à réserver
-        // aux CTA et à l'état actif, façon DoorDash. Même traitement que les
-        // pastilles heure/ville du hero (rgba(0,0,0,0.15)).
-        // Retour Bryan 09/08/2026 : sur un header neutre (Communauté/Offres/
-        // RDV), la puce translucide noire + icône blanche pensée pour un
-        // fond doré devenait quasi invisible sur fond blanc — même
-        // traitement neutre que CompteHeader (card2 + icône foncée) quand
-        // headerNeutre.
+        // Icônes du header sans puce (retour Bryan 31/08/2026, même
+        // traitement que CompteHeader/Messagerie) — foncées sur fond neutre,
+        // blanches nues sur fond doré/dégradé.
         const headerNeutre = tab === "communaute" || tab === "offres" || tab === "rdv" || (tab === "accueil" && accueilHeroPasse);
-        const hChip   = isDark ? card2 : headerNeutre ? card2 : "rgba(0,0,0,0.14)";
         const hIcon   = isDark ? hText : headerNeutre ? t1 : "#fff";
-        const hBrd    = isDark ? brd : headerNeutre ? brd : "rgba(255,255,255,0.18)";
-        const hShadow = isDark ? "none" : headerNeutre ? "0 1px 3px rgba(0,0,0,0.06)" : "0 1px 3px rgba(0,0,0,0.1)";
         // Décale le header sous le bandeau "Installer l'app" quand celui-ci
         // est affiché sur Accueil — le header perd son propre paddingTop
         // safe-area exactement quand il n'est plus l'élément fixe le plus
@@ -3757,15 +4281,15 @@ export default function YelenApp() {
                     style={{
                       display: "flex", alignItems: "center", gap: "10px",
                       width: "100%", margin: 0,
-                      padding: "11px 40px 11px 14px", background: "#fff", border: "none", borderRadius: "14px",
+                      padding: "11px 40px 11px 14px", background: card, border: `1.5px solid ${isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.14)"}`, borderRadius: "24px",
                       fontFamily: "inherit", fontSize: "14px", lineHeight: "normal",
                       textAlign: "left", cursor: "pointer",
                       appearance: "none", WebkitAppearance: "none",
                       boxSizing: "border-box",
                     }}
                   >
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#4A4A50" strokeWidth="2.3" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                    <span style={{ color: offreSearchQuery ? "#080812" : "#4A4A50", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={t2} strokeWidth="2.3" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    <span style={{ color: offreSearchQuery ? t1 : t2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                       {offreSearchQuery || placeholder}
                     </span>
                   </button>
@@ -3830,10 +4354,22 @@ export default function YelenApp() {
                   >
                     <CommunauteAvatar nom={userName} photo={userPhoto} taille={46} />
                   </button>
-                  <div style={{ color: hText, fontSize: "16px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: communauteTitreCollapse ? "240px" : "0px", opacity: communauteTitreCollapse ? 1 : 0, transition: "max-width 0.25s ease, opacity 0.2s ease" }}>Fil d&apos;actualité &amp; Community</div>
+                  <div style={{ color: hText, fontSize: "16px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: communauteTitreCollapse ? "240px" : "0px", opacity: communauteTitreCollapse ? 1 : 0, transition: "max-width 0.25s ease, opacity 0.2s ease" }}>Fil d&apos;actualité et communauté</div>
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, marginLeft: "10px" }}>
+                  {/* Recherche Community — Lot 1 (09/09/2026), État 1 : juste
+                      l'icône, l'écran dédié s'ouvre au tap (voir
+                      ChercherCommunauteOverlay.tsx). */}
+                  <button
+                    onClick={() => setChercherCommunauteOuvert(true)}
+                    aria-label="Rechercher dans Community"
+                    className="tap"
+                    style={{ width: "42px", height: "42px", borderRadius: "50%", background: isDark ? card2 : "#1C1C1E", border: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
+                  >
+                    {Ic.Search()}
+                  </button>
+
                   {/* Statut de mes publications (22/08/2026) — toujours
                       visible, plus seulement quand une publication est en
                       attente ; pastille discrète si mesPubEnAttente > 0. */}
@@ -3866,7 +4402,7 @@ export default function YelenApp() {
                           {[
                             { label: "FAQ", href: "/faq" },
                             { label: "Contact", href: "/contact" },
-                            { label: "Éducation financière", href: "/menu/lecons-argent" },
+                            { label: "Leçons d'argent", href: "/menu/lecons-argent" },
                           ].map(item => (
                             <Link key={item.href} href={item.href} onClick={() => setCommunauteAideOuvert(false)} className="tap" style={{ display: "block", padding: "10px 12px", borderRadius: "9px", color: t1, fontSize: "13px", fontWeight: 700, textDecoration: "none" }}>
                               {item.label}
@@ -3894,18 +4430,18 @@ export default function YelenApp() {
               <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, marginLeft: "10px" }}>
                 {/* Hub de recherche "Mon Compte" (overlay, 26/07/2026) —
                     accessible depuis les 4 onglets, pas seulement Compte. */}
-                <button onClick={() => setRechercheOpen(true)} className="tap" style={{ width: tab === "accueil" ? "38px" : "36px", height: tab === "accueil" ? "38px" : "36px", borderRadius: "50%", background: hChip, border: `1px solid ${hBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hIcon }}>
+                <button onClick={() => setRechercheOpen(true)} className="tap" style={{ background: "none", border: "none", padding: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hIcon }}>
                   {Ic.Search()}
                 </button>
-                <button onClick={() => { setNotifOpen(o => !o); if (!notifOpen) setNotifCount(0); }} className="tap" style={{ position: "relative", width: tab === "accueil" ? "38px" : "36px", height: tab === "accueil" ? "38px" : "36px", borderRadius: "50%", background: hChip, border: `1px solid ${hBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hIcon }}>
+                <button onClick={() => { setNotifOpen(o => !o); if (!notifOpen) setNotifCount(0); }} className="tap" style={{ position: "relative", background: "none", border: "none", padding: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hIcon }}>
                   {Ic.Bell(notifCount > 0, notifCount || undefined)}
                 </button>
                 {tab !== "accueil" && (
-                  <Link href="/faq" className="tap" style={{ width: "36px", height: "36px", borderRadius: "50%", background: hChip, border: `1px solid ${hBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", color: hIcon, textDecoration: "none", flexShrink: 0 }}>
+                  <Link href="/faq" className="tap" style={{ background: "none", border: "none", padding: 6, display: "flex", alignItems: "center", justifyContent: "center", color: hIcon, textDecoration: "none", flexShrink: 0 }}>
                     {Ic.Headset()}
                   </Link>
                 )}
-                <button onClick={() => router.push("/messagerie/citoyen")} className="tap" style={{ width: tab === "accueil" ? "38px" : "36px", height: tab === "accueil" ? "38px" : "36px", borderRadius: "50%", background: hChip, border: `1px solid ${hBrd}`, boxShadow: hShadow, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hIcon }}>
+                <button onClick={() => router.push("/messagerie/citoyen")} className="tap" style={{ background: "none", border: "none", padding: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hIcon }}>
                   {Ic.Msg(false, msgCount || undefined)}
                 </button>
               </div>
@@ -4017,11 +4553,20 @@ export default function YelenApp() {
 
           <div style={{ padding: "16px 16px 0", display: "flex", flexDirection: "column", gap: "22px" }}>
 
+            {/* PARCOURS YELEN — juste après la barre de recherche (retour
+                Bryan 02/09/2026 : jamais visible dans Mon Assistant malgré
+                des données disponibles, donc retiré de ce sheet et remis à
+                sa place d'origine sur l'Accueil). Composant partagé
+                (components/ParcoursYelenBandeau.tsx), gère lui-même son
+                fetch/état/fermeture — retourne null si non connecté ou
+                parcours déjà terminé/fermé. */}
+            {userId && <ParcoursYelenBandeau userId={userId}/>}
+
             {userId && (
               <>
                 <EtatAttentionCard t1={t1} t2={t2} card={card}/>
                 <GuidanceDecouverteCard t1={t1} t2={t2} card={card} brd={brd} onOffreClick={ouvrirOffreParId}/>
-                <QuickActions router={router} t1={t1} t2={t2} card={card} brd={brd} isDark={isDark}/>
+                <QuickActions router={router} t1={t1} t2={t2} card={card} brd={brd} isDark={isDark} demarchesCount={demarchesEnCours.length}/>
                 <RappelsDemarches rappels={rappelsDemarches} t1={t1} t2={t2} card={card} brd={brd}/>
                 <VotreArgent solde={rewardsSolde} gagneAVie={rewardsGagneAVie} prochainPalier={rewardsProchainPalier} depenseDominante={depenseDominante} t1={t1} t2={t2} card={card} brd={brd} router={router}/>
                 <CetteSemaine t1={t1} t2={t2} card={card} card2={card2} brd={brd} router={router}/>
@@ -4039,7 +4584,7 @@ export default function YelenApp() {
                 {[
                   { label: "Santé",      href: "/recherche?categorie=sante_medical",  grad: "linear-gradient(135deg,#FF6B6B,#FF3B30)", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/><rect x="3" y="3" width="18" height="18" rx="3"/></svg> },
                   { label: "Éducation", href: "/recherche?categorie=education_formation_recherche",    grad: "linear-gradient(135deg,#4A90E2,#007AFF)", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><path d="M12 3L2 9l10 6 10-6-10-6z"/><path d="M2 17l10 6 10-6"/><path d="M2 13l10 6 10-6"/></svg> },
-                  { label: "Admin.",    href: "/recherche?categorie=institutions_publiques_administratif",   grad: "linear-gradient(135deg,#F5A623,#C8940A)", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><path d="M3 21h18M4 21V10l8-7 8 7v11M9 21v-6h6v6"/></svg> },
+                  { label: "Administratif", href: "/recherche?categorie=institutions_publiques_administratif",   grad: "linear-gradient(135deg,#F5A623,#C8940A)", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><path d="M3 21h18M4 21V10l8-7 8 7v11M9 21v-6h6v6"/></svg> },
                   { label: "Banque",    href: "/recherche?categorie=finance_assurance_paiements",   grad: "linear-gradient(135deg,#34C759,#27A84A)", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg> },
                   { label: "Ambassades",href: "/ambassades",                    grad: "linear-gradient(135deg,#8B5CF6,#6D28D9)", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> },
                   { label: "Justice",   href: "/recherche?categorie=droit_comptabilite_conseil",  grad: "linear-gradient(135deg,#FF9500,#E07800)", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg> },
@@ -4055,26 +4600,8 @@ export default function YelenApp() {
             {/* BANNIÈRE VALEUR (non connecté) */}
             {!userId && (
               <div style={{ backgroundColor: card, borderRadius: "20px", padding: "22px" }}>
-                <div style={{ textAlign: "center", marginBottom: "20px" }}>
-                  <div style={{ color: t1, fontSize: "18px", fontWeight: "900", marginBottom: "6px" }}>Yelen224 — Votre temps est précieux</div>
-                  <div style={{ color: t2, fontSize: "13px" }}>La plateforme officielle de la Guinée numérique</div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                  {[
-                    { icon: "⚡", titre: "Gagnez du temps", sous: "Fini les files d'attente. Vos démarches depuis votre mobile." },
-                    { icon: "🔗", titre: "Tout centralisé", sous: "Un seul compte pour accéder à des centaines de services." },
-                    { icon: "🔐", titre: "100% Sécurisé", sous: "Vos données sont protégées. Chiffrement AES-256 bancaire." },
-                  ].map(v => (
-                    <div key={v.titre} style={{ display: "flex", alignItems: "center", gap: "14px", padding: "12px", backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", borderRadius: "12px" }}>
-                      <span style={{ fontSize: "24px" }}>{v.icon}</span>
-                      <div>
-                        <div style={{ color: t1, fontSize: "14px", fontWeight: "700", marginBottom: "2px" }}>{v.titre}</div>
-                        <div style={{ color: t2, fontSize: "12px" }}>{v.sous}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginTop: "20px", display: "flex", gap: "10px" }}>
+                <Image src="/illustrations/login-bon-retour.png" alt="Yelen224 — Votre temps est précieux" width={969} height={1469} style={{ width: "200px", maxWidth: "100%", height: "auto", margin: "0 auto 20px", display: "block" }}/>
+                <div style={{ display: "flex", gap: "10px" }}>
                   <Link href="/inscription" style={{ flex: 1, display: "block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none", textAlign: "center" }}>Créer mon compte</Link>
                   <Link href="/login" style={{ flex: 1, display: "block", backgroundColor: card2, color: t1, fontWeight: "600", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none", textAlign: "center", border: `1px solid ${brd}` }}>Se connecter</Link>
                 </div>
@@ -4118,7 +4645,7 @@ export default function YelenApp() {
                     <div style={{ color: "#F5A623", display: "flex", justifyContent: "center", marginBottom: "10px" }}><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
                     <div style={{ color: t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Ajoutez votre ville</div>
                     <div style={{ color: t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>Renseignez votre ville pour découvrir les établissements disponibles près de chez vous.</div>
-                    <button onClick={() => router.push("/profil")} className="tap" style={{ background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "12px 24px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+                    <button onClick={() => router.push("/profil")} className="tap" style={{ background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "12px 24px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
                       Choisir ma ville
                     </button>
                   </div>
@@ -4217,6 +4744,26 @@ export default function YelenApp() {
           couleur par marque). ===== */}
       {/* ===================================================== */}
       <KeepMounted tabKey="offres" current={tab} visited={visitedTabs}>{(() => {
+        // Gate obligatoire (retour Bryan 03/09/2026) — tant que les
+        // Conditions des Offres n'ont pas été acceptées (état initial null
+        // = pas encore lu, ou false = jamais accepté/refusé), l'onglet
+        // affiche un état bloqué au lieu du feed d'offres.
+        if (offresConditionsAcceptees !== true) {
+          return (
+            <div className="scr" style={{ padding: "calc(76px + env(safe-area-inset-top)) 16px 0", minHeight: "70vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+              <div style={{ width: "56px", height: "56px", borderRadius: "18px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "16px" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+              </div>
+              <div style={{ color: t1, fontSize: "16px", fontWeight: 800, marginBottom: "6px" }}>Accès aux Offres bloqué</div>
+              <p style={{ color: t2, fontSize: "13px", lineHeight: 1.55, maxWidth: "300px", marginBottom: "20px" }}>
+                Vous devez accepter les Conditions des Offres Yelen pour consulter cet onglet.
+              </p>
+              <button onClick={() => setOffresConditionsSheetOuverte(true)} className="tap" style={{ background: "#F5A623", color: "#080812", fontWeight: 800, fontSize: "14px", padding: "13px 24px", borderRadius: "14px", border: "none", cursor: "pointer" }}>
+                Accepter les conditions
+              </button>
+            </div>
+          );
+        }
         const offresCats = Array.from(new Set(offresList.map(o => o.categorie)));
         const q = offreSearchQuery.trim().toLowerCase();
         const offresFiltrees = offresList
@@ -4446,25 +4993,30 @@ export default function YelenApp() {
                   </div>
                 );
               })}
+
+              {/* Accès aux conditions des Offres (chantier CEO 03/09/2026)
+                  — bref rappel + CTA vers le document juridique dédié,
+                  jamais un remaniement des cartes d'offres existantes.
+                  Volontairement pas une carte (pas de fond/bordure) pour se
+                  distinguer des cartes d'offres au-dessus — juste une ligne
+                  d'info avec badge icône (retour Bryan 03/09/2026). */}
+              <div style={{ display: "flex", gap: "12px", alignItems: "flex-start", padding: "6px 4px 4px" }}>
+                <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: t1, fontSize: "14px", fontWeight: 800, marginBottom: "4px" }}>Avant de profiter d&apos;une offre</div>
+                  <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.55, marginBottom: "8px" }}>
+                    Comprenez comment fonctionnent les offres Yelen, les recommandations Reward et les redirections vers nos partenaires.
+                  </div>
+                  <Link href="/offres/conditions" style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "#F5A623", fontSize: "13px", fontWeight: 800, textDecoration: "none" }}>
+                    Consulter les conditions
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </Link>
+                </div>
+              </div>
             </>
           )}
-
-          {/* Bandeaux promo de fin d'écran — carrousel horizontal FIXE (les
-              4, toujours dans cet ordre), indépendant du mélange déjà
-              inséré entre les groupes d'offres ci-dessus (retour Bryan
-              26/07/2026 : "en gardant celle en fin d'écran fixe"). */}
-          <div style={{ marginTop: "8px" }}>
-            <div style={{ color: t2, fontSize: "12px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "10px" }}>
-              À découvrir aussi sur Yelen
-            </div>
-            <div style={{ display: "flex", gap: "12px", overflowX: "auto", paddingBottom: "6px", scrollSnapType: "x mandatory" }}>
-              {PROMO_BANDEAUX.map(spec => (
-                <div key={spec.href} style={{ width: "82vw", maxWidth: "320px", flexShrink: 0, scrollSnapAlign: "start" }}>
-                  <PromoBandeauDepuisSpec spec={spec} isDark={isDark} />
-                </div>
-              ))}
-            </div>
-          </div>
 
           {selectedOffre && (
             <OffreFicheOverlay
@@ -4613,7 +5165,7 @@ export default function YelenApp() {
 
                       {offresConsultees.length > 0 && (
                         <div style={{ marginBottom: "20px" }}>
-                          <div style={{ color: t2, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "10px" }}>Consultées récemment</div>
+                          <div style={{ color: t2, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "10px" }}>Récemment consultés</div>
                           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                             {offresConsultees.map(o => (
                               <button
@@ -4669,8 +5221,11 @@ export default function YelenApp() {
         // !rdvJourneeDejaPassee : même filtre que app/mes-rdv/page.tsx::rdvsAvenir
         // — sans cette exclusion, un RDV ancien jamais traité par
         // l'établissement pouvait s'afficher comme "Prochain rendez-vous" à
-        // la place du vrai prochain (retour Bryan 29/07/2026).
-        const rdvAVenir = rdvs.filter(r => (r.statut === "en_attente" || r.statut === "confirme") && !rdvJourneeDejaPassee(r.date_rdv));
+        // la place du vrai prochain (retour Bryan 29/07/2026). statut ===
+        // "nouveau" ajouté (trou trouvé 14/09/2026, même correctif que
+        // app/mes-rdv/page.tsx::rdvsAvenir) — un RDV tout juste réservé, pas
+        // encore accepté par l'établissement, ne remontait jamais ici.
+        const rdvAVenir = rdvs.filter(r => (r.statut === "en_attente" || r.statut === "confirme" || r.statut === "nouveau") && !rdvJourneeDejaPassee(r.date_rdv));
         const rdvTermines = rdvs.filter(r => r.statut === "termine");
 
         // "Votre activité" (09/08/2026) — dérivation simple par catégorie,
@@ -4687,7 +5242,7 @@ export default function YelenApp() {
         // Mis en avant explicite du prochain RDV et du RDV en retard (2
         // cartes distinctes, avec infos complètes) — demandé par Bryan le
         // 20/07/2026, cet écran est le plus visité côté citoyen.
-        const rdvEnRetard = rdvAVenirTries.find(r => r.statut === "en_attente" && r.presence_status !== "present" && rdvEstEnRetard(r.date_rdv, r.heure_rdv || "00:00") && !rdvEstAbsent(r.date_rdv, r.statut, r.presence, r.presence_status));
+        const rdvEnRetard = rdvAVenirTries.find(r => (r.statut === "en_attente" || r.statut === "nouveau") && r.presence_status !== "present" && rdvEstEnRetard(r.date_rdv, r.heure_rdv || "00:00") && !rdvEstAbsent(r.date_rdv, r.statut, r.presence, r.presence_status));
         // !rdvEstEnRetard(...) en plus de l'exclusion de rdvEnRetard (retour
         // Bryan 29/07/2026) — un RDV du jour dont l'heure précise est déjà
         // passée (ex. 10:30 alors qu'il est 19h) ne doit jamais devenir
@@ -4706,11 +5261,17 @@ export default function YelenApp() {
             <Link href="/recherche" style={{ width: "36px", height: "36px", backgroundColor: "#F5A623", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#080812", textDecoration: "none", flexShrink: 0 }} className="tap">{Ic.Plus()}</Link>
           </div>
           {!userId ? (
-            <div style={{ backgroundColor: card, borderRadius: "20px", padding: "40px 20px", textAlign: "center" }}>
-              <div style={{ color: t1, fontSize: "17px", fontWeight: "700", marginBottom: "8px" }}>Connectez-vous</div>
-              <div style={{ color: t2, fontSize: "14px", marginBottom: "20px" }}>Gérez vos rendez-vous depuis votre compte.</div>
-              <Link href="/login" style={{ display: "block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "15px", padding: "14px", borderRadius: "12px", textDecoration: "none" }}>Se connecter</Link>
-            </div>
+            <>
+              <div style={{ backgroundColor: card, borderRadius: "20px", padding: "40px 20px", textAlign: "center" }}>
+                <div style={{ color: t1, fontSize: "17px", fontWeight: "700", marginBottom: "8px" }}>Connectez-vous</div>
+                <div style={{ color: t2, fontSize: "14px", marginBottom: "20px" }}>Gérez vos rendez-vous depuis votre compte.</div>
+                <Link href="/login" style={{ display: "block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "15px", padding: "14px", borderRadius: "12px", textDecoration: "none" }}>Se connecter</Link>
+              </div>
+              {/* Illustration transparente — hors du cadre blanc (retour Bryan
+                  09/09/2026), posée directement sur le fond de l'écran en
+                  dessous de la carte plutôt que dans son padding. */}
+              <Image src="/illustrations/compte-non-connecte.png" alt="" width={929} height={1318} style={{ width: "180px", maxWidth: "100%", height: "auto", margin: "28px auto 0", display: "block" }}/>
+            </>
           ) : !rdvsLoaded ? (
             // Skeleton bref pendant que le fetch est en vol — jamais l'état
             // zéro affiché avant d'avoir confirmé qu'il n'existe vraiment
@@ -4847,12 +5408,18 @@ export default function YelenApp() {
                 <div onClick={() => router.push("/mes-rdv")} className="tap" style={{ backgroundColor: card, borderRadius: "16px", padding: "15px", cursor: "pointer" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
                     <div style={{ color: t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.08em" }}>Prochain rendez-vous</div>
-                    <span style={{ backgroundColor: stInfo(prochain.statut).bg, color: stInfo(prochain.statut).c, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{stInfo(prochain.statut).l}</span>
+                    <span style={{ background: stInfo(prochain.statut).c, color: "#fff", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "0" }}>{stInfo(prochain.statut).l}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <div style={{ width: "42px", height: "42px", borderRadius: "12px", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", color: "#080812", fontWeight: "800", fontSize: "14px", flexShrink: 0 }}>
-                      {(prochain.institution_name || "?").slice(0, 2).toUpperCase()}
-                    </div>
+                    {prochain.institution_logo ? (
+                      <div style={{ position: "relative", width: "42px", height: "42px", borderRadius: "12px", overflow: "hidden", flexShrink: 0 }}>
+                        <Image src={prochain.institution_logo} alt="" fill sizes="42px" style={{ objectFit: "cover" }} />
+                      </div>
+                    ) : (
+                      <div style={{ width: "42px", height: "42px", borderRadius: "12px", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", color: "#080812", fontWeight: "800", fontSize: "14px", flexShrink: 0 }}>
+                        {(prochain.institution_name || "?").slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: t1, fontSize: "14px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prochain.institution_name}</div>
                       {prochain.objet && <div style={{ color: t2, fontSize: "12px", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prochain.objet}</div>}
@@ -4879,6 +5446,25 @@ export default function YelenApp() {
                     <div style={{ color: t1, fontSize: "15px", fontWeight: "800" }}>{formatGNF(paiementsAttente.total)}</div>
                   </div>
                   {Ic.Chev()}
+                </div>
+              )}
+
+              {/* AUCUN RDV À VENIR — illustration sur mesure (retour Bryan
+                  07/09/2026, chantier "illustrations sur mesure") : ne
+                  s'affiche que si rdvAVenir est vide (sinon le prochain RDV
+                  est déjà mis en avant ci-dessus, cette carte ferait
+                  doublon). Carte entièrement cliquable vers l'onglet
+                  Recherche — même pattern que RDV EN RETARD/PROCHAIN
+                  RDV/PAIEMENT EN ATTENTE plus haut (chevron en fin de carte
+                  comme seule affordance, pas de bouton séparé). */}
+              {rdvAVenir.length === 0 && (
+                <div onClick={() => changeTab("recherche")} className="tap" style={{ backgroundColor: card, borderRadius: "20px", padding: "24px 20px", textAlign: "center", cursor: "pointer" }}>
+                  <Image src="/illustrations/mes-reservations-vide.png" alt="Découvrez des établissements et réservez votre prochain créneau" width={1536} height={1024} style={{ width: "220px", maxWidth: "100%", height: "auto", margin: "0 auto 14px", display: "block" }}/>
+                  <div style={{ color: t1, fontSize: "16px", fontWeight: "800", marginBottom: "6px" }}>Aucun rendez-vous à venir</div>
+                  <div style={{ color: t2, fontSize: "13px", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                    Découvrez des établissements et réservez dès maintenant
+                    {Ic.Chev()}
+                  </div>
                 </div>
               )}
 
@@ -4969,16 +5555,13 @@ export default function YelenApp() {
                       </div>
                     ) : (
                       <div style={{ backgroundColor: card, borderRadius: "20px", padding: "32px 20px", textAlign: "center" }}>
-                        <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}>
-                          <svg width="88" height="88" viewBox="0 0 88 88" fill="none">
-                            <circle cx="44" cy="44" r="42" fill="rgba(245,166,35,0.08)"/>
-                            <rect x="24" y="26" width="40" height="36" rx="8" fill={isDark ? "#1C1C1E" : "#fff"} stroke={isDark ? "#3A3A3C" : "#E5E5EA"} strokeWidth="2"/>
-                            <path d="M24 38h40" stroke={isDark ? "#3A3A3C" : "#E5E5EA"} strokeWidth="2"/>
-                            <path d="M32 22v8M56 22v8" stroke={isDark ? "#3A3A3C" : "#E5E5EA"} strokeWidth="2" strokeLinecap="round"/>
-                            <circle cx="62" cy="60" r="14" fill="#F5A623"/>
-                            <path d="M56 60l4 4 8-8" stroke="#080812" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </div>
+                        <Image
+                          src="/illustrations/votre-activite-icone.png"
+                          alt=""
+                          width={1536}
+                          height={1024}
+                          style={{ width: "130px", height: "auto", margin: "0 auto 14px", display: "block" }}
+                        />
                         <div style={{ color: t1, fontSize: "16px", fontWeight: "800", marginBottom: "6px" }}>Votre activité commence ici</div>
                         <div style={{ color: t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "18px" }}>Vos réservations, favoris, avis et démarches apparaîtront ici au fil de votre parcours avec Yelen.</div>
                         <button onClick={() => changeTab("recherche")} className="tap" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "13.5px", padding: "12px 22px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Découvrir des établissements</button>
@@ -5044,7 +5627,7 @@ export default function YelenApp() {
               version compacte apparaît dans le header une fois ce bloc
               défilé sous lui. */}
           <div ref={communauteTitreRef} style={{ marginBottom: "18px" }}>
-            <h1 style={{ color: t1, fontSize: "22px", fontWeight: 900, margin: "0 0 4px", letterSpacing: "-0.4px" }}>Fil d&apos;actualité &amp; Community</h1>
+            <h1 style={{ color: t1, fontSize: "22px", fontWeight: 900, margin: "0 0 4px", letterSpacing: "-0.4px" }}>Fil d&apos;actualité et communauté</h1>
             <p style={{ color: t2, fontSize: "13px", margin: 0 }}>Idées, expériences et opportunités entre professionnels Yelen.</p>
           </div>
 
@@ -5065,12 +5648,16 @@ export default function YelenApp() {
                 </span>
               </button>
             </div>
-          ) : (
-            <div style={{ background: isDark ? "rgba(37,99,235,0.08)" : "rgba(37,99,235,0.06)", border: "1px solid rgba(37,99,235,0.2)", borderRadius: "14px", padding: "14px 16px", marginBottom: "20px" }}>
-              <div style={{ color: "#2563EB", fontSize: "12.5px", fontWeight: 800, marginBottom: "4px" }}>Identité non vérifiée</div>
-              <div style={{ color: t2, fontSize: "12px", lineHeight: 1.5 }}>Vous pouvez liker, commenter et partager. Vérifiez votre identité Yelen pour publier vos propres idées.</div>
+          ) : !bandeauCommunauteVerifFerme ? (
+            <div style={{ position: "relative", marginBottom: "20px" }}>
+              <Link href="/compte/verification-identite" className="tap" style={{ display: "block" }}>
+                <Image src="/illustrations/communaute-verification-bandeau.png" alt="Vérifiez votre identité — profitez pleinement de Yelen en validant votre identité." width={2122} height={596} style={{ width: "100%", height: "auto", display: "block" }}/>
+              </Link>
+              <button onClick={fermerBandeauCommunauteVerif} className="tap" aria-label="Fermer" style={{ position: "absolute", top: "8px", right: "8px", width: "26px", height: "26px", borderRadius: "50%", background: "rgba(8,8,18,0.55)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer" }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
             </div>
-          )}
+          ) : null}
 
           {!communauteLoaded || (posts.length === 0 && postsLoadingMore) ? (
             <YelenLoaderEcran label="Chargement du fil…" />
@@ -5083,24 +5670,7 @@ export default function YelenApp() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "12px", margin: "0 -16px 24px" }}>
               {communauteFeedItems.map(item => item.kind === "post" ? (
-                <PostCard
-                  key={item.post.id}
-                  post={item.post}
-                  card={card} t1={t1} t2={t2} t3={t3} brd={brd}
-                  liked={postLikes[item.post.id]?.likedByMoi ?? false}
-                  likeCount={postLikes[item.post.id]?.count ?? 0}
-                  commentCount={postCommentCounts[item.post.id] ?? 0}
-                  onToggleLike={() => togglePostLike(item.post.id)}
-                  onPartager={() => partagerPost(item.post)}
-                  onOpenPost={() => ouvrirPostDetail(item.post)}
-                  onOpenAuteur={() => item.post.auteur_type === "institution" ? setInstitutionProfilId(item.post.institution_auteur_id) : setProfilAuteurPost(item.post)}
-                  onSignalerPost={() => setSignalementCible({ type: "post", id: item.post.id, label: item.post.author_nom })}
-                  onSignalerAuteur={() => setSignalementCible({ type: "auteur", id: (item.post.auteur_type === "institution" ? item.post.institution_auteur_id : item.post.auteur_id) ?? "", label: item.post.author_nom })}
-                  onOuvrirImage={(images, index) => setImageViewer({ images, index, post: item.post })}
-                  onOuvrirInteractions={() => ouvrirInteractions(item.post.id)}
-                  estAbonne={!!item.post.institution_auteur_id && abonnementsIds.has(item.post.institution_auteur_id)}
-                  onToggleAbonnement={() => { if (item.post.institution_auteur_id) toggleAbonnement(item.post.institution_auteur_id, item.post.author_nom); }}
-                />
+                renderPostCard(item.post)
               ) : (
                 <div key={item.cle} style={{ padding: "0 16px" }}>
                   {item.variante === "recommandations" && (
@@ -5146,13 +5716,17 @@ export default function YelenApp() {
       <KeepMounted tabKey="compte" current={tab} visited={visitedTabs}>
         <div className="scr" style={{ padding: "calc(60px + env(safe-area-inset-top)) 16px 0" }}>
           {!userId ? (
-            <div style={{ backgroundColor: card, borderRadius: "20px", padding: "32px 20px", textAlign: "center" }}>
-              <div style={{ width: "70px", height: "70px", borderRadius: "50%", backgroundColor: card2, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", color: t1 }}>{Ic.User()}</div>
-              <div style={{ color: t1, fontSize: "18px", fontWeight: "700", marginBottom: "6px" }}>Non connecté</div>
-              <div style={{ color: t2, fontSize: "14px", marginBottom: "20px" }}>Créez un compte pour accéder à tous les services.</div>
-              <Link href="/inscription" style={{ display: "block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "15px", padding: "14px", borderRadius: "12px", textDecoration: "none", marginBottom: "10px" }}>Créer un compte</Link>
-              <Link href="/login" style={{ display: "block", backgroundColor: card2, color: t1, fontWeight: "600", fontSize: "15px", padding: "14px", borderRadius: "12px", textDecoration: "none" }}>Se connecter</Link>
-            </div>
+            <>
+              <div style={{ backgroundColor: card, borderRadius: "20px", padding: "32px 20px", textAlign: "center" }}>
+                <div style={{ color: t1, fontSize: "18px", fontWeight: "700", marginBottom: "6px" }}>Non connecté</div>
+                <div style={{ color: t2, fontSize: "14px", marginBottom: "20px" }}>Créez un compte pour accéder à tous les services.</div>
+                <Link href="/inscription" style={{ display: "block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "15px", padding: "14px", borderRadius: "12px", textDecoration: "none", marginBottom: "10px" }}>Créer un compte</Link>
+                <Link href="/login" style={{ display: "block", backgroundColor: card2, color: t1, fontWeight: "600", fontSize: "15px", padding: "14px", borderRadius: "12px", textDecoration: "none" }}>Se connecter</Link>
+              </div>
+              {/* Illustration transparente — hors du cadre blanc (retour Bryan
+                  09/09/2026), posée sur le fond de l'écran en dessous. */}
+              <Image src="/illustrations/compte-non-connecte.png" alt="" width={929} height={1318} style={{ width: "180px", maxWidth: "100%", height: "auto", margin: "28px auto 0", display: "block" }}/>
+            </>
           ) : (
             <div>
               {/* BANDEAU IDENTITÉ NON VÉRIFIÉE — décision Bryan 23/07/2026 :
@@ -5277,7 +5851,7 @@ export default function YelenApp() {
                 );
               })}
 
-              <button onClick={() => setLogoutOpen(true)} style={{ width: "100%", backgroundColor: "rgba(255,59,48,0.1)", border: "none", borderRadius: "14px", padding: "15px", color: "#FF3B30", fontSize: "15px", fontWeight: "600", cursor: "pointer" }} className="tap">Déconnexion</button>
+              <button onClick={() => setLogoutOpen(true)} style={{ width: "100%", backgroundColor: "transparent", border: "none", borderRadius: "14px", padding: "15px", color: "#FF3B30", fontSize: "15px", fontWeight: "600", cursor: "pointer" }} className="tap">Déconnexion</button>
 
               {/* FOOTER — pied de l'onglet Compte (retour Bryan 18/07/2026 :
                   l'app a atteint un niveau plus abouti, mérite une signature) */}

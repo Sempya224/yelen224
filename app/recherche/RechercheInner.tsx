@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import dynamic from "next/dynamic";
 import { useTheme } from "@/components/ThemeProvider";
@@ -685,6 +686,28 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
   const [page, setPage] = useState(0);
   const PER_PAGE = 20;
 
+  // Coach mark "Grille/Liste/Carte" (retour Bryan 03/09/2026) — au premier
+  // passage sur cet écran, rien n'indique que ces 3 icônes sont de vraies
+  // vues cliquables (elles peuvent lire comme une simple décoration). Une
+  // bulle pointe vers elles une seule fois par appareil (localStorage),
+  // se ferme au tap n'importe où dessus, disparaît automatiquement, ou
+  // dès que l'utilisateur touche une des 3 icônes (signal qu'il a compris).
+  const [coachMarkVuesVisible, setCoachMarkVuesVisible] = useState(false);
+  useEffect(() => {
+    try { if (localStorage.getItem("yelen224_recherche_coachmark_vues_vu") === "1") return; } catch { /* ignore */ }
+    const t = setTimeout(() => setCoachMarkVuesVisible(true), 700);
+    return () => clearTimeout(t);
+  }, []);
+  function fermerCoachMarkVues() {
+    try { localStorage.setItem("yelen224_recherche_coachmark_vues_vu", "1"); } catch { /* ignore */ }
+    setCoachMarkVuesVisible(false);
+  }
+  useEffect(() => {
+    if (!coachMarkVuesVisible) return;
+    const t = setTimeout(fermerCoachMarkVues, 6000);
+    return () => clearTimeout(t);
+  }, [coachMarkVuesVisible]);
+
   // Header "Grille" (retour Bryan 23/08/2026 : "l'écran n'a pas de header",
   // la ligne retour+recherche défilait avec la page) — sticky, masqué en
   // glissant vers le haut dès qu'on scrolle vers le bas, réaffiché dès
@@ -1266,18 +1289,30 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
               </div>
             </div>
 
-            <div style={{ display: "flex", background: iBg, border: `1px solid ${iBrd}`, borderRadius: "12px", padding: "3px", gap: "2px", flexShrink: 0 }}>
+            <div style={{ position: "relative", display: "flex", background: iBg, border: `1px solid ${iBrd}`, borderRadius: "12px", padding: "3px", gap: "2px", flexShrink: 0 }}>
               {([
                 { k: "grille", label: "Grille" },
                 { k: "liste",  label: "Liste" },
                 { k: "carte",  label: "Carte" },
               ] as { k: "grille"|"liste"|"carte"; label: string }[]).map(v => (
-                <button key={v.k} onClick={() => { setVue(v.k); if (v.k === "liste") setHeaderHidden(false); }} aria-label={v.label} className="tap" style={{ width: "30px", height: "28px", borderRadius: "8px", border: "none", background: vue === v.k ? "#F5A623" : "transparent", color: vue === v.k ? "#080812" : t2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                <button key={v.k} onClick={() => { setVue(v.k); if (v.k === "liste") setHeaderHidden(false); if (coachMarkVuesVisible) fermerCoachMarkVues(); }} aria-label={v.label} className="tap" style={{ width: "30px", height: "28px", borderRadius: "8px", border: "none", background: vue === v.k ? "#F5A623" : "transparent", color: vue === v.k ? "#080812" : t2, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                   {v.k === "grille" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>}
                   {v.k === "liste" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>}
                   {v.k === "carte" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>}
                 </button>
               ))}
+
+              {/* Coach mark — pointe vers ce groupe de vues, une seule fois
+                  par appareil (voir useEffect coachMarkVuesVisible plus haut). */}
+              {coachMarkVuesVisible && (
+                <div onClick={fermerCoachMarkVues} className="tap" style={{ position: "absolute", top: "calc(100% + 11px)", right: "0", zIndex: 9300, width: "196px", cursor: "pointer", animation: "fadeUp 0.3s ease" }}>
+                  <div style={{ position: "absolute", top: "-5px", right: "18px", width: "10px", height: "10px", background: "#F5A623", transform: "rotate(45deg)" }}/>
+                  <div style={{ background: "#F5A623", borderRadius: "14px", padding: "12px 14px", boxShadow: "0 10px 28px rgba(0,0,0,0.28)" }}>
+                    <div style={{ color: "#080812", fontSize: "12.5px", fontWeight: "800", marginBottom: "3px" }}>Grille, Liste ou Carte</div>
+                    <div style={{ color: "rgba(8,8,18,0.7)", fontSize: "11.5px", lineHeight: 1.5 }}>Ces 3 icônes changent l&apos;affichage des résultats — touchez pour essayer.</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           </div>
@@ -1393,11 +1428,11 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
           {/* Chips catégories scrollables — état actif adouci (§1 du plan) */}
           <div className="no-scroll" style={{ overflowX: "auto", paddingBottom: "11px" }}>
             <div style={{ display: "flex", gap: "6px", padding: "0 16px", width: "max-content" }}>
-              <button onClick={() => setFilterCat("")} className="tap" style={{ padding: "6px 13px", borderRadius: "20px", border: `1px solid ${!filterCat ? "rgba(245,166,35,0.5)" : iBrd}`, background: !filterCat ? "rgba(245,166,35,0.1)" : iBg, color: !filterCat ? "#F5A623" : t2, fontSize: "11px", fontWeight: !filterCat ? "800" : "600", cursor: "pointer" }}>
+              <button onClick={() => setFilterCat("")} className="tap" style={{ padding: "6px 13px", borderRadius: "20px", border: `1px solid ${!filterCat ? "#F5A623" : iBrd}`, background: iBg, color: !filterCat ? "#F5A623" : t2, fontSize: "11px", fontWeight: !filterCat ? "800" : "600", cursor: "pointer" }}>
                 Tout
               </button>
               {categories.map(cat => (
-                <button key={cat.id} onClick={() => setFilterCat(filterCat === cat.code ? "" : cat.code)} className="tap" style={{ padding: "6px 12px", borderRadius: "20px", border: `1px solid ${filterCat === cat.code ? "rgba(245,166,35,0.5)" : iBrd}`, background: filterCat === cat.code ? "rgba(245,166,35,0.1)" : iBg, color: filterCat === cat.code ? "#F5A623" : t2, fontSize: "11px", fontWeight: filterCat === cat.code ? "800" : "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", whiteSpace: "nowrap" }}>
+                <button key={cat.id} onClick={() => setFilterCat(filterCat === cat.code ? "" : cat.code)} className="tap" style={{ padding: "6px 12px", borderRadius: "20px", border: `1px solid ${filterCat === cat.code ? "#F5A623" : iBrd}`, background: iBg, color: filterCat === cat.code ? "#F5A623" : t2, fontSize: "11px", fontWeight: filterCat === cat.code ? "800" : "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", whiteSpace: "nowrap" }}>
                   <ActiviteCategorieIcon code={cat.code} color="currentColor" size={9}/>
                   {ACTIVITE_CATEGORIE_SHORT[cat.code] ?? cat.label}
                 </button>
@@ -1568,7 +1603,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
           <Rail titre="Vos favoris" institutions={favorisInsts} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={scrollVersGrille} hideCover/>
           <Rail titre="Nouveau sur Yelen" institutions={railNouvelles} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={scrollVersGrille}/>
           <Rail titre="Près de chez vous" sousTitre={citoyenVille ? `À ${citoyenVille}` : undefined} institutions={railPresDeChezVous} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={voirPlusPresDeChezVous}/>
-          <Rail titre="Partenaires vérifiés" sousTitre="Identité et activité confirmées par Yelen" institutions={railVerifiees} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={voirPlusVerifiees}/>
+          <Rail titre="Établissements vérifiés" sousTitre="Identité et activité confirmées par Yelen" institutions={railVerifiees} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={voirPlusVerifiees}/>
           <Rail titre="Les mieux notées" institutions={railMieuxNotees} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={voirPlusMieuxNotees} hideCover/>
         </div>
       )}
@@ -1601,9 +1636,13 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
           <div style={{ margin: "-12px -16px 0", position: "relative", height: "calc(100svh - 172px)" }}>
             {institutionsCarte.length === 0 ? (
               <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 32px", textAlign: "center" }}>
-                <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.15)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "14px" }}>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="1.5" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                </div>
+                <Image
+                  src="/illustrations/recherche-carte-vide.png"
+                  alt="Aucun établissement localisé"
+                  width={1254}
+                  height={1254}
+                  style={{ width: "104px", height: "auto", margin: "0 auto 14px", display: "block" }}
+                />
                 <div style={{ color: C.text, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Aucun établissement localisé pour l&apos;instant</div>
                 <div style={{ color: t2, fontSize: "12px", lineHeight: 1.6 }}>Les établissements apparaîtront ici dès qu&apos;ils auront renseigné leur position depuis leur espace Yelen224.</div>
               </div>
@@ -1656,19 +1695,19 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
         {/* Aucun résultat — jamais un simple "Aucun résultat" sec (brief
             "conclusion du parcours de recherche", 28/08/2026) : la
             formulation est contextualisée, et 2 actions de récupération
-            immédiates sont proposées plutôt qu'une impasse. Même icône que
-            "Commencez votre première recherche"
-            (app/recherche/RechercheOverlay.tsx::IllustrationEtat, variante
-            "premiere-fois") — une seule icône pour tous les états vides. */}
+            immédiates sont proposées plutôt qu'une impasse. Illustration
+            Yelen dédiée (décision Bryan du 07/09/2026, annule la règle
+            "pas de personnages dessinés à la main" documentée dans
+            RechercheOverlay.tsx pour cet écran) — public/illustrations/recherche-aucun-resultat.jpg. */}
         {!loading && vue !== "carte" && institutions.length === 0 && (
           <div style={{ textAlign: "center", padding: "48px 16px 8px", animation: "fadeUp 0.3s ease" }}>
-            <div style={{ width: "72px", height: "72px", borderRadius: "20px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
-              <svg width="36" height="36" viewBox="0 0 120 120" fill="none">
-                <circle cx="60" cy="48" r="16" fill="#080812"/>
-                <path d="M34 92c4-18 14-26 26-26s22 8 26 26" stroke="#080812" strokeWidth="6" strokeLinecap="round" fill="none"/>
-                <path d="M92 30l3 6 6 3-6 3-3 6-3-6-6-3 6-3z" fill="#080812"/>
-              </svg>
-            </div>
+            <Image
+              src="/illustrations/recherche-aucun-resultat.jpg"
+              alt="Aucun résultat trouvé"
+              width={1214}
+              height={651}
+              style={{ width: "230px", maxWidth: "100%", height: "auto", margin: "0 auto 18px", display: "block" }}
+            />
             <div style={{ color: C.text, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>C&apos;est tout pour cette recherche</div>
             <div style={{ color: t2, fontSize: "12px", lineHeight: 1.6, maxWidth: "300px", margin: "0 auto 20px" }}>
               {rechercheActive

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -129,11 +130,11 @@ const CHAPITRES: Chapitre[] = [
     ],
   },
   {
-    id: "qrcode", numero: "09", titre: "QR Code et partage", icon: "📲", duree: "5 min", niveau: "Débutant", couleur: "#14b8a6",
-    resume: "Votre QR Code permet à tout citoyen d'accéder à votre profil en 1 seconde.",
+    id: "qrcode", numero: "09", titre: "QR code et partage", icon: "📲", duree: "5 min", niveau: "Débutant", couleur: "#14b8a6",
+    resume: "Votre QR code permet à tout citoyen d'accéder à votre profil en 1 seconde.",
     sections: [
-      { titre: "Caractéristiques du QR Code", type: "list", items: ["✅ Unique — lié exclusivement à votre établissement", "✅ Permanent — ne change jamais", "✅ Gratuit — inclus dans tous les plans", "✅ Haute résolution — qualité d'impression professionnelle", "✅ Personnalisé — logo Yelen224 intégré au centre"] },
-      { titre: "Téléchargement", contenu: "Tableau de bord → Mon QR Code\n\nFormats : PNG (fond blanc), SVG (grand format), PDF (impression directe)\nTailles : 500×500 px (digital) ou 2000×2000 px (impression)", type: "text" },
+      { titre: "Caractéristiques du QR code", type: "list", items: ["✅ Unique — lié exclusivement à votre établissement", "✅ Permanent — ne change jamais", "✅ Gratuit — inclus dans tous les plans", "✅ Haute résolution — qualité d'impression professionnelle", "✅ Personnalisé — logo Yelen224 intégré au centre"] },
+      { titre: "Téléchargement", contenu: "Tableau de bord → Mon QR code\n\nFormats : PNG (fond blanc), SVG (grand format), PDF (impression directe)\nTailles : 500×500 px (digital) ou 2000×2000 px (impression)", type: "text" },
       { titre: "Dans votre établissement", type: "list", items: ["À l'entrée : panneau d'accueil \"Scannez pour prendre RDV\"", "En salle d'attente : affiche A4 ou A3", "À l'accueil / réception : support de comptoir", "Sur les portes des consultations et bureaux"] },
       { titre: "Sur vos supports", type: "list", items: ["Cartes de visite et ordonnances", "Flyers et brochures", "Site web et page Facebook officielle", "Signature email et WhatsApp Business"] },
       { titre: "Statistiques QR (Premium)", contenu: "Suivez : nombre de scans par période, appareils utilisés, taux de conversion scan → RDV, localisation géographique.", type: "info" },
@@ -263,9 +264,22 @@ function SectionBlock({ section, chapCouleur }: { section: Section; chapCouleur:
 }
 
 // ── Main Page ────────────────────────────────────────────────────────────────
-export default function GuidePrestatairePage() {
+// useSearchParams() exige un <Suspense> parent (piège build Netlify déjà
+// rencontré ailleurs, voir CLAUDE.md) — export par défaut wrapper tout en
+// bas du fichier, le vrai composant est GuidePrestataireInner.
+function GuidePrestataireInner() {
+  const searchParams = useSearchParams();
   const [activeChap, setActiveChap] = useState("inscription");
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Lien direct depuis le popover "Aide Yelen" (chantier "Refonte Aide &
+  // ressources", 06/09/2026, ?chapitre=<id>) — ignoré silencieusement si
+  // l'id ne correspond à aucun chapitre réel.
+  useEffect(() => {
+    const c = searchParams.get("chapitre");
+    if (c && CHAPITRES.some(ch => ch.id === c)) setActiveChap(c);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const chap = CHAPITRES.find(c => c.id === activeChap) ?? CHAPITRES[0];
   const idx = CHAPITRES.findIndex(c => c.id === activeChap);
@@ -433,5 +447,13 @@ export default function GuidePrestatairePage() {
 
       <div style={{ height: "env(safe-area-inset-bottom, 0px)" }} />
     </div>
+  );
+}
+
+export default function GuidePrestatairePage() {
+  return (
+    <Suspense fallback={null}>
+      <GuidePrestataireInner/>
+    </Suspense>
   );
 }

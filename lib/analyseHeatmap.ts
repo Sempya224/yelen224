@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { generateSlotsInRange } from "./disponibilites";
+import { rdvNonTraite } from "./rdvGating";
 import type { KpiMetric, PeriodeJours } from "./analyseAggregation";
 
 // Heatmap d'Activité détaillée (Centre d'Analyse) — "occupation" est une
@@ -14,9 +15,13 @@ import type { KpiMetric, PeriodeJours } from "./analyseAggregation";
 // capacité. Cellule sans créneau configuré = "Fermé" (occupation null),
 // jamais un pourcentage inventé.
 //
-// Volontairement PAS de colonne "Présence par créneau" : même garde-fou
-// que lib/analyseTunnel.ts — `presence_status` est flagué non vérifié par
-// CLAUDE.md, pas construit dessus sans confirmation SQL de Bryan.
+// Volontairement PAS de colonne "Présence par créneau" (taux de scan QR) :
+// même garde-fou que lib/analyseTunnel.ts, `presence_status` flagué non
+// vérifié par CLAUDE.md à l'écriture de ce fichier. La colonne "Non traités"
+// ajoutée ici (08/09/2026) est différente : dérivée de rdvNonTraite()
+// (lib/rdvGating.ts), déjà la source unique validée avec Bryan pour ce
+// signal précis dans le dashboard institution — pas une nouvelle
+// interprétation de presence_status non confirmée.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 const JOURS_ABBREV = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -35,7 +40,7 @@ function jourIdxFromISO(dateISO: string): number {
 export type HeatmapCell = { jour: string; tranche: string; rdv: number; annulations: number; capacite: number; occupation: number | null };
 export type CreneauInfo = { jour: string; tranche: string; occupation: number; rdv: number };
 export type AnnulationTranche = { label: string; count: number; pct: number };
-export type PerformanceJour = { jour: string; rdv: number; annulations: number; tauxAnnulation: number; occupation: number | null };
+export type PerformanceJour = { jour: string; rdv: number; annulations: number; tauxAnnulation: number; nonTraites: number; occupation: number | null };
 
 export type AnalyseHeatmap = {
   totalRdv: KpiMetric;
@@ -65,7 +70,7 @@ export async function calculerAnalyseHeatmap(institutionId: string, fenetreJours
 
   const [{ data: instRaw }, { data: rdvRaw }] = await Promise.all([
     sb.from("institutions").select("disponibilites,capacite_par_creneau").eq("id", institutionId).maybeSingle(),
-    sb.from("rdv").select("date_rdv,heure_rdv,statut,created_at").eq("institution_id", institutionId).gte("created_at", debutPrecedent.toISOString()),
+    sb.from("rdv").select("date_rdv,heure_rdv,statut,presence_status,created_at").eq("institution_id", institutionId).gte("created_at", debutPrecedent.toISOString()),
   ]);
 
   const capacitePersonne = (instRaw as { capacite_par_creneau: number } | null)?.capacite_par_creneau ?? 1;
@@ -84,7 +89,7 @@ export async function calculerAnalyseHeatmap(institutionId: string, fenetreJours
     creneauxParCellule[ji][trancheIdx(h)]++;
   });
 
-  const rdvAll = (rdvRaw ?? []) as { date_rdv: string; heure_rdv: string | null; statut: string; created_at: string }[];
+  const rdvAll = (rdvRaw ?? []) as { date_rdv: string; heure_rdv: string | null; statut: string; presence_status: string | null; created_at: string }[];
   const estCourant = (iso: string) => new Date(iso) >= debutCourant;
   const rdvCourant = rdvAll.filter(r => estCourant(r.created_at) && r.heure_rdv);
   const rdvPrecedent = rdvAll.filter(r => !estCourant(r.created_at) && r.heure_rdv);
@@ -94,6 +99,7 @@ export async function calculerAnalyseHeatmap(institutionId: string, fenetreJours
   const rdvParHeure: Record<number, number> = {};
   const rdvParJour: number[] = Array(7).fill(0);
   const annulParJour: number[] = Array(7).fill(0);
+  const nonTraiteParJour: number[] = Array(7).fill(0);
   const annulParPeriodeJour: Record<"matin" | "midi" | "apres_midi" | "soir", number> = { matin: 0, midi: 0, apres_midi: 0, soir: 0 };
 
   rdvCourant.forEach(r => {
@@ -103,6 +109,7 @@ export async function calculerAnalyseHeatmap(institutionId: string, fenetreJours
     rdvParCellule[ji][ti]++;
     rdvParHeure[h] = (rdvParHeure[h] ?? 0) + 1;
     rdvParJour[ji]++;
+    if (rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv!)) nonTraiteParJour[ji]++;
     if (r.statut === "annule") {
       annulParCellule[ji][ti]++;
       annulParJour[ji]++;
@@ -154,7 +161,7 @@ export async function calculerAnalyseHeatmap(institutionId: string, fenetreJours
     const cellulesJourOuvertes = matrice[ji].filter(c => c.occupation !== null);
     const occupationJour = cellulesJourOuvertes.length > 0 ? Math.round(cellulesJourOuvertes.reduce((s, c) => s + (c.occupation ?? 0), 0) / cellulesJourOuvertes.length) : null;
     const rdv = rdvParJour[ji], annulations = annulParJour[ji];
-    return { jour, rdv, annulations, tauxAnnulation: rdv > 0 ? Math.round((annulations / rdv) * 1000) / 10 : 0, occupation: occupationJour };
+    return { jour, rdv, annulations, tauxAnnulation: rdv > 0 ? Math.round((annulations / rdv) * 1000) / 10 : 0, nonTraites: nonTraiteParJour[ji], occupation: occupationJour };
   });
 
   return {

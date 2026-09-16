@@ -48,9 +48,11 @@ export type AdminPermission =
   | "feedback.moderate"
   | "satisfaction.read"
   | "messagerie.access"
+  | "support.access"
   | "documents_citoyen.read"
   | "citoyens.read"
   | "citoyens.verify"
+  | "citoyens.rdv_restrictions"
   | "kpis.read"
   | "activity.read"
   | "search.read"
@@ -98,6 +100,12 @@ const ADMIN_PERMISSIONS: Record<AdminPermission, readonly AdminRole[]> = {
   "feedback.moderate":        ["super_admin", "support", "admin"],
   "satisfaction.read":        ["super_admin", "support", "admin"],
   "messagerie.access":        ["super_admin", "support", "admin"],
+  // Chantier "Support Yelen" — ticketing citoyen↔agent humain (04/09/2026).
+  // Clé distincte de messagerie.access (même principe déjà appliqué à
+  // institutions.verify/activites.manage ci-dessus) : deux systèmes de
+  // données séparés (support_tickets vs messages_yelen_*), même palier de
+  // rôles pour l'instant.
+  "support.access":           ["super_admin", "support", "admin"],
   "documents_citoyen.read":  ["super_admin", "support", "admin"],
   "citoyens.read":             ["super_admin", "admin"],
   // Décision de confiance distincte de citoyens.read (même principe que
@@ -105,9 +113,21 @@ const ADMIN_PERMISSIONS: Record<AdminPermission, readonly AdminRole[]> = {
   // est une décision de vérification, pas une consultation de fiche.
   // Chantier pipeline vérification d'identité citoyen, 28/08/2026.
   "citoyens.verify":            ["super_admin", "moderateur", "admin"],
+  // Restriction automatique des rendez-vous (no-show, décision CEO
+  // 03/09/2026) — même palier que institutions.suspension_appeals : décider
+  // d'un appel sur une clôture de compte est une décision de confiance, pas
+  // une consultation de fiche (citoyens.read).
+  "citoyens.rdv_restrictions":  ["super_admin", "moderateur", "admin"],
   "kpis.read":                  ["super_admin", "admin"],
   "activity.read":              ["super_admin", "moderateur", "support", "admin"],
-  "search.read":                ["super_admin", "moderateur", "support", "admin"],
+  // Restreint à super_admin+admin (audit sécurité 14/09/2026, GAP-05-02) —
+  // la recherche globale expose nom/prénom/téléphone de n'importe quel
+  // citoyen (app/api/admin/search/route.ts), alors que citoyens.read
+  // (fiche citoyen complète) est déjà volontairement restreinte à ce même
+  // palier. Élargir de nouveau à moderateur/support nécessiterait une
+  // recherche séparée, scopée à support.access, pas la réouverture de
+  // celle-ci.
+  "search.read":                ["super_admin", "admin"],
   "notifications.count":       ["super_admin", "moderateur", "support", "admin"],
   // Chantier Auth Security (28/08/2026) — visibilité des appareils/IP
   // bloqués et déblocage manuel. Même palier que recuperation.manage/

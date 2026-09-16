@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { ErrorBanner, PrimaryButton, SecondaryButton, StepHeading } from "../ui";
 import { useSignupTheme } from "../theme";
 import { SignupState } from "../types";
@@ -106,7 +107,19 @@ export function VerificationStep({ state, updateState, onVerified, onEditPhone }
   };
 
   return (
-    <div>
+    <div className="signup-split">
+      {/* Illustration réelle (même traitement que PhoneStep.tsx, retour Bryan
+          07/09/2026) — remplace l'icône téléphone générique précédente,
+          visible uniquement ≥960px (voir .signup-split-illustration dans
+          SignupShell.tsx). Titre/sous-titre vivent dans la colonne
+          formulaire, pas empilés sous l'image, même raison que PhoneStep. */}
+      <div className="signup-split-side">
+        <div className="signup-split-illustration" style={{ width: "100%", borderRadius: "20px", overflow: "hidden", border: `1px solid ${C.border}` }}>
+          <Image src="/illustrations/verification-code-otp.png" alt="Vérification du code envoyé par SMS" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }} priority/>
+        </div>
+      </div>
+
+      <div className="signup-split-body">
       <StepHeading
         title="Vérifiez votre numéro"
         subtitle={<>Nous avons envoyé un code à <strong style={{ color: C.dark }}>{maskPhone(state.phone)}</strong>.</>}
@@ -125,7 +138,7 @@ export function VerificationStep({ state, updateState, onVerified, onEditPhone }
         ))}
       </div>
 
-      {error && <ErrorBanner msg={error} C={C}/>}
+      {error && <ErrorBanner msg={error} C={C} onClose={() => setError("")}/>}
 
       <PrimaryButton onClick={() => handleVerify(otp.join(""))} disabled={otp.join("").length < 6} loading={loading} loadingLabel="Vérification…" C={C}>
         Continuer
@@ -137,6 +150,7 @@ export function VerificationStep({ state, updateState, onVerified, onEditPhone }
           : <SecondaryButton onClick={handleResend} C={C}>{resending ? "Envoi…" : "Renvoyer le code"}</SecondaryButton>
         }
         <SecondaryButton onClick={onEditPhone} C={C}>Modifier le numéro</SecondaryButton>
+      </div>
       </div>
     </div>
   );

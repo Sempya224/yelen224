@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "La 2FA n'est pas activée.", code: "NOT_FOUND" }, { status: 400 });
     }
 
-    let codeValide = (await verify({ secret: citoyen.totp_secret, token: code.trim() })).valid;
+    let codeValide = (await verify({ secret: citoyen.totp_secret, token: code.trim(), epochTolerance: 30 })).valid;
     if (!codeValide && Array.isArray(citoyen.totp_backup_codes)) {
       for (const hash of citoyen.totp_backup_codes as string[]) {
         if (await bcrypt.compare(code.trim(), hash)) { codeValide = true; break; }

@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { envoyerNotification } from "@/lib/notifications";
+import { rdvEstAbsent } from "@/lib/rdvGating";
 
 // Messagerie citoyen ↔ institution. Une conversation = un couple
 // (citoyen, institution), jamais un RDV précis — la table `messages`
@@ -175,7 +176,7 @@ export type MessageRdvThread = {
 export async function getConversationsEtablissements(citoyenId: string): Promise<ConversationEtablissement[]> {
   const { data: rdvs, error: rdvErr } = await supabase
     .from("rdv")
-    .select("id,institution_id,statut,service,date_rdv,institutions!rdv_institution_id_fkey(id,name,logo,statut)")
+    .select("id,institution_id,statut,service,date_rdv,presence,presence_status,institutions!rdv_institution_id_fkey(id,name,logo,statut)")
     .eq("citoyen_id", citoyenId)
     .order("date_rdv", { ascending: false });
   if (rdvErr) throw rdvErr;
@@ -202,7 +203,12 @@ export async function getConversationsEtablissements(citoyenId: string): Promise
   return rdvs
     .map(r => {
       const inst = r.institutions as unknown as { id: string; name: string; logo: string | null; statut: string | null } | null;
-      const fermee = conversationFermee(r.statut as string);
+      // Bascule aussi dans l'historique un rdv marqué absent (no-show),
+      // même détection que app/mes-rdv::estAbsent et app/page.tsx — retour
+      // Bryan 31/08/2026 : jusqu'ici seuls termine/annule/refuse fermaient
+      // la conversation, un rdv absent restait affiché comme actif.
+      const fermee = conversationFermee(r.statut as string)
+        || rdvEstAbsent(r.date_rdv, r.statut as string, r.presence as boolean | null, r.presence_status as string | null);
       const dernier = parRdv.get(r.id);
       return {
         rdv_id: r.id,

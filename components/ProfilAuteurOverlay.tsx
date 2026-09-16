@@ -22,12 +22,20 @@ const BIO_MAX = 160;
 
 export default function ProfilAuteurOverlay({
   post, estMoi, citoyenInterets, isDark, bg, card, t1, t2, t3, brd, onClose,
+  identiteVerifiee, onCreerPost, onVerifierIdentite,
 }: {
   post: Post;
   estMoi: boolean;
   citoyenInterets: string[];
   isDark: boolean; bg: string; card: string; t1: string; t2: string; t3: string; brd: string;
   onClose: () => void;
+  // État vide "Publications" (retour Bryan 09/09/2026, même illustration/
+  // texte/CTA que MesPublicationsOverlay) — le CTA n'a de sens que sur son
+  // propre profil (estMoi) : on ne peut pas publier ni vérifier l'identité
+  // à la place d'un autre auteur.
+  identiteVerifiee: boolean;
+  onCreerPost: () => void;
+  onVerifierIdentite: () => void;
 }) {
   const [publications, setPublications] = useState<Post[] | null>(null);
   const [solde, setSolde] = useState<number | null>(null);
@@ -129,9 +137,14 @@ export default function ProfilAuteurOverlay({
             constaté au scroll : avatar/couverture défilent avec le nom au
             lieu de rester fixes par-dessus). */}
         <div style={{ position: "relative" }}>
+          {/* Or plat #F5A623 — même couleur exacte que les boutons CTA de
+              l'app, jamais un dégradé inventé (retour Bryan 09/09/2026 :
+              un premier essai de dégradé unifié avec l'avatar donnait
+              encore un "mélange" de teintes ; l'avatar sans photo utilise
+              maintenant ce même aplat, voir CommunautePostCard.tsx::Avatar). */}
           <div style={{
             height: "132px", paddingTop: "env(safe-area-inset-top)", boxSizing: "content-box",
-            background: isDark ? "linear-gradient(135deg,#2B2560,#17171C)" : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)",
+            background: isDark ? "linear-gradient(135deg,#2B2560,#17171C)" : "#F5A623",
           }} />
           <div style={{ position: "absolute", left: "50%", bottom: "-44px", transform: "translateX(-50%)", width: "96px", height: "96px", borderRadius: "50%", background: bg, padding: "4px", boxSizing: "border-box" }}>
             <Avatar nom={post.author_nom} photo={post.author_photo_url} taille={88} />
@@ -189,18 +202,16 @@ export default function ProfilAuteurOverlay({
           <Link
             href="/menu/recompenses"
             className="tap"
-            style={{ display: "flex", alignItems: "center", gap: "12px", background: isDark ? "linear-gradient(135deg,#2B2560,#17171C)" : "linear-gradient(135deg,#FFE9BE,#F5A623)", borderRadius: "16px", padding: "16px", marginBottom: "20px", textDecoration: "none" }}
+            style={{ display: "flex", alignItems: "center", gap: "8px", background: isDark ? "linear-gradient(135deg,#2B2560,#17171C)" : "linear-gradient(135deg,#FFE9BE,#F5A623)", borderRadius: "16px", padding: "14px 12px 14px 16px", marginBottom: "20px", textDecoration: "none", overflow: "hidden" }}
           >
-            <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: isDark ? "rgba(245,166,35,0.18)" : "rgba(255,255,255,0.55)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill={isDark ? "#F5A623" : "#5C3D00"}><path d="M12 3c.8 4.4 2.8 6.4 7 7-4.2.8-6.2 2.8-7 7-.8-4.2-2.8-6.2-7-7 4.2-.6 6.2-2.6 7-7z" /></svg>
-            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: isDark ? "#fff" : "#1C1300", fontSize: "13.5px", fontWeight: 900 }}>Yelen Rewards</div>
               <div style={{ color: isDark ? "rgba(255,255,255,0.7)" : "rgba(28,19,0,0.65)", fontSize: "11.5px" }}>
                 {solde === null ? "Voir mes récompenses" : `${solde.toLocaleString("fr-FR")} points — voir tout`}
               </div>
             </div>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isDark ? "#FFC65C" : "#5C3D00"} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+            <Image src="/illustrations/yelen-rewards-bandeau.png" alt="" width={1220} height={803} style={{ width: "104px", height: "auto", flexShrink: 0, display: "block" }}/>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isDark ? "#FFC65C" : "#5C3D00"} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="m9 18 6-6-6-6" /></svg>
           </Link>
         )}
 
@@ -220,7 +231,24 @@ export default function ProfilAuteurOverlay({
           {publications === null ? (
             <div style={{ display: "flex", justifyContent: "center", padding: "20px" }}><YelenLoader size={20} color={t2} /></div>
           ) : publications.length === 0 ? (
-            <div style={{ color: t3, fontSize: "12.5px", textAlign: "center", padding: "20px" }}>Aucune publication pour l&apos;instant.</div>
+            <div style={{ textAlign: "center", padding: "12px 10px 20px" }}>
+              <Image src="/illustrations/mes-publications-vide.png" alt="" width={1536} height={1024} style={{ width: "180px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
+              <div style={{ color: t1, fontSize: "14px", fontWeight: 800, marginBottom: "6px" }}>
+                {estMoi ? <>Vous n&apos;avez encore rien publié</> : "Aucune publication pour l'instant"}
+              </div>
+              {estMoi && (
+                <>
+                  <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.55, marginBottom: "18px" }}>
+                    {identiteVerifiee
+                      ? "Partagez votre première idée avec la communauté Yelen — ça ne prend qu'une minute."
+                      : "Vérifiez votre identité pour publier vos propres idées sur Yelen — ça protège la communauté des faux comptes."}
+                  </div>
+                  <button onClick={identiteVerifiee ? onCreerPost : onVerifierIdentite} className="tap" style={{ background: "#F5A623", color: "#080812", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>
+                    {identiteVerifiee ? "Créer ma première publication" : "Vérifier mon identité"}
+                  </button>
+                </>
+              )}
+            </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {publications.map(p => (

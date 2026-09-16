@@ -23,7 +23,9 @@ import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLogo } from "@/components/YelenLogo";
 import { YelenLoader } from "@/components/YelenLoader";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { parseLocalDate, SectionHeader, timeAgo } from "../dashboardShared";
 import { DEVISE_LABEL } from "@/lib/devise";
 import type { RDV, Stats } from "../layout";
@@ -162,23 +164,23 @@ function TunnelAcquisition({ rdvs }: { rdvs: RDV[] }) {
   const conversionGlobale = demandes > 0 ? Math.round((termines / demandes) * 1000) / 10 : 0;
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
       <SectionHeader label="Tunnel d'Acquisition" accent={C.blue} />
       <p style={{ color: C.t3, fontSize: "11px", marginBottom: "16px", lineHeight: 1.5 }}>Taux de transformation de vos demandes de RDV, sur la période sélectionnée. Données réelles issues de votre activité.</p>
 
       {demandes > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: "8px", marginBottom: "18px" }}>
           <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
-            <div style={{ color: C.t1, fontSize: "17px", fontWeight: 900 }}>{demandes}</div>
+            <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800 }}>{demandes}</div>
             <div style={{ color: C.t3, fontSize: "9.5px", marginTop: "2px" }}>Demandes reçues</div>
           </div>
           <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
-            <div style={{ color: conversionGlobale >= 50 ? C.green : conversionGlobale >= 20 ? C.orange : C.red, fontSize: "17px", fontWeight: 900 }}>{conversionGlobale}%</div>
+            <div style={{ color: conversionGlobale >= 50 ? C.green : conversionGlobale >= 20 ? C.orange : C.red, fontSize: "17px", fontWeight: 800 }}>{conversionGlobale}%</div>
             <div style={{ color: C.t3, fontSize: "9.5px", marginTop: "2px" }}>Conversion globale</div>
           </div>
           {(refuses + annules) > 0 && (
             <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
-              <div style={{ color: C.red, fontSize: "17px", fontWeight: 900 }}>{refuses + annules}</div>
+              <div style={{ color: C.red, fontSize: "17px", fontWeight: 800 }}>{refuses + annules}</div>
               <div style={{ color: C.t3, fontSize: "9.5px", marginTop: "2px" }}>Refusées / annulées</div>
             </div>
           )}
@@ -198,7 +200,7 @@ function TunnelAcquisition({ rdvs }: { rdvs: RDV[] }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2px", gap: "8px" }}>
                     <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>{e.label}</span>
-                    <span style={{ color: e.color, fontSize: "17px", fontWeight: 900, flexShrink: 0 }}>{e.value.toLocaleString("fr-FR")}</span>
+                    <span style={{ color: e.color, fontSize: "17px", fontWeight: 800, flexShrink: 0 }}>{e.value.toLocaleString("fr-FR")}</span>
                   </div>
                   <span style={{ color: C.t3, fontSize: "10.5px" }}>{e.desc}</span>
                 </div>
@@ -227,7 +229,7 @@ function TunnelAcquisition({ rdvs }: { rdvs: RDV[] }) {
           titre="Pas encore de demandes sur cette période"
           texte="Dès qu'un citoyen prendra rendez-vous, vous verrez ici tout le chemin parcouru — de la demande jusqu'au rendez-vous honoré."/>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -258,7 +260,7 @@ function HeatmapActivite({ rdvs }: { rdvs: RDV[] }) {
     return C.red;
   }
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
       <SectionHeader label="Heatmap d'Activité" accent={C.orange}/>
       <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px" }}>Intensité des RDV par jour et plage horaire</p>
       <div style={{ display: "flex", gap: "3px", marginBottom: "4px", paddingLeft: "32px" }}>
@@ -280,7 +282,7 @@ function HeatmapActivite({ rdvs }: { rdvs: RDV[] }) {
         {["rgba(255,255,255,0.04)", `${C.blue}30`, `${C.gold}50`, `${C.orange}70`, C.red].map((c, i) => (<div key={i} style={{ width: "14px", height: "10px", borderRadius: "3px", backgroundColor: c }}/>))}
         <span style={{ color: C.t3, fontSize: "9px" }}>Élevé</span>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -314,11 +316,11 @@ function TendanceBadge({ tendance, delta, C }: { tendance: PrefectureStat["tenda
 
 function GeoKpiCard({ label, valeur, sousLabel, color, C }: { label: string; valeur: string; sousLabel?: string; color: string; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", padding: "12px 14px", border: `1px solid ${C.border}` }}>
+    <Card tokens={toCardTokens(C)} padding="12px 14px">
       <div style={{ color: C.t3, fontSize: "10px", fontWeight: 700, marginBottom: "6px" }}>{label}</div>
-      <div style={{ color, fontSize: "16px", fontWeight: 900, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{valeur}</div>
+      <div style={{ color, fontSize: "16px", fontWeight: 800, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{valeur}</div>
       {sousLabel && <div style={{ color: C.t3, fontSize: "9.5px", marginTop: "3px" }}>{sousLabel}</div>}
-    </div>
+    </Card>
   );
 }
 
@@ -377,13 +379,13 @@ function CarteInteractiveGuinee({ regions, prefectures, selected, onSelect, C }:
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ color: C.t1, fontSize: "13px", fontWeight: 900 }}>{statActif.label}</span>
+              <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>{statActif.label}</span>
               {statActif.delta !== null && <TendanceBadge tendance={statActif.delta > 5 ? "hausse" : statActif.delta < -5 ? "baisse" : "stable"} delta={statActif.delta} C={C}/>}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "8px" }}>
-              <div><div style={{ color: C.t1, fontSize: "14px", fontWeight: 900 }}>{statActif.citoyens}</div><div style={{ color: C.t3, fontSize: "9px" }}>Citoyens</div></div>
-              <div><div style={{ color: C.t1, fontSize: "14px", fontWeight: 900 }}>{statActif.rdv}</div><div style={{ color: C.t3, fontSize: "9px" }}>RDV</div></div>
-              <div><div style={{ color: C.t1, fontSize: "14px", fontWeight: 900 }}>{statActif.prefecturesCouvertes}</div><div style={{ color: C.t3, fontSize: "9px" }}>Préfectures touchées</div></div>
+              <div><div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>{statActif.citoyens}</div><div style={{ color: C.t3, fontSize: "9px" }}>Citoyens</div></div>
+              <div><div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>{statActif.rdv}</div><div style={{ color: C.t3, fontSize: "9px" }}>RDV</div></div>
+              <div><div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>{statActif.prefecturesCouvertes}</div><div style={{ color: C.t3, fontSize: "9px" }}>Préfectures touchées</div></div>
             </div>
             {meilleurePrefecture && <div style={{ color: C.t3, fontSize: "10.5px" }}>Meilleure préfecture : <strong style={{ color: C.t2 }}>{meilleurePrefecture.ville}</strong> ({meilleurePrefecture.rdv} RDV, {meilleurePrefecture.tauxConfirmation}% conversion)</div>}
           </div>
@@ -431,7 +433,7 @@ function CarteGeographique({ geo }: { geo: AnalyseGeo | null }) {
   const [regionSelectionnee, setRegionSelectionnee] = useState<string | null>(null);
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
       <SectionHeader label="Géographie" accent={C.teal}/>
       <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Où se trouvent vos citoyens — répartition réelle par région et préfecture (frontières administratives officielles de la Guinée), sur la période sélectionnée.</p>
 
@@ -460,7 +462,7 @@ function CarteGeographique({ geo }: { geo: AnalyseGeo | null }) {
           </div>
         </>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -502,7 +504,7 @@ function KpiCard({ label, icon, color, metric, unite, format, C }: {
 }) {
   const valeurAffichee = metric === null ? null : metric.valeur === null ? "—" : (format ? format(metric.valeur) : metric.valeur.toLocaleString("fr-FR"));
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", padding: "14px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "8px" }}>
+    <Card tokens={toCardTokens(C)} padding="14px" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "26px", height: "26px", borderRadius: "8px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 700 }}>{label}</span>
@@ -510,11 +512,11 @@ function KpiCard({ label, icon, color, metric, unite, format, C }: {
       {valeurAffichee === null ? (
         <div style={{ display: "flex", alignItems: "center", height: "20px" }}><YelenLoader size={16} color={color}/></div>
       ) : (
-        <div style={{ color: C.t1, fontSize: "20px", fontWeight: 900, lineHeight: 1 }}>{valeurAffichee}</div>
+        <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1 }}>{valeurAffichee}</div>
       )}
       {metric !== null && metric.valeur !== null && <DeltaLabel delta={metric.delta} unite={unite} C={C}/>}
       {metric !== null && metric.valeur !== null && metric.serie.some(v => v > 0) && <Sparkline serie={metric.serie} color={color}/>}
-    </div>
+    </Card>
   );
 }
 
@@ -550,7 +552,7 @@ function EvolutionPerformances({ jours, C }: { jours: PointEvolution[] | null; C
   const vide = jours === null || data.length === 0 || (totaux.vues === 0 && totaux.clics === 0 && totaux.conversions === 0);
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Évolution des performances</div>
         <div style={{ display: "flex", gap: "6px" }}>
@@ -581,7 +583,7 @@ function EvolutionPerformances({ jours, C }: { jours: PointEvolution[] | null; C
           <polyline points={toEvolPolyline(data, "conversions", maxVal)} fill="none" stroke={C.green} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
         </svg>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -609,7 +611,7 @@ function RepartitionCanal({ canaux, C }: { canaux: CanalStat[] | null; C: ThemeT
   ), { list: [], running: 0 }).list;
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
       <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Répartition par canal</div>
       {canaux === null ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
@@ -645,13 +647,13 @@ function RepartitionCanal({ canaux, C }: { canaux: CanalStat[] | null; C: ThemeT
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
 function TopOffresPerformantes({ offres, C }: { offres: TopOffre[] | null; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
       <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Top offres performantes</div>
       {offres === null ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
@@ -676,7 +678,7 @@ function TopOffresPerformantes({ offres, C }: { offres: TopOffre[] | null; C: Th
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -702,7 +704,7 @@ function ObjectifsAtteints({ vueEnsemble, C }: { vueEnsemble: VueEnsemble | null
   ];
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}` }}>
+    <Card tokens={toCardTokens(C)} padding="16px">
       <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Objectifs atteints</div>
       {vueEnsemble === null ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
@@ -724,13 +726,13 @@ function ObjectifsAtteints({ vueEnsemble, C }: { vueEnsemble: VueEnsemble | null
           })}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
 function ActivitesRecentes({ stats, C }: { stats: Stats; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
+    <Card tokens={toCardTokens(C)} noPadding>
       <div style={{ padding: "16px 16px 12px" }}>
         <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Activités récentes</span>
       </div>
@@ -745,7 +747,7 @@ function ActivitesRecentes({ stats, C }: { stats: Stats; C: ThemeTokens }) {
           <span style={{ color: C.t3, fontSize: "10px", flexShrink: 0 }}>{a.time}</span>
         </div>
       ))}
-    </div>
+    </Card>
   );
 }
 
@@ -782,13 +784,13 @@ function PeriodeSelector({ periodeJours, onChange, C }: { periodeJours: PeriodeJ
 
 function PerformancesStub({ C }: { C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
       <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Performances par appareil</div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "24px 8px", textAlign: "center" }}>
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6, maxWidth: "260px" }}>Bientôt disponible — nécessite de capturer le type d&apos;appareil sur les visites, pas encore suivi aujourd&apos;hui.</div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -872,7 +874,7 @@ function AnalyseRfm({ rfm, C }: { rfm: RfmSegment[]; C: ThemeTokens }) {
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: "8px" }}>
       {rfm.map(seg => (
         <div key={seg.cle} style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px", borderLeft: `3px solid ${rfmCouleur(seg.cle, C)}` }}>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900 }}>{seg.count}</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800 }}>{seg.count}</div>
           <div style={{ color: rfmCouleur(seg.cle, C), fontSize: "10.5px", fontWeight: 800, marginTop: "2px" }}>{seg.label}</div>
           <div style={{ color: C.t3, fontSize: "9.5px", marginTop: "3px", lineHeight: 1.4 }}>{seg.description}</div>
         </div>
@@ -901,7 +903,7 @@ function TopClientsTable({ topClients, C }: { topClients: ClientAnalyseStat[]; C
           {topClients.map(c => (
             <tr key={c.citoyenId} style={{ borderBottom: `1px solid ${C.border}` }}>
               <td style={{ padding: "8px 6px" }}>
-                <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 900, color: C.purple }}>{c.nom.slice(0, 2).toUpperCase()}</div>
+                <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 800, color: C.purple }}>{c.nom.slice(0, 2).toUpperCase()}</div>
               </td>
               <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 700, whiteSpace: "nowrap" }}>{c.nom}</td>
               <td style={{ padding: "8px 6px" }}><span style={{ color: segmentCouleur(c.segment, C), fontSize: "10px", fontWeight: 800, backgroundColor: `${segmentCouleur(c.segment, C)}15`, padding: "1px 7px", borderRadius: "8px" }}>{SEGMENT_LABELS[c.segment]}</span></td>
@@ -959,7 +961,7 @@ function EvolutionClients({ evolution, C }: { evolution: EvolutionClientsPoint[]
 function AnalyseClientsTab({ data, C }: { data: AnalyseClients | null; C: ThemeTokens }) {
   return (
     <div>
-      <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
         <SectionHeader label="Analyse de la clientèle" accent={C.purple}/>
         <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Comprenez le comportement de vos citoyens — segments, fidélisation, évolution. Pour gérer une fiche client, utilisez l&apos;écran &quot;Mes clients&quot; du menu principal.</p>
         {data === null ? (
@@ -974,38 +976,38 @@ function AnalyseClientsTab({ data, C }: { data: AnalyseClients | null; C: ThemeT
             <KpiCard label="Satisfaction" unite="%" C={C} color={C.orange} metric={data.satisfaction} format={v => `${v}/5`} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>}/>
           </div>
         )}
-      </div>
+      </Card>
 
       {data !== null && data.topClients.length > 0 && (
         <>
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Évolution de la clientèle</div>
             <EvolutionClients evolution={data.evolution} C={C}/>
-          </div>
+          </Card>
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Segmentation</div>
             <DonutSegments segments={data.segments} C={C}/>
-          </div>
+          </Card>
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Fidélisation — fréquence de visite</div>
             <FidelisationHisto fidelisation={data.fidelisation} C={C}/>
-          </div>
+          </Card>
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Analyse RFM simplifiée</div>
             <AnalyseRfm rfm={data.rfm} C={C}/>
-          </div>
+          </Card>
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Top clients</div>
             <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Lecture seule — pour gérer un client, utilisez l&apos;écran CRM dédié.</p>
             <TopClientsTable topClients={data.topClients} C={C}/>
-          </div>
+          </Card>
 
           {data.commentairesRecents.length > 0 && (
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
               <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Avis récents</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 {data.commentairesRecents.map((a, i) => (
@@ -1018,17 +1020,17 @@ function AnalyseClientsTab({ data, C }: { data: AnalyseClients | null; C: ThemeT
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
           )}
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "16px", border: `1px solid ${C.gold}20` }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20` }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
               <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>Insight IA</span>
               <span style={{ backgroundColor: `${C.gold}20`, color: C.gold, fontSize: "9px", fontWeight: 800, padding: "2px 7px", borderRadius: "10px", textTransform: "uppercase", letterSpacing: "0.3px" }}>Recommandation</span>
             </div>
             <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.7 }}>{genererInsightClients(data)}</p>
-          </div>
+          </Card>
         </>
       )}
     </div>
@@ -1060,7 +1062,7 @@ function PanelPertes({ pertes, C }: { pertes: PerteEtape[]; C: ThemeTokens }) {
             <span style={{ color: C.t1, fontSize: "12px", fontWeight: 700 }}>{p.label}</span>
             <NiveauBadge niveau={p.niveau} C={C}/>
           </div>
-          <div style={{ color: C.red, fontSize: "13px", fontWeight: 900 }}>-{p.deltaPct}% <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 600 }}>({p.perteCount} perdu{p.perteCount > 1 ? "s" : ""})</span></div>
+          <div style={{ color: C.red, fontSize: "13px", fontWeight: 800 }}>-{p.deltaPct}% <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 600 }}>({p.perteCount} perdu{p.perteCount > 1 ? "s" : ""})</span></div>
         </div>
       ))}
     </div>
@@ -1121,17 +1123,17 @@ function TunnelComplet({ rdvsPeriode, tunnel, C }: { rdvsPeriode: RDV[]; tunnel:
 
       <TunnelAcquisition rdvs={rdvsPeriode}/>
 
-      <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
         <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Où perdons-nous les citoyens ?</div>
         <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Classement des étapes du tunnel par taux de perte, sur la période sélectionnée.</p>
         {tunnel === null ? <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div> : <PanelPertes pertes={tunnel.pertes} C={C}/>}
-      </div>
+      </Card>
 
-      <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}` }}>
+      <Card tokens={toCardTokens(C)} padding="16px">
         <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Causes d&apos;abandon</div>
         <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Motifs réels saisis par votre équipe (refus) et par les citoyens (annulation) — jamais reclassés, affichés tels quels.</p>
         {tunnel === null ? <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div> : <CausesAbandon causes={tunnel.causesAbandon} C={C}/>}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -1237,7 +1239,7 @@ function PerformanceParJourTable({ rows, C }: { rows: PerformanceJour[]; C: Them
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11.5px", minWidth: "460px" }}>
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-            {["Jour", "RDV", "Annulation", "Occupation"].map(h => (
+            {["Jour", "RDV", "Annulation", "Non traités", "Occupation"].map(h => (
               <th key={h} style={{ textAlign: h === "Jour" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
             ))}
           </tr>
@@ -1248,6 +1250,7 @@ function PerformanceParJourTable({ rows, C }: { rows: PerformanceJour[]; C: Them
               <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 700 }}>{r.jour}</td>
               <td style={{ padding: "8px 6px", color: C.t2, textAlign: "right" }}>{r.rdv}</td>
               <td style={{ padding: "8px 6px", textAlign: "right" }}><span style={{ color: r.tauxAnnulation > 10 ? C.red : C.t2 }}>{r.tauxAnnulation}%</span></td>
+              <td style={{ padding: "8px 6px", textAlign: "right" }}><span style={{ color: r.nonTraites > 0 ? C.orange : C.t2 }}>{r.nonTraites}</span></td>
               <td style={{ padding: "8px 6px", textAlign: "right", color: r.occupation === null ? C.t3 : r.occupation >= 86 ? C.red : r.occupation >= 61 ? C.orange : C.green, fontWeight: 800 }}>{r.occupation === null ? "Fermé" : `${r.occupation}%`}</td>
             </tr>
           ))}
@@ -1269,26 +1272,26 @@ function HeatmapComplete({ heatmap, C }: { heatmap: AnalyseHeatmap | null; C: Th
         <KpiCard label="Créneaux sous-utilisés" unite="%" C={C} color={C.green} metric={heatmap?.creneauxSousUtilises ?? null} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>}/>
       </div>
 
-      <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
         <SectionHeader label="Heatmap d'Activité" accent={C.orange}/>
         <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px" }}>Occupation réelle : RDV pris vs créneaux configurés × capacité par créneau.</p>
         {heatmap === null ? <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div> : <HeatmapGrilleReelle matrice={heatmap.matrice} C={C}/>}
-      </div>
+      </Card>
 
       {heatmap !== null && (
         <>
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Résumé automatique</div>
             <ResumeCreneaux critiques={heatmap.creneauxCritiques} disponibles={heatmap.creneauxDisponibles} C={C}/>
-          </div>
+          </Card>
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Évolution hebdomadaire</div>
             <EvolutionHebdoBar evolutionHebdo={heatmap.evolutionHebdo} C={C}/>
-          </div>
+          </Card>
 
           {heatmap.annulationsParTranche.length > 0 && (
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px" }}>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
               <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Annulations par période de la journée</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {heatmap.annulationsParTranche.map(t => (
@@ -1298,13 +1301,13 @@ function HeatmapComplete({ heatmap, C }: { heatmap: AnalyseHeatmap | null; C: Th
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
           )}
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}` }}>
+          <Card tokens={toCardTokens(C)} padding="16px">
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Performance par jour</div>
             <PerformanceParJourTable rows={heatmap.performanceParJour} C={C}/>
-          </div>
+          </Card>
         </>
       )}
     </div>
@@ -1417,7 +1420,7 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             </div>
             <div>
-              <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "900", letterSpacing: "-0.4px" }}>Centre d&apos;Analyse</h1>
+              <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.4px" }}>Centre d&apos;Analyse</h1>
               <p style={{ color: C.t3, fontSize: "10px" }}>Prenez des décisions éclairées grâce à des données fiables et en temps réel.</p>
             </div>
           </div>
@@ -1458,18 +1461,15 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
               <ObjectifsAtteints vueEnsemble={vueEnsemble} C={C}/>
               <ActivitesRecentes stats={stats} C={C}/>
             </div>
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "16px", border: `1px solid ${C.gold}20` }}>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20` }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
                 <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>Insight IA</span>
                 <span style={{ backgroundColor: `${C.gold}20`, color: C.gold, fontSize: "9px", fontWeight: 800, padding: "2px 7px", borderRadius: "10px", textTransform: "uppercase", letterSpacing: "0.3px" }}>Recommandation</span>
               </div>
               <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.7 }}>{genererInsightAnalyse(vueEnsemble, periodeJours)}</p>
-              <button onClick={onOpenGuide} className="tap" style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "6px", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontSize: "12px", fontWeight: "800", padding: "10px 16px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
-                <YelenLogo size={14} color="#000" />
-                Guide complet pour scaler
-              </button>
-            </div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ marginTop: "12px" }} icon={<YelenLogo size={14} color="#000" />} onClick={onOpenGuide}>Guide complet pour scaler</Button>
+            </Card>
           </>
         )}
         {sousOnglet === "tunnel" && <TunnelComplet rdvsPeriode={rdvsPeriode} tunnel={tunnel} C={C}/>}

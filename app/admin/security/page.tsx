@@ -12,18 +12,6 @@ import { YelenLoader } from '@/components/YelenLoader'
 type AdminInfo = { id: string; email: string; role: string; nom: string; totp_enabled: boolean; last_login: string | null }
 type LogEntry = { id: string; action: string; created_at: string; details: Record<string, unknown> | null }
 
-// Protection Auth (chantier Auth Security 28/08/2026, Lot 7) — visibilité
-// des appareils/IP bloqués et journal d'événements. super_admin seul
-// (lib/adminAuth.ts::auth_security.read/manage), voir la garde de rendu
-// plus bas — la page elle-même reste visible à tous les rôles (réglages
-// personnels), mais cette section ne l'est pas.
-type AuthSecurityDevice = { device_id: string; ip_last: string | null; state: string; state_changed_at: string; blocked_until: string | null; block_cycles_24h: number; last_seen_at: string; blocked_reason: string | null }
-type AuthSecurityIp = { ip: string; state: string; state_changed_at: string; blocked_until: string | null; block_cycles_24h: number; last_seen_at: string; blocked_reason: string | null }
-type AuthSecurityEvent = { id: string; created_at: string; endpoint_category: string | null; event_type: string; outcome: string | null; resulting_state: string | null; device_id: string | null; ip: string | null; identifiant: string | null; admin_id: string | null }
-
-const AUTH_STATE_LABELS: Record<string, string> = { warning: 'Avertissement', blocked: 'Bloqué', support_only: 'Support requis' }
-const AUTH_STATE_COLORS: Record<string, string> = { warning: D.yellow, blocked: D.red, support_only: D.red }
-
 const ACTION_LABELS: Record<string, string> = {
   LOGIN: 'Connexion', LOGOUT: 'Déconnexion',
   MOT_DE_PASSE_CHANGE: 'Mot de passe modifié',
@@ -75,13 +63,6 @@ export default function AdminSecurityPage() {
   const [disabling, setDisabling] = useState(false)
   const [disablePassword, setDisablePassword] = useState('')
 
-  // Protection Auth
-  const [authDevices, setAuthDevices] = useState<AuthSecurityDevice[]>([])
-  const [authIps, setAuthIps] = useState<AuthSecurityIp[]>([])
-  const [authEvents, setAuthEvents] = useState<AuthSecurityEvent[]>([])
-  const [authLoading, setAuthLoading] = useState(true)
-  const [unblocking, setUnblocking] = useState<string | null>(null)
-
   const load = useCallback(async () => {
     setLoading(true)
     const meRes = await fetch('/api/admin/auth/me')
@@ -95,36 +76,7 @@ export default function AdminSecurityPage() {
     setLoading(false)
   }, [])
 
-  const loadAuthSecurity = useCallback(async () => {
-    setAuthLoading(true)
-    const res = await fetch('/api/admin/auth-security')
-    const j = res.ok ? await res.json().catch(() => null) : null
-    setAuthDevices(j?.devices ?? [])
-    setAuthIps(j?.ips ?? [])
-    setAuthEvents(j?.events ?? [])
-    setAuthLoading(false)
-  }, [])
-
   useEffect(() => { load() }, [load])
-  useEffect(() => {
-    // 403 attendu pour tout rôle non super_admin (lib/adminAuth.ts) — la
-    // section correspondante ne s'affiche simplement pas (voir garde de
-    // rendu plus bas), aucun message d'erreur nécessaire pour ce cas normal.
-    if (admin?.role === 'super_admin') loadAuthSecurity()
-  }, [admin, loadAuthSecurity])
-
-  async function handleUnblock(scope: 'device' | 'ip', value: string) {
-    setUnblocking(value)
-    const res = await fetch('/api/admin/auth-security/unblock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope, value }),
-    })
-    setUnblocking(null)
-    if (!res.ok) { setMsg({ text: 'Erreur lors du déblocage.', color: D.red }); return }
-    setMsg({ text: 'Accès rétabli sur ce scope.', color: D.green })
-    loadAuthSecurity()
-  }
 
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault()
@@ -300,73 +252,6 @@ export default function AdminSecurityPage() {
           </div>
         )}
       </Card>
-
-      {/* Protection Auth (chantier 28/08/2026, Lot 7) — réservée au rôle
-          super_admin, voir lib/adminAuth.ts::auth_security.read. Le reste
-          de cette page (mot de passe/2FA/activité) reste visible à tous
-          les rôles, c'est spécifiquement cette section qui ne l'est pas. */}
-      {admin?.role === 'super_admin' && (
-        <Card title="Protection Auth" subtitle="Appareils et IP actuellement sous protection anti-abus (connexion/inscription citoyen et institution, récupération de compte).">
-          {authLoading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px' }}><YelenLoader size={18}/></div>
-          ) : authDevices.length === 0 && authIps.length === 0 ? (
-            <p style={{ color: D.textMuted, fontSize: '12.5px', margin: 0 }}>Aucun appareil ou IP sous protection actuellement.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' }}>
-              {authDevices.map(d => (
-                <div key={d.device_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 0', borderBottom: `1px solid ${D.border}` }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                      <span style={{ backgroundColor: `${AUTH_STATE_COLORS[d.state]}20`, color: AUTH_STATE_COLORS[d.state], fontSize: '10.5px', fontWeight: '700', padding: '2px 8px', borderRadius: '20px' }}>{AUTH_STATE_LABELS[d.state] || d.state}</span>
-                      <code style={{ color: D.text, fontSize: '11.5px' }}>{d.device_id.slice(0, 8)}…</code>
-                    </div>
-                    <div style={{ color: D.textMuted, fontSize: '11px' }}>
-                      IP {d.ip_last || '—'} · {d.block_cycles_24h} cycle(s)/24h · {d.blocked_until ? `jusqu'au ${fmtDate(d.blocked_until)}` : 'permanent'}
-                    </div>
-                  </div>
-                  <button onClick={() => handleUnblock('device', d.device_id)} disabled={unblocking === d.device_id} style={{ backgroundColor: D.surface2, border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '7px 12px', color: D.text, fontSize: '11.5px', fontWeight: '700', cursor: unblocking === d.device_id ? 'not-allowed' : 'pointer', flexShrink: 0 }}>
-                    {unblocking === d.device_id ? '…' : 'Débloquer'}
-                  </button>
-                </div>
-              ))}
-              {authIps.map(i => (
-                <div key={i.ip} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 0', borderBottom: `1px solid ${D.border}` }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                      <span style={{ backgroundColor: `${AUTH_STATE_COLORS[i.state]}20`, color: AUTH_STATE_COLORS[i.state], fontSize: '10.5px', fontWeight: '700', padding: '2px 8px', borderRadius: '20px' }}>{AUTH_STATE_LABELS[i.state] || i.state}</span>
-                      <code style={{ color: D.text, fontSize: '11.5px' }}>IP {i.ip}</code>
-                    </div>
-                    <div style={{ color: D.textMuted, fontSize: '11px' }}>
-                      {i.block_cycles_24h} cycle(s)/24h · {i.blocked_until ? `jusqu'au ${fmtDate(i.blocked_until)}` : 'permanent'}
-                    </div>
-                  </div>
-                  <button onClick={() => handleUnblock('ip', i.ip)} disabled={unblocking === i.ip} style={{ backgroundColor: D.surface2, border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '7px 12px', color: D.text, fontSize: '11.5px', fontWeight: '700', cursor: unblocking === i.ip ? 'not-allowed' : 'pointer', flexShrink: 0 }}>
-                    {unblocking === i.ip ? '…' : 'Débloquer'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <h3 style={{ color: D.textSub, fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase', margin: '0 0 10px' }}>Journal récent</h3>
-          {authEvents.length === 0 ? (
-            <p style={{ color: D.textMuted, fontSize: '12.5px', margin: 0 }}>Aucun événement à afficher.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {authEvents.map(e => (
-                <div key={e.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '6px 0', borderBottom: `1px solid ${D.border}` }}>
-                  <span style={{ color: D.textSub, fontSize: '11.5px' }}>
-                    {e.event_type === 'admin_unblock'
-                      ? `Déblocage manuel — ${e.device_id ? `appareil ${e.device_id.slice(0, 8)}…` : `IP ${e.ip}`}`
-                      : `${e.endpoint_category || '—'} · ${e.outcome || '—'} → ${AUTH_STATE_LABELS[e.resulting_state || ''] || e.resulting_state}`}
-                  </span>
-                  <span style={{ color: D.textMuted, fontSize: '10.5px', flexShrink: 0 }}>{fmtDate(e.created_at)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
     </div>
   )
 }

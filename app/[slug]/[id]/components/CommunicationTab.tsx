@@ -29,7 +29,8 @@ import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLoader } from "@/components/YelenLoader";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
 import { FormField } from "./FormField";
 
 type Annonce = {
@@ -498,8 +499,8 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
             <h3 style={{ color: C.t1, fontSize: "16px", fontWeight: "800", margin: "0 0 8px" }}>Supprimer cette annonce ?</h3>
             <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 24px" }}>Cette action est irréversible.</p>
             <div style={{ display: "flex", gap: "10px" }}>
-              <button onClick={() => setDeleteId(null)} className="tap" style={{ flex: 1, backgroundColor: "transparent", border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "11px", color: C.t2, fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>Annuler</button>
-              <button onClick={() => handleDelete(deleteId)} className="tap" style={{ flex: 1, backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "11px", color: C.red, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>Supprimer</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setDeleteId(null)}>Annuler</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" style={{ flex: 1 }} onClick={() => handleDelete(deleteId)}>Supprimer</Button>
             </div>
           </div>
         </div>
@@ -559,7 +560,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 )}
               </div>
             </div>
-            <button onClick={() => setPreviewAnnonce(null)} className="tap" style={{ width: "100%", marginTop: "10px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "11px", color: C.t2, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>Fermer l&apos;aperçu</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ marginTop: "10px" }} onClick={() => setPreviewAnnonce(null)}>Fermer l&apos;aperçu</Button>
           </div>
         </div>
       )}
@@ -579,7 +580,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 { label: "Partages", value: statsAnnonce.nb_partages, color: C.green },
               ].map(s => (
                 <div key={s.label} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px 10px", textAlign: "center" }}>
-                  <p style={{ color: s.color, fontSize: "18px", fontWeight: "900", margin: "0 0 4px" }}>{s.value}</p>
+                  <p style={{ color: s.color, fontSize: "18px", fontWeight: "800", margin: "0 0 4px" }}>{s.value}</p>
                   <p style={{ color: C.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", margin: 0 }}>{s.label}</p>
                 </div>
               ))}
@@ -589,7 +590,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 Pour protéger la vie privée de vos clients — conformément aux exigences de l&apos;État guinéen et aux réglementations internationales (RGPD et équivalents) — nous ne vous communiquons pas l&apos;identité des personnes ayant vu, aimé ou commenté cette annonce, uniquement les totaux ci-dessus. Nous travaillons activement sur une solution respectueuse de la vie privée pour vous offrir plus de détail, à la hauteur de votre établissement.
               </p>
             </div>
-            <button onClick={() => setStatsAnnonce(null)} className="tap" style={{ width: "100%", marginTop: "10px", backgroundColor: "transparent", border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "11px", color: C.t2, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>Fermer</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ marginTop: "10px" }} onClick={() => setStatsAnnonce(null)}>Fermer</Button>
           </div>
         </div>
       )}
@@ -608,10 +609,10 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
         </div>
         {innerTab !== "creer" && canPublish && (
           <div style={{ position: "relative", display: "flex" }}>
-            <button onClick={() => { resetForm(); setInnerTab("creer"); }} className="tap" style={{ backgroundColor: C.gold, color: "#000", border: "none", borderTopLeftRadius: "10px", borderBottomLeftRadius: "10px", padding: "10px 16px", fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
+            <button onClick={() => { resetForm(); setInnerTab("creer"); }} className="tap" style={{ height: "32px", backgroundColor: C.gold, color: "#000", border: "none", borderTopLeftRadius: "10px", borderBottomLeftRadius: "10px", padding: "0 16px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
               + Créer une annonce
             </button>
-            <button onClick={() => setCreateMenuOpen(o => !o)} className="tap" style={{ backgroundColor: C.gold, color: "#000", border: "none", borderLeft: "1px solid rgba(0,0,0,0.15)", borderTopRightRadius: "10px", borderBottomRightRadius: "10px", padding: "10px 10px", cursor: "pointer", display: "flex", alignItems: "center" }}>
+            <button onClick={() => setCreateMenuOpen(o => !o)} className="tap" style={{ height: "32px", backgroundColor: C.gold, color: "#000", border: "none", borderLeft: "1px solid rgba(0,0,0,0.15)", borderTopRightRadius: "10px", borderBottomRightRadius: "10px", padding: "0 10px", cursor: "pointer", display: "flex", alignItems: "center" }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
             {createMenuOpen && (
@@ -638,7 +639,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
               </div>
               <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Annonces publiées</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "900", margin: "0 0 6px", lineHeight: 1 }}>{kpi.publiees}</p>
+              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{kpi.publiees}</p>
               <p style={{ color: kpi.nouvellesCeMois > 0 ? C.green : C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>{kpi.nouvellesCeMois > 0 ? `+${kpi.nouvellesCeMois} ce mois` : "Aucune ce mois-ci"}</p>
             </div>
 
@@ -647,7 +648,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               </div>
               <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Audience atteinte</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "900", margin: 0, lineHeight: 1 }}>{fmtCompact(kpi.portee)}</p>
+              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: 0, lineHeight: 1 }}>{fmtCompact(kpi.portee)}</p>
             </div>
 
             <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
@@ -655,7 +656,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 <IconVoir color={C.teal}/>
               </div>
               <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Vues</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "900", margin: 0, lineHeight: 1 }}>{fmtCompact(kpi.vues)}</p>
+              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: 0, lineHeight: 1 }}>{fmtCompact(kpi.vues)}</p>
             </div>
 
             <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
@@ -663,7 +664,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth="2" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               </div>
               <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Interactions</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "900", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(interactions)}</p>
+              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(interactions)}</p>
               <p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>{kpi.likes} likes · {kpi.commentaires} comm. · {kpi.partages} partages · {kpi.clics} clics</p>
             </div>
           </div>
@@ -699,7 +700,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
             <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "16px", padding: "48px 20px", textAlign: "center" }}>
               <p style={{ color: C.t1, fontSize: "15px", fontWeight: "700", margin: "0 0 8px" }}>Aucune annonce trouvée</p>
               <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 20px" }}>Commencez à communiquer avec vos clients.</p>
-              {canPublish && <button onClick={() => { resetForm(); setInnerTab("creer"); }} className="tap" style={{ backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "12px 22px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>Créer une annonce</button>}
+              {canPublish && <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 22px" }} onClick={() => { resetForm(); setInnerTab("creer"); }}>Créer une annonce</Button>}
             </div>
           ) : (
             <>
@@ -860,7 +861,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "24px", alignItems: "flex-start", animation: "fadeUp 0.2s ease" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <div>
-              <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: "900", margin: "0 0 4px" }}>{editAnnonce ? "Modifier l'annonce" : "Nouvelle annonce"}</h2>
+              <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: "800", margin: "0 0 4px" }}>{editAnnonce ? "Modifier l'annonce" : "Nouvelle annonce"}</h2>
               <p style={{ color: C.t2, fontSize: "12.5px", margin: 0 }}>{editAnnonce ? "Modifiez et republiez votre annonce." : "Votre annonce sera visible sur votre profil Yelen224."}</p>
             </div>
 
@@ -879,7 +880,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
                 <label style={{ ...labelStyle(C), marginBottom: 0 }}>Templates</label>
-                <button onClick={() => setShowTemplates(!showTemplates)} className="tap" style={{ backgroundColor: "transparent", border: `1px solid ${C.border}`, borderRadius: "7px", padding: "4px 10px", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>{showTemplates ? "Fermer" : "Voir les templates"}</button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold }} onClick={() => setShowTemplates(!showTemplates)}>{showTemplates ? "Fermer" : "Voir les templates"}</Button>
               </div>
               {showTemplates && (
                 <div style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px", display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -974,7 +975,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 {videoItem ? (
                   <div style={{ position: "relative" }}>
                     <video src={videoItem.url} controls style={{ width: "100%", maxHeight: "180px", borderRadius: "10px", backgroundColor: "#000" }}/>
-                    <button onClick={() => setVideoItem(null)} className="tap" style={{ marginTop: "8px", backgroundColor: "transparent", border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "7px 12px", color: C.red, fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}>Retirer la vidéo</button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="danger-ghost" size="sm" style={{ marginTop: "8px", border: `1px solid ${C.border2}` }} onClick={() => setVideoItem(null)}>Retirer la vidéo</Button>
                   </div>
                 ) : (
                   <label style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "10px", padding: "20px", cursor: "pointer" }}>
@@ -1044,16 +1045,16 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               </div>
             </div>
 
-            <div style={{ backgroundColor: `${C.gold}0A`, border: `1px solid ${C.gold}25`, borderRadius: "10px", padding: "12px 14px" }}>
+            <div style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px 14px" }}>
               <p style={{ color: C.t2, fontSize: "11.5px", margin: 0, lineHeight: 1.6 }}>Tout contenu faux, trompeur ou abusif entraîne la suspension immédiate du compte. Les annonces sont modérées par l&apos;équipe Yelen224.</p>
             </div>
 
             <div style={{ display: "flex", gap: "10px" }}>
-              <button onClick={() => { resetForm(); setInnerTab("liste"); }} className="tap" style={{ flex: 1, backgroundColor: "transparent", border: `1px solid ${C.border}`, borderRadius: "10px", padding: "13px", color: C.t2, fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>Annuler</button>
-              <button onClick={() => { setForm(prev => ({ ...prev, statut: "brouillon" })); setTimeout(handleSubmit, 0); }} disabled={saving} className="tap" style={{ flex: 1, backgroundColor: "transparent", border: `1px solid ${C.gold}40`, borderRadius: "10px", padding: "13px", color: C.gold, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>Brouillon</button>
-              <button onClick={handleSubmit} disabled={saving} className="tap" style={{ flex: 2, backgroundColor: saving ? C.bg3 : C.gold, color: saving ? C.t3 : "#000", border: "none", borderRadius: "10px", padding: "13px", fontSize: "13px", fontWeight: "800", cursor: saving ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                {saving ? <><YelenLoader size={14} color={C.t3}/>Sauvegarde…</> : form.date_publication && new Date(form.date_publication) > new Date() ? "Planifier" : editAnnonce ? "Mettre à jour" : "Publier maintenant"}
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => { resetForm(); setInnerTab("liste"); }}>Annuler</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1, border: `1px solid ${C.gold}40`, color: C.gold }} disabled={saving} onClick={() => { setForm(prev => ({ ...prev, statut: "brouillon" })); setTimeout(handleSubmit, 0); }}>Brouillon</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 2 }} loading={saving} onClick={handleSubmit}>
+                {form.date_publication && new Date(form.date_publication) > new Date() ? "Planifier" : editAnnonce ? "Mettre à jour" : "Publier maintenant"}
+              </Button>
             </div>
           </div>
 

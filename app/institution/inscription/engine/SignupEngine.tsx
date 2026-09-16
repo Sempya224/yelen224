@@ -111,8 +111,10 @@ export function SignupEngine() {
 
   // Carte élargie sur desktop (760px) pour les étapes au contenu plus riche
   // (grilles secteur/statut, blocs résumé) — les étapes formulaire simples
-  // gardent 640px, même logique de proportion que connexion.
-  const wideStep = currentStep === "activite" || currentStep === "review";
+  // gardent 640px, même logique de proportion que connexion. "phone" ajoutée
+  // (retour Bryan 07/09/2026) pour laisser la place à l'illustration réelle
+  // dans sa colonne gauche (voir PhoneStep.tsx).
+  const wideStep = currentStep === "activite" || currentStep === "review" || currentStep === "phone";
 
   return (
     <SignupShell onBack={backTargets[currentStep]?.onBack} backLabel={backTargets[currentStep]?.label} wide={wideStep} hideClose={currentStep === "success"}>

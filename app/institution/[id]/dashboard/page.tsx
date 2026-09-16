@@ -25,12 +25,19 @@ export default async function LegacyInstitutionDashboardRedirect({
   const { id } = await params;
   const sp = await searchParams;
 
-  const { data: inst } = await supabaseAdmin
+  const { data: inst, error } = await supabaseAdmin
     .from("institutions")
     .select("slug")
     .eq("id", id)
     .maybeSingle();
 
+  // Piège CLAUDE.md (/pieges-techniques-connus) : ne jamais tester !data
+  // sans avoir destructuré `error` avant, sinon une vraie erreur serveur
+  // (schema cache PostgREST après migration, connexion DB...) se fait
+  // passer pour un 404 générique, invisible au diagnostic.
+  if (error) {
+    console.error("[LEGACY DASHBOARD REDIRECT] Erreur lecture institution:", error.message);
+  }
   if (!inst) notFound();
 
   const rawTab = Array.isArray(sp.tab) ? sp.tab[0] : sp.tab;

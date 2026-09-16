@@ -34,15 +34,23 @@ export async function GET(req: NextRequest) {
   }
   const authInstId = membre.institutionId;
 
+  // Colonnes listées explicitement (audit sécurité 14/09/2026, finding
+  // "select(*) sur surface financière exposée au dashboard institution") —
+  // toute colonne future sur paid_services/paid_bookings doit être ajoutée
+  // ici volontairement, jamais héritée silencieusement d'un select("*").
   const { data: services, error: svcErr } = await sb
-    .from("paid_services").select("*").eq("institution_id", authInstId).order("created_at", { ascending: false });
+    .from("paid_services")
+    .select("id, institution_id, nom, prix, duree_minutes, description, is_active, created_at, categorie, champs_complementaires, taux_taxe, prix_promo, promo_actif, type_prestation, unite_prix, horaires, localisation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre")
+    .eq("institution_id", authInstId).order("created_at", { ascending: false });
   if (svcErr) return NextResponse.json({ error: svcErr.message }, { status: 500 });
 
   const sids = (services ?? []).map((s) => s.id);
   let bookings: Record<string, unknown>[] = [];
   if (sids.length > 0) {
     const { data: bkRaw, error: bkErr } = await sb
-      .from("paid_bookings").select("*").in("service_id", sids).order("created_at", { ascending: false });
+      .from("paid_bookings")
+      .select("id, service_id, citoyen_id, institution_id, date_rdv, heure_rdv, confirmation_code, statut, created_at, champs_complementaires_reponses, montant_paye, methode_paiement, provenance, traite_le, montant_declare_citoyen, declare_le")
+      .in("service_id", sids).order("created_at", { ascending: false });
     if (bkErr) return NextResponse.json({ error: bkErr.message }, { status: 500 });
 
     const cids = [...new Set((bkRaw ?? []).map((b) => b.citoyen_id))];

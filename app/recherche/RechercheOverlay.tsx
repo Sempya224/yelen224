@@ -21,7 +21,12 @@
 // - Illustrations : compositions géométriques/abstraites (cercles, icônes
 //   trait, couleurs déjà établies via lib/activiteVisuels.tsx) — pas de
 //   personnages dessinés à la main, décision déjà actée pour le Hero
-//   carrousel (même session), reconduite ici.
+//   carrousel (même session), reconduite ici. Exception : variante
+//   "aucun-resultat" — illustration Yelen dédiée depuis le 09/09/2026
+//   (même décision Bryan que RechercheInner.tsx le 07/09/2026),
+//   public/illustrations/recherche-overlay-aucun-resultat.png. Les 3
+//   autres variantes (premiere-fois/favori-vide/historique-vide) restent
+//   en SVG géométrique.
 //
 // Toutes les données sont réelles : institutions déjà validées (fetch
 // propre à cet overlay, pas de doublon avec la grille du parent qui reste
@@ -97,13 +102,12 @@ function IllustrationEtat({ variante }: { variante: "aucun-resultat" | "premiere
   const commonCircle = <circle cx="60" cy="60" r="58" fill="rgba(245,166,35,0.08)"/>;
   if (variante === "aucun-resultat") {
     return (
-      <svg width="120" height="120" viewBox="0 0 120 120" fill="none">
-        {commonCircle}
-        <rect x="34" y="30" width="40" height="30" rx="4" fill="none" stroke="#F5A623" strokeWidth="2.5"/>
-        <path d="M34 44h40M46 30v30M62 30v30" stroke="#F5A623" strokeWidth="1.5" opacity="0.5"/>
-        <circle cx="72" cy="72" r="16" fill="none" stroke="#F5A623" strokeWidth="4"/>
-        <line x1="83" y1="83" x2="94" y2="94" stroke="#F5A623" strokeWidth="4" strokeLinecap="round"/>
-      </svg>
+      <Image
+        src="/illustrations/recherche-overlay-aucun-resultat.png"
+        alt="Aucun résultat trouvé"
+        width={1536} height={1024}
+        style={{ width: "180px", maxWidth: "100%", height: "auto", display: "block" }}
+      />
     );
   }
   if (variante === "premiere-fois") {
@@ -391,7 +395,7 @@ export function RechercheOverlay({
         .ro-tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer;touch-action:manipulation}
         .ro-tap:active{opacity:0.7;transform:scale(0.97)}
         .ro-input{outline:none}
-        .ro-input:focus{outline:none;border-color:#F5A623 !important}
+        .ro-input:focus{outline:none}
       `}</style>
 
       {/* Header — X, recherche premium, filtre avancé, micro (architecture
@@ -401,8 +405,11 @@ export function RechercheOverlay({
           <button onClick={onClose} aria-label="Fermer" className="ro-tap" style={{ width: "36px", height: "36px", borderRadius: "50%", flexShrink: 0, background: C.sectionAlt, border: `1px solid ${brd}`, color: C.text, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {Ic.Close()}
           </button>
+          {/* Taille alignée sur la barre pilule façon Facebook de
+              ChercherCommunauteOverlay.tsx (retour Bryan 09/09/2026) —
+              même padding/radius/police, pas de bordure colorée au focus. */}
           <div style={{ flex: 1, position: "relative" }}>
-            <div style={{ position: "absolute", left: "13px", top: "50%", transform: "translateY(-50%)", color: "#F5A623", pointerEvents: "none" }}>{Ic.Search()}</div>
+            <div style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "#F5A623", pointerEvents: "none" }}>{Ic.Search()}</div>
             <input
               ref={inputRef}
               className="ro-input"
@@ -410,7 +417,7 @@ export function RechercheOverlay({
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") commit(query); }}
               placeholder="Institution, service, ville…"
-              style={{ width: "100%", background: C.sectionAlt, border: `1px solid ${brd}`, borderRadius: "14px", padding: "11px 38px 11px 38px", fontSize: "14px", color: C.text, fontWeight: "600" }}
+              style={{ width: "100%", background: C.sectionAlt, border: "none", borderRadius: "22px", padding: "12px 38px 12px 40px", fontSize: "14.5px", color: C.text, fontWeight: 500, boxSizing: "border-box" }}
             />
             {query && (
               <button onClick={() => setQuery("")} aria-label="Effacer" className="ro-tap" style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", width: "24px", height: "24px", borderRadius: "50%", background: C.borderCard, border: "none", color: t2, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>{Ic.CloseSm()}</button>
@@ -456,7 +463,7 @@ export function RechercheOverlay({
                   { k: "entreprise", l: "Entreprises" },
                   { k: "profession", l: "Professionnels" },
                 ] as { k: TypeIdentite | ""; l: string }[]).map(opt => (
-                  <button key={opt.k || "tous"} onClick={() => setFiltreType(opt.k)} className="ro-tap" style={{ padding: "7px 12px", borderRadius: "20px", border: `1px solid ${filtreType === opt.k ? "rgba(245,166,35,0.5)" : brd}`, background: filtreType === opt.k ? "rgba(245,166,35,0.1)" : C.sectionAlt, color: filtreType === opt.k ? "#F5A623" : t2, fontSize: "11px", fontWeight: filtreType === opt.k ? "800" : "600", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  <button key={opt.k || "tous"} onClick={() => setFiltreType(opt.k)} className="ro-tap" style={{ padding: "7px 12px", borderRadius: "20px", border: `1px solid ${filtreType === opt.k ? "#F5A623" : brd}`, background: C.sectionAlt, color: filtreType === opt.k ? "#F5A623" : t2, fontSize: "11px", fontWeight: filtreType === opt.k ? "800" : "600", cursor: "pointer", whiteSpace: "nowrap" }}>
                     {opt.l}
                   </button>
                 ))}
@@ -469,7 +476,7 @@ export function RechercheOverlay({
                 { label: "Avec créneaux disponibles", val: filtreDispo, set: () => setFiltreDispo(v => !v), path: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" },
                 { label: "Mes favoris uniquement", val: filtreFavoris, set: () => setFiltreFavoris(v => !v), path: "M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" },
               ].map(f => (
-                <button key={f.label} onClick={f.set} className="ro-tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", background: f.val ? "rgba(245,166,35,0.08)" : C.sectionAlt, border: `1px solid ${f.val ? "rgba(245,166,35,0.3)" : brd}`, borderRadius: "10px", cursor: "pointer" }}>
+                <button key={f.label} onClick={f.set} className="ro-tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", background: C.sectionAlt, border: `1px solid ${f.val ? "#F5A623" : brd}`, borderRadius: "10px", cursor: "pointer" }}>
                   <div style={{ width: "18px", height: "18px", borderRadius: "5px", background: f.val ? "#F5A623" : "transparent", border: `2px solid ${f.val ? "#F5A623" : brd}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
                     {f.val && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
                   </div>
@@ -496,15 +503,31 @@ export function RechercheOverlay({
           !aDesResultats ? (
             <EtatVide
               variante="aucun-resultat" C={C} t2={t2}
-              titre="Aucun résultat trouvé"
+              titre="C'est tout pour cette recherche"
               description={`Nous n'avons trouvé aucun établissement correspondant à « ${queryDebounced.trim()} ».`}
               enfants={
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "260px", margin: "0 auto" }}>
-                  <button onClick={() => setQuery("")} className="ro-tap" style={{ padding: "11px", borderRadius: "12px", border: "none", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "13px" }}>Explorer les catégories</button>
-                  {meilleuresNotes.length > 0 && (
-                    <button onClick={() => commit("")} className="ro-tap" style={{ padding: "11px", borderRadius: "12px", border: `1px solid ${brd}`, background: "none", color: C.text, fontWeight: "700", fontSize: "13px" }}>Voir les établissements populaires</button>
-                  )}
-                </div>
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "260px", margin: "0 auto" }}>
+                    <button onClick={() => setQuery("")} className="ro-tap" style={{ padding: "11px", borderRadius: "12px", border: "none", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "13px" }}>Explorer les catégories</button>
+                    {meilleuresNotes.length > 0 && (
+                      <button onClick={() => commit("")} className="ro-tap" style={{ padding: "11px", borderRadius: "12px", border: `1px solid ${brd}`, background: "none", color: C.text, fontWeight: "700", fontSize: "13px" }}>Voir les établissements populaires</button>
+                    )}
+                  </div>
+                  {/* CTA illustré (décision Bryan 09/09/2026) — même action
+                      que "Explorer les catégories" ci-dessus (setQuery("")
+                      révèle l'état idle, où la grille Catégories est
+                      affichée en dernier, voir plus bas dans ce fichier),
+                      juste une porte d'entrée visuelle plus grande vers le
+                      même endroit. */}
+                  <button onClick={() => setQuery("")} className="ro-tap" style={{ display: "block", width: "100%", border: "none", background: "none", padding: 0, marginTop: "20px", borderRadius: "20px", overflow: "hidden", cursor: "pointer" }}>
+                    <Image
+                      src="/illustrations/recherche-explorer-categories-cta.png"
+                      alt="Explorer les catégories"
+                      width={1536} height={1024}
+                      style={{ width: "100%", height: "auto", display: "block" }}
+                    />
+                  </button>
+                </>
               }
             />
           ) : (
@@ -720,18 +743,10 @@ export function RechercheOverlay({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
                 {categories.map(cat => {
                   const color = ACTIVITE_CATEGORIE_COLORS[cat.code] ?? "#9C9CA8";
-                  // "Administration" (institutions_publiques_administratif)
-                  // partage la même couleur que l'accent de marque Yelen
-                  // (#F5A623) — un fond doré à 10% derrière une icône dorée
-                  // donnait un badge délavé (retour Bryan 27/08/2026), contrairement
-                  // aux autres catégories dont le fond pâle contraste
-                  // naturellement avec leur propre couleur. Fond neutre ici,
-                  // icône toujours dans le vrai doré Yelen.
-                  const badgeBg = cat.code === "institutions_publiques_administratif" ? C.sectionAlt : `${color}1a`;
                   return (
                     <button key={cat.id} onClick={() => onApplyCategorie(cat.code)} className="ro-tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", padding: "16px 8px", borderRadius: "16px", border: `1px solid ${brd}`, background: C.cardBg, cursor: "pointer" }}>
-                      <div style={{ width: "44px", height: "44px", borderRadius: "14px", background: badgeBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <ActiviteCategorieIcon code={cat.code} color={color} size={20}/>
+                      <div style={{ width: "44px", height: "44px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <ActiviteCategorieIcon code={cat.code} color={color} size={22}/>
                       </div>
                       <span style={{ color: C.text, fontSize: "11.5px", fontWeight: "800", textAlign: "center" }}>{ACTIVITE_CATEGORIE_SHORT[cat.code] ?? cat.label}</span>
                     </button>

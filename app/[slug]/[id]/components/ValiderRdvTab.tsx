@@ -39,7 +39,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { creneauEstOuvert } from "@/lib/rdvGating";
@@ -126,11 +128,11 @@ function StatutIcon({ statut, color, size = 14 }: { statut: BookingStatut; color
 
 function Avatar({ nom, photoUrl, C, size = 44 }: { nom: string | null | undefined; photoUrl?: string | null; C: ThemeTokens; size?: number }) {
   return (
-    <div style={{ width: size, height: size, position: "relative", borderRadius: Math.round(size * 0.32), overflow: "hidden", flexShrink: 0, backgroundColor: `${C.gold}15`, border: `1px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ width: size, height: size, position: "relative", borderRadius: Math.round(size * 0.32), overflow: "hidden", flexShrink: 0, backgroundColor: C.gold, display: "flex", alignItems: "center", justifyContent: "center" }}>
       {photoUrl ? (
         <Image src={photoUrl} alt="" fill sizes={`${size}px`} style={{ objectFit: "cover" }}/>
       ) : (
-        <span style={{ color: C.gold, fontSize: Math.round(size * 0.36), fontWeight: 900 }}>{initiales(nom)}</span>
+        <span style={{ color: "#000", fontSize: Math.round(size * 0.36), fontWeight: 800 }}>{initiales(nom)}</span>
       )}
     </div>
   );
@@ -182,7 +184,7 @@ function MotifModal({ C, titre, description, motif, setMotif, loading, error, co
         }
       `}</style>
       <div onClick={e => e.stopPropagation()} className="valider-annuler-panel" style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "22px 20px 32px", width: "100%", maxWidth: "440px", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-        <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "6px" }}>{titre}</div>
+        <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "6px" }}>{titre}</div>
         <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6, marginBottom: requireMotif ? "14px" : 0 }}>{description}</p>
         {requireMotif && (
           <>
@@ -192,26 +194,24 @@ function MotifModal({ C, titre, description, motif, setMotif, loading, error, co
         )}
         {error && <div style={{ marginTop: "10px", color: C.red, fontSize: "11.5px", fontWeight: "600", lineHeight: 1.5 }}>{error}</div>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "10px", marginTop: "16px" }}>
-          <button onClick={onClose} disabled={loading} className="tap" style={{ padding: "13px", borderRadius: "14px", border: `1px solid ${C.border2}`, background: C.bg3, color: C.t2, fontSize: "12.5px", fontWeight: "700", cursor: loading ? "not-allowed" : "pointer" }}>Fermer</button>
-          <button onClick={onConfirm} disabled={bloque} className="tap" style={{ padding: "13px", borderRadius: "14px", border: "none", background: bloque ? C.bg3 : C.red, color: bloque ? C.t3 : "#fff", fontSize: "12.5px", fontWeight: "800", cursor: bloque ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-            {loading ? <YelenLoader size={14} color={C.t3}/> : confirmLabel}
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={loading} onClick={onClose}>Fermer</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={bloque} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
         </div>
       </div>
     </div>
   );
 }
 
-function SimpleKpiCard({ label, icon, color, value, sousTexte, C }: { label: string; icon: React.ReactNode; color: string; value: string; sousTexte?: string; C: ThemeTokens }) {
+function SimpleKpiCard({ label, icon, color, value, sousTexte, solid, C }: { label: string; icon: React.ReactNode; color: string; value: string; sousTexte?: string; solid?: boolean; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "16px", border: `1px solid ${C.border2}`, display: "flex", flexDirection: "column", gap: "8px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
+        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: solid ? color : `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color: solid ? "#000" : color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "20px", fontWeight: 900, lineHeight: 1, letterSpacing: "-0.3px" }}>{value}</div>
+      <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1, letterSpacing: "-0.3px" }}>{value}</div>
       {sousTexte && <div style={{ color: C.t3, fontSize: "10.5px" }}>{sousTexte}</div>}
-    </div>
+    </Card>
   );
 }
 
@@ -273,14 +273,15 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
   const [annulerReservationLoading, setAnnulerReservationLoading] = useState(false);
   const [annulerReservationError, setAnnulerReservationError] = useState<string | null>(null);
 
-  // "Marquer comme absent" — simple avertissement/rappel (pas de motif
-  // écrit obligatoire, demande explicite de Bryan 05/08/2026 : l'agent doit
-  // juste être rappelé que cette action est visible du citoyen, dans son
-  // propre historique Yelen ET désormais dans le bloc "Historique Yelen"
-  // affiché à l'institution sur toute future fiche de ce citoyen). Pas de
-  // motif/loading/error dédiés : requireMotif=false n'affiche aucun champ,
-  // et handleAction("no_show") gère déjà son propre actionLoading/actionError.
+  // "Marquer comme absent" — motif obligatoire depuis le 08/09/2026
+  // (décision CEO, revenant sur le choix initial du 05/08/2026 qui
+  // l'excluait volontairement : un no-show déclenche désormais une
+  // mécanique de restriction citoyen potentiellement lourde jusqu'à la
+  // clôture de compte, l'accountability l'exige). loading/error restent
+  // ceux de handleAction("no_show") (actionLoading/actionError), déjà
+  // partagés par toutes les actions de cette fiche.
   const [showAbsentModal, setShowAbsentModal] = useState(false);
+  const [absentMotif, setAbsentMotif] = useState("");
 
   // Temps moyen — mesuré réellement entre l'ouverture de la fiche citoyen
   // et la validation, scopé à cette session navigateur (voir note d'en-tête).
@@ -385,7 +386,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
     }
   }, [digits, searching, handleSearch]);
 
-  async function handleAction(newStatut: BookingStatut) {
+  async function handleAction(newStatut: BookingStatut, motif?: string) {
     if (!booking) return;
     setActionLoading(true);
     setActionError(null);
@@ -394,7 +395,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
     const res = await fetch("/api/institution/paid-bookings/valider", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: booking.id, action: newStatut }),
+      body: JSON.stringify({ id: booking.id, action: newStatut, ...(motif ? { motif } : {}) }),
     });
     const j = await res.json().catch(() => null);
     if (!res.ok) {
@@ -502,7 +503,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
   const peutAnnulerValidation = !!booking && booking.statut !== "en_attente" && !!booking.traite_le
     && booking.traite_le.slice(0, 10) === new Date().toISOString().slice(0, 10);
 
-  const kpis: { label: string; value: string; color: string; icon: React.ReactNode; sousTexte?: string }[] = [
+  const kpis: { label: string; value: string; color: string; icon: React.ReactNode; sousTexte?: string; solid?: boolean }[] = [
     {
       label: "Citoyens reçus", value: String(citoyensRecus), color: C.t1,
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
@@ -513,7 +514,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
     },
     {
-      label: "Chiffre du jour", value: formatPrix(todayCA), color: C.gold,
+      label: "Chiffre du jour", value: formatPrix(todayCA), color: C.gold, solid: true,
       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>,
     },
     {
@@ -560,15 +561,15 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
       {showAbsentModal && booking && (
         <MotifModal
           C={C}
-          requireMotif={false}
+          requireMotif={true}
           titre="Marquer comme absent"
           description="Cette action est visible du citoyen, dans son propre historique Yelen et dans l'historique affiché à l'institution sur ses futures fiches."
-          motif="" setMotif={() => {}}
+          motif={absentMotif} setMotif={setAbsentMotif}
           loading={actionLoading}
           error={actionError}
           confirmLabel="Confirmer"
-          onConfirm={() => { setShowAbsentModal(false); handleAction("no_show"); }}
-          onClose={() => { if (!actionLoading) setShowAbsentModal(false); }}
+          onConfirm={() => { setShowAbsentModal(false); handleAction("no_show", absentMotif.trim()); setAbsentMotif(""); }}
+          onClose={() => { if (!actionLoading) { setShowAbsentModal(false); setAbsentMotif(""); } }}
         />
       )}
 
@@ -656,7 +657,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                 <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: `${statutConfig[actionSuccess].color}20`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
                   <StatutIcon statut={actionSuccess} color={statutConfig[actionSuccess].color} size={26}/>
                 </div>
-                <div style={{ color: statutConfig[actionSuccess].color, fontSize: "17px", fontWeight: "900", letterSpacing: "-0.3px" }}>
+                <div style={{ color: statutConfig[actionSuccess].color, fontSize: "17px", fontWeight: "800", letterSpacing: "-0.3px" }}>
                   {actionSuccess === "confirme" && (booking.service_prix > 0 ? "Paiement confirmé." : "Présence confirmée.")}
                   {actionSuccess === "no_show" && "Citoyen marqué absent"}
                   {actionSuccess === "annule" && "Réservation annulée"}
@@ -668,9 +669,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                   </div>
                 )}
                 {actionSuccess === "confirme" && booking.recu_id && (
-                  <button onClick={telechargerRecuFiche} disabled={telechargementRecu} className="tap" style={{ marginTop: "14px", width: "100%", padding: "12px", borderRadius: "12px", border: `1px solid ${C.gold}30`, background: `${C.gold}12`, color: C.gold, fontSize: "13px", fontWeight: "800", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                    {telechargementRecu ? <YelenLoader size={14} color={C.gold}/> : "Télécharger le reçu"}
-                  </button>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth loading={telechargementRecu} style={{ marginTop: "14px", color: C.gold, border: `1px solid ${C.gold}30`, backgroundColor: `${C.gold}12` }} onClick={telechargerRecuFiche}>Télécharger le reçu</Button>
                 )}
               </div>
             )}
@@ -685,7 +684,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                   <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}>
                     <Avatar nom={nomCitoyen} photoUrl={booking.pour_autre ? null : booking.citoyen_photo_url} C={C} size={88}/>
                   </div>
-                  <div style={{ color: C.t1, fontSize: "19px", fontWeight: "900", letterSpacing: "-0.3px" }}>{nomCitoyen}</div>
+                  <div style={{ color: C.t1, fontSize: "19px", fontWeight: "800", letterSpacing: "-0.3px" }}>{nomCitoyen}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginTop: "10px", flexWrap: "wrap" }}>
                     <span style={{ padding: "5px 11px", background: statutConfig[booking.statut].bg, border: `1px solid ${statutConfig[booking.statut].color}44`, borderRadius: "20px", display: "flex", alignItems: "center", gap: "5px" }}>
                       <StatutIcon statut={booking.statut} color={statutConfig[booking.statut].color} size={11}/>
@@ -775,7 +774,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
                     <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Montant</div>
-                    <div style={{ color: C.gold, fontSize: "19px", fontWeight: "900", letterSpacing: "-0.3px" }}>{formatPrix(booking.service_prix)}</div>
+                    <div style={{ color: C.gold, fontSize: "19px", fontWeight: "800", letterSpacing: "-0.3px" }}>{formatPrix(booking.service_prix)}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Mode</div>
@@ -803,7 +802,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                   booking.declare_le ? (
                     <div style={{ marginTop: "14px", padding: "14px 16px", borderRadius: "14px", background: `${C.green}12`, border: `1.5px solid ${C.green}40` }}>
                       <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Le citoyen déclare avoir remis</div>
-                      <div style={{ color: C.green, fontSize: "20px", fontWeight: "900" }}>{formatPrix(booking.montant_declare_citoyen ?? booking.service_prix)}</div>
+                      <div style={{ color: C.green, fontSize: "20px", fontWeight: "800" }}>{formatPrix(booking.montant_declare_citoyen ?? booking.service_prix)}</div>
                     </div>
                   ) : (
                     <div style={{ marginTop: "14px", padding: "12px 16px", borderRadius: "14px", background: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", gap: "10px" }}>
@@ -832,7 +831,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
               ) : (
                 <>
                   <div style={{ display: "flex", alignItems: "baseline", gap: "16px", marginBottom: "8px", flexWrap: "wrap" }}>
-                    <div><span style={{ color: C.t1, fontSize: "18px", fontWeight: "900" }}>{booking.historique.total}</span> <span style={{ color: C.t3, fontSize: "11px" }}>rendez-vous</span></div>
+                    <div><span style={{ color: C.t1, fontSize: "18px", fontWeight: "800" }}>{booking.historique.total}</span> <span style={{ color: C.t3, fontSize: "11px" }}>rendez-vous</span></div>
                     <div><span style={{ color: C.green, fontSize: "13px", fontWeight: "800" }}>{booking.historique.honores}</span> <span style={{ color: C.t3, fontSize: "11px" }}>honoré{booking.historique.honores > 1 ? "s" : ""}</span></div>
                     {booking.historique.absents > 0 && (
                       <div><span style={{ color: C.red, fontSize: "13px", fontWeight: "800" }}>{booking.historique.absents}</span> <span style={{ color: C.t3, fontSize: "11px" }}>absent{booking.historique.absents > 1 ? "s" : ""}</span></div>
@@ -857,32 +856,23 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                     </div>
                   )}
 
-                  <button
+                  <Button
+                    tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth
                     onClick={() => handleAction("confirme")}
-                    disabled={actionLoading || declarationRequiseMaisAbsente}
-                    className="tap"
+                    disabled={declarationRequiseMaisAbsente}
+                    loading={actionLoading}
+                    loadingColor="#fff"
                     style={{
-                      padding: "19px", borderRadius: "16px", border: "none",
-                      background: actionLoading || declarationRequiseMaisAbsente ? C.bg3 : `linear-gradient(135deg, ${C.green}, #009e76)`,
-                      color: actionLoading || declarationRequiseMaisAbsente ? C.t3 : "#fff", fontSize: "16px", fontWeight: "900",
-                      cursor: actionLoading || declarationRequiseMaisAbsente ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px",
-                      boxShadow: actionLoading || declarationRequiseMaisAbsente ? "none" : `0 8px 28px ${C.green}35`, letterSpacing: "-0.3px", transition: "all 0.2s",
+                      backgroundColor: declarationRequiseMaisAbsente ? C.bg3 : C.green,
+                      borderColor: declarationRequiseMaisAbsente ? C.bg3 : C.green,
+                      color: declarationRequiseMaisAbsente ? C.t3 : "#fff",
+                      fontSize: "14px", letterSpacing: "-0.3px",
+                      boxShadow: declarationRequiseMaisAbsente ? "none" : `0 8px 28px ${C.green}35`,
                     }}
+                    icon={!declarationRequiseMaisAbsente ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg> : undefined}
                   >
-                    {actionLoading ? (
-                      <>
-                        <YelenLoader size={16} color={C.gold}/>
-                        Traitement en cours…
-                      </>
-                    ) : declarationRequiseMaisAbsente ? (
-                      "En attente de la déclaration du citoyen"
-                    ) : (
-                      <>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        {booking.service_prix > 0 ? `Valider le paiement · ${formatPrix(booking.service_prix)}` : "Confirmer gratuitement"}
-                      </>
-                    )}
-                  </button>
+                    {actionLoading ? "Traitement en cours…" : declarationRequiseMaisAbsente ? "En attente de la déclaration du citoyen" : (booking.service_prix > 0 ? `Valider le paiement · ${formatPrix(booking.service_prix)}` : "Confirmer gratuitement")}
+                  </Button>
 
                   {booking.service_prix > 0 && (
                     <div style={{ textAlign: "center", color: C.t3, fontSize: "11px", lineHeight: 1.5, padding: "0 8px" }}>
@@ -897,24 +887,21 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                       séparément si besoin réel) ; "Historique des rendez-vous"
                       est déjà couvert par le bloc Historique Yelen ci-dessus. */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    <button onClick={() => setShowAbsentModal(true)} disabled={actionLoading} className="tap" style={{ padding: "13px", borderRadius: "14px", border: `1.5px solid ${C.border2}`, background: C.bg3, color: C.t2, fontSize: "12px", fontWeight: "700", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                      Marquer comme absent
-                    </button>
-                    <button onClick={() => { setAnnulerReservationMotif(""); setAnnulerReservationError(null); setShowAnnulerReservationModal(true); }} disabled={actionLoading} className="tap" style={{ padding: "13px", borderRadius: "14px", border: `1.5px solid ${C.red}30`, background: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      Annuler la réservation
-                    </button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={actionLoading}
+                      icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>}
+                      onClick={() => setShowAbsentModal(true)}>Marquer comme absent</Button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={actionLoading}
+                      icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>}
+                      onClick={() => { setAnnulerReservationMotif(""); setAnnulerReservationError(null); setShowAnnulerReservationModal(true); }}>Annuler la réservation</Button>
                   </div>
                 </div>
               </div>
             )}
 
             {actionSuccess && (
-              <button onClick={resetCode} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "14px", border: "none", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontSize: "14px", fontWeight: "800", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", boxShadow: `0 6px 20px ${C.gold}35` }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
-                Valider un autre paiement
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth style={{ boxShadow: `0 6px 20px ${C.gold}35` }}
+                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>}
+                onClick={resetCode}>Valider un autre paiement</Button>
             )}
             </div>
           </div>
@@ -924,11 +911,12 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
       {/* ── Hero header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
         <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Centre de validation</h1>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Centre de validation</h1>
           <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5, maxWidth: "480px" }}>
             Validez les rendez-vous, confirmez les paiements et enregistrez l&apos;arrivée des citoyens en quelques secondes.
           </p>
         </div>
+        <Image src="/illustrations/centre-validation-hero.png" alt="Validation des rendez-vous et paiements en quelques secondes" width={1536} height={1024} style={{ width: "180px", maxWidth: "100%", height: "auto", flexShrink: 0 }}/>
         <div style={{ textAlign: "right" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "flex-end", marginBottom: "5px" }}>
             <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
@@ -964,7 +952,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
             { num: "3", title: "Vérifiez la fiche et encaissez", desc: "Confirmez le service, le montant, puis validez le paiement." },
           ].map((step, i, arr) => (
             <div key={step.num} style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-              <div style={{ width: "22px", height: "22px", borderRadius: "7px", background: `${C.gold}15`, border: `1px solid ${C.gold}25`, display: "flex", alignItems: "center", justifyContent: "center", color: C.gold, fontSize: "11px", fontWeight: "900", flexShrink: 0, marginTop: "1px" }}>
+              <div style={{ width: "22px", height: "22px", borderRadius: "7px", background: `${C.gold}15`, border: `1px solid ${C.gold}25`, display: "flex", alignItems: "center", justifyContent: "center", color: C.gold, fontSize: "11px", fontWeight: "800", flexShrink: 0, marginTop: "1px" }}>
                 {step.num}
               </div>
               <div>
@@ -989,13 +977,12 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
         <div>
           {/* Saisie code — le héros de l'écran (section 3 du brief) */}
           <div style={{ background: C.bgCard, borderRadius: "24px", border: `1px solid ${C.gold}25`, overflow: "hidden", marginBottom: "16px" }}>
-            <div style={{ height: "4px", background: `linear-gradient(90deg, ${C.gold}, ${C.goldL}, ${C.gold})` }}/>
             <div style={{ padding: "28px 20px" }}>
               <div style={{ textAlign: "center", marginBottom: "22px" }}>
-                <div style={{ width: "54px", height: "54px", borderRadius: "16px", background: `${C.gold}15`, border: `1.5px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <div style={{ width: "54px", height: "54px", borderRadius: "16px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 </div>
-                <h2 style={{ color: C.t1, fontSize: "19px", fontWeight: "900", margin: "0 0 6px", letterSpacing: "-0.4px" }}>Entrer le code citoyen</h2>
+                <h2 style={{ color: C.t1, fontSize: "19px", fontWeight: "800", margin: "0 0 6px", letterSpacing: "-0.4px" }}>Entrer le code citoyen</h2>
                 <p style={{ color: C.t3, fontSize: "12px", margin: 0, lineHeight: 1.7 }}>
                   Le citoyen retrouve ce code dans son application Yelen.
                 </p>
@@ -1017,7 +1004,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                       onBlur={() => setFocusedDigit(prev => (prev === i ? null : prev))}
                       disabled={searching}
                       style={{
-                        width: "50px", height: "66px", borderRadius: "16px", fontSize: "30px", fontWeight: "900",
+                        width: "50px", height: "66px", borderRadius: "16px", fontSize: "30px", fontWeight: "800",
                         textAlign: "center", fontFamily: "'SF Mono',monospace", transition: "all 0.15s", caretColor: C.gold,
                         background: d ? `${C.gold}15` : focusedDigit === i ? `${C.gold}0C` : C.bg3,
                         border: `2px solid ${d ? `${C.gold}70` : focusedDigit === i ? C.gold : C.border2}`,
@@ -1056,10 +1043,9 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
               )}
 
               {(codeComplete || booking) && !searching && (
-                <button onClick={resetCode} className="tap" style={{ width: "100%", marginTop: "8px", padding: "12px", borderRadius: "12px", border: `1px solid ${C.border2}`, background: C.bg3, color: C.t2, fontSize: "12.5px", fontWeight: "700", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
-                  Nouveau code
-                </button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ marginTop: "8px" }}
+                  icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>}
+                  onClick={resetCode}>Nouveau code</Button>
               )}
             </div>
           </div>
@@ -1068,11 +1054,9 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
         {/* Timeline de la journée (section 7 du brief) — condensée, panneau
             latéral collant ≥1024px, même convention que DisponibilitesTab/
             EquipeTab. */}
-        <div className="valider-sidebar" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "16px", padding: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="18px" className="valider-sidebar">
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
-            <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: "800" }}>Timeline de la journée</div>
           </div>
 
@@ -1080,8 +1064,8 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
             <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}><YelenLoader size={20}/></div>
           ) : history.length === 0 ? (
             <div style={{ textAlign: "center", padding: "12px 4px" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "11px", background: `${C.gold}12`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <div style={{ width: "36px", height: "36px", borderRadius: "11px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="1.8" strokeLinecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
               </div>
               <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6 }}>Rien traité pour l&apos;instant aujourd&apos;hui — les validations, absences et annulations apparaîtront ici au fil de la journée.</div>
             </div>
@@ -1109,7 +1093,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
               })}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* Historique du jour — liste enrichie (section 8 du brief) */}
@@ -1126,8 +1110,8 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
           </div>
         ) : history.length === 0 ? (
           <div style={{ textAlign: "center", padding: "36px 20px", background: C.bgCard, borderRadius: "18px", border: `1px dashed ${C.border2}` }}>
-            <div style={{ width: "44px", height: "44px", borderRadius: "13px", background: `${C.gold}12`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <div style={{ width: "44px", height: "44px", borderRadius: "13px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="1.8" strokeLinecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
             </div>
             <div style={{ color: C.t1, fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>Aucune réservation traitée aujourd&apos;hui</div>
             <div style={{ color: C.t3, fontSize: "12px", lineHeight: 1.6 }}>Les validations, absences et annulations<br/>apparaîtront ici au fil de la journée.</div>
@@ -1142,7 +1126,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px", gap: "8px" }}>
                       <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{entry.service_nom}</div>
-                      <div style={{ color: entry.statut === "confirme" ? C.green : C.t3, fontSize: "12px", fontWeight: "900", flexShrink: 0 }}>
+                      <div style={{ color: entry.statut === "confirme" ? C.green : C.t3, fontSize: "12px", fontWeight: "800", flexShrink: 0 }}>
                         {entry.statut === "confirme" ? `+${formatPrix(entry.service_prix)}` : "—"}
                       </div>
                     </div>
@@ -1166,11 +1150,11 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
           <div style={{ marginTop: "14px", padding: "16px 18px", background: C.greenL, border: `1px solid ${C.green}30`, borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>Total encaissé aujourd&apos;hui</div>
-              <div style={{ color: C.green, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>{formatPrix(todayCA)}</div>
+              <div style={{ color: C.green, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>{formatPrix(todayCA)}</div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>Réservations</div>
-              <div style={{ fontSize: "16px", fontWeight: "900" }}>
+              <div style={{ fontSize: "16px", fontWeight: "800" }}>
                 <span style={{ color: C.green }}>{todayPaye}</span>
                 <span style={{ color: C.t3, fontSize: "12px" }}> / {history.length}</span>
               </div>

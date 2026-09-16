@@ -173,6 +173,7 @@ export function ReviewStep({ state, onEdit, onRestartPhone, onCreated }: {
           C={C}
           actionLabel={errorCode === "INVALID_CODE" ? "Recevoir un nouveau code →" : undefined}
           onAction={errorCode === "INVALID_CODE" ? onRestartPhone : undefined}
+          onClose={() => setError("")}
         />
       )}
 

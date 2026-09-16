@@ -7,7 +7,9 @@
 // pour les institutions déjà inscrites au moment de la migration.
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLoader } from "@/components/YelenLoader";
 import { FormField } from "./FormField";
@@ -77,7 +79,7 @@ export function ProfilResponsableTab({ instId, onToast, access = "full" }: { ins
     }
     onToast("Profil responsable enregistré.", C.green);
     setBaseline(form);
-  }, [form, onToast]);
+  }, [form, onToast, C.red, C.green]);
 
   // Bouton : "Enregistrer" tant qu'il y a une saisie en attente (isDirty),
   // "Modifier" une fois sauvegardé et sans changement depuis — état neutre,
@@ -102,15 +104,15 @@ export function ProfilResponsableTab({ instId, onToast, access = "full" }: { ins
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Profil Responsable</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Profil Responsable</h1>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
           Vos informations personnelles en tant que responsable de l&apos;établissement — distinctes du profil public de l&apos;entreprise.
         </p>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "16px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "18px", padding: "18px", marginBottom: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "18px" }}>
           <div onClick={() => !readOnly && photoInputRef.current?.click()} className="tap" style={{ width: "64px", height: "64px", borderRadius: "50%", backgroundColor: C.bg3, border: `1.5px dashed ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: readOnly ? "default" : "pointer", overflow: "hidden", position: "relative" }}>
             {form.photo_url ? <Image src={form.photo_url} alt="" fill sizes="64px" style={{ objectFit: "cover" }}/> : (
-              <span style={{ color: C.gold, fontSize: "20px", fontWeight: "900" }}>{(form.prenom[0] || "") + (form.nom[0] || "")}</span>
+              <span style={{ color: C.gold, fontSize: "20px", fontWeight: "800" }}>{(form.prenom[0] || "") + (form.nom[0] || "")}</span>
             )}
             {uploading && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}><YelenLoader size={16} color="#fff"/></div>}
             {!readOnly && <input ref={photoInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoPick(f); }}/>}
@@ -119,9 +121,9 @@ export function ProfilResponsableTab({ instId, onToast, access = "full" }: { ins
             <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800" }}>{form.prenom || form.nom ? `${form.prenom} ${form.nom}`.trim() : "Responsable"}</div>
             {form.role && <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px" }}>{form.role}</div>}
           </div>
-        </div>
+        </Card>
 
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <FormField C={C} label="Prénom" required value={form.prenom} onChange={v => fc("prenom", v)} disabled={readOnly} name="prenom" autoComplete="given-name"/>
             <FormField C={C} label="Nom" required value={form.nom} onChange={v => fc("nom", v)} disabled={readOnly} name="nom" autoComplete="family-name"/>
@@ -131,21 +133,13 @@ export function ProfilResponsableTab({ instId, onToast, access = "full" }: { ins
             <FormField C={C} label="Téléphone personnel" value={form.phone} onChange={v => fc("phone", v)} disabled={readOnly} name="phone" autoComplete="tel"/>
             <FormField C={C} label="Email personnel" type="email" value={form.email} onChange={v => fc("email", v)} disabled={readOnly} name="email" autoComplete="email"/>
           </div>
-        </div>
+        </Card>
 
         {!readOnly && (
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button onClick={handleSave} disabled={btnDisabled} className="tap" style={{
-            backgroundColor: btnDisabled ? C.bg3 : isSaved ? C.bgCard : C.gold,
-            color: btnDisabled ? C.t3 : isSaved ? C.t1 : "#000",
-            border: isSaved && !btnDisabled ? `1.5px solid ${C.border2}` : "none",
-            borderRadius: "12px", padding: "13px 28px", fontSize: "13px", fontWeight: "800",
-            cursor: btnDisabled ? "not-allowed" : "pointer",
-            boxShadow: (btnDisabled || isSaved) ? "none" : `0 4px 20px ${C.gold}40`,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-          }}>
-            {saving ? <><YelenLoader size={14} color={C.t3}/>Sauvegarde…</> : isSaved ? "Modifier" : "Enregistrer"}
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant={isSaved ? "secondary" : "primary"} size="md" disabled={btnDisabled} loading={saving} style={{ padding: "0 28px", boxShadow: (btnDisabled || isSaved) ? "none" : `0 4px 20px ${C.gold}40` }} onClick={handleSave}>
+            {saving ? "Sauvegarde…" : isSaved ? "Modifier" : "Enregistrer"}
+          </Button>
         </div>
         )}
       </div>

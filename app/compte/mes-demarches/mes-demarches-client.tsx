@@ -238,7 +238,7 @@ type Ton = "neutral" | "orange" | "green" | "red" | "blue";
 function Pill({ children, ton, isDark }: { children: React.ReactNode; ton: Ton; isDark: boolean }) {
   const map: Record<Ton, { bg: string; fg: string }> = {
     neutral: { bg: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", fg: isDark ? "#8E8E93" : "#6C6C70" },
-    orange:  { bg: "rgba(245,166,35,0.12)", fg: "#F5A623" },
+    orange:  { bg: "transparent", fg: "#F5A623" },
     green:   { bg: "rgba(34,197,94,0.12)",  fg: "#22c55e" },
     red:     { bg: "rgba(239,68,68,0.12)",  fg: "#ef4444" },
     blue:    { bg: "rgba(59,130,246,0.1)",  fg: "#3b82f6" },
@@ -1393,7 +1393,12 @@ export function MesDemarchesClient() {
         const detailProchaine = prochaineEtapeLabel(detail);
         return (
           <div onClick={() => { setDetail(null); setEditionActive(false); setEtapeDeplieeId(null); }} style={{ position: "fixed", inset: 0, zIndex: 9000, backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: card, borderRadius: "24px 24px 0 0", padding: "10px 20px calc(env(safe-area-inset-bottom) + 20px)", width: "100%", maxWidth: "560px", maxHeight: "88svh", overflowY: "auto", animation: "sheetUp 0.28s cubic-bezier(0.16,1,0.3,1)" }}>
+            {/* Hauteur intrinsèque au contenu (pas de height fixe) plafonnée à
+                96svh — retour Bryan 11/09/2026, référence YouTube "History" :
+                une démarche courte reste courte, une démarche avec beaucoup
+                d'étapes (comme "Réduire mes dépenses") monte jusqu'à
+                quasiment plein écran plutôt que de s'arrêter à 88svh. */}
+            <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: card, borderRadius: "24px 24px 0 0", padding: "10px 20px calc(env(safe-area-inset-bottom) + 20px)", width: "100%", maxWidth: "560px", maxHeight: "96svh", overflowY: "auto", animation: "sheetUp 0.28s cubic-bezier(0.16,1,0.3,1)" }}>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}>
                 <div style={{ width: "36px", height: "4px", borderRadius: "2px", background: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)" }}/>
               </div>

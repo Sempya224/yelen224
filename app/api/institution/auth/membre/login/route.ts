@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     const { data: membre } = await supabaseAdmin
       .from("institution_membres")
-      .select("id,institution_id,pin_hash,role,actif,doit_changer_pin,prenom,nom,totp_enabled,failed_attempts,locked_until")
+      .select("id,institution_id,pin_hash,role,actif,doit_changer_pin,prenom,nom,totp_enabled,failed_attempts,locked_until,acces_restreints")
       .eq("identifiant", identifiant.trim())
       .maybeSingle();
 
@@ -144,13 +144,13 @@ export async function POST(request: NextRequest) {
     // table jusqu'ici (phone rendu nullable en migration 20260830000007
     // précisément pour ce flux, qui ne charge pas institutions.phone).
     const sid = await creerSessionInstitution(supabaseAdmin, {
-      institutionId: membre.institution_id, userAgent: request.headers.get("user-agent"), ip,
+      institutionId: membre.institution_id, membreId: membre.id, userAgent: request.headers.get("user-agent"), ip,
     });
     if (!sid) {
       return finaliser({ error: "Erreur serveur", code: "SERVER_ERROR" }, 500);
     }
 
-    const token = await new SignJWT({ institutionId: membre.institution_id, membreId: membre.id, role: membre.role, sid })
+    const token = await new SignJWT({ institutionId: membre.institution_id, membreId: membre.id, role: membre.role, sid, accesRestreints: membre.acces_restreints ?? null })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(membre.institution_id)
       .setIssuedAt()

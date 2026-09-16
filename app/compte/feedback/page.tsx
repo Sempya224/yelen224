@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Inter } from "next/font/google";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
@@ -96,22 +97,19 @@ export default function FeedbackPage() {
       <div className={inter.variable} style={{ minHeight: "100vh", backgroundColor: C.pageBg, color: C.text, fontFamily: "var(--font-inter), -apple-system, sans-serif" }}>
 
         {/* ── HEADER (texte, façon WhatsApp) ── */}
+        {/* Action d'envoi déplacée vers le bouton pilule fixe en bas
+            (retour Bryan 11/09/2026, référence YouTube "Add details") — le
+            header ne garde plus que "Annuler", 3e colonne vide conservée
+            pour garder le titre centré (même grille qu'avant). */}
         <header style={{ position: "sticky", top: 0, zIndex: 50, background: C.pageBg, borderBottom: `1px solid ${C.borderCard}`, paddingTop: "env(safe-area-inset-top)" }}>
           <div style={{ padding: "14px 16px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: "12px" }}>
             <button onClick={handleAnnuler} className="tap" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, color: C.textMuted, fontSize: "15px", fontWeight: 500 }}>Annuler</button>
             <div style={{ fontSize: "15px", fontWeight: 800, color: C.text, whiteSpace: "nowrap" }}>Envoyer un feedback</div>
-            <button
-              onClick={handleEnvoyer}
-              disabled={message.trim().length === 0 || sending}
-              className="tap"
-              style={{ justifySelf: "end", background: "none", border: "none", padding: 0, fontSize: "15px", fontWeight: 700, color: (message.trim().length === 0 || sending) ? C.textFaint : "#F5A623", cursor: (message.trim().length === 0 || sending) ? "default" : "pointer" }}
-            >
-              {sending ? <YelenLoader size={16}/> : "Envoyer"}
-            </button>
+            <div/>
           </div>
         </header>
 
-        <div style={{ padding: "20px 20px 60px" }}>
+        <div style={{ padding: "20px 20px calc(100px + env(safe-area-inset-bottom))" }}>
 
           {sent && (
             <div style={{ backgroundColor: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: "12px", padding: "14px 18px", display: "flex", gap: "10px", alignItems: "center", marginBottom: "16px", animation: "fadeUp 0.2s ease" }}>
@@ -186,6 +184,27 @@ export default function FeedbackPage() {
         </div>
       </div>
 
+      {/* ── BOUTON FIXE EN BAS (pilule pleine largeur, référence YouTube
+          "Upload Short" — retour Bryan 11/09/2026, couleur Yelen exacte
+          #F5A623 au lieu du noir de la référence) ── */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 60, background: C.pageBg, borderTop: `1px solid ${C.borderCard}`, padding: "12px 20px calc(12px + env(safe-area-inset-bottom))" }}>
+        <button
+          onClick={handleEnvoyer}
+          disabled={message.trim().length === 0 || sending}
+          className="tap"
+          style={{
+            width: "100%", border: "none", borderRadius: "999px", padding: "16px",
+            backgroundColor: (message.trim().length === 0 || sending) ? (theme === "dark" ? "rgba(255,255,255,0.08)" : "#e5e5ea") : "#F5A623",
+            color: (message.trim().length === 0 || sending) ? C.textFaint : "#1a1200",
+            fontSize: "15.5px", fontWeight: 800,
+            cursor: (message.trim().length === 0 || sending) ? "default" : "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          {sending ? <YelenLoader size={18}/> : "Envoyer"}
+        </button>
+      </div>
+
       {/* ── BOTTOM SHEET D'INTRO ── */}
       {introOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9500, backgroundColor: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end" }}>
@@ -197,10 +216,8 @@ export default function FeedbackPage() {
               style={{ position: "absolute", top: "18px", right: "18px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: theme === "dark" ? "rgba(255,255,255,0.06)" : "#f2f2f7", border: "none", color: C.textSubtle, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
             ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
 
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
-              <div style={{ width: "72px", height: "72px", borderRadius: "20px", backgroundColor: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="M15 5l4 4"/></svg>
-              </div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}>
+              <Image src="/illustrations/feedback-intro.png" alt="" width={1254} height={1254} style={{ width: "132px", height: "132px", objectFit: "contain" }}/>
             </div>
 
             <h2 style={{ fontSize: "20px", fontWeight: 800, color: C.text, textAlign: "center", margin: "0 0 22px", lineHeight: 1.3 }}>

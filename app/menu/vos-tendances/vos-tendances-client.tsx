@@ -263,7 +263,7 @@ export function VosTendancesClient() {
               <br/><br/>
               Le graphique, c&apos;est le nombre de RDV que vous avez pris chaque mois, sur les 6 derniers mois. Rien de plus.
               <br/><br/>
-              Votre secteur, votre adresse et votre jour &quot;préférés&quot; ? On regarde simplement ce qui revient le plus souvent chez vous. On attend que vous ayez au moins 3 RDV avant de vous le dire — un seul rendez-vous, ça ne fait pas une habitude.
+              Votre secteur, votre établissement et votre jour &quot;préférés&quot; ? On regarde simplement ce qui revient le plus souvent chez vous. On attend que vous ayez au moins 3 RDV avant de vous le dire — un seul rendez-vous, ça ne fait pas une habitude.
               <br/><br/>
               Pas d&apos;IA ici. Pas de note sur 100. Et on ne vous compare à personne — juste vous, et vos chiffres.
             </div>

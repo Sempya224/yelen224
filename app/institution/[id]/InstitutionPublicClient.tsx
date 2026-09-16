@@ -1619,7 +1619,7 @@ function InstitutionProfilePageInner() {
           const familles = Array.from(new Set(prestationsSeules.map(p => p.categorie).filter((c): c is string => !!c)));
           return (
             <div style={{ marginTop: "24px" }}>
-              <SectionTitle icon={<Icons.Building/>} label="Expérience & Services" color="#34d399"/>
+              <SectionTitle icon={<Icons.Building/>} label="Expérience et services" color="#34d399"/>
               <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
                 {familles.map(famille => (
                   <div key={famille}>

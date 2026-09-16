@@ -14,7 +14,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
 import type { LogoutFlowCopy } from "@/lib/logoutFlowTypes";
 import { YelenLoader } from "@/components/YelenLoader";
 
@@ -95,15 +96,11 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
               <path d="M9.5 12.5l1.8 1.8 3.2-3.6"/>
             </svg>
           </div>
-          <div style={{ color: C.t1, fontSize: "18px", fontWeight: "900", textAlign: "center", marginBottom: "8px" }}>{copy.confirmTitle}</div>
+          <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800", textAlign: "center", marginBottom: "8px" }}>{copy.confirmTitle}</div>
           <div style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, textAlign: "center", marginBottom: "24px" }}>{copy.confirmBody}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "10px" }}>
-            <button onClick={onClose} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "13.5px", padding: "14px", borderRadius: "14px", cursor: "pointer" }}>
-              {copy.confirmCancelLabel}
-            </button>
-            <button onClick={runLogout} className="tap" style={{ backgroundColor: C.gold, border: "none", color: "#0A0A0F", fontWeight: "800", fontSize: "13.5px", padding: "14px", borderRadius: "14px", cursor: "pointer" }}>
-              {copy.confirmConfirmLabel}
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onClose}>{copy.confirmCancelLabel}</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={runLogout}>{copy.confirmConfirmLabel}</Button>
           </div>
         </div>
       </div>
@@ -119,7 +116,7 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
         {step === "transitioning" && (
           <>
             <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 22px" }}><YelenLoader size={56} color={C.gold}/></div>
-            <div style={{ color: C.t1, fontSize: "19px", fontWeight: "900", marginBottom: "8px" }}>{copy.transitioningTitle}</div>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: "800", marginBottom: "8px" }}>{copy.transitioningTitle}</div>
             <div style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "24px" }}>{copy.transitioningSubtitle}</div>
             <div style={{ height: "4px", borderRadius: "2px", backgroundColor: C.bg3, overflow: "hidden" }}>
               <div style={{ height: "100%", borderRadius: "2px", backgroundColor: C.gold, animation: "logoutProgress 1.4s ease forwards" }}/>
@@ -131,7 +128,7 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
             <div style={{ width: "64px", height: "64px", borderRadius: "50%", backgroundColor: C.green, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <div style={{ color: C.t1, fontSize: "20px", fontWeight: "900", marginBottom: "8px" }}>{copy.successTitle}</div>
+            <div style={{ color: C.t1, fontSize: "20px", fontWeight: "800", marginBottom: "8px" }}>{copy.successTitle}</div>
             <div style={{ color: C.t2, fontSize: "13.5px", lineHeight: 1.6 }}>{copy.successSubtitle}</div>
           </>
         )}
@@ -140,15 +137,11 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
             <div style={{ width: "64px", height: "64px", borderRadius: "16px", backgroundColor: C.redL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             </div>
-            <div style={{ color: C.t1, fontSize: "18px", fontWeight: "900", marginBottom: "10px" }}>{copy.networkErrorTitle}</div>
+            <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800", marginBottom: "10px" }}>{copy.networkErrorTitle}</div>
             <div style={{ color: C.t2, fontSize: "13.5px", lineHeight: 1.6, marginBottom: "24px" }}>{copy.networkErrorBody}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <button onClick={runLogout} className="tap" style={{ width: "100%", backgroundColor: C.gold, border: "none", color: "#0A0A0F", fontWeight: "800", fontSize: "14.5px", padding: "15px", borderRadius: "14px", cursor: "pointer" }}>
-                Réessayer
-              </button>
-              <button onClick={onClose} className="tap" style={{ width: "100%", background: "none", border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "13.5px", padding: "13px", borderRadius: "14px", cursor: "pointer" }}>
-                Annuler
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={runLogout}>Réessayer</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={onClose}>Annuler</Button>
             </div>
           </>
         )}

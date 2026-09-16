@@ -9,9 +9,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { FormField } from "./FormField";
+import { APP_URL } from "@/lib/config";
+import { generateBrandedQR } from "@/lib/qrBrand";
 
 type EmployeeRole = "admin" | "manager" | "employe";
 type EmployeeStatut = "actif" | "suspendu" | "en_conge" | "archive" | "desactive" | "teletravail" | "mission";
@@ -166,9 +170,9 @@ function EmptyState({ C, illustration, titre, texte, cta }: {
       <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "6px" }}>{titre}</div>
       <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, maxWidth: "320px", margin: "0 auto" }}>{texte}</div>
       {cta && (
-        <button onClick={cta.onClick} className="tap" style={{ marginTop: "18px", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ marginTop: "18px" }} onClick={cta.onClick}>
           {cta.label}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -177,7 +181,7 @@ function EmptyState({ C, illustration, titre, texte, cta }: {
 const labelStyle = (C: ThemeTokens): React.CSSProperties => ({ display: "block", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "5px" });
 const inputStyle = (C: ThemeTokens): React.CSSProperties => ({ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "9px 11px", fontSize: "13px", color: C.t1 });
 
-export function ClockInShiftTab({ instId, onToast, access, active = true }: { instId: string; onToast: (msg: string, color?: string) => void; access: "full" | "read"; active?: boolean }) {
+export function ClockInShiftTab({ instId, instSlug, onToast, access, active = true }: { instId: string; instSlug: string; onToast: (msg: string, color?: string) => void; access: "full" | "read"; active?: boolean }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const readOnly = access === "read";
@@ -207,6 +211,7 @@ export function ClockInShiftTab({ instId, onToast, access, active = true }: { in
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
+  const [showPortail, setShowPortail] = useState(false);
 
   // silencieux=true pour le rafraîchissement d'arrière-plan (60s, "Live",
   // appelé par EmployesView/DepartementsView/HorairesView) — sans ça,
@@ -253,10 +258,27 @@ export function ClockInShiftTab({ instId, onToast, access, active = true }: { in
 
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 900, letterSpacing: "-0.5px", marginBottom: "6px" }}>Clock In Shift</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: "6px" }}>Clock In Shift</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>
         {readOnly ? "Consultation du pointage — la gestion (employés, départements, horaires) est réservée à l'administrateur." : "Gérez vos employés, départements et horaires de pointage."}
       </p>
+
+      {/* Portail employé — QR brandé Yelen (lib/qrBrand.ts, même source que
+          Mon code QR) + lien partageable vers /clock/{slug} (retour Bryan
+          10/09/2026 : ce lien n'était affiché nulle part dans le dashboard,
+          uniquement tapable à la main). */}
+      {instSlug && (
+        <button onClick={() => setShowPortail(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: "14px", border: `1px solid ${C.gold}30`, background: `${C.gold}0d`, cursor: "pointer", marginBottom: "16px" }}>
+          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `${C.gold}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M17 20v.01M20 20v.01"/></svg>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Portail employé — QR &amp; lien</div>
+            <div style={{ color: C.t2, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{APP_URL.replace(/^https?:\/\//, "")}/clock/{instSlug}</div>
+          </div>
+          <IconChevron C={C}/>
+        </button>
+      )}
 
       <div style={{ display: "flex", gap: "6px", marginBottom: "18px", overflowX: "auto" }}>
         {vues.map(v => (
@@ -282,6 +304,101 @@ export function ClockInShiftTab({ instId, onToast, access, active = true }: { in
       {subView === "horaires" && (
         <HorairesView C={C} workSchedules={workSchedules} employees={employees} departments={departments} assignments={assignments} readOnly={readOnly} onToast={onToast} onReload={load} active={active}/>
       )}
+
+      {showPortail && instSlug && <PortailEmployeModal C={C} instSlug={instSlug} onClose={() => setShowPortail(false)}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PORTAIL EMPLOYÉ — QR & LIEN
+// ═══════════════════════════════════════════════════════════════════════
+// Génération déléguée à lib/qrBrand.ts::generateBrandedQR — même source que
+// Mon code QR (CodeQrTab.tsx), même badge Yelen, pas une seconde logique de
+// QR divergente. Destination : le portail public /clock/{slug}
+// (app/clock/[slug]/page.tsx), écran de connexion Identifiant+PIN, pas le
+// dashboard.
+function clockPortalUrl(instSlug: string): string {
+  // TEMP-TEST 10/09/2026 (Bryan) : lien local (IP réseau) pour scanner le QR
+  // depuis un téléphone et tester /clock/[slug] contre le serveur dev local.
+  // À RETIRER après test — remettre `${APP_URL}/clock/${instSlug}`.
+  return `http://192.168.1.222:3000/clock/${instSlug}`;
+}
+
+function PortailEmployeModal({ C, instSlug, onClose }: { C: ThemeTokens; instSlug: string; onClose: () => void }) {
+  const [qr, setQr] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const url = await generateBrandedQR(clockPortalUrl(instSlug), 600);
+      setQr(url);
+      setLoading(false);
+    })();
+  }, [instSlug]);
+
+  function downloadPNG() {
+    if (!qr) return;
+    const a = document.createElement("a");
+    a.href = qr;
+    a.download = `QR-ClockInShift-${instSlug}.png`;
+    a.click();
+  }
+
+  function copyURL() {
+    navigator.clipboard.writeText(clockPortalUrl(instSlug));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  }
+
+  return (
+    <div className="cis-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={onClose}>
+      <style>{`
+        @media (min-width: 1024px) {
+          .cis-fiche-overlay{align-items:center!important}
+          .cis-fiche-panel{max-width:440px!important;border-radius:20px!important;max-height:86svh!important}
+          .cis-fiche-grip{display:none!important}
+          .cis-fiche-close-x{display:flex!important}
+        }
+      `}</style>
+      <div onClick={e => e.stopPropagation()} className="cis-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "440px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
+        <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
+        <button onClick={onClose} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
+
+        <h2 style={{ color: C.t1, fontSize: "18px", fontWeight: 800, letterSpacing: "-0.3px", marginBottom: "6px" }}>Portail employé</h2>
+        <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "18px" }}>
+          Vos employés scannent ce QR ou ouvrent ce lien pour se connecter (Identifiant + PIN) et pointer leur présence — indépendant de ce dashboard.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 16px", borderRadius: "16px", border: `1px solid ${C.border2}`, marginBottom: "16px" }}>
+          <div style={{ width: "min(220px, 100%)", aspectRatio: "1/1", borderRadius: "14px", overflow: "hidden", border: `3px solid ${C.gold}`, background: "#fff", marginBottom: "14px", boxShadow: `0 4px 20px ${C.gold}25` }}>
+            {qr ? (
+              // IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode.toDataURL), non fetchable par l'optimiseur next/image | reviewed=2026-09-10
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qr} alt="QR code portail employé" style={{ width: "100%", height: "100%", display: "block" }}/>
+            ) : (
+              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><YelenLoader size={24}/></div>
+            )}
+          </div>
+          <div style={{ color: C.t3, fontSize: "11.5px", textAlign: "center", wordBreak: "break-all" }}>{APP_URL.replace(/^https?:\/\//, "")}/clock/{instSlug}</div>
+        </div>
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} disabled={loading}
+            icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>}
+            onClick={() => window.print()}>Imprimer</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} disabled={loading}
+            icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+            onClick={downloadPNG}>PNG</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 1 }} onClick={copyURL}
+            icon={copied
+              ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
+          >{copied ? "Copié !" : "Copier"}</Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -296,13 +413,13 @@ export function ClockInShiftTab({ instId, onToast, access, active = true }: { in
 // non vérifiable. Simplification assumée pour cette refonte, pas un oubli.
 function SimpleKpiCard({ label, icon, color, value, C }: { label: string; icon: React.ReactNode; color: string; value: string | number; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "10px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 900, lineHeight: 1 }}>{value}</div>
-    </div>
+      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
+    </Card>
   );
 }
 function IconUsers() {
@@ -323,7 +440,7 @@ function AlerteRhLigne({ C, texte, onCorriger }: { C: ThemeTokens; texte: string
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
       <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>{texte}</span>
       {onCorriger && (
-        <button onClick={onCorriger} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.gold, fontWeight: 700, fontSize: "11px", padding: "5px 10px", borderRadius: "8px", cursor: "pointer", flexShrink: 0 }}>Corriger</button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ flexShrink: 0, color: C.gold }} onClick={onCorriger}>Corriger</Button>
       )}
     </div>
   );
@@ -516,7 +633,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
       {/* ── Hero header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
         <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 900, letterSpacing: "-0.4px", marginBottom: "4px" }}>Employés</h2>
+          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Employés</h2>
           <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Administration des collaborateurs, des accès et des informations professionnelles.</p>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
@@ -528,14 +645,19 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
           {!readOnly && (
-            <button onClick={() => setShowForm(v => !v)} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "8px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>
               + Nouvel employé
-            </button>
+            </Button>
           )}
-          <button onClick={() => onReload()} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <Button
+            tokens={toUiTokens(C)} className="tap"
+            variant="secondary"
+            size="sm"
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
+            onClick={() => onReload()}
+          >
             Actualiser
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -547,7 +669,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
       {/* ── Répartition ── */}
       {employees.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px">
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Employés par département</div>
             {departments.length === 0 ? (
               <div style={{ color: C.t3, fontSize: "12px" }}>Aucun département créé.</div>
@@ -572,9 +694,9 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
                 })()}
               </div>
             )}
-          </div>
+          </Card>
 
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", display: "flex", alignItems: "center", gap: "18px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", alignItems: "center", gap: "18px" }}>
             <StatutDonut C={C} employees={employees}/>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {(["actif", "en_conge", "mission", "teletravail"] as const).map(s => {
@@ -588,7 +710,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
                 );
               })}
             </div>
-          </div>
+          </Card>
         </div>
       )}
 
@@ -600,7 +722,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
         }).sort((a, b) => b.date_embauche.localeCompare(a.date_embauche)).slice(0, 5);
         if (recents.length === 0) return null;
         return (
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "20px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Bienvenue aux nouveaux employés</div>
             <div style={{ display: "flex", gap: "10px", overflowX: "auto" }}>
               {recents.map(e => {
@@ -608,7 +730,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
                 const label = jours === 0 ? "Aujourd'hui" : jours === 1 ? "Hier" : `${jours} jours`;
                 return (
                   <div key={e.id} onClick={() => setSelected(e)} className="tap" style={{ cursor: "pointer", textAlign: "center", flexShrink: 0, width: "84px" }}>
-                    <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: `linear-gradient(135deg, ${roleColor(e.role, C)}30, ${roleColor(e.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: 900, color: roleColor(e.role, C), margin: "0 auto 6px" }}>
+                    <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: `linear-gradient(135deg, ${roleColor(e.role, C)}30, ${roleColor(e.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: 800, color: roleColor(e.role, C), margin: "0 auto 6px" }}>
                       {e.prenom.slice(0, 1).toUpperCase()}{e.nom.slice(0, 1).toUpperCase()}
                     </div>
                     <div style={{ color: C.t1, fontSize: "10.5px", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.prenom}</div>
@@ -617,7 +739,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
                 );
               })}
             </div>
-          </div>
+          </Card>
         );
       })()}
 
@@ -645,20 +767,20 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
 
       {/* ── IA Insights (règles déterministes, zéro LLM) ── */}
       {insights.length > 0 && (
-        <div style={{ backgroundColor: `${C.gold}0c`, border: `1px solid ${C.gold}30`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20`, marginBottom: "20px" }}>
           <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>Analyse automatique</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {insights.map((texte, i) => (
               <div key={i} style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>{texte}</div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {employees.length > 0 && (
         <div style={{ display: "flex", gap: "6px", marginBottom: "16px" }}>
-          <button onClick={() => window.print()} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Imprimer</button>
-          <button onClick={() => {
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => window.print()}>Imprimer</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => {
             const lignes = [
               ["Prénom", "Nom", "Matricule", "Département", "Poste", "Rôle", "Statut", "Téléphone", "Email"],
               ...employesFiltres.map(e => [e.prenom, e.nom, e.matricule, deptNom(e.department_id), e.poste ?? "", ROLES.find(r => r.value === e.role)?.label ?? "", statutLabelAffiche(e.statut), e.telephone ?? "", e.email ?? ""]),
@@ -669,7 +791,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
             const a = document.createElement("a");
             a.href = url; a.download = "employes.csv"; a.click();
             URL.revokeObjectURL(url);
-          }} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Exporter</button>
+          }}>Exporter</Button>
         </div>
       )}
 
@@ -687,7 +809,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
           <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
           <button onClick={() => { setShowForm(false); resetForm(); }} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
 
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 900, marginBottom: "16px" }}>Nouvel employé</div>
+          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "16px" }}>Nouvel employé</div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
             <FormField C={C} label="Matricule" placeholder="ex: ECO-00123" value={matricule} onChange={setMatricule} name="matricule"/>
@@ -741,10 +863,10 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
           <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Communiquez ce code à l&apos;employé — il devra en choisir un nouveau à sa première connexion.</p>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <button onClick={() => { setShowForm(false); resetForm(); }} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "13px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-            <button onClick={creer} disabled={saving || !formValide} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "13px", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: saving || !formValide ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {saving ? <YelenLoader size={14} color="#000"/> : "Créer l'employé"}
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => { setShowForm(false); resetForm(); }}>Annuler</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!formValide} loading={saving} onClick={creer}>
+              Créer l&apos;employé
+            </Button>
           </div>
         </div>
         </div>
@@ -781,7 +903,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
           </div>
 
           {filtresAvances && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px" }}>
+            <Card tokens={toCardTokens(C)} padding="12px" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px" }}>
               <select value={filtreDepartement} onChange={e => setFiltreDepartement(e.target.value)} style={inputStyle(C)}>
                 <option value="">Tous les départements</option>
                 {departments.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
@@ -798,7 +920,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
                 <option value="">Tous les horaires</option>
                 {workSchedules.map(w => <option key={w.id} value={w.id}>{w.nom}</option>)}
               </select>
-            </div>
+            </Card>
           )}
         </>
       )}
@@ -826,7 +948,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
               {employesFiltres.map((e, i, arr) => (
                 <tr key={e.id} onClick={() => setSelected(e)} className="tap" style={{ borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer", opacity: e.statut === "actif" || e.statut === "teletravail" || e.statut === "mission" ? 1 : 0.5 }}>
                   <td style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px", whiteSpace: "nowrap" }}>
-                    <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: `linear-gradient(135deg, ${roleColor(e.role, C)}30, ${roleColor(e.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 900, color: roleColor(e.role, C), flexShrink: 0 }}>
+                    <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: `linear-gradient(135deg, ${roleColor(e.role, C)}30, ${roleColor(e.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, color: roleColor(e.role, C), flexShrink: 0 }}>
                       {e.prenom.slice(0, 1).toUpperCase()}{e.nom.slice(0, 1).toUpperCase()}
                     </div>
                     <span style={{ fontWeight: 700, color: C.t1 }}>{e.prenom} {e.nom}</span>
@@ -951,7 +1073,7 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: employe.id, statut }),
     });
     setSaving(false);
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) { onToast("Le statut n'a pas pu être mis à jour.", C.red); return; }
     onToast("Statut mis à jour", C.green);
     onReload(); onClose();
   }
@@ -967,7 +1089,7 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
       }),
     });
     setSaving(false);
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) { onToast("Ces informations n'ont pas pu être enregistrées.", C.red); return; }
     setModeEdition(false);
     onToast("Informations mises à jour", C.green);
     onReload();
@@ -980,7 +1102,7 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: employe.id, pin: nouveauPin }),
     });
     setSaving(false);
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) { onToast("Le PIN n'a pas pu être réinitialisé.", C.red); return; }
     setShowResetPin(false); setNouveauPin("");
     onToast("PIN réinitialisé — communiquez-le à l'employé", C.green);
   }
@@ -994,7 +1116,7 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Erreur", C.red); return; }
+    if (!res.ok) { onToast(j?.error || "Impossible d'affecter cet horaire.", C.red); return; }
     setShowReassign(false);
     onToast("Horaire affecté", C.green);
     onReload();
@@ -1041,11 +1163,11 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
         </button>
 
         <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
-          <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: `linear-gradient(135deg, ${roleColor(employe.role, C)}30, ${roleColor(employe.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "19px", fontWeight: 900, color: roleColor(employe.role, C), flexShrink: 0 }}>
+          <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: `linear-gradient(135deg, ${roleColor(employe.role, C)}30, ${roleColor(employe.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "19px", fontWeight: 800, color: roleColor(employe.role, C), flexShrink: 0 }}>
             {employe.prenom.slice(0, 1).toUpperCase()}{employe.nom.slice(0, 1).toUpperCase()}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: C.t1, fontSize: "18px", fontWeight: 900 }}>{employe.prenom} {employe.nom}</div>
+            <div style={{ color: C.t1, fontSize: "18px", fontWeight: 800 }}>{employe.prenom} {employe.nom}</div>
             <div style={{ color: C.t3, fontSize: "12px" }}>{employe.poste ?? "Poste non renseigné"} · {deptNom}</div>
             <div style={{ color: C.t3, fontSize: "11.5px", marginTop: "1px" }}>Manager : {managerNom ? `${managerNom.prenom} ${managerNom.nom}` : "Aucun"}</div>
           </div>
@@ -1078,8 +1200,8 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
                 {employees.filter(e => e.id !== employe.id).map(e => <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>)}
               </select>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                <button onClick={() => setModeEdition(false)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "9px", borderRadius: "8px", cursor: "pointer" }}>Annuler</button>
-                <button onClick={enregistrerInformations} disabled={saving} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "9px", borderRadius: "8px", border: "none", cursor: "pointer", opacity: saving ? 0.5 : 1 }}>Enregistrer</button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setModeEdition(false)}>Annuler</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth loading={saving} onClick={enregistrerInformations}>Enregistrer</Button>
               </div>
             </div>
           ) : (
@@ -1133,8 +1255,8 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
                 </select>
                 <input type="date" value={nouvelleDate} onChange={e => setNouvelleDate(e.target.value)} style={{ ...inputStyle(C), marginBottom: "8px" }}/>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <button onClick={() => setShowReassign(false)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "9px", borderRadius: "8px", cursor: "pointer" }}>Annuler</button>
-                  <button onClick={reassigner} disabled={saving || !nouvelHoraireId} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "9px", borderRadius: "8px", border: "none", cursor: "pointer", opacity: saving || !nouvelHoraireId ? 0.5 : 1 }}>Confirmer</button>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setShowReassign(false)}>Annuler</Button>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!nouvelHoraireId} loading={saving} onClick={reassigner}>Confirmer</Button>
                 </div>
               </div>
             )}
@@ -1146,15 +1268,15 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
           {loadingHistorique ? <YelenLoader size={14}/> : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
               <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-                <div style={{ color: C.orange, fontSize: "18px", fontWeight: 900 }}>{retards30}</div>
+                <div style={{ color: C.orange, fontSize: "18px", fontWeight: 800 }}>{retards30}</div>
                 <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Retards</div>
               </div>
               <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-                <div style={{ color: C.red, fontSize: "18px", fontWeight: 900 }}>{absences30}</div>
+                <div style={{ color: C.red, fontSize: "18px", fontWeight: 800 }}>{absences30}</div>
                 <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Absences</div>
               </div>
               <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-                <div style={{ color: C.blue, fontSize: "18px", fontWeight: 900 }}>{formatMinutes(tempsMoyen30)}</div>
+                <div style={{ color: C.blue, fontSize: "18px", fontWeight: 800 }}>{formatMinutes(tempsMoyen30)}</div>
                 <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Temps moyen</div>
               </div>
             </div>
@@ -1201,9 +1323,9 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
             <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px" }}>
               <input value={uploadLabel} onChange={e => setUploadLabel(e.target.value)} placeholder="Libellé (ex: Contrat de travail)" style={{ ...inputStyle(C), marginBottom: "6px" }}/>
               <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={{ ...inputStyle(C), marginBottom: "6px", padding: "7px" }}/>
-              <button onClick={televerserDocument} disabled={uploading || !uploadFile || !uploadLabel.trim()} style={{ width: "100%", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "9px", borderRadius: "8px", border: "none", cursor: "pointer", opacity: uploading || !uploadFile || !uploadLabel.trim() ? 0.5 : 1 }}>
-                {uploading ? <YelenLoader size={12} color="#000"/> : "Ajouter le document"}
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!uploadFile || !uploadLabel.trim()} loading={uploading} onClick={televerserDocument}>
+                Ajouter le document
+              </Button>
             </div>
           )}
         </DrawerSection>
@@ -1215,12 +1337,12 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
                 <div style={{ color: C.t2, fontSize: "11.5px", marginBottom: "8px" }}>Nouveau PIN à 4 chiffres pour {employe.prenom} :</div>
                 <input value={nouveauPin} onChange={e => setNouveauPin(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" maxLength={4} placeholder="4 chiffres" style={{ ...inputStyle(C), textAlign: "center", letterSpacing: "4px", marginBottom: "8px" }}/>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                  <button onClick={() => { setShowResetPin(false); setNouveauPin(""); }} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "9px", borderRadius: "8px", cursor: "pointer" }}>Annuler</button>
-                  <button onClick={reinitialiserPin} disabled={saving || !PIN_REGEX.test(nouveauPin)} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "9px", borderRadius: "8px", border: "none", cursor: "pointer", opacity: saving || !PIN_REGEX.test(nouveauPin) ? 0.5 : 1 }}>Valider</button>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setShowResetPin(false); setNouveauPin(""); }}>Annuler</Button>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!PIN_REGEX.test(nouveauPin)} loading={saving} onClick={reinitialiserPin}>Valider</Button>
                 </div>
               </div>
             ) : (
-              <button onClick={() => setShowResetPin(true)} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer", marginBottom: "10px" }}>Réinitialiser le PIN</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth style={{ marginBottom: "10px" }} onClick={() => setShowResetPin(true)}>Réinitialiser le PIN</Button>
             )}
 
             <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", margin: "12px 0 8px" }}>Changer le statut</div>
@@ -1384,7 +1506,7 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Erreur", C.red); return; }
+    if (!res.ok) { onToast(j?.error || "Ce département n'a pas pu être créé.", C.red); return; }
     setShowForm(false); setNom(""); setDescription(""); setResponsableId("");
     onToast("Département créé", C.green);
     onReload();
@@ -1408,7 +1530,7 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
       {/* ── Hero header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
         <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 900, letterSpacing: "-0.4px", marginBottom: "4px" }}>Départements</h2>
+          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Départements</h2>
           <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Structurez votre organisation et suivez la performance de chaque département.</p>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
@@ -1420,10 +1542,10 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
           {!readOnly && (
-            <button onClick={() => setShowForm(v => !v)} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "8px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Nouveau département</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>+ Nouveau département</Button>
           )}
-          <button onClick={exporterCsv} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Exporter</button>
-          <button onClick={() => onReload()} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Actualiser</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => onReload()}>Actualiser</Button>
         </div>
       </div>
 
@@ -1446,7 +1568,7 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
           <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
           <button onClick={() => setShowForm(false)} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
 
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 900, marginBottom: "16px" }}>Nouveau département</div>
+          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "16px" }}>Nouveau département</div>
           <div style={{ marginBottom: "12px" }}>
             <FormField C={C} label="Nom" placeholder="ex: Comptabilité" value={nom} onChange={setNom} name="nom"/>
           </div>
@@ -1459,10 +1581,10 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
             {employees.map(e => <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>)}
           </select>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <button onClick={() => setShowForm(false)} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "13px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-            <button onClick={creer} disabled={saving || !nom.trim()} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "13px", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: saving || !nom.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {saving ? <YelenLoader size={14} color="#000"/> : "Créer"}
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setShowForm(false)}>Annuler</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!nom.trim()} loading={saving} onClick={creer}>
+              Créer
+            </Button>
           </div>
         </div>
         </div>
@@ -1477,7 +1599,7 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
         <>
           {/* ── Répartition ── */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+            <Card tokens={toCardTokens(C)} padding="16px">
               <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Employés par département</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {(() => {
@@ -1498,9 +1620,9 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
                   });
                 })()}
               </div>
-            </div>
+            </Card>
 
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+            <Card tokens={toCardTokens(C)} padding="16px">
               <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Taille des équipes</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {([["grand", "Très grands (21+)", C.purple], ["moyen", "Moyens (6-20)", C.blue], ["petit", "Petits (1-5)", C.teal]] as const).map(([key, label, color]) => {
@@ -1514,7 +1636,7 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
                   );
                 })}
               </div>
-            </div>
+            </Card>
           </div>
 
           {/* ── Recherche + filtres ── */}
@@ -1556,12 +1678,12 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
 
           {/* ── IA Insights ── */}
           {insights.length > 0 && (
-            <div style={{ backgroundColor: `${C.gold}0c`, border: `1px solid ${C.gold}30`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20`, marginBottom: "20px" }}>
               <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>Analyse automatique</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {insights.map((texte, i) => <div key={i} style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>{texte}</div>)}
               </div>
-            </div>
+            </Card>
           )}
 
           {/* ── Cartes département ── */}
@@ -1573,10 +1695,10 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
                 const s = statsDept(d.id);
                 const manager = managerDe(d.id);
                 return (
-                  <div key={d.id} onClick={() => setSelected(d)} className="tap" style={{ cursor: "pointer", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+                  <Card key={d.id} tokens={toCardTokens(C)} padding="16px" onClick={() => setSelected(d)} className="tap">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
                       <div>
-                        <div style={{ color: C.t1, fontSize: "14px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.3px" }}>{d.nom}</div>
+                        <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.3px" }}>{d.nom}</div>
                         <div style={{ color: C.t3, fontSize: "11.5px", marginTop: "2px" }}>{s.emps.length} employé{s.emps.length > 1 ? "s" : ""}</div>
                       </div>
                       <IconChevron C={C}/>
@@ -1584,11 +1706,11 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
                     <div style={{ color: C.t2, fontSize: "11.5px", marginBottom: "10px" }}>Manager : <strong style={{ color: C.t1 }}>{manager ? `${manager.prenom} ${manager.nom}` : "Aucun"}</strong></div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "10px" }}>
                       <div style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: C.orange, fontSize: "14px", fontWeight: 900 }}>{s.retards}</div>
+                        <div style={{ color: C.orange, fontSize: "14px", fontWeight: 800 }}>{s.retards}</div>
                         <div style={{ color: C.t3, fontSize: "9px", fontWeight: 700 }}>Retards</div>
                       </div>
                       <div style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: C.red, fontSize: "14px", fontWeight: 900 }}>{s.absences}</div>
+                        <div style={{ color: C.red, fontSize: "14px", fontWeight: 800 }}>{s.absences}</div>
                         <div style={{ color: C.t3, fontSize: "9px", fontWeight: 700 }}>Absences</div>
                       </div>
                     </div>
@@ -1602,7 +1724,7 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
                     <div style={{ height: "6px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}>
                       <div style={{ height: "100%", width: `${s.tauxPresence ?? 0}%`, backgroundColor: s.tauxPresence !== null && s.tauxPresence < 80 ? C.red : C.green, borderRadius: "3px" }}/>
                     </div>
-                  </div>
+                  </Card>
                 );
               })}
             </div>
@@ -1636,7 +1758,7 @@ function DepartementDetailDrawer({ C, departement, employees, stats, manager, re
       body: JSON.stringify({ id: departement.id, nom: editNom, description: editDescription, responsableId: editResponsableId || null }),
     });
     setSaving(false);
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) { onToast("Ce département n'a pas pu être mis à jour.", C.red); return; }
     setModeEdition(false);
     onToast("Département mis à jour", C.green);
     onReload();
@@ -1673,13 +1795,13 @@ function DepartementDetailDrawer({ C, departement, employees, stats, manager, re
               {employees.map(e => <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>)}
             </select>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <button onClick={() => setModeEdition(false)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "9px", borderRadius: "8px", cursor: "pointer" }}>Annuler</button>
-              <button onClick={enregistrer} disabled={saving} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "9px", borderRadius: "8px", border: "none", cursor: "pointer", opacity: saving ? 0.5 : 1 }}>Enregistrer</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setModeEdition(false)}>Annuler</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth loading={saving} onClick={enregistrer}>Enregistrer</Button>
             </div>
           </div>
         ) : (
           <div style={{ marginBottom: "20px" }}>
-            <div style={{ color: C.t1, fontSize: "18px", fontWeight: 900, marginBottom: "4px" }}>{departement.nom}</div>
+            <div style={{ color: C.t1, fontSize: "18px", fontWeight: 800, marginBottom: "4px" }}>{departement.nom}</div>
             {departement.description && <div style={{ color: C.t3, fontSize: "12px" }}>{departement.description}</div>}
             {!readOnly && <button onClick={() => setModeEdition(true)} style={{ marginTop: "8px", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "12px", cursor: "pointer", padding: 0 }}>Modifier</button>}
           </div>
@@ -1701,19 +1823,19 @@ function DepartementDetailDrawer({ C, departement, employees, stats, manager, re
         <DrawerSection C={C} titre="Statistiques (aujourd'hui)">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
             <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-              <div style={{ color: C.t1, fontSize: "18px", fontWeight: 900 }}>{stats.emps.length}</div>
+              <div style={{ color: C.t1, fontSize: "18px", fontWeight: 800 }}>{stats.emps.length}</div>
               <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Employés</div>
             </div>
             <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-              <div style={{ color: C.green, fontSize: "18px", fontWeight: 900 }}>{stats.presents}</div>
+              <div style={{ color: C.green, fontSize: "18px", fontWeight: 800 }}>{stats.presents}</div>
               <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Présents</div>
             </div>
             <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-              <div style={{ color: C.orange, fontSize: "18px", fontWeight: 900 }}>{stats.retards}</div>
+              <div style={{ color: C.orange, fontSize: "18px", fontWeight: 800 }}>{stats.retards}</div>
               <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Retards</div>
             </div>
             <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-              <div style={{ color: C.blue, fontSize: "18px", fontWeight: 900 }}>{stats.conges}</div>
+              <div style={{ color: C.blue, fontSize: "18px", fontWeight: 800 }}>{stats.conges}</div>
               <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Congés</div>
             </div>
           </div>
@@ -1752,7 +1874,7 @@ function DepartementDetailDrawer({ C, departement, employees, stats, manager, re
         </DrawerSection>
 
         {!readOnly && (
-          <button onClick={supprimer} style={{ width: "100%", backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Supprimer le département</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" fullWidth onClick={supprimer}>Supprimer le département</Button>
         )}
       </div>
     </div>
@@ -1871,7 +1993,7 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Erreur", C.red); return; }
+    if (!res.ok) { onToast(j?.error || "Cet horaire n'a pas pu être créé.", C.red); return; }
     setShowForm(false); resetForm();
     onToast("Horaire créé", C.green);
     onReload();
@@ -1896,7 +2018,7 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
       }),
     });
     const j = await res.json().catch(() => null);
-    if (!res.ok) { onToast(j?.error || "Erreur", C.red); return; }
+    if (!res.ok) { onToast(j?.error || "Cet horaire n'a pas pu être dupliqué.", C.red); return; }
     onToast("Horaire dupliqué", C.green);
     onReload();
   }
@@ -1905,7 +2027,7 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
     const res = await fetch("/api/institution/clock-in/work-schedules", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: w.id, actif: !w.actif }),
     });
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) { onToast("Impossible de changer le statut de cet horaire.", C.red); return; }
     onToast(w.actif ? "Horaire archivé" : "Horaire réactivé", C.orange);
     onReload();
   }
@@ -1915,7 +2037,7 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
       {/* ── Hero header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
         <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 900, letterSpacing: "-0.4px", marginBottom: "4px" }}>Horaires</h2>
+          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Horaires</h2>
           <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Configurez les modèles d&apos;horaires — un modèle modifié met automatiquement à jour tous les employés qui l&apos;utilisent.</p>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
@@ -1926,7 +2048,7 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
           </div>
         </div>
         {!readOnly && (
-          <button onClick={() => setShowForm(v => !v)} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "8px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Nouveau modèle</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>+ Nouveau modèle</Button>
         )}
       </div>
 
@@ -1946,12 +2068,12 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
       )}
 
       {insights.length > 0 && (
-        <div style={{ backgroundColor: `${C.gold}0c`, border: `1px solid ${C.gold}30`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20`, marginBottom: "20px" }}>
           <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>Analyse automatique</div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {insights.map((texte, i) => <div key={i} style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>{texte}</div>)}
           </div>
-        </div>
+        </Card>
       )}
 
       {showForm && (
@@ -1968,7 +2090,7 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
           <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
           <button onClick={() => { setShowForm(false); resetForm(); }} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
 
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 900, marginBottom: "16px" }}>Nouveau modèle d&apos;horaire</div>
+          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "16px" }}>Nouveau modèle d&apos;horaire</div>
           <div style={{ marginBottom: "12px" }}>
             <FormField C={C} label="Nom" placeholder="ex: Équipe de jour" value={nom} onChange={setNom} name="nom"/>
           </div>
@@ -2049,10 +2171,10 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <button onClick={() => { setShowForm(false); resetForm(); }} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "13px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-            <button onClick={creer} disabled={saving || !nom.trim()} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "13px", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: saving || !nom.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {saving ? <YelenLoader size={14} color="#000"/> : "Créer l'horaire"}
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => { setShowForm(false); resetForm(); }}>Annuler</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!nom.trim()} loading={saving} onClick={creer}>
+              Créer l&apos;horaire
+            </Button>
           </div>
         </div>
         </div>
@@ -2068,9 +2190,9 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
           {workSchedules.map(w => {
             const n = employesDuHoraire(w.id).length;
             return (
-              <div key={w.id} onClick={() => setSelected(w)} className="tap" style={{ cursor: "pointer", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", opacity: w.actif ? 1 : 0.5 }}>
+              <Card key={w.id} tokens={toCardTokens(C)} padding="16px" onClick={() => setSelected(w)} className="tap" style={{ opacity: w.actif ? 1 : 0.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
-                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 900 }}>{w.nom}</div>
+                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>{w.nom}</div>
                   <IconChevron C={C}/>
                 </div>
                 <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
@@ -2078,7 +2200,7 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
                   {!w.actif && <span style={{ color: C.t3, fontSize: "9.5px", fontWeight: 800, backgroundColor: C.bg3, padding: "2px 8px", borderRadius: "20px" }}>Archivé</span>}
                 </div>
                 <div style={{ color: C.t2, fontSize: "11.5px" }}>{n} employé{n > 1 ? "s" : ""} · Tolérance {w.tolerance_retard_minutes} min</div>
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -2144,7 +2266,7 @@ function HoraireDetailModal({ C, horaire, employesAffectes, tousLesEmployes, dep
         <button onClick={onClose} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
 
         <div style={{ marginBottom: "18px" }}>
-          <div style={{ color: C.t1, fontSize: "18px", fontWeight: 900 }}>{horaire.nom}</div>
+          <div style={{ color: C.t1, fontSize: "18px", fontWeight: 800 }}>{horaire.nom}</div>
           <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px" }}>{TYPES_HORAIRE.find(t => t.value === horaire.type_horaire)?.label} {!horaire.actif && "· Archivé"}</div>
         </div>
 
@@ -2187,9 +2309,9 @@ function HoraireDetailModal({ C, horaire, employesAffectes, tousLesEmployes, dep
                 <option value="">Affecter à tout un département...</option>
                 {departments.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
               </select>
-              <button onClick={affecterAuDepartement} disabled={affectation || !departementCible} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.gold, fontWeight: 700, fontSize: "12px", padding: "9px 14px", borderRadius: "8px", cursor: "pointer", opacity: affectation || !departementCible ? 0.5 : 1, flexShrink: 0 }}>
-                {affectation ? <YelenLoader size={12}/> : "Affecter"}
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold, flexShrink: 0 }} disabled={!departementCible} loading={affectation} onClick={affecterAuDepartement}>
+                Affecter
+              </Button>
             </div>
           )}
         </DrawerSection>
@@ -2197,10 +2319,10 @@ function HoraireDetailModal({ C, horaire, employesAffectes, tousLesEmployes, dep
         {!readOnly && (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <button onClick={onDupliquer} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Dupliquer</button>
-              <button onClick={onToggleActif} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>{horaire.actif ? "Archiver" : "Réactiver"}</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={onDupliquer}>Dupliquer</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={onToggleActif}>{horaire.actif ? "Archiver" : "Réactiver"}</Button>
             </div>
-            <button onClick={onSupprimer} style={{ width: "100%", backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Supprimer</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" fullWidth onClick={onSupprimer}>Supprimer</Button>
           </div>
         )}
       </div>
@@ -2305,15 +2427,15 @@ function CisKpiCard({ label, icon, color, value, delta, unite, serie, C }: {
   unite: "valeur" | "pts"; serie: number[]; C: ThemeTokens;
 }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "10px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
       <CisDelta delta={delta} unite={unite} C={C}/>
       {serie.some(v => v > 0) && <CisSparkline serie={serie} color={color}/>}
-    </div>
+    </Card>
   );
 }
 
@@ -2463,7 +2585,7 @@ function PresencesView({ C, employees, onToast, active = true }: {
       {/* ── Hero header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
         <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 900, letterSpacing: "-0.4px", marginBottom: "4px" }}>Présences temps réel</h2>
+          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Présences temps réel</h2>
           <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Supervision instantanée de tous les employés planifiés.</p>
           {estAujourdhui && (
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -2479,11 +2601,16 @@ function PresencesView({ C, employees, onToast, active = true }: {
           <button onClick={() => setDate(todayStr())} className="tap" style={{ backgroundColor: date === todayStr() ? C.gold : C.bg3, color: date === todayStr() ? "#000" : C.t2, border: `1px solid ${date === todayStr() ? C.gold : C.border}`, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Aujourd&apos;hui</button>
           <button onClick={() => setDate(joursAvant(todayStr(), 1))} className="tap" style={{ backgroundColor: date === joursAvant(todayStr(), 1) ? C.gold : C.bg3, color: date === joursAvant(todayStr(), 1) ? "#000" : C.t2, border: `1px solid ${date === joursAvant(todayStr(), 1) ? C.gold : C.border}`, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Hier</button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...inputStyle(C), width: "auto" }}/>
-          <button onClick={exporterCsv} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Exporter</button>
-          <button onClick={() => chargerTout(date, true)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter</Button>
+          <Button
+            tokens={toUiTokens(C)} className="tap"
+            variant="secondary"
+            size="sm"
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
+            onClick={() => chargerTout(date, true)}
+          >
             Actualiser
-          </button>
+          </Button>
         </div>
       </div>
 

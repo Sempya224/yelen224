@@ -18,16 +18,26 @@ export async function GET(request: NextRequest) {
   try {
     await authorizeAdmin(request, 'auth_security.read')
 
+    // Colonnes étendues (refonte opérationnelle Protection Auth, décision
+    // CEO 03/09/2026) — first_seen_at/attempts_in_window/window_started_at
+    // existent depuis la migration d'origine (20260828000004) mais
+    // n'étaient jamais remontées à l'admin ; ce sont les seules données
+    // réelles disponibles pour répondre à "combien de tentatives ?"/"depuis
+    // quand cet appareil est-il vu ?" dans le dossier détaillé d'une
+    // protection.
+    const COLONNES_SCOPE = 'device_id, ip_last, state, state_changed_at, blocked_until, block_cycles_24h, last_seen_at, blocked_reason, first_seen_at, attempts_in_window, window_started_at'
+    const COLONNES_SCOPE_IP = 'ip, state, state_changed_at, blocked_until, block_cycles_24h, last_seen_at, blocked_reason, first_seen_at, attempts_in_window, window_started_at'
+
     const [devicesRes, ipsRes, adminDevicesRes, adminIpsRes, eventsRes] = await Promise.all([
       supabaseAdmin
         .from('auth_device_security')
-        .select('device_id, ip_last, state, state_changed_at, blocked_until, block_cycles_24h, last_seen_at, blocked_reason')
+        .select(COLONNES_SCOPE)
         .neq('state', 'normal')
         .order('state_changed_at', { ascending: false })
         .limit(50),
       supabaseAdmin
         .from('auth_ip_security')
-        .select('ip, state, state_changed_at, blocked_until, block_cycles_24h, last_seen_at, blocked_reason')
+        .select(COLONNES_SCOPE_IP)
         .neq('state', 'normal')
         .order('state_changed_at', { ascending: false })
         .limit(50),
@@ -38,20 +48,24 @@ export async function GET(request: NextRequest) {
       // autre appareil/session admin encore valide, via ce panneau.
       supabaseAdmin
         .from('auth_admin_device_security')
-        .select('device_id, ip_last, state, state_changed_at, blocked_until, block_cycles_24h, last_seen_at, blocked_reason')
+        .select(COLONNES_SCOPE)
         .neq('state', 'normal')
         .order('state_changed_at', { ascending: false })
         .limit(50),
       supabaseAdmin
         .from('auth_admin_ip_security')
-        .select('ip, state, state_changed_at, blocked_until, block_cycles_24h, last_seen_at, blocked_reason')
+        .select(COLONNES_SCOPE_IP)
         .neq('state', 'normal')
         .order('state_changed_at', { ascending: false })
         .limit(50),
+      // 'admin_maintain' ajouté (même refonte) — une décision "maintenir"
+      // doit apparaître dans l'historique des décisions au même titre
+      // qu'un déblocage. admin_users(nom) : affichage du "Qui" sans round-trip
+      // supplémentaire côté client.
       supabaseAdmin
         .from('auth_security_events')
-        .select('id, created_at, endpoint_category, event_type, outcome, resulting_state, device_id, ip, identifiant, admin_id')
-        .or('resulting_state.eq.blocked,resulting_state.eq.support_only,event_type.eq.admin_unblock')
+        .select('id, created_at, endpoint_category, event_type, outcome, resulting_state, device_id, ip, identifiant, reason, admin_id, admin_users(nom)')
+        .or('resulting_state.eq.blocked,resulting_state.eq.support_only,event_type.eq.admin_unblock,event_type.eq.admin_maintain')
         .order('created_at', { ascending: false })
         .limit(50),
     ])

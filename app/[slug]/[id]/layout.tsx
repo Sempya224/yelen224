@@ -37,14 +37,18 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { EmptyState } from "@/components/EmptyState";
 import { CONDITIONS_PRESTATAIRE } from "@/lib/conditionsPrestataire";
 import { useTheme } from "@/components/ThemeProvider";
-import { creneauEstOuvert, RDV_HORS_CRENEAU_MESSAGE, rdvEstEnRetard } from "@/lib/rdvGating";
+import { creneauEstOuvert, rdvEstEnRetard, rdvNonTraite, rdvEnFenetreDeGrace } from "@/lib/rdvGating";
+import { CheckInUnavailableDialog } from "./components/CheckInUnavailableDialog";
 import { salutation } from "@/lib/salutation";
 import { can, isMembreRole, isTabKey, ROLE_LABELS, tabAllowed, tabReadOnly, type MembreRole } from "@/lib/institutionPermissions";
-import { T, type ThemeTokens, toUiTokens } from "./theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "./theme";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { parseLocalDate, SectionHeader, timeAgo } from "./dashboardShared";
 import { CompteSuspenduScreen } from "./components/CompteSuspenduScreen";
+import { SecurityActivationGate } from "./components/SecurityActivationGate";
 import { DisponibilitesTab } from "./components/DisponibilitesTab";
 import { ServicesTab } from "./components/ServicesTab";
 import { ServicesHotelTab } from "./components/ServicesHotelTab";
@@ -62,12 +66,18 @@ import { CentreConfigurationTab } from "./components/CentreConfigurationTab";
 import { MesClientsTab } from "./components/MesClientsTab";
 import { AvisReputationTab } from "./components/AvisReputationTab";
 import { MessagerieTab } from "./components/MessagerieTab";
+import { CollaborationTab } from "./components/CollaborationTab";
+import { SupportYelenTab } from "./components/SupportYelenTab";
 import { QuestionsClientsTab } from "./components/QuestionsClientsTab";
 import { EquipeTab } from "./components/EquipeTab";
 import { JournalTab } from "./components/JournalTab";
 import { EspaceTravailTab } from "./components/EspaceTravailTab";
 import { RdvPasseTab } from "./components/RdvPasseTab";
-import { ParametresTab, ParametresDangerZone } from "./components/ParametresTab";
+import { ParametresDangerZone } from "./components/ParametresTab";
+import { SecuriteCompteTab } from "./components/SecuriteCompteTab";
+import { NotificationsTab } from "./components/NotificationsTab";
+import { AideSupportTab } from "./components/AideSupportTab";
+import { LegalTab } from "./components/LegalTab";
 import { ProfilTab } from "./components/ProfilTab";
 import { FinanceAccueilTab } from "./components/FinanceAccueilTab";
 import { PaiementsTab } from "./components/PaiementsTab";
@@ -138,7 +148,7 @@ export type Client = {
   est_nouveau: boolean;
 };
 
-type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift";
+type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "collaboration" | "support" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift" | "parametres-securite" | "parametres-notifications" | "parametres-support" | "parametres-legal";
 // Onglets encore navigables quand institutions.statut === "suspendue"
 // (décision CEO 17/08/2026, écran dédié "Espace suspendu") — interprétation
 // de "Communication/Support" + "Paramètres/Compte", ajustable ici seul.
@@ -148,9 +158,24 @@ type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communi
 // une suspension, l'institution doit pouvoir suivre ses conversations déjà
 // ouvertes avec des citoyens, pas publier de nouvelles annonces publiques
 // (CommunicationTab) qui n'ont plus de sens tant qu'elle est invisible.
+// "support" (chantier "Séparation Messagerie/Support" 06/09/2026) : le
+// support Yelen doit rester joignable même suspendu, comme avant quand ce
+// canal vivait encore dans l'onglet "Yelen" de MessagerieTab.
 const ALLOWED_TABS_SUSPENDU: ReadonlySet<DashboardTab> = new Set([
-  "accueil", "messagerie", "parametres", "profil", "profil-entreprise", "profil-responsable", "conditions-informations", "configuration-hotel", "documents",
+  "accueil", "messagerie", "support", "parametres", "profil", "profil-entreprise", "profil-responsable", "conditions-informations", "configuration-hotel", "documents",
+  "parametres-securite", "parametres-notifications", "parametres-support", "parametres-legal",
 ]);
+// Regroupement à 2 niveaux de la section sidebar "Finance" (7 écrans → 2
+// entrées repliables : Opérations / Suivi & documents). Les icônes/labels
+// des écrans eux-mêmes ne changent pas (repris tels quels depuis
+// navSectionsRaw dans renderMainNav) — seules ces 2 icônes de groupe sont
+// nouvelles. Constante de module : statique, ne dépend d'aucun state/prop.
+const FINANCE_GROUPS: { key: "operations" | "suivi"; label: string; icon: React.ReactNode; tabs: DashboardTab[] }[] = [
+  { key: "operations", label: "Opérations", tabs: ["paiements", "transactions", "facturation"],
+    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg> },
+  { key: "suivi", label: "Suivi & documents", tabs: ["historique-financier", "rapports", "documents-financiers", "documents-clients"],
+    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
+];
 // Item de la liste "Paramètres" — soit un lien externe (href), soit une
 // bascule d'onglet interne au dashboard (onTab), jamais les deux.
 type SettingsItem = { label: string; href: string | null; onTab?: DashboardTab; color: string };
@@ -287,16 +312,16 @@ function RdvEmptyState({ C, illustration, titre, texte, cta }: {
   C: ThemeTokens; illustration: React.ReactNode; titre: string; texte: string; cta?: { label: string; onClick: () => void };
 }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "40px 24px", textAlign: "center", border: `1px solid ${C.border}` }}>
+    <Card tokens={toCardTokens(C)} padding="40px 24px" style={{ textAlign: "center" }}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}>{illustration}</div>
       <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>{titre}</div>
       <p style={{ color: C.t3, fontSize: "12.5px", fontWeight: "600", lineHeight: 1.6, maxWidth: "340px", margin: cta ? "0 auto 16px" : "0 auto" }}>{texte}</p>
       {cta && (
-        <button onClick={cta.onClick} className="tap" style={{ backgroundColor: C.gold, color: "#080812", border: "none", borderRadius: "10px", padding: "10px 18px", fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={cta.onClick}>
           {cta.label}
-        </button>
+        </Button>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -368,7 +393,7 @@ type Institution = {
 export type Stats = {
   today: number; week: number; month: number;
   pending: number; confirmed: number; done: number; cancelled: number;
-  nouveau: number; absents: number;
+  nouveau: number; absents: number; non_traites: number;
   avis_count: number; moyenne_avis: number; avis_non_lus: number;
   taux_confirmation: number; taux_annulation: number; taux_satisfaction: number;
   rdv_total: number; evolution_week: number; evolution_month: number;
@@ -380,16 +405,58 @@ export type Stats = {
   ratio_refus: number;
   compte_restreint: boolean;
   score_sante: number;
-  kpi_variations: { nouveau: number; pending: number; confirmed: number; done: number; cancelled: number; total: number };
+  kpi_variations: { nouveau: number; pending: number; confirmed: number; done: number; cancelled: number; total: number; non_traites: number };
 };
 
 // ─── Design Tokens ────────────────────────────────────────────────────
 // ─── CSS Global ────────────────────────────────────────────────────────
-const cssFor = (C: ThemeTokens) => `
+const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
   html,body{background:${C.bg};overflow-x:hidden;overscroll-behavior:none}
   ::-webkit-scrollbar{display:none}
   *{scrollbar-width:none}
+  /* ── Barre de scroll centrale institution — façon Supabase (retour
+      Bryan 01/09/2026) : contrairement au reste du produit (masquée
+      partout par défaut ci-dessus), la sidebar, le contenu principal et
+      le panneau compte du dashboard institution montrent une vraie barre
+      de défilement, unique et cohérente sur tous les écrans (tous passent
+      par .yelen-main). Neutre (noir/gris, PAS le doré de marque — retour
+      Bryan : "standards US comme Supabase"), noirâtre en thème clair,
+      gris clair en thème sombre pour rester visible sur un fond quasi
+      noir (#0A0A0F) — un thumb littéralement noir y serait invisible.
+      Auto-masquée : invisible au repos, apparaît pendant le scroll,
+      disparaît <2s après le dernier scroll — classe .scrollbar-active
+      posée/retirée en JS (voir effet ci-dessous). scrollbar-width/
+      ::-webkit-scrollbar width JAMAIS togglés (toujours réservés) : les
+      toggler faisait apparaître/disparaître la gouttière elle-même et
+      décalait le contenu vers la droite (retour Bryan) — seule la
+      couleur du thumb change, jamais l'espace réservé. ── */
+  .yelen-sidebar nav, .yelen-main, .yelen-account-panel, .msgv2-list-pane, .msgv2-thread-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .yelen-sidebar nav.scrollbar-active, .yelen-main.scrollbar-active, .yelen-account-panel.scrollbar-active, .msgv2-list-pane.scrollbar-active, .msgv2-thread-scroll.scrollbar-active {
+    scrollbar-color: ${theme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(10,10,18,0.35)"} transparent;
+  }
+  .yelen-sidebar nav::-webkit-scrollbar, .yelen-main::-webkit-scrollbar, .yelen-account-panel::-webkit-scrollbar, .msgv2-list-pane::-webkit-scrollbar, .msgv2-thread-scroll::-webkit-scrollbar {
+    display: block;
+    width: 10px;
+    height: 10px;
+  }
+  .yelen-sidebar nav::-webkit-scrollbar-track, .yelen-main::-webkit-scrollbar-track, .yelen-account-panel::-webkit-scrollbar-track, .msgv2-list-pane::-webkit-scrollbar-track, .msgv2-thread-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .yelen-sidebar nav::-webkit-scrollbar-thumb, .yelen-main::-webkit-scrollbar-thumb, .yelen-account-panel::-webkit-scrollbar-thumb, .msgv2-list-pane::-webkit-scrollbar-thumb, .msgv2-thread-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 8px;
+    transition: background-color 0.25s ease;
+  }
+  .yelen-sidebar nav.scrollbar-active::-webkit-scrollbar-thumb, .yelen-main.scrollbar-active::-webkit-scrollbar-thumb, .yelen-account-panel.scrollbar-active::-webkit-scrollbar-thumb, .msgv2-list-pane.scrollbar-active::-webkit-scrollbar-thumb, .msgv2-thread-scroll.scrollbar-active::-webkit-scrollbar-thumb {
+    background: ${theme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(10,10,18,0.35)"};
+  }
+  .yelen-sidebar nav.scrollbar-active::-webkit-scrollbar-thumb:hover, .yelen-main.scrollbar-active::-webkit-scrollbar-thumb:hover, .yelen-account-panel.scrollbar-active::-webkit-scrollbar-thumb:hover, .msgv2-list-pane.scrollbar-active::-webkit-scrollbar-thumb:hover, .msgv2-thread-scroll.scrollbar-active::-webkit-scrollbar-thumb:hover {
+    background: ${theme === "dark" ? "rgba(255,255,255,0.55)" : "rgba(10,10,18,0.55)"};
+  }
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -425,7 +492,7 @@ const cssFor = (C: ThemeTokens) => `
     .yelen-content{flex:1;overflow-y:auto}
     .yelen-header-inner{padding:0 32px!important}
     .yelen-account-panel{
-      position:fixed;top:0;bottom:0;width:232px;min-width:232px;height:100svh;
+      position:fixed;top:0;bottom:0;width:216px;min-width:216px;height:100svh;
       background:${C.bgCard2};border-right:1px solid rgba(255,255,255,0.07);
       display:flex;flex-direction:column;overflow-y:auto;z-index:390;
       animation:fadeUp 0.16s ease;
@@ -445,6 +512,20 @@ const cssFor = (C: ThemeTokens) => `
   }
   @media(min-width:1024px){
     .yelen-main{padding-bottom:0!important}
+  }
+  /* ── Footer général (CGU/Confidentialité/Guide/FAQ/Support/copyright,
+      retour Bryan 16/09/2026) : fixe, ne doit jamais suivre le scroll du
+      contenu. <1024px : posé juste au-dessus de .yelen-bottom-nav (même
+      calc(48px + safe-area) que son padding). ≥1024px : pas de bottom-nav,
+      collé au bas du viewport, décalé par --footer-left (posé en inline,
+      même valeur que le marginLeft de .yelen-main) pour ne jamais passer
+      sous la sidebar. .yelen-main.yelen-has-footer compense l'espace
+      retiré du flux normal (spécificité supérieure à la règle
+      padding-bottom:0!important ci-dessus, pas de conflit de cascade). ── */
+  .yelen-footer-fixed{position:fixed;left:0;right:0;bottom:calc(48px + env(safe-area-inset-bottom));z-index:150}
+  @media(min-width:1024px){
+    .yelen-footer-fixed{left:var(--footer-left,264px);bottom:0}
+    .yelen-main.yelen-has-footer{padding-bottom:54px!important}
   }
   /* ── Header : recherche + popovers (recherche, RDV entrant, feedback,
       aide, "..."), mobile-first — bottom sheet plein écran par défaut,
@@ -475,6 +556,11 @@ const cssFor = (C: ThemeTokens) => `
       width:340px;max-height:440px;border-radius:16px;padding:14px;
       box-shadow:0 20px 60px rgba(0,0,0,0.35);animation:fadeUp 0.16s ease;
     }
+    /* Refonte "Aide Yelen" (retour Bryan 06/09/2026, Help Center launcher
+       façon Intercom/Zendesk) : ce panneau précis a plus de contenu que les
+       autres popovers (recherche, 2 cartes, ressources, légal) — override
+       scopé par data-popover, les autres popovers gardent 340×440. */
+    .header-popover-panel[data-popover="help"]{width:460px;max-height:600px;border-radius:20px}
     .header-popover-grip{display:none}
     .header-popover-overlay{display:none}
     .header-search-desktop{display:flex}
@@ -499,6 +585,11 @@ const cssFor = (C: ThemeTokens) => `
   /* ── Sidebar : transition hover/actif (audit CEO 12/07/2026) ── */
   .yelen-nav-item{transition:background 0.2s ease, border-color 0.2s ease}
   .yelen-nav-item:hover{background:${C.bg3}}
+  /* ── Panneau Administration : liste dense façon settings Enterprise,
+      volontairement distincte du menu principal (pas d'icônes, puces,
+      rangées plus compactes) — voir /chantier-design si repris. ── */
+  .yelen-account-item{transition:background 0.15s ease}
+  .yelen-account-item:hover{background:${theme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(10,10,18,0.04)"}}
   /* ── Micro-animation hover (audit CEO 12/07/2026) ── */
   .yelen-card-hover{transition:transform 0.2s ease, box-shadow 0.2s ease}
   .yelen-card-hover:hover{transform:translateY(-2px); box-shadow:0 4px 16px rgba(0,0,0,0.08)}
@@ -536,7 +627,7 @@ function stInfo(s: string, C: ThemeTokens) {
     case "en_attente": return { c: C.gold,   bg: "rgba(212,160,23,0.12)", l: "En attente" };
     case "annule":     return { c: C.red,    bg: C.redL,    l: "Annulé" };
     case "effectue":   return { c: C.blue,   bg: C.blueL,   l: "Effectué" };
-    case "termine":    return { c: C.purple, bg: C.purpleL, l: "Terminé" };
+    case "termine":    return { c: C.green,  bg: C.greenL,  l: "Terminé" };
     case "honore":     return { c: C.green,  bg: C.greenL,  l: "Honoré" };
     case "nouveau":    return { c: C.gold,   bg: `${C.gold}15`,           l: "Nouveau" };
     case "absent":     return { c: C.red,    bg: C.redL,                  l: "Absent" };
@@ -605,6 +696,36 @@ function getSalutation(name: string): string {
   return salutation(name);
 }
 
+// Statut "Support Yelen" du popover Aide (chantier "Refonte Aide &
+// ressources", 06/09/2026) — jamais un signal inventé (aucun suivi réel de
+// présence agent n'existe) : dérivé des horaires déjà documentés/affichés
+// ailleurs dans le produit (GuideScalingModal : "Support disponible Lun–Ven,
+// 8h–18h GMT"). Guinée = UTC+0 toute l'année (hypothèse déjà actée pour le
+// job Clock In Shift) — getUTCDay/getUTCHours donnent directement l'heure
+// locale réelle, peu importe le fuseau du navigateur.
+function supportEstDisponible(maintenant: Date): boolean {
+  const jour = maintenant.getUTCDay();
+  const heure = maintenant.getUTCHours();
+  return jour >= 1 && jour <= 5 && heure >= 8 && heure < 18;
+}
+
+// Index de recherche "Aide Yelen" — miroir volontairement minimal (id +
+// titre uniquement) de app/guide-prestataire/page.tsx::CHAPITRES, tenu à
+// jour manuellement (10 chapitres, liste stable) plutôt que de dupliquer le
+// contenu complet ou d'extraire un module partagé pour si peu.
+const AIDE_CHAPITRES: { id: string; titre: string }[] = [
+  { id: "inscription", titre: "Inscription et vérification" },
+  { id: "profil", titre: "Configuration du profil" },
+  { id: "disponibilites", titre: "Disponibilités et créneaux" },
+  { id: "rdv", titre: "Gestion des rendez-vous" },
+  { id: "statistiques", titre: "Comprendre les statistiques" },
+  { id: "annonces", titre: "Utiliser les annonces" },
+  { id: "badge", titre: "Obtenir le badge vérifié" },
+  { id: "abonnements", titre: "Abonnements Pro & Premium" },
+  { id: "qrcode", titre: "QR Code et partage" },
+  { id: "support", titre: "Support et signalements" },
+];
+
 function buildNom(u: { nom: string | null; prenom: string | null; phone: string } | null): string {
   if (!u) return "Citoyen";
   const parts = [u.prenom, u.nom].filter(Boolean).join(" ");
@@ -637,7 +758,7 @@ function ConditionsPrestataireModal({ onAccept, saving }: { onAccept: () => void
         <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "16px" }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
         </div>
-        <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: "900", letterSpacing: "-0.4px", marginBottom: "6px" }}>Conditions d&apos;utilisation prestataire</h2>
+        <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.4px", marginBottom: "6px" }}>Conditions d&apos;utilisation prestataire</h2>
         <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "18px" }}>Votre établissement vient d&apos;être validé. Avant de continuer, lisez et acceptez les conditions spécifiques aux institutions partenaires de Yelen224.</p>
         <div style={{ backgroundColor: C.bg3, borderRadius: "14px", padding: "16px", marginBottom: "18px", maxHeight: "260px", overflowY: "auto" }}>
           {CONDITIONS_PRESTATAIRE.map((s, i) => (
@@ -651,9 +772,9 @@ function ConditionsPrestataireModal({ onAccept, saving }: { onAccept: () => void
           <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: "18px", height: "18px", marginTop: "1px", accentColor: C.gold, flexShrink: 0, cursor: "pointer" }}/>
           <span style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5 }}>J&apos;ai lu et j&apos;accepte les conditions d&apos;utilisation prestataire de Yelen224.</span>
         </label>
-        <button onClick={onAccept} disabled={!checked || saving} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontSize: "14px", fontWeight: "900", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer", opacity: !checked || saving ? 0.5 : 1 }}>
-          {saving ? <YelenLoader size={18} color="#000"/> : "Accepter et continuer"}
-        </button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!checked} loading={saving} onClick={onAccept}>
+          Accepter et continuer
+        </Button>
       </div>
     </div>
   );
@@ -693,9 +814,9 @@ function CelebrationModal({ instName, onClose }: { instName: string; onClose: ()
             <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
         </div>
-        <h2 style={{ color: C.t1, fontSize: "24px", fontWeight: "900", letterSpacing: "-0.6px", marginBottom: "8px" }}>Compte validé !</h2>
+        <h2 style={{ color: C.t1, fontSize: "24px", fontWeight: "800", letterSpacing: "-0.6px", marginBottom: "8px" }}>Compte validé !</h2>
         <p style={{ color: C.t2, fontSize: "13.5px", lineHeight: 1.6, marginBottom: "24px" }}>{instName} est maintenant actif sur Yelen224. Les citoyens peuvent découvrir votre établissement et prendre rendez-vous dès maintenant.</p>
-        <button onClick={onClose} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontSize: "14px", fontWeight: "900", padding: "14px 32px", borderRadius: "14px", border: "none", cursor: "pointer" }}>Commencer</button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={onClose} style={{ padding: "0 32px" }}>Commencer</Button>
       </div>
     </div>
   );
@@ -772,7 +893,7 @@ function ProfilProgressionBandeau({ inst, tab, membreRole, configComplete, confi
         </div>
         <span style={{ color: sc.color, fontSize: "11px", fontWeight: "800", flex: 1 }}>{sc.label}</span>
         {inst.statut === "validee" && (
-          <span style={{ backgroundColor: C.green, color: "#fff", fontSize: "9px", fontWeight: "900", padding: "2px 8px", borderRadius: "20px" }}>✓ VÉRIFIÉ</span>
+          <span style={{ backgroundColor: C.green, color: "#fff", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>✓ VÉRIFIÉ</span>
         )}
         {inst.statut === "refusee" && (
           <a href="mailto:support@yelen224.com" style={{ color: C.red, fontSize: "10px", fontWeight: "800", textDecoration: "none" }}>Contacter →</a>
@@ -795,7 +916,7 @@ function ProfilProgressionBandeau({ inst, tab, membreRole, configComplete, confi
         <div style={{ flex: 1, height: "5px", backgroundColor: "rgba(255,255,255,0.07)", borderRadius: "3px", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${pct}%`, backgroundColor: barColor, borderRadius: "3px", transition: "width 0.4s ease" }}/>
         </div>
-        <span style={{ color: barColor, fontSize: "11px", fontWeight: "900", flexShrink: 0, minWidth: "30px", textAlign: "right" }}>{pct}%</span>
+        <span style={{ color: barColor, fontSize: "11px", fontWeight: "800", flexShrink: 0, minWidth: "30px", textAlign: "right" }}>{pct}%</span>
         <div style={{ display: "flex", alignItems: "center", gap: "5px", backgroundColor: sc.bg, border: `1px solid ${sc.border}`, borderRadius: "20px", padding: "3px 9px", flexShrink: 0 }}>
           <div style={{ position: "relative", width: "6px", height: "6px", flexShrink: 0 }}>
             <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: sc.color }}/>
@@ -858,7 +979,7 @@ function Toast({ msg, color, onDismiss }: { msg: string; color: string; onDismis
   const C = T[theme] as ThemeTokens;
   useEffect(() => { const t = setTimeout(onDismiss, 4000); return () => clearTimeout(t); }, [onDismiss]);
   return (
-    <div onClick={onDismiss} style={{ position: "fixed", top: "66px", left: "50%", transform: "translateX(-50%)", zIndex: 950, backgroundColor: C.bgCard2, border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: "8px", padding: "13px 16px", display: "flex", alignItems: "center", gap: "10px", boxShadow: "0 8px 32px rgba(0,0,0,0.6)", animation: "slideDown 0.25s ease", cursor: "pointer", minWidth: "220px", maxWidth: "calc(100vw - 32px)" }}>
+    <div onClick={onDismiss} style={{ position: "fixed", top: "66px", left: "50%", transform: "translateX(-50%)", zIndex: 1500, backgroundColor: C.bgCard2, border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: "8px", padding: "13px 16px", display: "flex", alignItems: "center", gap: "10px", boxShadow: "0 8px 32px rgba(0,0,0,0.6)", animation: "slideDown 0.25s ease", cursor: "pointer", minWidth: "220px", maxWidth: "calc(100vw - 32px)" }}>
       <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: color, flexShrink: 0 }}/>
       <span style={{ color: C.t1, fontSize: "12px", fontWeight: "700", flex: 1 }}>{msg}</span>
     </div>
@@ -961,10 +1082,10 @@ function HeaderPopover({ id, active, onOpen, onClose, trigger, badge, glow, pane
 
   return (
     <div ref={ref} className={wrapperClassName} style={{ position: "relative" }}>
-      <button onClick={() => (active ? onClose() : onOpen())} className="tap" title={panelTitle} style={{ position: "relative", background: active ? `${C.gold}15` : C.bgCard2, border: `1px solid ${active ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, animation: glow && !!badge && badge > 0 ? "glow 1.6s ease-in-out infinite" : "none" }}>
+      <button onClick={() => (active ? onClose() : onOpen())} className="tap" title={panelTitle} style={{ position: "relative", background: active ? `${C.gold}15` : C.bgCard2, border: `1px solid ${active ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, animation: glow && !!badge && badge > 0 ? "glow 1.6s ease-in-out infinite" : "none" }}>
         {trigger}
         {!!badge && badge > 0 && (
-          <span className={badgeClassName} style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "9px", fontWeight: "900", minWidth: "17px", height: "17px", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${C.bgCard}`, padding: "0 3px" }}>
+          <span className={badgeClassName} style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "9px", fontWeight: "800", minWidth: "17px", height: "17px", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${C.bgCard}`, padding: "0 3px" }}>
             {badge > 9 ? "9+" : badge}
           </span>
         )}
@@ -999,7 +1120,7 @@ function NouveauRdvBanner({ rdv, onClose, onOpen }: { rdv: RDV; onClose: () => v
         <div style={{ position: "absolute", inset: 0, borderRadius: "50%", backgroundColor: "#000", animation: "ping 1s ease-out infinite" }}/>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ color: "#000", fontSize: "12px", fontWeight: "900" }}>Nouveau RDV — {rdv.citoyen_nom}</span>
+        <span style={{ color: "#000", fontSize: "12px", fontWeight: "800" }}>Nouveau RDV — {rdv.citoyen_nom}</span>
         <span style={{ color: "rgba(0,0,0,0.6)", fontSize: "10px", marginLeft: "8px" }}>{rdv.objet || "RDV général"} · {formatDate(rdv.date_rdv, { day: "numeric", month: "short" })} {formatHeure(rdv.heure_rdv)}</span>
       </div>
       <span style={{ color: "#000", fontSize: "10px", fontWeight: "800", backgroundColor: "rgba(0,0,0,0.15)", padding: "3px 8px", borderRadius: "20px", flexShrink: 0 }}>Voir →</span>
@@ -1039,12 +1160,12 @@ function RdvDetailFullscreen({ rdv, onClose, onAccept, onRefuse, loading }: {
           <div style={{ backgroundColor: `${C.red}10`, border: `1px solid ${C.red}30`, borderLeft: `3px solid ${C.red}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "20px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             <div>
-              <div style={{ color: C.red, fontSize: "11px", fontWeight: "900", marginBottom: "3px" }}>Attention — Impact sur votre compte</div>
+              <div style={{ color: C.red, fontSize: "11px", fontWeight: "800", marginBottom: "3px" }}>Attention — Impact sur votre compte</div>
               <div style={{ color: C.t2, fontSize: "10px", lineHeight: 1.6 }}>Les refus répétés sans motif valable peuvent entraîner une <strong style={{ color: C.red }}>restriction ou désactivation</strong> de votre compte Yelen. Chaque refus est enregistré.</div>
             </div>
           </div>
 
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: "900", marginBottom: "6px" }}>Motif du refus</div>
+          <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", marginBottom: "6px" }}>Motif du refus</div>
           <div style={{ color: C.t3, fontSize: "11px", marginBottom: "16px" }}>Sélectionnez un motif pour <strong style={{ color: C.t2 }}>{rdv.citoyen_nom}</strong></div>
 
           {/* Motifs */}
@@ -1070,18 +1191,21 @@ function RdvDetailFullscreen({ rdv, onClose, onAccept, onRefuse, loading }: {
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px" }}>
-            <button onClick={() => setShowRefusForm(false)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "14px", borderRadius: "14px", cursor: "pointer" }}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setShowRefusForm(false)}>
               Annuler
-            </button>
-            <button
-              onClick={() => motifFinal && onRefuse(motifFinal)}
-              disabled={!motifFinal || loading}
-              className="tap"
-              style={{ backgroundColor: motifFinal ? C.redL : "rgba(255,255,255,0.04)", color: motifFinal ? C.red : C.t3, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${motifFinal ? C.red + "30" : C.border}`, cursor: motifFinal ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}
+            </Button>
+            <Button
+              tokens={toUiTokens(C)} className="tap"
+              variant="danger"
+              size="md"
+              fullWidth
+              disabled={!motifFinal}
+              loading={loading}
+              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>}
+              onClick={() => { if (motifFinal) onRefuse(motifFinal); }}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              {loading ? "..." : "Confirmer le refus"}
-            </button>
+              Confirmer le refus
+            </Button>
           </div>
         </div>
       </div>
@@ -1101,11 +1225,11 @@ function RdvDetailFullscreen({ rdv, onClose, onAccept, onRefuse, loading }: {
           <span style={{ color: C.gold, fontSize: "11px", fontWeight: "800" }}>Nouveau rendez-vous</span>
         </div>
 
-        <div style={{ color: C.t1, fontSize: "20px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "20px" }}>Demande de RDV reçue</div>
+        <div style={{ color: C.t1, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "20px" }}>Demande de RDV reçue</div>
 
         {/* Citoyen */}
         <div style={{ display: "flex", alignItems: "center", gap: "14px", backgroundColor: C.bg3, borderRadius: "16px", padding: "14px", marginBottom: "16px" }}>
-          <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "14px", overflow: "hidden", background: `linear-gradient(135deg, ${C.gold}30, ${C.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "900", color: C.gold, flexShrink: 0 }}>
+          <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "14px", overflow: "hidden", background: `linear-gradient(135deg, ${C.gold}30, ${C.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "800", color: C.gold, flexShrink: 0 }}>
             {rdv.citoyen_photo ? <Image src={rdv.citoyen_photo} alt="" fill sizes="52px" style={{ objectFit: "cover" }}/> : rdv.citoyen_nom.slice(0, 2).toUpperCase()}
           </div>
           <div style={{ flex: 1 }}>
@@ -1146,20 +1270,22 @@ function RdvDetailFullscreen({ rdv, onClose, onAccept, onRefuse, loading }: {
 
         {/* Boutons Accepter / Refuser */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px" }}>
-          <button
-            onClick={() => setShowRefusForm(true)}
+          <Button
+            tokens={toUiTokens(C)} className="tap"
+            variant="danger"
+            size="md"
+            fullWidth
             disabled={loading}
-            className="tap"
-            style={{ backgroundColor: C.redL, color: C.red, fontWeight: "800", fontSize: "14px", padding: "15px", borderRadius: "16px", border: `1px solid ${C.red}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>}
+            onClick={() => setShowRefusForm(true)}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             Refuser
-          </button>
+          </Button>
           <button
             onClick={onAccept}
             disabled={loading}
             className="tap"
-            style={{ background: `linear-gradient(135deg, ${C.green}, #009e76)`, color: "#fff", fontWeight: "900", fontSize: "15px", padding: "15px", borderRadius: "16px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", boxShadow: `0 4px 20px ${C.green}35` }}
+            style={{ width: "100%", height: "40px", padding: "0 16px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}
           >
             {loading ? <YelenLoader size={14} color="#fff"/> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
             {loading ? "Traitement…" : "Accepter le RDV"}
@@ -1217,7 +1343,7 @@ function GuideScalingModal({ onClose }: { onClose: () => void }) {
             <div style={{ width: "36px", height: "36px", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <YelenLogo size={22} color="#000" />
             </div>
-            <span style={{ color: C.gold, fontSize: "13px", fontWeight: "900", letterSpacing: "0.5px" }}>YELEN224 PRO</span>
+            <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800", letterSpacing: "0.5px" }}>YELEN224 PRO</span>
           </div>
           <button onClick={onClose} className="tap" style={{ background: "rgba(255,255,255,0.12)", border: `1px solid ${C.border2}`, borderRadius: "50%", width: "34px", height: "34px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1228,12 +1354,12 @@ function GuideScalingModal({ onClose }: { onClose: () => void }) {
             {pages.map((_, i) => (<div key={i} onClick={() => setPage(i)} style={{ flex: i === page ? 3 : 1, height: "3px", borderRadius: "2px", backgroundColor: i === page ? C.gold : "rgba(255,255,255,0.15)", transition: "all 0.3s ease", cursor: "pointer" }}/>))}
           </div>
           <div style={{ color: C.gold, fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "8px", textTransform: "uppercase" }}>Guide {page + 1}/{pages.length}</div>
-          <h2 style={{ color: C.t1, fontSize: "26px", fontWeight: "900", letterSpacing: "-0.8px", lineHeight: 1.2, marginBottom: "6px" }}>{currentPage.titre}</h2>
+          <h2 style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-0.8px", lineHeight: 1.2, marginBottom: "6px" }}>{currentPage.titre}</h2>
           <p style={{ color: C.t2, fontSize: "13px", marginBottom: "28px" }}>{currentPage.sous_titre}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "32px" }}>
             {currentPage.contenu.map((item, i) => (
               <div key={i} style={{ backgroundColor: theme === "dark" ? "rgba(17,17,24,0.85)" : "rgba(255,255,255,0.88)", border: `1px solid ${C.border2}`, borderRadius: "16px", padding: "14px 16px", display: "flex", gap: "14px", backdropFilter: "blur(8px)", animation: `fadeUp 0.25s ease ${i * 0.08}s both` }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `linear-gradient(135deg, ${C.gold}30, ${C.gold}10)`, border: `1px solid ${C.gold}25`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "900", color: C.gold, flexShrink: 0 }}>{item.icon}</div>
+                <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `linear-gradient(135deg, ${C.gold}30, ${C.gold}10)`, border: `1px solid ${C.gold}25`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "800", color: C.gold, flexShrink: 0 }}>{item.icon}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", marginBottom: "3px" }}>{item.label}</div>
                   <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.6 }}>{item.desc}</div>
@@ -1243,10 +1369,10 @@ function GuideScalingModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: page > 0 ? "1fr 2fr" : "1fr", gap: "10px" }}>
-          {page > 0 && (<button onClick={() => setPage(p => p - 1)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "14px", borderRadius: "14px", cursor: "pointer" }}>Retour</button>)}
-          <button onClick={() => page < pages.length - 1 ? setPage(p => p + 1) : onClose()} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer", boxShadow: `0 4px 20px ${C.gold}40` }}>
+          {page > 0 && (<Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setPage(p => p - 1)}>Retour</Button>)}
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={() => page < pages.length - 1 ? setPage(p => p + 1) : onClose()}>
             {page < pages.length - 1 ? "Continuer" : "Commencer à scaler"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -1268,7 +1394,7 @@ function ScoreSante({ score, stats, actionsPrioritaires, onVoirActions }: { scor
     { label: "Absence de refus", value: Math.max(0, 100 - stats.ratio_refus * 10), color: C.blue },
   ];
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${color}25`, marginBottom: "20px", boxShadow: C.shadow }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${color}25`, marginBottom: "20px", boxShadow: C.shadow }}>
       <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
         <div style={{ position: "relative", width: "100px", height: "100px", flexShrink: 0 }}>
           <svg width="100" height="100" style={{ transform: "rotate(-90deg)" }}>
@@ -1276,13 +1402,13 @@ function ScoreSante({ score, stats, actionsPrioritaires, onVoirActions }: { scor
             <circle cx="50" cy="50" r="42" fill="none" stroke={color} strokeWidth="7" strokeDasharray={`${(score/100) * 2 * Math.PI * 42} ${2 * Math.PI * 42}`} strokeLinecap="round" style={{ transition: "stroke-dasharray 0.8s cubic-bezier(0.16,1,0.3,1)" }}/>
           </svg>
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ color, fontSize: "30px", fontWeight: "900", lineHeight: 1 }}><AnimatedNumber value={score}/></span>
+            <span style={{ color, fontSize: "30px", fontWeight: "800", lineHeight: 1 }}><AnimatedNumber value={score}/></span>
             <span style={{ color: C.t3, fontSize: "9px", fontWeight: "700" }}>/100</span>
           </div>
         </div>
         <div style={{ flex: 1 }}>
           <div className="yelen-h2" style={{ color: C.t1, marginBottom: "3px" }}>Score de Santé</div>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", backgroundColor: `${color}15`, color, fontSize: "11px", fontWeight: "800", padding: "3px 10px", borderRadius: "20px" }}>{label}</div>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", color, fontSize: "11px", fontWeight: "800", padding: "3px 10px", borderRadius: "20px" }}>{label}</div>
           <div style={{ color: C.t3, fontSize: "10px", marginTop: "6px" }}>
             {score >= 80 ? "Votre établissement performe excellemment. Continuez !" : score >= 60 ? "Bon niveau. Quelques ajustements pour atteindre l'excellence." : "Des actions sont nécessaires pour améliorer votre performance."}
           </div>
@@ -1300,15 +1426,15 @@ function ScoreSante({ score, stats, actionsPrioritaires, onVoirActions }: { scor
         ))}
       </div>
       {!!actionsPrioritaires && actionsPrioritaires > 0 && (
-        <div style={{ marginTop: "16px", backgroundColor: `${C.red}12`, border: `1px solid ${C.red}30`, borderRadius: "14px", padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+        <div style={{ marginTop: "16px", border: `1px solid ${C.red}30`, borderRadius: "14px", padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
           <span style={{ color: C.red, fontSize: "12px", fontWeight: "800", flex: 1 }}>{actionsPrioritaires} action{actionsPrioritaires > 1 ? "s" : ""} prioritaire{actionsPrioritaires > 1 ? "s" : ""} requise{actionsPrioritaires > 1 ? "s" : ""}</span>
           {onVoirActions && (
-            <button onClick={onVoirActions} className="tap" style={{ backgroundColor: C.red, color: "#fff", fontSize: "11px", fontWeight: "800", padding: "7px 14px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0 }}>Voir les actions</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" onClick={onVoirActions} style={{ flexShrink: 0 }}>Voir les actions</Button>
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -1324,7 +1450,7 @@ function ObjectifsHebdo({ stats }: { stats: Stats }) {
     { label: "Score satisfaction", actuel: stats.taux_satisfaction, cible: 85, color: C.gold, icon: <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 0 0 .95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 0 0-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.539 1.118l-2.8-2.034a1 1 0 0 0-1.176 0l-2.8 2.034c-.783.57-1.838-.196-1.539-1.118l1.07-3.292a1 1 0 0 0-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 0 0 .95-.69l1.07-3.292Z"/></svg>, unite: "%" },
   ];
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "20px", boxShadow: C.shadow }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "20px", boxShadow: C.shadow }}>
       <SectionHeader label="Objectifs de la semaine" accent={C.blue}/>
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
         {objectifs.map((obj, i) => {
@@ -1332,7 +1458,7 @@ function ObjectifsHebdo({ stats }: { stats: Stats }) {
           const atteint = pct >= 100;
           return (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <div style={{ width: "28px", height: "28px", borderRadius: "8px", backgroundColor: atteint ? C.greenL : C.bg3, display: "flex", alignItems: "center", justifyContent: "center", color: atteint ? C.green : obj.color, flexShrink: 0 }}>
+              <div style={{ width: "28px", height: "28px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", color: atteint ? C.green : obj.color, flexShrink: 0 }}>
                 {atteint ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : obj.icon}
               </div>
               <div style={{ flex: 1 }}>
@@ -1348,7 +1474,7 @@ function ObjectifsHebdo({ stats }: { stats: Stats }) {
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1374,6 +1500,12 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
   const [camPhase, setCamPhase] = useState<"avant" | "demarrage" | "actif" | "refuse">("avant");
   const [scanResult, setScanResult] = useState<{ rdv: { id: string; citoyen_nom?: string; objet?: string; date_rdv?: string } } | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  // Titre dynamique (01/09/2026) — jusqu'ici toujours "QR invalide" quelle
+  // que soit la cause. Un QR au cycle définitivement expiré n'est pas un
+  // "QR invalide" au sens habituel (mauvais code) mais un rendez-vous que le
+  // système refuse désormais de laisser confirmer — le staff doit voir
+  // pourquoi, pas juste "invalide" (retour Bryan : jamais de blocage muet).
+  const [errorTitre, setErrorTitre] = useState("QR invalide");
   const [confirming, setConfirming] = useState(false);
   const html5QrRef = useRef<Html5Qrcode | null>(null);
 
@@ -1382,10 +1514,10 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
       const storedId = localStorage.getItem("yelen224_institution_id") || institutionId;
       const res = await fetch("/api/qr/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qr_payload: decodedText, institution_id: storedId }) });
       const data = await res.json();
-      if (!res.ok) { setErrorMsg(data.error || "QR invalide"); setPhase("error"); return; }
+      if (!res.ok) { setErrorTitre(data.titre || "QR invalide"); setErrorMsg(data.error || "QR invalide"); setPhase("error"); return; }
       setScanResult(data);
       setPhase("result");
-    } catch { setErrorMsg("Erreur réseau"); setPhase("error"); }
+    } catch { setErrorTitre("QR invalide"); setErrorMsg("Erreur réseau"); setPhase("error"); }
   }
 
   // stop() de html5-qrcode lève une exception SYNCHRONE ("Cannot stop,
@@ -1425,9 +1557,14 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
     if (!scanResult?.rdv) return;
     setConfirming(true);
     try {
-      await fetch("/api/qr/validate", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rdv_id: scanResult.rdv.id, action: "present", institution_id: institutionId }) });
+      const res = await fetch("/api/qr/validate", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rdv_id: scanResult.rdv.id, action: "present", institution_id: institutionId }) });
+      const data = await res.json().catch(() => null);
+      // Course possible entre le scan (POST) et ce clic : le QR peut avoir
+      // expiré entre-temps (défense en profondeur côté serveur, voir
+      // validate/route.ts) — remontée explicite au lieu d'un succès muet.
+      if (!res.ok) { setErrorTitre(data?.titre || "QR invalide"); setErrorMsg(data?.error || "Erreur de confirmation"); setPhase("error"); return; }
       setPhase("done");
-    } catch { setErrorMsg("Erreur"); setPhase("error"); } finally { setConfirming(false); }
+    } catch { setErrorTitre("QR invalide"); setErrorMsg("Erreur"); setPhase("error"); } finally { setConfirming(false); }
   }
 
   return (
@@ -1436,7 +1573,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
         <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
           <div>
-            <div style={{ color: C.t1, fontSize: "18px", fontWeight: "900" }}>Scanner le Client</div>
+            <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800" }}>Scanner le Client</div>
             <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px" }}>QR Code du citoyen</div>
           </div>
           <button onClick={onClose} style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1465,9 +1602,9 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
                 </div>
                 <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Scanner le QR code Yelen du citoyen</div>
                 <div style={{ color: C.t3, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>Yelen a besoin d&apos;accéder à votre caméra pour lire le code présenté par le citoyen à son arrivée.</div>
-                <button onClick={demarrerCamera} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={demarrerCamera}>
                   Activer la caméra
-                </button>
+                </Button>
               </div>
             )}
             {camPhase === "refuse" && (
@@ -1477,9 +1614,9 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
                 </div>
                 <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Accès à la caméra impossible</div>
                 <div style={{ color: C.t3, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>Autorisez la caméra pour Yelen224 dans les réglages de votre navigateur, puis réessayez.</div>
-                <button onClick={demarrerCamera} className="tap" style={{ width: "100%", backgroundColor: C.bg3, color: C.t1, fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "14px", border: `1px solid ${C.border}`, cursor: "pointer" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={demarrerCamera}>
                   Réessayer
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -1491,7 +1628,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
               <span style={{ color: C.green, fontSize: "12px", fontWeight: "800" }}>QR valide</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
-              <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: `linear-gradient(135deg, ${C.gold}30, ${C.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: C.gold }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "13px", background: `linear-gradient(135deg, ${C.gold}30, ${C.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "800", color: C.gold }}>
                 {(scanResult.rdv.citoyen_nom || "C")[0].toUpperCase()}
               </div>
               <div>
@@ -1500,7 +1637,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
               </div>
             </div>
             <div>
-              <button onClick={() => confirmer()} disabled={confirming} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${C.green}, #009e76)`, color: "#fff", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              <button onClick={() => confirmer()} disabled={confirming} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
                 {confirming ? <YelenLoader size={15} color="#fff"/> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
                 {confirming ? "Confirmation…" : "Confirmer la présence"}
               </button>
@@ -1513,12 +1650,12 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
             <div style={{ width: "60px", height: "60px", borderRadius: "50%", backgroundColor: C.greenL, border: `2px solid ${C.green}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <div style={{ color: C.green, fontSize: "16px", fontWeight: "900", marginBottom: "4px" }}>Présence confirmée</div>
+            <div style={{ color: C.green, fontSize: "16px", fontWeight: "800", marginBottom: "4px" }}>Présence confirmée</div>
             <div style={{ color: C.t3, fontSize: "11px", marginBottom: "20px" }}>Le RDV reste &quot;Confirmé&quot; pendant la prestation — revenez à la liste RDV pour le marquer terminé une fois achevé.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               <div style={{ display: "flex", gap: "10px" }}>
-                <button onClick={() => { setPhase("scan"); setScanResult(null); }} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t1, fontWeight: "700", fontSize: "13px", padding: "12px", borderRadius: "12px", cursor: "pointer" }}>Scanner suivant</button>
-                <button onClick={onClose} className="tap" style={{ flex: 1, background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "13px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Fermer</button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => { setPhase("scan"); setScanResult(null); }}>Scanner suivant</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 1 }} onClick={onClose}>Fermer</Button>
               </div>
             </div>
           </div>
@@ -1528,9 +1665,9 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
             <div style={{ width: "60px", height: "60px", borderRadius: "50%", backgroundColor: C.redL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </div>
-            <div style={{ color: C.red, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>QR invalide</div>
-            <div style={{ color: C.t2, fontSize: "12px", marginBottom: "20px" }}>{errorMsg}</div>
-            <button onClick={() => { setPhase("scan"); setErrorMsg(""); }} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "14px", padding: "12px 32px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Réessayer</button>
+            <div style={{ color: C.red, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>{errorTitre}</div>
+            <div style={{ color: C.t2, fontSize: "12px", marginBottom: "20px", whiteSpace: "pre-line" }}>{errorMsg}</div>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => { setPhase("scan"); setErrorMsg(""); setErrorTitre("QR invalide"); }} style={{ padding: "0 32px" }}>Réessayer</Button>
           </div>
         )}
       </div>
@@ -1569,15 +1706,30 @@ function InstitutionDashboardInner() {
   // pour les usages existants (rdv-historique preload, etc.), le nouveau
   // code doit préférer canAccessTab(membreRole, ...)/can(membreRole, ...).
   const [membreRole, setMembreRole] = useState<MembreRole | null>(null);
+  // Rôles personnalisés (16/09/2026) — domaines retirés au rôle de base
+  // pour CE membre (institution_membres.acces_restreints), pilote le
+  // masquage réel de la nav via tabAllowed/tabReadOnly (3e paramètre).
+  const [accesRestreints, setAccesRestreints] = useState<string[] | null>(null);
   const isAdmin = membreRole === "admin";
+  // Prénom du membre connecté (16/09/2026, retour Bryan) — le header
+  // saluait jusqu'ici toujours l'institution ("Bonjour, {inst.name}"), sans
+  // distinction entre les 5 rôles qui peuvent s'y connecter. Fallback sur
+  // inst.name tant que /api/institution/membres n'a pas répondu.
+  const [membrePrenom, setMembrePrenom] = useState<string | null>(null);
+  // Yelen Security Activation (16/09/2026) — voir lib/institutionAuth.ts.
+  // null tant que non chargé = jamais bloquant par défaut (fail-open le
+  // temps du premier appel, cohérent avec le reste de ce fichier).
+  const [activationSecurite, setActivationSecurite] = useState<{ requise: boolean; bloque: boolean; deadline: string | null } | null>(null);
+  const [popupActivationOuvert, setPopupActivationOuvert] = useState(false);
+  const [popupActivationDismiss, setPopupActivationDismiss] = useState(false);
   const [stats, setStats]           = useState<Stats>({
-    today: 0, week: 0, month: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, nouveau: 0, absents: 0,
+    today: 0, week: 0, month: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, nouveau: 0, absents: 0, non_traites: 0,
     avis_count: 0, moyenne_avis: 0, avis_non_lus: 0,
     taux_confirmation: 0, taux_annulation: 0, taux_satisfaction: 0, rdv_total: 0,
     evolution_week: 0, evolution_month: 0, peak_hour: "—", peak_day: "—",
     rdv_par_jour: [], rdv_par_heure: [], notes_distribution: [], recent_activity: [],
     ratio_refus: 0, compte_restreint: false, score_sante: 0,
-    kpi_variations: { nouveau: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, total: 0 },
+    kpi_variations: { nouveau: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, total: 0, non_traites: 0 },
   });
 
   // Nouvelle structure de menu (chantier réorganisation dashboard) : "demandes"
@@ -1649,15 +1801,23 @@ function InstitutionDashboardInner() {
   useEffect(() => {
     if (suspendu && !ALLOWED_TABS_SUSPENDU.has(tab)) setTab("accueil");
   }, [suspendu, tab, setTab]);
+  // Agent d'accueil (retour Bryan 13/09/2026) : pas de vue d'ensemble
+  // générique, "Accueil" redirige directement vers "Valider un RDV" — front
+  // office pur, même principe que le comptable et sa FinanceAccueilTab
+  // dédiée. Gardé après le redirect de suspension (pas dans
+  // ALLOWED_TABS_SUSPENDU) pour ne jamais entrer en boucle avec lui.
+  useEffect(() => {
+    if (!suspendu && membreRole === "agent" && tab === "accueil") setTab("valider-rdv");
+  }, [suspendu, membreRole, tab, setTab]);
   // Filtre de nav additionnel (cosmétique, polish) : cache les entrées
   // menant à un onglet bloqué pendant la suspension, en plus de la
   // redirection ci-dessus qui reste la vraie garde-fou. "__plus__"/"guide"
   // ne sont pas des onglets (ouvrent un menu/une modale), jamais masqués.
   const navAllowed = useCallback((key: string) => {
-    if (!tabAllowed(membreRole, key)) return false;
+    if (!tabAllowed(membreRole, key, accesRestreints)) return false;
     if (suspendu && key !== "__plus__" && key !== "guide" && !ALLOWED_TABS_SUSPENDU.has(key as DashboardTab)) return false;
     return true;
-  }, [membreRole, suspendu]);
+  }, [membreRole, accesRestreints, suspendu]);
   // Centre de configuration (Setup Center post-inscription, décision CEO
   // 12/08/2026) : null tant que le statut réel n'a pas encore été chargé
   // par CentreConfigurationTab — traité comme "pas complet" pour éviter un
@@ -1683,6 +1843,15 @@ function InstitutionDashboardInner() {
   // dashboard KPI. Remplace l'ancien simple toast (voir handleConfigStatusChange).
   const [justActivated, setJustActivated] = useState(false);
   const [messagerieUnread, setMessagerieUnread] = useState(0);
+  // Support Yelen (chantier "Séparation Messagerie/Support" 06/09/2026) —
+  // strictement séparé de messagerieUnread ci-dessus depuis que le canal
+  // Yelen a quitté MessagerieTab pour un écran dédié (SupportYelenTab).
+  // Retour Bryan 06/09/2026 : ouvert dans un NOUVEL ONGLET NAVIGATEUR (URL
+  // propre /{slug}/{id}/support, "support" ajouté à TAB_KEYS/DashboardTab
+  // en "full" pour les 5 rôles — hors RBAC métier comme Feedback/Aide/Guide,
+  // simplement routable) plutôt qu'une pop-up plein écran superposée à
+  // l'onglet courant, pour permettre de naviguer entre les deux écrans.
+  const [supportUnread, setSupportUnread] = useState(0);
   const [questionsNonRepondues, setQuestionsNonRepondues] = useState(0);
   const [messagerieCitoyenInitial, setMessagerieCitoyenInitial] = useState<string | null>(null);
   function ouvrirMessagerieClient(citoyenId: string) {
@@ -1695,8 +1864,26 @@ function InstitutionDashboardInner() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const navRef = useRef<HTMLElement>(null);
-  const [navScrollable, setNavScrollable] = useState(false);
+  // Sous-sections repliables de la section sidebar "Finance" (7 écrans → 2
+  // entrées) — fermées par défaut, façon NN/g (au-delà de 2 niveaux de nav
+  // la compréhension se dégrade, donc pas de 3e niveau). S'ouvrent aussi
+  // automatiquement si `tab` bascule sur un de leurs enfants (ex: lien
+  // direct), sans jamais refermer l'autre groupe. Desktop uniquement
+  // (sidebar étendue) — voir renderMainNav : en mode réduit (icon rail
+  // 76px) la section Finance reste rendue à plat comme avant, la
+  // hiérarchie n'a pas de sens sans place pour l'indentation/les labels.
+  const [financeGroupsOpen, setFinanceGroupsOpen] = useState<{ operations: boolean; suivi: boolean }>({ operations: false, suivi: false });
+  // Tooltip instantané façon Supabase pour les icônes de la sidebar
+  // réduite — portalé (position:fixed) pour ne pas être rogné par
+  // overflow-y:auto du <nav> (CSS force overflow-x en "auto" dès que
+  // overflow-y n'est pas "visible", même non explicitement posé).
+  const [navTooltip, setNavTooltip] = useState<{ label: string; top: number } | null>(null);
+  const showNavTooltip = (label: string) => (e: React.MouseEvent<HTMLElement>) => {
+    if (!sidebarCollapsed) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setNavTooltip({ label, top: r.top + r.height / 2 });
+  };
+  const hideNavTooltip = () => setNavTooltip(null);
   const [loading, setLoading]               = useState(true);
   const [error, setError]                   = useState<string | null>(null);
   // Bascule si loadData() dépasse 8s sans avoir répondu — jamais un
@@ -1714,16 +1901,22 @@ function InstitutionDashboardInner() {
   // le dialogue de blocage exact du CEO si hors créneau (jamais un simple
   // toast — la règle ne doit laisser aucune ambiguïté sur pourquoi c'est bloqué).
   const [preloadBookingId, setPreloadBookingId] = useState<string | null>(null);
-  const [horsCreneauDialog, setHorsCreneauDialog] = useState(false);
+  const [horsCreneauDialog, setHorsCreneauDialog] = useState<RDV | null>(null);
   const [termineDialog, setTermineDialog] = useState<RDV | null>(null);
   const [selectedRDV, setSelectedRDV]       = useState<RDV | null>(null);
+  const [mesClientsInitialId, setMesClientsInitialId] = useState<string | null>(null);
   const [rdvHistorique, setRdvHistorique]   = useState<{ id: string; action: string; membre_nom: string; created_at: string }[]>([]);
   const [rdvEvents, setRdvEvents]           = useState<{ id: string; auteur_type: string; action: string; motif: string | null; created_at: string }[]>([]);
   const [actionLoading, setActionLoading]   = useState<string | null>(null);
   // Confirmation "Marquer absent" (retour Bryan 17/08/2026 : "tu cliques,
-  // le processus commence sans aucun message d'action") — niveau 1 simple,
-  // partagée par les 3 points d'entrée (fiche détail + 2 lignes de liste).
+  // le processus commence sans aucun message d'action") — niveau 2 (motif
+  // obligatoire depuis le 08/09/2026, revenant sur le choix initial du
+  // 05/08/2026 : un no-show déclenche une mécanique de restriction citoyen
+  // potentiellement lourde, l'accountability l'exige) — partagée par les 3
+  // points d'entrée (fiche détail + 2 lignes de liste).
   const [confirmAbsent, setConfirmAbsent]   = useState<{ id: string; nom: string } | null>(null);
+  const [confirmAbsentMotif, setConfirmAbsentMotif] = useState("");
+  const [confirmAbsentError, setConfirmAbsentError] = useState<string | null>(null);
   const [toast, setToast]                   = useState<{ msg: string; color: string } | null>(null);
   const [logoutOpen, setLogoutOpen]         = useState(false);
   const [rdvFilter, setRdvFilter]           = useState("tous");
@@ -1743,11 +1936,13 @@ function InstitutionDashboardInner() {
   const lastRdvCountRef                     = useRef(0);
 
   // ── Header : popovers (recherche, "...", feedback, aide, RDV entrant) ──
-  const [activePopover, setActivePopover]   = useState<"search" | "system" | "feedback" | "help" | "rdv" | "notifications" | "questions" | null>(null);
+  const [activePopover, setActivePopover]   = useState<"search" | "system" | "feedback" | "help" | "rdv" | "notifications" | "questions" | "avatar" | null>(null);
   const [institutionNotifs, setInstitutionNotifs] = useState<{ id: string; titre: string; message: string; lu: boolean; rdv_id: string | null; created_at: string }[]>([]);
   const [ongletNotif, setOngletNotif] = useState<"utilisateur" | "systeme">("utilisateur");
   const [realtimeStatus, setRealtimeStatus] = useState<"connecte" | "reconnexion" | "hors_ligne">("reconnexion");
   const [searchQuery, setSearchQuery]       = useState("");
+  const [aideQuery, setAideQuery]           = useState("");
+  const aideSearchRef = useRef<HTMLInputElement>(null);
   const [feedbackType, setFeedbackType]     = useState<"bug" | "suggestion" | "ux" | "fonctionnalite">("bug");
   const [feedbackMsg, setFeedbackMsg]       = useState("");
   const [feedbackSending, setFeedbackSending] = useState(false);
@@ -1796,9 +1991,37 @@ function InstitutionDashboardInner() {
     if (!instId) return;
     fetch("/api/institution/membres")
       .then(res => res.ok ? res.json() : null)
-      .then(j => setMembreRole(isMembreRole(j?.role) ? j.role : null))
-      .catch(() => setMembreRole(null));
+      .then(j => {
+        setMembreRole(isMembreRole(j?.role) ? j.role : null);
+        setAccesRestreints(Array.isArray(j?.moi?.acces_restreints) ? j.moi.acces_restreints : null);
+        setMembrePrenom(typeof j?.moi?.prenom === "string" ? j.moi.prenom : null);
+      })
+      .catch(() => { setMembreRole(null); setAccesRestreints(null); setMembrePrenom(null); });
   }, [instId]);
+
+  // Yelen Security Activation — chargé une fois au montage du dashboard,
+  // jamais bloquant par défaut si l'appel échoue (fail-open, cohérent avec
+  // le reste de cette page : une panne de ce endpoint ne doit jamais priver
+  // un membre légitime de son dashboard).
+  useEffect(() => {
+    if (!instId) return;
+    fetch("/api/institution/auth/security-activation-status")
+      .then(res => res.ok ? res.json() : null)
+      .then(j => { if (j) setActivationSecurite({ requise: !!j.requise, bloque: !!j.bloque, deadline: j.deadline ?? null }); })
+      .catch(() => {});
+  }, [instId]);
+
+  // Popup non-bloquant (avant l'échéance) — déclenché après quelques
+  // minutes d'usage réel du dashboard, jamais immédiatement à l'ouverture
+  // (décision Bryan : laisser d'abord découvrir la valeur de l'espace avant
+  // de demander une action de sécurité). "Plus tard" ferme pour cette
+  // session uniquement — réapparaîtra à la prochaine ouverture tant que
+  // l'activation n'est pas faite ou l'échéance dépassée.
+  useEffect(() => {
+    if (!activationSecurite?.requise || activationSecurite.bloque || popupActivationDismiss) return;
+    const t = setTimeout(() => setPopupActivationOuvert(true), 3 * 60 * 1000);
+    return () => clearTimeout(t);
+  }, [activationSecurite, popupActivationDismiss]);
 
   // Déclenche la séquence conditions prestataire + célébration une
   // seule fois, au premier chargement de `inst` — le ref empêche un
@@ -1928,7 +2151,7 @@ function InstitutionDashboardInner() {
   // Vérification client immédiate (défense en profondeur, la vraie garantie
   // est déjà côté serveur — Lots A/B).
   function handlePrendreEnCharge(r: RDV) {
-    if (!creneauEstOuvert(r.date_rdv, r.heure_rdv)) { setHorsCreneauDialog(true); return; }
+    if (!creneauEstOuvert(r.date_rdv, r.heure_rdv)) { setHorsCreneauDialog(r); return; }
     if (r.est_payant && r.booking_payant_id) {
       setPreloadBookingId(r.booking_payant_id);
       setTab("valider-rdv");
@@ -1948,15 +2171,16 @@ function InstitutionDashboardInner() {
     } catch { showToast("Erreur", C.red); } finally { setActionLoading(null); }
   }
 
-  async function handleAbsent(rdvId: string) {
+  async function handleAbsent(rdvId: string, motif: string): Promise<{ ok: boolean; error?: string }> {
     setActionLoading(rdvId);
     try {
-      const res = await updateRdvStatut(rdvId, "absent");
-      if (!res.ok) { showToast(res.error, C.red); return; }
+      const res = await updateRdvStatut(rdvId, "absent", motif);
+      if (!res.ok) return { ok: false, error: res.error };
       setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, presence_status: "absent", presence_confirmed_at: new Date().toISOString() } : r));
       setSelectedRDV(null);
       showToast("Client marqué absent", C.orange);
-    } catch { showToast("Erreur", C.red); } finally { setActionLoading(null); }
+      return { ok: true };
+    } catch { return { ok: false, error: "Erreur" }; } finally { setActionLoading(null); }
   }
 
   async function ouvrirNotifications() {
@@ -2134,12 +2358,17 @@ function InstitutionDashboardInner() {
       const monthN    = rdvList.filter(r => new Date(r.date_rdv) >= monthAgo).length;
       const prevWkN   = rdvList.filter(r => new Date(r.date_rdv) >= prevWkAgo && new Date(r.date_rdv) < weekAgo).length;
       const prevMoN   = rdvList.filter(r => new Date(r.date_rdv) >= prevMoAgo && new Date(r.date_rdv) < monthAgo).length;
-      const pending   = rdvList.filter(r => r.statut === "en_attente" && r.presence_status !== "absent").length;
+      // Exclut désormais aussi les RDV "non traités" (voir rdvNonTraite) —
+      // un RDV en retard n'apparaît plus que dans le compteur/filtre dédié,
+      // jamais aussi dans "Nouveaux"/"En attente" (retour Bryan 08/09/2026 :
+      // ces 3 catégories doivent être mutuellement exclusives).
+      const pending   = rdvList.filter(r => r.statut === "en_attente" && r.presence_status !== "absent" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)).length;
       const confirmed = rdvList.filter(r => r.statut === "confirme").length;
       const done      = rdvList.filter(r => ["effectue", "termine", "honore"].includes(r.statut)).length;
       const cancelled = rdvList.filter(r => r.statut === "annule").length;
-      const nouveau   = rdvList.filter(r => r.statut === "nouveau").length;
+      const nouveau   = rdvList.filter(r => r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)).length;
       const absents   = rdvList.filter(r => r.presence_status === "absent").length;
+      const nonTraites = rdvList.filter(r => rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)).length;
       const total     = rdvList.length;
 
       // Variations "vs hier" par catégorie pour les KPI de Vue d'ensemble —
@@ -2155,12 +2384,13 @@ function InstitutionDashboardInner() {
         return hierN > 0 ? Math.round(((auj - hierN) / hierN) * 100) : (auj > 0 ? 100 : 0);
       };
       const kpiVariations = {
-        nouveau:   variationVsHier(r => r.statut === "nouveau"),
-        pending:   variationVsHier(r => r.statut === "en_attente" && r.presence_status !== "absent"),
+        nouveau:   variationVsHier(r => r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)),
+        pending:   variationVsHier(r => r.statut === "en_attente" && r.presence_status !== "absent" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)),
         confirmed: variationVsHier(r => r.statut === "confirme"),
         done:      variationVsHier(r => ["effectue", "termine", "honore"].includes(r.statut)),
         cancelled: variationVsHier(r => r.statut === "annule"),
         total:     variationVsHier(() => true),
+        non_traites: variationVsHier(r => rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)),
       };
 
       const last10  = rdvList.filter(r => ["confirme", "annule", "effectue", "termine"].includes(r.statut)).slice(0, 10);
@@ -2208,7 +2438,7 @@ function InstitutionDashboardInner() {
 
       setStats({
         today: todayN, week: weekN, month: monthN,
-        pending, confirmed, done, cancelled, nouveau, absents,
+        pending, confirmed, done, cancelled, nouveau, absents, non_traites: nonTraites,
         avis_count: avisList.length,
         moyenne_avis: Math.round(moy * 10) / 10,
         avis_non_lus: avisList.filter(a => !a.lu).length,
@@ -2237,7 +2467,11 @@ function InstitutionDashboardInner() {
         ]);
         const msgJson = msgRes.ok ? await msgRes.json().catch(() => null) : null;
         const yelenJson = yelenRes.ok ? await yelenRes.json().catch(() => null) : null;
-        setMessagerieUnread((msgJson?.total_non_lus ?? 0) + (yelenJson?.non_lus ?? 0));
+        setMessagerieUnread(msgJson?.total_non_lus ?? 0);
+        // Badge "Support" (trigger header "Aide & ressources") — strictement
+        // séparé depuis que le canal Yelen a quitté la Messagerie citoyenne
+        // (chantier "Séparation Messagerie/Support" 06/09/2026).
+        setSupportUnread(yelenJson?.non_lus ?? 0);
       } catch {}
 
       // Badge "Questions clients" (icône en-tête dédiée) — strictement
@@ -2326,15 +2560,40 @@ function InstitutionDashboardInner() {
     });
   };
 
+
+  // ── Barre de scroll auto-masquée (retour Bryan 01/09/2026) : la classe
+  // .scrollbar-active (voir cssFor) rend le thumb visible pendant le
+  // scroll et le masque <2s après le dernier scroll. Un seul listener au
+  // niveau document (capture) plutôt que 3 refs+listeners — les événements
+  // "scroll" des .yelen-main/.yelen-sidebar nav/.yelen-account-panel ne
+  // remontent pas (pas de bubbling) mais sont capturables en amont.
   useEffect(() => {
-    const checkNavOverflow = () => {
-      const el = navRef.current;
-      if (el) setNavScrollable(el.scrollHeight > el.clientHeight + 1);
+    const timers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
+    const onScroll = (e: Event) => {
+      const el = e.target as HTMLElement;
+      if (!el.matches?.(".yelen-main, .yelen-sidebar nav, .yelen-account-panel, .msgv2-list-pane, .msgv2-thread-scroll")) return;
+      el.classList.add("scrollbar-active");
+      const prev = timers.get(el);
+      if (prev) clearTimeout(prev);
+      timers.set(el, setTimeout(() => el.classList.remove("scrollbar-active"), 1500));
     };
-    checkNavOverflow();
-    window.addEventListener("resize", checkNavOverflow);
-    return () => window.removeEventListener("resize", checkNavOverflow);
-  }, [sidebarCollapsed, tab]);
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", onScroll, true);
+  }, []);
+
+  // Ctrl/Cmd+K ouvre "Aide Yelen" et met le focus direct sur la recherche
+  // (retour Bryan 06/09/2026, "Help Center launcher" façon Intercom/Zendesk).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setActivePopover("help");
+        setTimeout(() => aideSearchRef.current?.focus(), 50);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // ── Realtime ──
   useEffect(() => {
@@ -2386,16 +2645,20 @@ function InstitutionDashboardInner() {
     return () => { supabase.removeChannel(ch); };
   }, [instId, loadData]);
 
-  const rdvsPending  = rdvs.filter(r => r.statut === "nouveau");
-  // "En retard" = pas encore résolu (jamais accepté "nouveau", ou accepté
-  // mais présence jamais scannée "en_attente") ET l'heure prévue est passée.
-  // Couvre désormais aussi "nouveau" (avant : uniquement "en_attente" —
-  // une demande jamais prise en charge ne déclenchait rien du tout, signalé
-  // par Bryan le 19/07/2026).
-  const rdvsEnRetard = rdvs.filter(r =>
-    (r.statut === "nouveau" || (r.statut === "en_attente" && r.presence_status !== "absent"))
-    && rdvEstEnRetard(r.date_rdv, r.heure_rdv)
-  );
+  // Exclut les "nouveau" déjà en retard (comptés séparément dans
+  // rdvsEnRetard) — sinon un même RDV gonflait à la fois "Nouvelles
+  // demandes" et "RDV en retard" dans actionsPrioritaires/les rappels.
+  const rdvsPending  = rdvs.filter(r => r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv));
+  // "En retard" = non traité (voir lib/rdvGating.ts::rdvNonTraite). Utilisée
+  // par le Rappel "RDV en retard" et le KPI/onglet "Non traités" — inchangée.
+  const rdvsEnRetard = rdvs.filter(r => rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv));
+  // Fenêtre de grâce (voir lib/rdvGating.ts::rdvEnFenetreDeGrace) — distincte
+  // de rdvsEnRetard : RDV dont l'heure est dépassée mais pas encore
+  // officiellement "non traités" (30 min de grâce). Retour Bryan 13/09/2026 :
+  // seul le bandeau d'en-tête (pas le Rappel ni le KPI) utilise cette liste —
+  // un RDV déjà "non traité" n'est plus valable pour ce bandeau, il ne vit
+  // plus que dans le décompte dédié "Non traités".
+  const rdvsEnGrace = rdvs.filter(r => rdvEnFenetreDeGrace(r.statut, r.presence_status, r.date_rdv, r.heure_rdv));
   // Le tout prochain RDV (le plus proche dans le temps, parmi ceux encore à
   // venir et non résolus) — signalé par un badge rose "Imminent" partout où
   // il apparaît (carte "Prochains rendez-vous", liste de l'onglet RDV),
@@ -2408,8 +2671,19 @@ function InstitutionDashboardInner() {
       .sort((a, b) => new Date(`${a.date_rdv}T${a.heure_rdv}`).getTime() - new Date(`${b.date_rdv}T${b.heure_rdv}`).getTime());
     return upcoming[0]?.id ?? null;
   }, [rdvs]);
+  // "Nouveaux"/"En attente" excluent désormais les RDV non traités (déjà en
+  // retard) — mutuellement exclusif avec le filtre "Non traités" (retour
+  // Bryan 08/09/2026), même règle que les compteurs stats.pending/nouveau.
+  const correspondFiltreRdv = (r: RDV, filtre: string): boolean => {
+    if (filtre === "tous") return true;
+    if (filtre === "absent") return r.presence_status === "absent";
+    if (filtre === "en_retard") return rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv);
+    if (filtre === "en_attente") return r.statut === "en_attente" && r.presence_status !== "absent" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv);
+    if (filtre === "nouveau") return r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv);
+    return r.statut === filtre;
+  };
   const filteredRdvs = rdvs
-    .filter(r => rdvFilter === "tous" || (rdvFilter === "absent" ? r.presence_status === "absent" : rdvFilter === "en_attente" ? r.statut === "en_attente" && r.presence_status !== "absent" : r.statut === rdvFilter))
+    .filter(r => correspondFiltreRdv(r, rdvFilter))
     .filter(r => !rdvSearch || r.citoyen_nom.toLowerCase().includes(rdvSearch.toLowerCase()) || (r.objet || "").toLowerCase().includes(rdvSearch.toLowerCase()))
     .filter(r => !rdvDateFilter || r.date_rdv === rdvDateFilter)
     .filter(r => !rdvServiceFilter || extraireService(r.objet) === rdvServiceFilter)
@@ -2452,19 +2726,19 @@ function InstitutionDashboardInner() {
   // ── Loading ──
   if (loading) return (
     <div style={{ minHeight: "100svh", backgroundColor: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <style>{cssFor(C)}</style>
+      <style>{cssFor(C, theme)}</style>
       <YelenLoader size={52} label={slowLoading ? "Ça prend plus de temps que d'habitude — vérifiez votre connexion…" : "Bon retour — chargement de votre dashboard…"} labelColor={C.t3}/>
     </div>
   );
 
   if (error) return (
     <div style={{ minHeight: "100svh", backgroundColor: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-      <style>{cssFor(C)}</style>
-      <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "28px 24px", border: `1px solid ${C.border}`, textAlign: "center", maxWidth: "340px" }}>
+      <style>{cssFor(C, theme)}</style>
+      <Card tokens={toCardTokens(C)} padding="28px 24px" style={{ textAlign: "center", maxWidth: "340px" }}>
         <YelenLogo size={40} color={C.gold} />
         <div style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, marginBottom: "20px", marginTop: "16px" }}>{error}</div>
-        <button onClick={loadData} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", border: "none", cursor: "pointer" }}>Réessayer</button>
-      </div>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={loadData} style={{ padding: "0 24px" }}>Réessayer</Button>
+      </Card>
     </div>
   );
 
@@ -2476,6 +2750,10 @@ function InstitutionDashboardInner() {
     ]},
     { label: "Activité", items: [
       { key: "messagerie", label: "Messagerie",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+      // Collaboration (Lot A, 16/09/2026) — membre <-> membre, distinct de
+      // Messagerie (citoyen <-> institution) juste au-dessus : icône
+      // volontairement différente (personnes, pas bulle de discussion).
+      { key: "collaboration", label: "Collaboration", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
       { key: "rdv",        label: "Rendez-vous",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
       { key: "disponibilites", label: "Disponibilités", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
       { key: "services",   label: "Services",        icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
@@ -2515,18 +2793,7 @@ function InstitutionDashboardInner() {
   // Sous-menu "Compte" — pas dans le menu principal, façon Supabase : on
   // clique sur la ligne compte (icône + nom) dans le sidebar, ça ouvre ce
   // petit panneau entre le menu principal (réduit) et la vue courante.
-  const accountItemsRaw: { key: typeof tab | "guide"; label: string; icon: React.ReactNode; onClick?: () => void }[] = [
-    { key: "profil", label: "Profil", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
-    { key: "mes-clients", label: "Mes clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-    { key: "avis-reputation", label: "Avis & Réputation", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> },
-    { key: "questions-clients", label: "Questions des clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg> },
-    { key: "espace-travail", label: "Espace de travail", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> },
-    { key: "equipe", label: "Équipe", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-    { key: "clock-in-shift", label: "Clock In Shift", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
-    { key: "journal", label: "Journal d'activité", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
-    { key: "rdv-historique", label: "Rendez-vous passés", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/><path d="M3 12a9 9 0 0 1 9-9"/></svg> },
-    { key: "profil-entreprise", label: "Profil Entreprise", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="9" y1="8" x2="9" y2="8"/><line x1="15" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="9" y2="16"/><line x1="15" y1="16" x2="15" y2="16"/></svg> },
-    { key: "conditions-informations", label: "Conditions & Informations", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg> },
+  const accountItemsRaw: { key: typeof tab | "guide"; label: string; icon: React.ReactNode; onClick?: () => void; group: string }[] = [
     // N'apparaît que pour activite_principale_code === "hotellerie" — filtre
     // additionnel appliqué juste après (comme "mes-offres"/partenaire_statut),
     // pas seulement le RBAC générique navAllowed(). Migré depuis
@@ -2534,13 +2801,41 @@ function InstitutionDashboardInner() {
     // 20/08/2026) — secteur n'est plus jamais écrite depuis la Phase 2 du
     // wizard, ce gating restait bloqué en faux pour toute institution créée
     // depuis (bug réel trouvé par Bryan sur un compte hôtel de test).
-    { key: "configuration-hotel", label: "Configuration Hôtel", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 20v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8"/><path d="M3 18h18"/><path d="M5 10V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"/></svg> },
-    { key: "profil-responsable", label: "Profil Responsable", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
-    { key: "documents", label: "Documents", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
-    { key: "guide", label: "Guide Yelen", onClick: () => setShowGuide(true), icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
+    { group: "Établissement", key: "configuration-hotel", label: "Configuration Hôtel", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 20v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8"/><path d="M3 18h18"/><path d="M5 10V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"/></svg> },
+    { group: "Établissement", key: "documents", label: "Documents", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
+    { group: "Établissement", key: "conditions-informations", label: "Conditions et informations", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg> },
+    { group: "Relation client", key: "mes-clients", label: "Mes clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+    { group: "Relation client", key: "avis-reputation", label: "Avis et réputation", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> },
+    { group: "Relation client", key: "questions-clients", label: "Questions des clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg> },
+    { group: "Équipe & travail", key: "equipe", label: "Équipe", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+    { group: "Équipe & travail", key: "espace-travail", label: "Espace de travail", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> },
+    { group: "Équipe & travail", key: "clock-in-shift", label: "Clock In Shift", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
+    { group: "Historique", key: "journal", label: "Journal d'activité", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
+    { group: "Historique", key: "rdv-historique", label: "Rendez-vous passés", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/><path d="M3 12a9 9 0 0 1 9-9"/></svg> },
+    { group: "Aide", key: "guide", label: "Guide Yelen", onClick: () => setShowGuide(true), icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> },
   ];
   const accountItems = accountItemsRaw.filter(i => navAllowed(i.key) && (i.key !== "configuration-hotel" || inst?.activite_principale_code === "hotellerie"));
   const accountTabKeys: (typeof tab | "guide")[] = accountItems.map(i => i.key);
+  const accountGroups = accountItems.reduce((groups, item) => {
+    let group = groups.find(g => g.label === item.group);
+    if (!group) { group = { label: item.group, items: [] }; groups.push(group); }
+    group.items.push(item);
+    return groups;
+  }, [] as { label: string; items: typeof accountItems }[]);
+
+  // Menu avatar du header (façon GitHub) — sortie complète de
+  // Profil / Profil Responsable / Profil Entreprise hors du sous-menu
+  // "Compte" de la sidebar gauche (groupe "Compte" de accountItemsRaw
+  // maintenant vide, ne s'affiche plus). Libellés sans le mot "Profil"
+  // (retour Bryan) — le panneau "Compte" de la sidebar gauche a été
+  // renommé "Organisation" (au lieu d'"Administration") pour ne pas
+  // entrer en collision avec l'item "Administration" ci-dessous.
+  const avatarMenuItemsRaw: { key: typeof tab; label: string; icon: React.ReactNode }[] = [
+    { key: "profil", label: "Administration", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
+    { key: "profil-responsable", label: "Responsable", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg> },
+    { key: "profil-entreprise", label: "Entreprise", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="9" y1="8" x2="9" y2="8"/><line x1="15" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="9" y2="16"/><line x1="15" y1="16" x2="15" y2="16"/></svg> },
+  ];
+  const avatarMenuItems = avatarMenuItemsRaw.filter(i => navAllowed(i.key));
 
   function openAccountMenu() {
     setAccountMenuOpen(v => {
@@ -2554,9 +2849,71 @@ function InstitutionDashboardInner() {
     setSidebarCollapsed(false);
   }
 
+  function renderMainNav(collapsed: boolean) {
+    // Bouton d'un écran (repris tel quel pour un item à plat ET pour un
+    // enfant replié sous un groupe Finance — seul `indent` change).
+    const renderNavItem = (item: (typeof navSections)[number]["items"][number], indent = false) => {
+      const active = tab === item.key;
+      const badge = item.key === "rdv" ? rdvsPending.length : item.key === "messagerie" ? messagerieUnread : 0;
+      const badgeColor = item.key === "messagerie" || item.key === "rdv" ? C.red : C.gold;
+      const badgeTextColor = item.key === "messagerie" || item.key === "rdv" ? "#fff" : "#000";
+      return (
+        <button key={item.key} onClick={() => { if (item.onClick) { item.onClick(); } else { setTab(item.key); } if (accountMenuOpen) closeAccountMenu(); }} onMouseEnter={collapsed ? showNavTooltip(item.label) : undefined} onMouseLeave={collapsed ? hideNavTooltip : undefined} className={`tap yelen-nav-item ${active ? "yelen-nav-item-active" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: "10px", padding: collapsed ? "10px" : indent ? "8px 12px 8px 34px" : "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", position: "relative", width: "100%" }}>
+          <span style={{ color: active ? C.gold : C.t3, flexShrink: 0 }}>{item.icon}</span>
+          {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
+          {badge > 0 && (
+            <span style={{ backgroundColor: badgeColor, color: badgeTextColor, fontSize: "9px", fontWeight: "800", borderRadius: "10px", minWidth: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", position: collapsed ? "absolute" : "static", top: collapsed ? "2px" : undefined, right: collapsed ? "2px" : undefined, animation: item.key === "rdv" ? "glow 1.6s ease-in-out infinite" : "none" }}>{badge}</span>
+          )}
+        </button>
+      );
+    };
+
+    return navSections.map((section, si) => (
+      <div key={section.label} style={{ marginTop: si > 0 ? "14px" : 0 }}>
+        {!collapsed ? (
+          <div style={{ padding: "0 12px 6px", color: C.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.8px", textTransform: "uppercase" }}>
+            {section.label}
+          </div>
+        ) : (
+          si > 0 && <div style={{ height: "1px", background: C.border, margin: "0 8px 8px" }}/>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          {/* Section "Finance" (7 écrans) : sidebar étendue → 2 groupes
+              repliables (Opérations / Suivi & documents), fermés par défaut,
+              s'ouvrent aussi si `tab` est déjà un de leurs enfants (lien
+              direct). Sidebar réduite (icon rail) : pas assez de place pour
+              indentation/labels, on retombe sur la liste à plat d'origine. */}
+          {section.label === "Finance" && !collapsed ? (
+            FINANCE_GROUPS.map(group => {
+              const groupItems = section.items.filter(i => group.tabs.includes(i.key));
+              if (groupItems.length === 0) return null;
+              const open = financeGroupsOpen[group.key] || groupItems.some(i => i.key === tab);
+              return (
+                <div key={group.key}>
+                  <button onClick={() => setFinanceGroupsOpen(v => ({ ...v, [group.key]: !v[group.key] }))} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: open ? C.gold : C.t2, fontWeight: "500", fontSize: "13px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                    <span style={{ color: open ? C.gold : C.t3, flexShrink: 0 }}>{group.icon}</span>
+                    <span style={{ flex: 1 }}>{group.label}</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                  {open && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      {groupItems.map(item => renderNavItem(item, true))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            section.items.map(item => renderNavItem(item))
+          )}
+        </div>
+      </div>
+    ));
+  }
+
   return (
     <div className="yelen-shell" style={{ minHeight: "100svh", backgroundColor: C.bg, fontFamily: "var(--font-jakarta), -apple-system, 'Helvetica Neue', sans-serif", color: C.t1 }}>
-      <style>{cssFor(C)}</style>
+      <style>{cssFor(C, theme)}</style>
 
       {/* ── SIDEBAR PC (≥1024px) ── */}
       <aside className="yelen-sidebar" style={{ width: sidebarCollapsed ? "76px" : "264px", minWidth: sidebarCollapsed ? "76px" : "264px", transition: "width 0.18s ease" }}>
@@ -2565,7 +2922,7 @@ function InstitutionDashboardInner() {
           onClick={toggleSidebarCollapsed}
           className="tap"
           title={sidebarCollapsed ? "Étendre le menu" : "Réduire le menu"}
-          style={{ position: "absolute", right: "-12px", top: "72px", width: "24px", height: "24px", borderRadius: "50%", backgroundColor: C.bgCard2, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 401, color: C.t2 }}
+          style={{ position: "absolute", right: "-12px", top: "72px", width: "24px", height: "24px", borderRadius: "50%", backgroundColor: "transparent", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 401, color: C.t2 }}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ transform: sidebarCollapsed ? "rotate(180deg)" : "none", transition: "transform 0.18s" }}><polyline points="15 18 9 12 15 6"/></svg>
         </button>
@@ -2577,49 +2934,16 @@ function InstitutionDashboardInner() {
             </div>
             {!sidebarCollapsed && (
               <div>
-                <div style={{ color: C.gold, fontSize: "13px", fontWeight: "900", letterSpacing: "0.5px" }}>YELEN224</div>
-                <div style={{ color: C.t3, fontSize: "9px", fontWeight: "700", letterSpacing: "0.5px" }}>PRO DASHBOARD</div>
+                <div style={{ fontSize: "13px", fontWeight: "800", letterSpacing: "0.5px" }}><span style={{ color: C.gold }}>YELEN</span><span style={{ color: theme === "dark" ? "#fff" : "#000" }}>224</span></div>
               </div>
             )}
           </div>
         </div>
         {/* Navigation principale — overflowY:auto scope le scroll à ce bloc
             seul (l'aside parent reste overflow:visible pour ne pas clipper
-            le bouton toggle en bord de sidebar). Barre jaune #F5A623 en
-            bord droit si le contenu dépasse la hauteur visible. */}
-        <nav ref={navRef} style={{ flex: 1, padding: "12px 8px", display: "flex", flexDirection: "column", gap: "2px", overflowY: "auto", position: "relative" }}>
-          {navSections.map((section, si) => (
-            <div key={section.label} style={{ marginTop: si > 0 ? "14px" : 0 }}>
-              {!sidebarCollapsed ? (
-                <div style={{ padding: "0 12px 6px", color: C.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.8px", textTransform: "uppercase" }}>
-                  {section.label}
-                </div>
-              ) : (
-                si > 0 && <div style={{ height: "1px", background: C.border, margin: "0 8px 8px" }}/>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                {section.items.map(item => {
-                  const active = tab === item.key;
-                  const badge = item.key === "rdv" ? rdvsPending.length : item.key === "messagerie" ? messagerieUnread : 0;
-                  const badgeColor = item.key === "messagerie" ? "#ef4444" : C.gold;
-                  const badgeTextColor = item.key === "messagerie" ? "#fff" : "#000";
-                  return (
-                    <button key={item.key} onClick={() => { if (item.onClick) { item.onClick(); } else { setTab(item.key); } if (accountMenuOpen) closeAccountMenu(); }} className={`tap yelen-nav-item ${active ? "yelen-nav-item-active" : ""}`} title={sidebarCollapsed ? item.label : undefined} style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "10px" : "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", position: "relative", width: "100%" }}>
-                      <span style={{ color: active ? C.gold : C.t3, flexShrink: 0 }}>{item.icon}</span>
-                      {!sidebarCollapsed && <span style={{ flex: 1 }}>{item.label}</span>}
-                      {badge > 0 && (
-                        <span style={{ backgroundColor: badgeColor, color: badgeTextColor, fontSize: "9px", fontWeight: "900", borderRadius: "10px", minWidth: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", position: sidebarCollapsed ? "absolute" : "static", top: sidebarCollapsed ? "2px" : undefined, right: sidebarCollapsed ? "2px" : undefined, animation: item.key === "rdv" ? "glow 1.6s ease-in-out infinite" : "none" }}>{badge}</span>
-                      )}
-                      {active && <div style={{ position: "absolute", left: 0, top: "20%", bottom: "20%", width: "3px", background: C.gold, borderRadius: "0 2px 2px 0" }}/>}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-          {navScrollable && (
-            <div style={{ position: "absolute", top: "4px", bottom: "4px", right: "2px", width: "3px", borderRadius: "2px", backgroundColor: "#F5A623", opacity: 0.55, pointerEvents: "none" }}/>
-          )}
+            le bouton toggle en bord de sidebar). */}
+        <nav style={{ flex: 1, padding: "12px 8px", display: "flex", flexDirection: "column", gap: "2px", overflowY: "auto", position: "relative" }}>
+          {renderMainNav(sidebarCollapsed)}
         </nav>
         {/* Raccourcis bas de sidebar — Scanner QR et Disponibilités retirés :
             déjà présents dans le menu principal ci-dessus (un seul chemin
@@ -2630,7 +2954,7 @@ function InstitutionDashboardInner() {
               (Profil Entreprise / Profil Responsable / Paramètres) dans un
               panneau distinct, façon Supabase. Ne fait pas partie du menu
               principal : ne change jamais `tab` directement. */}
-          <button onClick={openAccountMenu} className="tap" title={sidebarCollapsed ? "Compte" : undefined} style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "9px" : "9px 10px", borderRadius: "10px", background: accountMenuOpen ? `${C.gold}12` : "transparent", border: `1px solid ${accountMenuOpen ? C.gold + "30" : C.border}`, color: accountMenuOpen ? C.gold : C.t2, cursor: "pointer", width: "100%" }}>
+          <button onClick={openAccountMenu} onMouseEnter={showNavTooltip(inst?.name || "Compte")} onMouseLeave={hideNavTooltip} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "9px" : "9px 10px", borderRadius: "10px", background: "transparent", border: `1px solid ${C.border}`, color: accountMenuOpen ? C.gold : C.t2, cursor: "pointer", width: "100%" }}>
             {inst?.logo ? (
               <div style={{ position: "relative", width: "22px", height: "22px", borderRadius: "6px", overflow: "hidden", flexShrink: 0 }}><Image src={inst.logo} alt="" fill sizes="22px" style={{ objectFit: "cover" }}/></div>
             ) : (
@@ -2645,8 +2969,8 @@ function InstitutionDashboardInner() {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: accountMenuOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}><polyline points="9 18 15 12 9 6"/></svg>
             )}
           </button>
-          {tabAllowed(membreRole, "parametres") && (
-            <button onClick={() => setTab("parametres")} className="tap" title={sidebarCollapsed ? "Paramètres" : undefined} style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "9px" : "9px 12px", borderRadius: "10px", background: "transparent", border: `1px solid ${C.border}`, color: C.t2, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
+          {tabAllowed(membreRole, "parametres", accesRestreints) && (
+            <button onClick={() => setTab("parametres")} onMouseEnter={showNavTooltip("Paramètres")} onMouseLeave={hideNavTooltip} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", padding: sidebarCollapsed ? "9px" : "9px 12px", borderRadius: "10px", background: "transparent", border: `1px solid ${C.border}`, color: C.t2, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               {!sidebarCollapsed && "Paramètres"}
             </button>
@@ -2654,19 +2978,25 @@ function InstitutionDashboardInner() {
         </div>
       </aside>
 
+      {navTooltip && typeof document !== "undefined" && createPortal(
+        <div style={{ position: "fixed", left: "84px", top: navTooltip.top, transform: "translateY(-50%)", background: "#0A0A12", color: "#fff", fontSize: "11.5px", fontWeight: 700, padding: "5px 9px", borderRadius: "6px", whiteSpace: "nowrap", boxShadow: "0 4px 14px rgba(0,0,0,0.35)", zIndex: 9999, pointerEvents: "none" }}>
+          {navTooltip.label}
+        </div>,
+        document.body
+      )}
+
       {/* ── PANNEAU "COMPTE" — entre le sidebar (réduit) et la vue courante,
           façon Supabase (Project Settings). Desktop uniquement (≥1024px,
           voir CSS .yelen-account-panel). ── */}
       {accountMenuOpen && (
         <div className="yelen-account-panel" style={{ left: sidebarCollapsed ? "76px" : "264px" }}>
-          <div style={{ padding: "16px 14px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "10px" }}>
-            <button onClick={closeAccountMenu} className="tap" style={{ width: "26px", height: "26px", borderRadius: "8px", background: "transparent", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.t2, flexShrink: 0 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <div style={{ padding: "16px 16px 14px", borderBottom: `1px solid ${C.border}` }}>
+            <button onClick={closeAccountMenu} className="tap" style={{ display: "flex", alignItems: "center", gap: "5px", background: "transparent", border: "none", padding: 0, marginBottom: "12px", cursor: "pointer", color: C.t3, fontSize: "10.5px", fontWeight: "700", letterSpacing: "0.3px" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              Retour
             </button>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst?.name || "Compte"}</div>
-              <div style={{ color: C.t3, fontSize: "10px" }}>Paramètres du compte</div>
-            </div>
+            <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", letterSpacing: "-0.3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Organisation</div>
+            <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>Paramètres</div>
           </div>
           {membreRole !== null && membreRole !== "admin" && (
             <div style={{ margin: "10px 10px 0", padding: "10px 11px", borderRadius: "10px", backgroundColor: `${C.blue}10`, border: `1px solid ${C.blue}25` }}>
@@ -2675,16 +3005,23 @@ function InstitutionDashboardInner() {
               </p>
             </div>
           )}
-          <div style={{ padding: "10px 8px", display: "flex", flexDirection: "column", gap: "2px" }}>
-            {accountItems.map(item => {
-              const active = tab === item.key;
-              return (
-                <button key={item.key} onClick={() => item.onClick ? item.onClick() : setTab(item.key as typeof tab)} className={`tap yelen-nav-item ${active ? "yelen-nav-item-active" : ""}`} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", width: "100%" }}>
-                  <span style={{ color: active ? C.gold : C.t3, flexShrink: 0 }}>{item.icon}</span>
-                  <span style={{ flex: 1 }}>{item.label}</span>
-                </button>
-              );
-            })}
+          <div style={{ padding: "8px 10px 10px", display: "flex", flexDirection: "column" }}>
+            {accountGroups.map((group, gi) => (
+              <div key={group.label} style={{ marginTop: gi > 0 ? "14px" : "2px" }}>
+                <div style={{ padding: "0 8px 4px", color: C.t3, fontSize: "9.5px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase" }}>{group.label}</div>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {group.items.map(item => {
+                    const active = tab === item.key;
+                    return (
+                      <button key={item.key} onClick={() => item.onClick ? item.onClick() : setTab(item.key as typeof tab)} className="tap yelen-account-item" style={{ display: "flex", alignItems: "center", gap: "9px", padding: "6.5px 8px", borderRadius: "7px", background: "transparent", border: "none", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "12.5px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                        <span style={{ color: active ? C.gold : C.t3, flexShrink: 0, display: "flex" }}>{React.cloneElement(item.icon as React.ReactElement<{ width?: string | number; height?: string | number }>, { width: 14, height: 14 })}</span>
+                        <span style={{ flex: 1 }}>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
           {membreRole !== null && (
             <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${C.border}`, marginTop: "4px" }}>
@@ -2704,26 +3041,24 @@ function InstitutionDashboardInner() {
           au-dessus du menu du bas sur les appareils/navigateurs sans
           encoche (retour Bryan 29/07/2026, capture à l'appui). ≥1024px
           continue de forcer 0 via la règle existante, inchangé. ── */}
-      <div className="yelen-main" style={{ paddingBottom: "calc(48px + env(safe-area-inset-bottom))", marginLeft: `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 232 : 0)}px`, transition: "margin-left 0.18s ease" }}>
+      <div className={`yelen-main${tab !== "accueil" ? " yelen-has-footer" : ""}`} style={{ paddingBottom: tab !== "accueil" ? "calc(48px + 54px + env(safe-area-inset-bottom))" : "calc(48px + env(safe-area-inset-bottom))", marginLeft: `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 216 : 0)}px`, "--footer-left": `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 216 : 0)}px`, transition: "margin-left 0.18s ease" } as React.CSSProperties}>
 
       {/* ── MODALS ── */}
       {showGuide && <GuideScalingModal onClose={() => setShowGuide(false)}/>}
       {showScanner && instId && <ScannerModal institutionId={instId} onClose={() => { setShowScanner(false); loadData(); }}/>}
 
-      {horsCreneauDialog && (
-        <div onClick={() => setHorsCreneauDialog(false)} style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}>
-          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "22px", border: `1px solid ${C.border2}`, maxWidth: "420px", width: "100%", padding: "28px 24px", textAlign: "center" }}>
-            <div style={{ width: "52px", height: "52px", borderRadius: "50%", backgroundColor: C.orangeL, border: `1.5px solid ${C.orange}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "12px" }}>{RDV_HORS_CRENEAU_MESSAGE.titre}</div>
-            <div style={{ color: C.t2, fontSize: "13px", lineHeight: 1.7, whiteSpace: "pre-line", marginBottom: "20px", textAlign: "left" }}>{RDV_HORS_CRENEAU_MESSAGE.message}</div>
-            <button onClick={() => setHorsCreneauDialog(false)} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "14px", padding: "13px", borderRadius: "13px", border: "none", cursor: "pointer" }}>
-              Compris
-            </button>
-          </div>
-        </div>
-      )}
+      <CheckInUnavailableDialog
+        key={horsCreneauDialog?.id ?? "none"}
+        open={!!horsCreneauDialog}
+        rdv={horsCreneauDialog}
+        C={C}
+        onClose={() => setHorsCreneauDialog(null)}
+        onBecameAvailable={() => {
+          const r = horsCreneauDialog;
+          setHorsCreneauDialog(null);
+          if (r) handlePrendreEnCharge(r);
+        }}
+      />
 
       {termineDialog && (() => {
         const confirmedAt = termineDialog.presence_confirmed_at ? new Date(termineDialog.presence_confirmed_at) : null;
@@ -2732,7 +3067,7 @@ function InstitutionDashboardInner() {
         return (
           <div onClick={() => setTermineDialog(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}>
             <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "22px", border: `1px solid ${C.border2}`, maxWidth: "440px", width: "100%", padding: "26px 24px", maxHeight: "88svh", overflowY: "auto" }}>
-              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "900", marginBottom: "16px", textAlign: "center" }}>Terminer ce rendez-vous ?</div>
+              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", marginBottom: "16px", textAlign: "center" }}>Terminer ce rendez-vous ?</div>
 
               <div style={{ backgroundColor: C.bg3, borderRadius: "14px", padding: "14px 16px", marginBottom: "16px" }}>
                 {[
@@ -2760,8 +3095,8 @@ function InstitutionDashboardInner() {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px" }}>
-                <button onClick={() => setTermineDialog(null)} className="tap" style={{ padding: "14px", borderRadius: "13px", border: `1px solid ${C.border2}`, background: C.bg3, color: C.t2, fontWeight: "700", fontSize: "13px", cursor: "pointer" }}>Retour</button>
-                <button onClick={() => { handleTermine(termineDialog.id); setTermineDialog(null); }} disabled={!!actionLoading} className="tap" style={{ padding: "14px", borderRadius: "13px", border: "none", background: `linear-gradient(135deg, ${C.purple}, #7a55d0)`, color: "#fff", fontWeight: "800", fontSize: "13.5px", cursor: "pointer" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setTermineDialog(null)}>Retour</Button>
+                <button onClick={() => { handleTermine(termineDialog.id); setTermineDialog(null); }} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", borderRadius: "12px", border: "none", backgroundColor: C.purple, color: "#fff", fontWeight: "700", fontSize: "13px", cursor: "pointer" }}>
                   {actionLoading === termineDialog.id ? "…" : "Terminer le rendez-vous"}
                 </button>
               </div>
@@ -2788,7 +3123,7 @@ function InstitutionDashboardInner() {
         // "En attente"/"Nouveau" (statut brut) qui ne signale pas l'urgence.
         const badgeStatut = selectedRDV.presence_status === "absent"
           ? "absent"
-          : (isRetard && (selectedRDV.statut === "en_attente" || selectedRDV.statut === "nouveau"))
+          : rdvNonTraite(selectedRDV.statut, selectedRDV.presence_status, selectedRDV.date_rdv, selectedRDV.heure_rdv)
           ? "en_retard"
           : selectedRDV.statut;
 
@@ -2847,6 +3182,7 @@ function InstitutionDashboardInner() {
               .rdv-detail-panel{max-width:820px!important;border-radius:20px!important;max-height:86svh!important}
               .rdv-detail-grip{display:none!important}
               .rdv-detail-close-x{display:flex!important}
+              .rdv-detail-title-row{padding-right:44px}
               .rdv-detail-body{display:grid!important;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
             }
           `}</style>
@@ -2855,15 +3191,15 @@ function InstitutionDashboardInner() {
             <button onClick={() => setSelectedRDV(null)} className="rdv-detail-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
-              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "900" }}>Détails du RDV</div>
-              <span style={{ backgroundColor: stInfo(badgeStatut, C).bg, color: stInfo(badgeStatut, C).c, fontSize: "10px", fontWeight: "800", padding: "4px 10px", borderRadius: "20px", textTransform: "uppercase" }}>{stInfo(badgeStatut, C).l}</span>
+            <div className="rdv-detail-title-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
+              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800" }}>Détails du RDV</div>
+              <span style={{ color: stInfo(badgeStatut, C).c, fontSize: "10px", fontWeight: "800", padding: "4px 10px", borderRadius: "20px", textTransform: "uppercase" }}>{stInfo(badgeStatut, C).l}</span>
             </div>
 
             <div className="rdv-detail-body">
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
-                  <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "14px", overflow: "hidden", background: `linear-gradient(135deg, ${stInfo(badgeStatut, C).c}25, ${stInfo(badgeStatut, C).c}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "900", color: stInfo(badgeStatut, C).c, flexShrink: 0 }}>
+                  <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "14px", overflow: "hidden", border: `1px solid ${stInfo(badgeStatut, C).c}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "800", color: stInfo(badgeStatut, C).c, flexShrink: 0 }}>
                     {selectedRDV.citoyen_photo ? <Image src={selectedRDV.citoyen_photo} alt="" fill sizes="52px" style={{ objectFit: "cover" }}/> : selectedRDV.citoyen_nom.slice(0, 2).toUpperCase()}
                   </div>
                   <div>
@@ -2873,16 +3209,16 @@ function InstitutionDashboardInner() {
                   </div>
                 </div>
                 {selectedRDV.est_payant && (
-                  <div style={{ backgroundColor: `${C.gold}15`, border: `1px solid ${C.gold}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ border: `1px solid ${C.gold}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div>
                       <div style={{ color: C.gold, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Service payant</div>
                       <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{selectedRDV.service_payant_nom}</div>
                     </div>
-                    <div style={{ color: C.gold, fontSize: "15px", fontWeight: "900" }}>{(selectedRDV.service_payant_prix ?? 0).toLocaleString("fr-FR")} {DEVISE_LABEL}</div>
+                    <div style={{ color: C.gold, fontSize: "15px", fontWeight: "800" }}>{(selectedRDV.service_payant_prix ?? 0).toLocaleString("fr-FR")} {DEVISE_LABEL}</div>
                   </div>
                 )}
                 {selectedRDV.pour_autre && (
-                  <div style={{ backgroundColor: C.orangeL, border: `1px solid ${C.orange}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
+                  <div style={{ border: `1px solid ${C.orange}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
                     <div style={{ color: C.orange, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Bénéficiaire du RDV (pour un tiers)</div>
                     <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{selectedRDV.nom_autre || "—"}</div>
                     {selectedRDV.phone_autre && <div style={{ color: C.t2, fontSize: "12px", marginTop: "1px" }}>{selectedRDV.phone_autre}</div>}
@@ -2920,13 +3256,13 @@ function InstitutionDashboardInner() {
                       placeholder="Ex: Guichet 3, Bureau A…"
                       style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 12px", fontSize: "12px", color: C.t1, outline: "none" }}
                     />
-                    <button onClick={handleSaveGuichet} disabled={savingGuichet || guichetDraft === (selectedRDV.guichet || "")} className="tap" style={{ backgroundColor: C.purple, color: "#fff", border: "none", borderRadius: "10px", padding: "0 14px", fontSize: "12px", fontWeight: "800", cursor: "pointer", opacity: savingGuichet || guichetDraft === (selectedRDV.guichet || "") ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <button onClick={handleSaveGuichet} disabled={savingGuichet || guichetDraft === (selectedRDV.guichet || "")} className="tap" style={{ height: "32px", backgroundColor: C.purple, color: "#fff", border: "none", borderRadius: "10px", padding: "0 14px", fontSize: "12px", fontWeight: "700", cursor: "pointer", opacity: savingGuichet || guichetDraft === (selectedRDV.guichet || "") ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {savingGuichet ? <YelenLoader size={12} color="#fff"/> : "OK"}
                     </button>
                   </div>
                 </div>
                 {guide && (
-                  <div style={{ backgroundColor: `${guide.c}08`, border: `1px solid ${guide.c}20`, borderRadius: "12px", padding: "10px 14px", marginBottom: "14px", display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                  <div style={{ border: `1px solid ${guide.c}20`, borderRadius: "12px", padding: "10px 14px", marginBottom: "14px", display: "flex", gap: "8px", alignItems: "flex-start" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={guide.c} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                     <div style={{ color: C.t3, fontSize: "10px", lineHeight: 1.5 }}>{guide.t}</div>
                   </div>
@@ -2957,16 +3293,16 @@ function InstitutionDashboardInner() {
 
                 {selectedRDV.statut === "nouveau" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    <button onClick={() => handleRefuse(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: C.redL, color: C.red, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1px solid ${C.red}25`, cursor: "pointer" }}>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" fullWidth disabled={!!actionLoading} onClick={() => handleRefuse(selectedRDV.id)}>
                       {actionLoading === selectedRDV.id ? "..." : "Refuser"}
-                    </button>
-                    <button onClick={() => handleAccept(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ background: `linear-gradient(135deg, ${C.green}, #009e76)`, color: "#fff", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}>
+                    </Button>
+                    <button onClick={() => handleAccept(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
                       {actionLoading === selectedRDV.id ? "..." : "Accepter"}
                     </button>
                   </div>
                 ) : (selectedRDV.statut === "en_attente" || selectedRDV.statut === "confirme") ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <button onClick={() => presenceConfirmee && handleTermine(selectedRDV.id)} disabled={!!actionLoading || !presenceConfirmee} className="tap" style={{ background: presenceConfirmee ? `linear-gradient(135deg, ${C.purple}, #7a55d0)` : C.bg3, color: presenceConfirmee ? "#fff" : C.t3, fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: presenceConfirmee ? "none" : `1px solid ${C.border}`, cursor: presenceConfirmee ? "pointer" : "not-allowed" }}>
+                    <button onClick={() => presenceConfirmee && handleTermine(selectedRDV.id)} disabled={!!actionLoading || !presenceConfirmee} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", backgroundColor: presenceConfirmee ? C.purple : undefined, color: presenceConfirmee ? "#fff" : C.t3, fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: presenceConfirmee ? "none" : `1px solid ${C.border}`, cursor: presenceConfirmee ? "pointer" : "not-allowed" }}>
                       {actionLoading === selectedRDV.id ? "..." : "Marquer terminé"}
                     </button>
                     {!presenceConfirmee && (
@@ -2975,15 +3311,22 @@ function InstitutionDashboardInner() {
                       </div>
                     )}
                     {selectedRDV.statut === "en_attente" && isRetard && selectedRDV.presence_status !== "absent" && (
-                      <button onClick={() => setConfirmAbsent({ id: selectedRDV.id, nom: selectedRDV.citoyen_nom })} disabled={!!actionLoading} className="tap" style={{ backgroundColor: C.orangeL, color: C.orange, fontWeight: "800", fontSize: "14px", padding: "13px", borderRadius: "14px", border: `1px solid ${C.orange}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
+                      <button onClick={() => setConfirmAbsent({ id: selectedRDV.id, nom: selectedRDV.citoyen_nom })} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", color: C.orange, fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: `1px solid ${C.orange}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                         {actionLoading === selectedRDV.id ? "..." : "Client absent"}
                       </button>
                     )}
-                    <button onClick={() => setSelectedRDV(null)} className="tap" style={{ backgroundColor: C.bg3, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", border: `1px solid ${C.border}`, cursor: "pointer" }}>Fermer</button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setSelectedRDV(null)}>Fermer</Button>
                   </div>
                 ) : (
-                  <button onClick={() => setSelectedRDV(null)} className="tap" style={{ width: "100%", backgroundColor: C.bg3, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", border: `1px solid ${C.border}`, cursor: "pointer" }}>Fermer</button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {tabAllowed(membreRole, "mes-clients", accesRestreints) && (
+                      <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={() => { setMesClientsInitialId(selectedRDV.citoyen_id); setSelectedRDV(null); setTab("mes-clients"); }}>
+                        Voir ce client
+                      </Button>
+                    )}
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setSelectedRDV(null)}>Fermer</Button>
+                  </div>
                 )}
               </div>
             </div>
@@ -3004,13 +3347,23 @@ function InstitutionDashboardInner() {
 
       <ConfirmModal
         open={!!confirmAbsent}
-        onClose={() => setConfirmAbsent(null)}
-        onConfirm={async () => { if (confirmAbsent) { await handleAbsent(confirmAbsent.id); setConfirmAbsent(null); } }}
+        onClose={() => { setConfirmAbsent(null); setConfirmAbsentMotif(""); setConfirmAbsentError(null); }}
+        onConfirm={async () => {
+          if (!confirmAbsent) return;
+          setConfirmAbsentError(null);
+          const res = await handleAbsent(confirmAbsent.id, confirmAbsentMotif);
+          if (res.ok) { setConfirmAbsent(null); setConfirmAbsentMotif(""); }
+          else setConfirmAbsentError(res.error || "Erreur");
+        }}
         tokens={toUiTokens(C)}
-        level={1}
+        level={2}
         title={confirmAbsent ? `Marquer ${confirmAbsent.nom} absent ?` : "Marquer absent ?"}
-        description="Le rendez-vous sera enregistré comme non honoré par le client."
+        description="Le rendez-vous sera enregistré comme non honoré par le client. Ce motif reste consultable dans l'historique de l'établissement."
+        motifValue={confirmAbsentMotif}
+        onMotifChange={setConfirmAbsentMotif}
+        motifPlaceholder="Ex : ne s'est jamais présenté, ni prévenu"
         confirmLabel="Marquer absent"
+        errorMessage={confirmAbsentError ?? undefined}
       />
 
       {/* ═══════ HEADER ═══════ */}
@@ -3035,10 +3388,10 @@ function InstitutionDashboardInner() {
               )}
               <div style={{ minWidth: 0 }}>
                 <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {inst?.name ? getSalutation(inst.name) : "Dashboard"}
+                  {membrePrenom ? getSalutation(membrePrenom) : inst?.name ? getSalutation(inst.name) : "Dashboard"}
                 </div>
                 <div style={{ color: C.t3, fontSize: "9px", fontWeight: "700", letterSpacing: "0.5px" }}>
-                  YELEN224 PRO
+                  {membreRole ? ROLE_LABELS[membreRole].toUpperCase() : "YELEN224 PRO"}
                 </div>
               </div>
             </div>
@@ -3052,7 +3405,7 @@ function InstitutionDashboardInner() {
                 onClick={() => setTab("partenariat")}
                 title="Partenaires"
                 className="tap yelen-header-more-item"
-                style={{ position: "relative", background: tab === "partenariat" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${tab === "partenariat" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: tab === "partenariat" ? C.gold : C.t2 }}
+                style={{ position: "relative", background: tab === "partenariat" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${tab === "partenariat" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: tab === "partenariat" ? C.gold : C.t2 }}
               >
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg>
                 {inst?.partenaire_statut === "approuve" && (
@@ -3066,18 +3419,18 @@ function InstitutionDashboardInner() {
                 la fermeture au clic extérieur et l'ancrage absolu (desktop)
                 fonctionnent correctement ── */}
             <div ref={searchRef} style={{ position: "relative", flexShrink: 0 }}>
-              <div className="header-search-desktop" style={{ alignItems: "center", gap: "8px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "0 10px", width: "220px" }}>
+              <div className="header-search-desktop" style={{ alignItems: "center", gap: "8px", height: "32px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "0 10px", width: "220px", boxSizing: "border-box" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   onFocus={() => setActivePopover("search")}
                   placeholder="Rechercher…"
-                  style={{ flex: 1, padding: "8px 0", fontSize: "12px" }}
+                  style={{ flex: 1, padding: "0", fontSize: "12px" }}
                 />
               </div>
               {/* ── Recherche mobile — icône qui ouvre le même popover ── */}
-              <button onClick={() => setActivePopover(activePopover === "search" ? null : "search")} className="tap header-search-icon-mobile yelen-header-more-item" style={{ background: activePopover === "search" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${activePopover === "search" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              <button onClick={() => setActivePopover(activePopover === "search" ? null : "search")} className="tap header-search-icon-mobile yelen-header-more-item" style={{ background: activePopover === "search" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${activePopover === "search" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
 
@@ -3135,7 +3488,10 @@ function InstitutionDashboardInner() {
             </div>
 
             {/* ── RDV entrants — badge = rdvsPending (statut "nouveau"),
-                même définition que le badge du menu latéral ── */}
+                même définition que le badge du menu latéral. Masqué pour le
+                comptable (retour Bryan 16/09/2026) : "rdv" = "none" dans
+                TAB_MATRIX pour ce rôle, l'icône n'avait aucune utilité. ── */}
+            {membreRole !== "comptable" && (
             <HeaderPopover id="rdv" active={activePopover === "rdv"} onOpen={() => setActivePopover("rdv")} onClose={() => setActivePopover(null)} badge={rdvsPending.length} glow panelTitle="RDV entrants" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
             >
@@ -3151,17 +3507,20 @@ function InstitutionDashboardInner() {
                       </div>
                       <div style={{ color: C.t2, fontSize: "11px", marginBottom: "8px" }}>{r.objet || "RDV général"}</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                        <button onClick={() => handleRefuse(r.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: C.redL, color: C.red, fontSize: "11px", fontWeight: "700", padding: "7px", borderRadius: "8px", border: "none", cursor: "pointer" }}>Refuser</button>
-                        <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: C.greenL, color: C.green, fontSize: "11px", fontWeight: "700", padding: "7px", borderRadius: "8px", border: "none", cursor: "pointer" }}>Accepter</button>
+                        <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" fullWidth disabled={!!actionLoading} onClick={() => handleRefuse(r.id)}>Refuser</Button>
+                        <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "32px", backgroundColor: C.greenL, color: C.green, fontSize: "12px", fontWeight: "700", borderRadius: "10px", border: "none", cursor: "pointer" }}>Accepter</button>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
             </HeaderPopover>
+            )}
 
             {/* ── Notifications — n'existait pas avant le chantier "Yelen
-                Assistant" (20/07/2026). Marque tout comme lu à l'ouverture. ── */}
+                Assistant" (20/07/2026). Marque tout comme lu à l'ouverture.
+                Masquée pour le comptable (retour Bryan 16/09/2026). ── */}
+            {membreRole !== "comptable" && (
             <HeaderPopover id="notifications" active={activePopover === "notifications"} onOpen={ouvrirNotifications} onClose={() => setActivePopover(null)} badge={institutionNotifs.filter(n => !n.lu).length} panelTitle="Notifications" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
             >
@@ -3217,12 +3576,16 @@ function InstitutionDashboardInner() {
                 </div>
               )}
             </HeaderPopover>
+            )}
 
             {/* ── Questions clients — icône dédiée, séparée du badge
                 "Messagerie" du menu latéral (table questions_institution,
                 pas messages). Clic renvoie directement vers le panneau
                 "Mon compte > Questions des clients", pas un fil de
-                discussion ici. ── */}
+                discussion ici. Masquée pour le comptable (retour Bryan
+                16/09/2026) : "questions-clients" = "none" dans TAB_MATRIX
+                pour ce rôle. ── */}
+            {membreRole !== "comptable" && (
             <HeaderPopover id="questions" active={activePopover === "questions"} onOpen={() => setActivePopover("questions")} onClose={() => setActivePopover(null)} badge={questionsNonRepondues} panelTitle="Questions clients" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg>}
             >
@@ -3234,11 +3597,12 @@ function InstitutionDashboardInner() {
                     {questionsNonRepondues} question{questionsNonRepondues > 1 ? "s" : ""} en attente de réponse, posée{questionsNonRepondues > 1 ? "s" : ""} publiquement par des citoyens avant leur RDV.
                   </p>
                 )}
-                <button onClick={() => { setActivePopover(null); setTab("questions-clients"); }} className="tap" style={{ width: "100%", backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "10px", fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={() => { setActivePopover(null); setTab("questions-clients"); }}>
                   Voir toutes les questions
-                </button>
+                </Button>
               </div>
             </HeaderPopover>
+            )}
 
             {/* ── Feedback ── */}
             <HeaderPopover id="feedback" active={activePopover === "feedback"} onOpen={() => setActivePopover("feedback")} onClose={() => setActivePopover(null)} panelTitle="Envoyer un feedback" wrapperClassName="yelen-header-more-item"
@@ -3250,38 +3614,120 @@ function InstitutionDashboardInner() {
                 ))}
               </div>
               <textarea value={feedbackMsg} onChange={e => setFeedbackMsg(e.target.value)} placeholder="Décrivez votre retour…" rows={4} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12px", lineHeight: 1.6, resize: "none", color: C.t1, marginBottom: "10px" }}/>
-              <button onClick={envoyerFeedback} disabled={feedbackSending || !feedbackMsg.trim()} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontSize: "13px", fontWeight: "800", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: feedbackSending || !feedbackMsg.trim() ? 0.5 : 1 }}>
-                {feedbackSending ? "…" : "Envoyer"}
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!feedbackMsg.trim()} loading={feedbackSending} onClick={envoyerFeedback}>
+                Envoyer
+              </Button>
             </HeaderPopover>
 
-            {/* ── Aide — liens déjà existants ailleurs (Guide, FAQ, support,
-                CGU, confidentialité), aucune nouvelle page ── */}
-            <HeaderPopover id="help" active={activePopover === "help"} onOpen={() => setActivePopover("help")} onClose={() => setActivePopover(null)} panelTitle="Aide & ressources" wrapperClassName="yelen-header-more-item"
-              trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
+            {/* ── Aide — liens déjà existants ailleurs (Guide, FAQ, CGU,
+                confidentialité) + Support Yelen (chantier "Séparation
+                Messagerie/Support" 06/09/2026, retour Bryan) : icône casque
+                identique à celle du header côté citoyen (app/page.tsx
+                ::Ic.Headset, remplace le "?"), badge de non-lus repris de
+                supportUnread. Le clic ouvre l'écran de conversation dédié
+                (SupportYelenTab, tab "support") dans un NOUVEL ONGLET
+                NAVIGATEUR (target="_blank", retour Bryan : "l'utilisateur
+                peut naviguer entre les 2 écrans") — remplace l'ancien
+                mailto, désormais géré en direct dans l'app plutôt qu'en
+                sortie vers le client mail. ── */}
+            <HeaderPopover id="help" active={activePopover === "help"} onOpen={() => setActivePopover("help")} onClose={() => { setActivePopover(null); setAideQuery(""); }} badge={supportUnread} panelTitle="Aide Yelen" wrapperClassName="yelen-header-more-item"
+              trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}
             >
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                {[
-                  { label: "Guide Yelen", action: () => { setShowGuide(true); setActivePopover(null); } },
-                  { label: "Aide & FAQ", href: "/guide-prestataire" },
-                  { label: "Contacter le support", href: "mailto:support@yelen224.com" },
-                  { label: "Conditions d'utilisation", href: "/cgu" },
-                  { label: "Politique de confidentialité", href: "/confidentialite" },
-                ].map(item => item.href ? (
-                  <a key={item.label} href={item.href} className="tap" style={{ padding: "10px 8px", color: C.t1, fontSize: "13px", fontWeight: "600", textDecoration: "none", borderRadius: "8px" }}>{item.label}</a>
-                ) : (
-                  <button key={item.label} onClick={item.action} className="tap" style={{ padding: "10px 8px", color: C.t1, fontSize: "13px", fontWeight: "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>{item.label}</button>
-                ))}
-              </div>
+              {(() => {
+                const q = aideQuery.trim().toLowerCase();
+                const resultats = q ? AIDE_CHAPITRES.filter(c => c.titre.toLowerCase().includes(q)) : [];
+                const dispo = supportEstDisponible(new Date());
+                return (
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    <div style={{ color: C.t3, fontSize: "12px", fontWeight: 600, margin: "-8px 0 12px" }}>Comment pouvons-nous vous aider ?</div>
+
+                    <div style={{ position: "relative", marginBottom: q ? 10 : 16 }}>
+                      <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.t3, display: "flex", pointerEvents: "none" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      </span>
+                      <input
+                        ref={aideSearchRef}
+                        value={aideQuery}
+                        onChange={e => setAideQuery(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter" && resultats[0]) { window.open(`/guide-prestataire?chapitre=${resultats[0].id}`, "_blank"); setActivePopover(null); setAideQuery(""); } }}
+                        placeholder="Rechercher dans l'aide Yelen…"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 10px 9px 30px", borderRadius: "10px", border: `1px solid ${C.border}`, background: C.bgCard2, color: C.t1, fontSize: "12.5px", outline: "none" }}
+                      />
+                      {!q && <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: C.t3, fontSize: "9.5px", fontWeight: 700, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", pointerEvents: "none" }}>Ctrl K</span>}
+                    </div>
+
+                    {q ? (
+                      <div style={{ marginBottom: 4 }}>
+                        {resultats.length === 0 ? (
+                          <div style={{ color: C.t3, fontSize: "12px", padding: "8px 4px" }}>Aucun résultat dans le guide Yelen.</div>
+                        ) : resultats.map(r => (
+                          <a key={r.id} href={`/guide-prestataire?chapitre=${r.id}`} target="_blank" rel="noopener noreferrer" onClick={() => { setActivePopover(null); setAideQuery(""); }} className="tap" style={{ display: "block", padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, textDecoration: "none", borderRadius: "8px" }}>
+                            {r.titre}
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Besoin d&apos;aide ?</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+                          <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" onClick={() => setActivePopover(null)} className="tap" style={{ position: "relative", display: "flex", flexDirection: "column", gap: 5, padding: "12px 10px", borderRadius: "12px", border: `1px solid ${C.border}`, background: C.bgCard2, textDecoration: "none" }}>
+                            <span style={{ color: C.gold, display: "flex" }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
+                            <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Support Yelen</span>
+                            <span style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.4 }}>Contacter notre équipe</span>
+                            <span style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: dispo ? C.green : C.orange, flexShrink: 0 }}/>
+                              <span style={{ color: dispo ? C.green : C.orange, fontSize: "9.5px", fontWeight: 700 }}>{dispo ? "Disponible" : "Fermé pour le moment"}</span>
+                            </span>
+                            {supportUnread > 0 && (
+                              <span style={{ position: "absolute", top: 8, right: 8, background: C.red, color: "#fff", fontSize: 9.5, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{supportUnread > 9 ? "9+" : supportUnread}</span>
+                            )}
+                          </a>
+                          <a href="/guide-prestataire" target="_blank" rel="noopener noreferrer" onClick={() => setActivePopover(null)} className="tap" style={{ display: "flex", flexDirection: "column", gap: 5, padding: "12px 10px", borderRadius: "12px", border: `1px solid ${C.border}`, background: C.bgCard2, textDecoration: "none" }}>
+                            <span style={{ color: C.gold, display: "flex" }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
+                            <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Guide Yelen</span>
+                            <span style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.4 }}>Apprendre à utiliser Yelen</span>
+                          </a>
+                        </div>
+
+                        <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Ressources</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: 12 }}>
+                          <button onClick={() => { setShowGuide(true); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                            <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+                            <span style={{ flex: 1 }}>Aide & astuces</span>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                          </button>
+                          <button onClick={() => { setTab("parametres"); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                            <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4Z"/></svg></span>
+                            <span style={{ flex: 1 }}>Sécurité du compte</span>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                          </button>
+                        </div>
+
+                        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                          <div style={{ color: C.t3, fontSize: "9px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 4px" }}>Informations légales</div>
+                          <a href="/cgu" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Conditions d&apos;utilisation</a>
+                          <a href="/confidentialite" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Politique de confidentialité</a>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </HeaderPopover>
 
-            <button onClick={() => setShowScanner(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "5px", background: "#F5A623", color: "#080812", fontWeight: "900", fontSize: "11px", padding: "8px 12px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+            <Button
+              tokens={toUiTokens(C)} className="tap"
+              variant="primary"
+              size="sm"
+              style={{ flexShrink: 0 }}
+              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>}
+              onClick={() => setShowScanner(true)}
+            >
               Scanner
-            </button>
+            </Button>
 
             {/* ── Actualiser — sorti du menu "...", auto-refresh toutes les 30s (cf. useEffect) ── */}
-            <button onClick={() => loadData()} disabled={refreshing} className="tap yelen-header-more-item" title="Actualiser les données" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: "10px", width: "36px", height: "36px", cursor: refreshing ? "default" : "pointer", flexShrink: 0 }}>
+            <button onClick={() => loadData()} disabled={refreshing} className="tap yelen-header-more-item" title="Actualiser les données" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: "10px", width: "32px", height: "32px", cursor: refreshing ? "default" : "pointer", flexShrink: 0 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none" }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             </button>
 
@@ -3295,7 +3741,7 @@ function InstitutionDashboardInner() {
                 pas perdre le signal "attention requise" une fois les icônes
                 individuelles masquées. ── */}
             <HeaderPopover id="system" active={activePopover === "system"} onOpen={() => setActivePopover("system")} onClose={() => setActivePopover(null)} panelTitle="État du système"
-              badge={rdvsPending.length + institutionNotifs.filter(n => !n.lu).length + questionsNonRepondues} badgeClassName="yelen-header-more-badge"
+              badge={membreRole === "comptable" ? 0 : rdvsPending.length + institutionNotifs.filter(n => !n.lu).length + questionsNonRepondues} badgeClassName="yelen-header-more-badge"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px", marginBottom: "10px" }}>
@@ -3320,22 +3766,32 @@ function InstitutionDashboardInner() {
                   { key: "search", label: "Recherche", badge: 0, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
                     onClick: () => setActivePopover("search") },
+                  // Profil / Profil Entreprise — mobile n'a pas l'avatar du
+                  // header (yelen-header-more-item masqué <1024px, voir plus
+                  // haut) : repris ici pour garder le même accès qu'avant,
+                  // seul le chemin desktop change dans cette 1ère étape.
+                  ...avatarMenuItems.map(item => ({ key: item.key, label: item.label, badge: 0, dot: false,
+                    icon: item.icon,
+                    onClick: () => { setTab(item.key); setActivePopover(null); } })),
                   ...(tabAllowed(membreRole, "partenariat") ? [{ key: "partenariat", label: "Partenaires", badge: 0, dot: inst?.partenaire_statut === "approuve",
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg>,
                     onClick: () => { setTab("partenariat"); setActivePopover(null); } }] : []),
-                  { key: "rdv", label: "RDV entrants", badge: rdvsPending.length, dot: false,
+                  // RDV entrants / Notifications / Questions clients masqués
+                  // pour le comptable (retour Bryan 16/09/2026) — même
+                  // cohérence que les icônes retirées de la rangée desktop.
+                  ...(membreRole !== "comptable" ? [{ key: "rdv", label: "RDV entrants", badge: rdvsPending.length, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
-                    onClick: () => setActivePopover("rdv") },
-                  { key: "notifications", label: "Notifications", badge: institutionNotifs.filter(n => !n.lu).length, dot: false,
+                    onClick: () => setActivePopover("rdv") }] : []),
+                  ...(membreRole !== "comptable" ? [{ key: "notifications", label: "Notifications", badge: institutionNotifs.filter(n => !n.lu).length, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
-                    onClick: ouvrirNotifications },
-                  { key: "questions", label: "Questions clients", badge: questionsNonRepondues, dot: false,
+                    onClick: ouvrirNotifications }] : []),
+                  ...(membreRole !== "comptable" ? [{ key: "questions", label: "Questions clients", badge: questionsNonRepondues, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg>,
-                    onClick: () => setActivePopover("questions") },
+                    onClick: () => setActivePopover("questions") }] : []),
                   { key: "feedback", label: "Envoyer un feedback", badge: 0, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>,
                     onClick: () => setActivePopover("feedback") },
-                  { key: "help", label: "Aide & ressources", badge: 0, dot: false,
+                  { key: "help", label: "Aide et ressources", badge: 0, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
                     onClick: () => setActivePopover("help") },
                   { key: "actualiser", label: "Actualiser les données", badge: 0, dot: false,
@@ -3353,15 +3809,61 @@ function InstitutionDashboardInner() {
                 ))}
               </div>
 
+              {/* ── Thème en ligne dans le popover, façon Supabase (retour
+                  Bryan 01/09/2026) : plus besoin d'aller jusqu'à Paramètres
+                  pour changer de thème — 3 options radio réglant `mode`
+                  directement via useTheme(), appliqué immédiatement. ── */}
+              <div style={{ padding: "2px 8px 6px", borderBottom: `1px solid ${C.border}`, marginBottom: "6px" }}>
+                <div style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 8px 4px" }}>Thème</div>
+                {([
+                  { key: "system" as const, label: "Système" },
+                  { key: "light" as const, label: "Clair" },
+                  { key: "dark" as const, label: "Sombre" },
+                ]).map(opt => (
+                  <button key={opt.key} onClick={() => setMode(opt.key)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px", color: C.t1, fontSize: "13px", fontWeight: mode === opt.key ? "700" : "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px", width: "100%" }}>
+                    <span style={{ width: "14px", height: "14px", borderRadius: "50%", border: `1.5px solid ${mode === opt.key ? C.gold : C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {mode === opt.key && <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: C.gold }}/>}
+                    </span>
+                    <span style={{ flex: 1 }}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <button onClick={() => { setTab("parametres"); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: C.t1, fontSize: "13px", fontWeight: "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                  Changer de thème
-                </button>
                 <button onClick={() => { setActivePopover(null); setLogoutOpen(true); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: C.red, fontSize: "13px", fontWeight: "700", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                   Se déconnecter
                 </button>
+              </div>
+            </HeaderPopover>
+
+            {/* ── Avatar du compte — façon GitHub, distinct du "..." ci-dessus.
+                Ouvre Profil / Profil Responsable / Profil Entreprise (sortis
+                du sous-menu "Compte" de la sidebar gauche, voir
+                avatarMenuItemsRaw). Fond C.gold plein (pas de dégradé
+                translucide) + glyphe plein contrasté en noir, même logique
+                que badgeTextColor sur fond doré ailleurs dans ce fichier.
+                Desktop uniquement pour cette 1ère étape (yelen-header-more-item,
+                comme RDV/Notifications/Questions/Feedback/Aide) — le
+                drill-down mobile "Compte" garde son propre chemin d'accès,
+                pas touché ici. ── */}
+            <HeaderPopover id="avatar" active={activePopover === "avatar"} onOpen={() => setActivePopover("avatar")} onClose={() => setActivePopover(null)} panelTitle="Management" wrapperClassName="yelen-header-more-item"
+              trigger={
+                <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#000"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5Zm0 2c-3.33 0-10 1.67-10 5v3h20v-3c0-3.33-6.67-5-10-5Z"/></svg>
+                </div>
+              }
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                {avatarMenuItems.map(item => {
+                  const active = tab === item.key;
+                  return (
+                    <button key={item.key} onClick={() => { setTab(item.key); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: active ? C.gold : C.t1, fontSize: "13px", fontWeight: active ? "700" : "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                      <span style={{ color: active ? C.gold : C.t3, display: "flex", flexShrink: 0 }}>{item.icon}</span>
+                      <span style={{ flex: 1 }}>{item.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </HeaderPopover>
           </div>
@@ -3388,8 +3890,12 @@ function InstitutionDashboardInner() {
           <NouveauRdvBanner rdv={bannerRdv} onClose={() => setBannerRdv(null)} onOpen={() => setShowBannerDetail(true)}/>
         )}
 
-        {/* ── BANDEAU RDV DÉPASSÉS — masqué pendant une suspension, même raison ── */}
-        {rdvsEnRetard.length > 0 && !dismissRetard && !suspendu && (
+        {/* ── BANDEAU RDV EN FENÊTRE DE GRÂCE — masqué pendant une suspension,
+            même raison. Ne montre plus les RDV déjà "non traités" (retour
+            Bryan 13/09/2026) : passé les 30 minutes de grâce après l'heure
+            prévue, un RDV sort de ce bandeau et ne vit plus que dans
+            l'onglet/KPI "Non traités". ── */}
+        {rdvsEnGrace.length > 0 && !dismissRetard && !suspendu && (
           <div style={{ backgroundColor: `${C.purple}18`, borderBottom: `1px solid ${C.purple}35`, padding: "10px 16px", display: "flex", alignItems: "center", gap: "10px", animation: "slideDownBanner 0.3s ease" }}>
             <div style={{ position: "relative", flexShrink: 0, width: "8px", height: "8px" }}>
               <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: C.purple }}/>
@@ -3397,13 +3903,13 @@ function InstitutionDashboardInner() {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: C.purple, fontSize: "11px", fontWeight: "800" }}>
-                {rdvsEnRetard.length === 1 ? "1 RDV a dépassé son heure sans réponse" : `${rdvsEnRetard.length} RDV ont dépassé leur heure sans réponse`} — acceptez/refusez, ou marquez absent
+                {rdvsEnGrace.length === 1 ? "1 RDV a dépassé son heure — agissez avant qu'il devienne non traité" : `${rdvsEnGrace.length} RDV ont dépassé leur heure — agissez avant qu'ils deviennent non traités`}
               </div>
               <div style={{ color: C.t3, fontSize: "10px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {rdvsEnRetard.slice(0, 3).map(r => `${r.citoyen_nom} (${formatHeure(r.heure_rdv)})`).join(" · ")}{rdvsEnRetard.length > 3 ? ` +${rdvsEnRetard.length - 3}` : ""}
+                {rdvsEnGrace.slice(0, 3).map(r => `${r.citoyen_nom} (${formatHeure(r.heure_rdv)})`).join(" · ")}{rdvsEnGrace.length > 3 ? ` +${rdvsEnGrace.length - 3}` : ""}
               </div>
             </div>
-            <button onClick={() => { setTab("rdv"); setRdvFilter("tous"); setDismissRetard(true); }} className="tap" style={{ backgroundColor: C.purple, color: "#fff", fontSize: "10px", fontWeight: "800", padding: "6px 10px", borderRadius: "8px", border: "none", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+            <button onClick={() => { setTab("rdv"); setRdvFilter("tous"); setDismissRetard(true); }} className="tap" style={{ height: "32px", backgroundColor: C.purple, color: "#fff", fontSize: "12px", fontWeight: "700", padding: "0 12px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
               Voir
             </button>
             <button onClick={() => setDismissRetard(true)} style={{ background: "none", border: "none", cursor: "pointer", flexShrink: 0, padding: "4px" }}>
@@ -3492,7 +3998,7 @@ function InstitutionDashboardInner() {
 
         type Rappel = { color: string; titre: string; desc: string; action: () => void };
         const rappelsBruts: (Rappel | null)[] = [
-          rdvsEnRetard.length > 0 ? { color: C.orange, titre: "RDV en retard", desc: `${rdvsEnRetard.length} rendez-vous ont dépassé leur heure sans être clôturés.`, action: () => { setTab("rdv"); setRdvFilter("en_attente"); } } : null,
+          rdvsEnRetard.length > 0 ? { color: C.orange, titre: "RDV en retard", desc: `${rdvsEnRetard.length} rendez-vous ont dépassé leur heure sans être clôturés.`, action: () => { setTab("rdv"); setRdvFilter("en_retard"); } } : null,
           stats.compte_restreint ? { color: C.red, titre: "Compte restreint", desc: `${stats.ratio_refus}/10 refus détectés — contactez le support Yelen.`, action: () => { window.location.href = "mailto:support@yelen224.com"; } } : (stats.cancelled > 0 ? { color: C.red, titre: "Annulations", desc: `${stats.cancelled} rendez-vous annulés au total.`, action: () => { setTab("rdv"); setRdvFilter("annule"); } } : null),
           rdvsPending.length > 0 ? { color: C.blue, titre: "Nouvelles demandes", desc: `${rdvsPending.length} demande${rdvsPending.length > 1 ? "s" : ""} de RDV en attente de réponse.`, action: () => { setTab("rdv"); setRdvFilter("nouveau"); } } : null,
         ];
@@ -3520,8 +4026,16 @@ function InstitutionDashboardInner() {
             .vd-date-inline{display:block}
             .vd-date-modern{display:none}
             .vd-title{font-size:26px;font-weight:900;letter-spacing:-0.5px}
+            .vd-greeting{display:none}
+            .vd-greeting-main{transform-origin:58% 88%;animation:handWave 5s ease-in-out infinite}
+            @keyframes handWave{
+              0%,78%,100%{transform:rotate(0deg)}
+              85%{transform:rotate(-9deg)}
+              91%{transform:rotate(7deg)}
+              97%{transform:rotate(-3deg)}
+            }
             @media(min-width:1024px){
-              .vd-kpis{grid-template-columns:repeat(6,1fr)}
+              .vd-kpis{grid-template-columns:repeat(7,1fr)}
               .vd-analytics{display:grid;grid-template-columns:2fr 2fr 1.5fr;align-items:start}
               .vd-ops{display:grid;grid-template-columns:repeat(3,1fr);align-items:start}
               .vd-header{flex-direction:row;align-items:flex-end;justify-content:space-between;gap:20px}
@@ -3529,6 +4043,7 @@ function InstitutionDashboardInner() {
               .vd-date-inline{display:none}
               .vd-date-modern{display:flex;align-items:center;gap:6px;margin-bottom:12px}
               .vd-title{font-size:34px}
+              .vd-greeting{display:block;flex-shrink:0}
             }
           `}</style>
 
@@ -3547,30 +4062,53 @@ function InstitutionDashboardInner() {
               <p style={{ color: C.t2, fontSize: "13px" }}>Suivez la performance de votre établissement en temps réel.</p>
             </div>
 
+            <div className="vd-greeting" style={{ position: "relative", width: "110px", aspectRatio: "1250 / 1024", flexShrink: 0 }}>
+              <Image src="/illustrations/agente-salutation.png" alt="L'équipe Yelen vous souhaite la bienvenue" fill sizes="110px" style={{ objectFit: "contain" }}/>
+              <Image src="/illustrations/agente-salutation-main.png" alt="" width={380} height={380} className="vd-greeting-main" style={{ position: "absolute", left: "8.8%", top: "31.25%", width: "30.4%", height: "37.1%" }}/>
+            </div>
+
             <div className="vd-header-right">
-              <div className="vd-date-modern" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "7px 14px 7px 10px", boxShadow: C.shadow }}>
+              <Card tokens={toCardTokens(C)} padding="7px 14px 7px 10px" className="vd-date-modern" style={{ boxShadow: C.shadow }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 <span style={{ color: C.t1, fontSize: "12px", fontWeight: "700" }}>
                   {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                 </span>
-              </div>
+              </Card>
 
               <div className="vd-header-actions">
-              <button onClick={() => { setTab("rdv"); setRdvFilter("nouveau"); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "7px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t1, fontWeight: "800", fontSize: "12.5px", padding: "10px 14px", borderRadius: "12px", cursor: "pointer", boxShadow: C.shadow, whiteSpace: "nowrap" }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              <Button
+                tokens={toUiTokens(C)} className="tap"
+                variant="secondary"
+                size="md"
+                style={{ boxShadow: C.shadow, whiteSpace: "nowrap" }}
+                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
+                onClick={() => { setTab("rdv"); setRdvFilter("nouveau"); }}
+              >
                 Nouvelles demandes
                 {rdvsPending.length > 0 && (
-                  <span style={{ backgroundColor: C.gold, color: "#000", fontSize: "10px", fontWeight: "900", padding: "1px 6px", borderRadius: "20px", minWidth: "16px", textAlign: "center", lineHeight: 1.4 }}>{rdvsPending.length}</span>
+                  <span style={{ backgroundColor: C.gold, color: "#000", fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", minWidth: "16px", textAlign: "center", lineHeight: 1.4, marginLeft: "6px" }}>{rdvsPending.length}</span>
                 )}
-              </button>
-              <button onClick={() => setTab("valider-rdv")} className="tap" style={{ display: "flex", alignItems: "center", gap: "7px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t1, fontWeight: "800", fontSize: "12.5px", padding: "10px 14px", borderRadius: "12px", cursor: "pointer", boxShadow: C.shadow, whiteSpace: "nowrap" }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg>
+              </Button>
+              <Button
+                tokens={toUiTokens(C)} className="tap"
+                variant="secondary"
+                size="md"
+                style={{ boxShadow: C.shadow, whiteSpace: "nowrap" }}
+                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg>}
+                onClick={() => setTab("valider-rdv")}
+              >
                 Valider un RDV
-              </button>
-              <button onClick={() => setTab("disponibilites")} className="tap" style={{ display: "flex", alignItems: "center", gap: "7px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t1, fontWeight: "800", fontSize: "12.5px", padding: "10px 14px", borderRadius: "12px", cursor: "pointer", boxShadow: C.shadow, whiteSpace: "nowrap" }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+              </Button>
+              <Button
+                tokens={toUiTokens(C)} className="tap"
+                variant="secondary"
+                size="md"
+                style={{ boxShadow: C.shadow, whiteSpace: "nowrap" }}
+                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>}
+                onClick={() => setTab("disponibilites")}
+              >
                 Disponibilités
-              </button>
+              </Button>
               </div>
             </div>
           </div>
@@ -3580,53 +4118,71 @@ function InstitutionDashboardInner() {
             {[
               { label: "Nouveaux RDV", value: stats.nouveau,   color: C.gold,   variation: stats.kpi_variations.nouveau,   filter: "nouveau",    icon: <><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></> },
               { label: "En attente",   value: stats.pending,   color: C.orange, variation: stats.kpi_variations.pending,   filter: "en_attente", icon: <><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></> },
+              { label: "Non traités",  value: stats.non_traites, color: C.orange, variation: stats.kpi_variations.non_traites, filter: "en_retard", icon: <><circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></> },
               { label: "Confirmés",    value: stats.confirmed, color: C.blue,   variation: stats.kpi_variations.confirmed, filter: "confirme",   icon: <><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></> },
               { label: "Terminés",     value: stats.done,      color: C.green,  variation: stats.kpi_variations.done,      filter: "effectue",   icon: <><rect x="4" y="4" width="16" height="16" rx="4"/><polyline points="8 12 11 15 16 9"/></> },
               { label: "Annulés",      value: stats.cancelled, color: C.red,    variation: stats.kpi_variations.cancelled, filter: "annule",     icon: <><circle cx="12" cy="12" r="9"/><line x1="14.5" y1="9.5" x2="9.5" y2="14.5"/><line x1="9.5" y1="9.5" x2="14.5" y2="14.5"/></> },
               { label: "Total RDV",    value: stats.rdv_total, color: C.purple, variation: stats.kpi_variations.total,     filter: "tous",       icon: <><line x1="7" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="20" y2="12"/><line x1="7" y1="17" x2="20" y2="17"/><line x1="4" y1="7" x2="4.01" y2="7"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="17" x2="4.01" y2="17"/></> },
             ].map(k => (
-              <div key={k.label} onClick={() => { setTab("rdv"); setRdvFilter(k.filter); }} className="tap yelen-card-hover" style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow, padding: "14px", cursor: "pointer" }}>
-                <div style={{ width: "38px", height: "38px", borderRadius: "50%", backgroundColor: `${k.color}15`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "8px" }}>
+              <Card key={k.label} tokens={toCardTokens(C)} padding="12px" onClick={() => { setTab("rdv"); setRdvFilter(k.filter); }} className="tap yelen-card-hover" style={{ boxShadow: C.shadow }}>
+                <div style={{ width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "6px" }}>
                   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={k.color} strokeWidth="2" strokeLinecap="round">{k.icon}</svg>
                 </div>
-                <div style={{ color: C.t1, fontSize: "26px", fontWeight: "900", letterSpacing: "-0.5px", lineHeight: 1 }}><AnimatedNumber value={k.value}/></div>
-                <div style={{ color: C.t2, fontSize: "11px", fontWeight: "700", marginTop: "4px" }}>{k.label}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: "3px", marginTop: "4px" }}>
+                <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-0.5px", lineHeight: 1 }}><AnimatedNumber value={k.value}/></div>
+                <div style={{ color: C.t2, fontSize: "11px", fontWeight: "700", marginTop: "3px" }}>{k.label}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "3px", marginTop: "3px" }}>
                   <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={k.variation >= 0 ? C.green : C.red} strokeWidth="3" strokeLinecap="round" style={{ transform: k.variation < 0 ? "rotate(180deg)" : "none" }}><polyline points="18 15 12 9 6 15"/></svg>
                   <span style={{ color: k.variation >= 0 ? C.green : C.red, fontSize: "10px", fontWeight: "800" }}>{k.variation >= 0 ? "+" : ""}{k.variation}%</span>
                   <span style={{ color: C.t3, fontSize: "10px" }}>vs hier</span>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
 
           {/* ── Bonus conservé : Aujourd'hui + Semaine/Mois (pas dans le
               spec, donnée réelle distincte non dupliquée ailleurs) ── */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "24px", flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 200px", backgroundColor: C.bgCard, borderRadius: "16px", padding: "16px", border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: "1 1 200px", boxShadow: C.shadow }}>
               <div style={{ color: C.t2, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Aujourd&apos;hui</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
-                <div style={{ color: C.t1, fontSize: "34px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.today}/></div>
-                <div style={{ color: C.t3, fontSize: "11px" }}>{stats.confirmed} confirmés</div>
+              {stats.confirmed === 0 ? (
+                <div>
+                  <Image src="/illustrations/rdv-confirme-jour-vide.png" alt="Aucun rendez-vous confirmé aujourd'hui" width={1250} height={590} style={{ width: "100%", maxWidth: "200px", height: "auto", display: "block", marginBottom: "8px" }}/>
+                  <div style={{ color: C.t3, fontSize: "11px", lineHeight: 1.4 }}>Aucun RDV confirmé aujourd&apos;hui.</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+                  <div style={{ color: C.t1, fontSize: "34px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.today}/></div>
+                  <div style={{ color: C.t3, fontSize: "11px" }}>{stats.confirmed} confirmés</div>
+                </div>
+              )}
+            </Card>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: "1 1 140px", boxShadow: C.shadow }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: C.t2, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Semaine</div>
+                  <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.week}/></div>
+                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px" }}>{stats.evolution_week > 0 ? "+" : ""}{stats.evolution_week}% vs préc.</div>
+                </div>
+                <Image src="/illustrations/rdv-semaine.png" alt="" width={880} height={560} style={{ width: "90px", height: "auto", flexShrink: 0, display: "block" }}/>
               </div>
-            </div>
-            {[
-              { label: "Semaine", value: stats.week, sub: `${stats.evolution_week > 0 ? "+" : ""}${stats.evolution_week}% vs préc.` },
-              { label: "Mois",    value: stats.month, sub: `${stats.evolution_month > 0 ? "+" : ""}${stats.evolution_month}% vs préc.` },
-            ].map(k => (
-              <div key={k.label} style={{ flex: "1 1 140px", backgroundColor: C.bgCard, borderRadius: "16px", padding: "16px", border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
-                <div style={{ color: C.t2, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>{k.label}</div>
-                <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={k.value}/></div>
-                <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px" }}>{k.sub}</div>
+            </Card>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: "1 1 140px", boxShadow: C.shadow }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: C.t2, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Mois</div>
+                  <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.month}/></div>
+                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px" }}>{stats.evolution_month > 0 ? "+" : ""}{stats.evolution_month}% vs préc.</div>
+                </div>
+                <Image src="/illustrations/rdv-mois.png" alt="" width={1150} height={650} style={{ width: "90px", height: "auto", flexShrink: 0, display: "block" }}/>
               </div>
-            ))}
+            </Card>
           </div>
 
           {/* ── SECTION 3 : Analytics, 3 colonnes ── */}
           <div className="vd-analytics" style={{ marginBottom: "24px" }}>
             <ScoreSante score={stats.score_sante} stats={stats} actionsPrioritaires={actionsPrioritaires} onVoirActions={() => { setTab("rdv"); setRdvFilter("nouveau"); }}/>
 
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
+            <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
                 <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Évolution des RDV</span>
                 <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700", backgroundColor: C.bg3, padding: "3px 9px", borderRadius: "20px" }}>7 jours</span>
@@ -3649,14 +4205,14 @@ function InstitutionDashboardInner() {
                   { label: "Jour le plus chargé", value: stats.peak_day },
                 ].map(s => (
                   <div key={s.label}>
-                    <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900" }}>{s.value}</div>
+                    <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800" }}>{s.value}</div>
                     <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{s.label}</div>
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
 
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
+            <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
               <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Répartition par statut</span>
               <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
                 <div style={{ position: "relative", width: "132px", height: "132px", flexShrink: 0 }}>
@@ -3671,7 +4227,7 @@ function InstitutionDashboardInner() {
                     })}
                   </svg>
                   <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                    <span style={{ color: C.t1, fontSize: "24px", fontWeight: "900" }}>{stats.rdv_total}</span>
+                    <span style={{ color: C.t1, fontSize: "24px", fontWeight: "800" }}>{stats.rdv_total}</span>
                     <span style={{ color: C.t3, fontSize: "9px", fontWeight: "700" }}>Total</span>
                   </div>
                 </div>
@@ -3689,24 +4245,26 @@ function InstitutionDashboardInner() {
               <button onClick={() => setTab("rdv")} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "10px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
                 Voir le détail <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="3" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
-            </div>
+            </Card>
           </div>
 
           {/* ── SECTION 4 : Zone opérationnelle, 3 colonnes ── */}
           <div className="vd-ops" style={{ marginBottom: "24px" }}>
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
+            <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
               <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Prochains rendez-vous</span>
               {prochains.length === 0 ? (
-                <div style={{ color: C.t3, fontSize: "12px", padding: "12px 0" }}>Aucun rendez-vous à venir.</div>
+                <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
+                  <Image src="/illustrations/prochains-rdv-vide.png" alt="Aucun rendez-vous à venir" width={1536} height={1024} style={{ width: "180px", maxWidth: "100%", height: "auto", margin: "0 auto 10px", display: "block" }}/>
+                  <div style={{ color: C.t3, fontSize: "12px" }}>Aucun rendez-vous à venir.</div>
+                </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column" }}>
                   {prochains.map((r, i) => {
                     const presenceConfirmee = r.presence_status === "present";
-                    const isRetardProchain = rdvEstEnRetard(r.date_rdv, r.heure_rdv);
                     const s = stInfo(
                       r.presence_status === "absent"
                         ? "absent"
-                        : (isRetardProchain && (r.statut === "en_attente" || r.statut === "nouveau"))
+                        : rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)
                         ? "en_retard"
                         : r.statut,
                       C
@@ -3715,18 +4273,18 @@ function InstitutionDashboardInner() {
                       <div key={r.id} style={{ paddingTop: i > 0 ? "12px" : 0, marginTop: i > 0 ? "12px" : 0, borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
                           <div style={{ textAlign: "center", flexShrink: 0, width: "40px" }}>
-                            <div style={{ color: C.t1, fontSize: "13px", fontWeight: "900" }}>{formatHeure(r.heure_rdv)}</div>
+                            <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{formatHeure(r.heure_rdv)}</div>
                             {r.date_rdv === todayStr && <div style={{ color: C.gold, fontSize: "8px", fontWeight: "800" }}>AUJ.</div>}
                           </div>
-                          <div onClick={() => setSelectedRDV(r)} className="tap" style={{ width: "34px", height: "34px", position: "relative", borderRadius: "50%", overflow: "hidden", backgroundColor: s.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "900", color: s.c, flexShrink: 0, cursor: "pointer" }}>
+                          <div onClick={() => setSelectedRDV(r)} className="tap" style={{ width: "34px", height: "34px", position: "relative", borderRadius: "50%", overflow: "hidden", backgroundColor: s.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "800", color: s.c, flexShrink: 0, cursor: "pointer" }}>
                             {r.citoyen_photo ? <Image src={r.citoyen_photo} alt="" fill sizes="34px" style={{ objectFit: "cover" }}/> : r.citoyen_nom.slice(0, 2).toUpperCase()}
                           </div>
                           <div onClick={() => setSelectedRDV(r)} className="tap" style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                               <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{r.citoyen_nom}</span>
-                              <span style={{ backgroundColor: s.bg, color: s.c, fontSize: "8px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", textTransform: "uppercase" }}>{s.l}</span>
+                              <span style={{ color: s.c, fontSize: "8px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", textTransform: "uppercase" }}>{s.l}</span>
                               {r.id === imminentRdvId && (
-                                <span style={{ backgroundColor: "#EC489920", color: "#EC4899", fontSize: "8px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", textTransform: "uppercase" }}>Imminent</span>
+                                <span style={{ color: "#EC4899", fontSize: "8px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", textTransform: "uppercase" }}>Imminent</span>
                               )}
                             </div>
                             <div style={{ color: C.t2, fontSize: "10.5px", display: "flex", alignItems: "center", gap: "4px", overflow: "hidden" }}>
@@ -3741,15 +4299,15 @@ function InstitutionDashboardInner() {
                           </div>
                         </div>
                         {r.statut === "nouveau" ? (
-                          <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${C.green}, #009e76)`, color: "#fff", fontWeight: "800", fontSize: "12px", padding: "9px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
+                          <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "32px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
                             {actionLoading === r.id ? "…" : "Confirmer"}
                           </button>
                         ) : (r.statut === "en_attente" || r.statut === "confirme") && presenceConfirmee ? (
-                          <button onClick={() => handleTermine(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", background: `linear-gradient(135deg, ${C.purple}, #7a55d0)`, color: "#fff", fontWeight: "800", fontSize: "12px", padding: "9px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
+                          <button onClick={() => handleTermine(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "32px", backgroundColor: C.purple, color: "#fff", fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
                             {actionLoading === r.id ? "…" : "Marquer terminé"}
                           </button>
                         ) : (
-                          <button onClick={() => setSelectedRDV(r)} className="tap" style={{ width: "100%", backgroundColor: C.bg3, color: C.t2, fontWeight: "700", fontSize: "12px", padding: "9px", borderRadius: "10px", border: `1px solid ${C.border}`, cursor: "pointer" }}>Voir le détail</button>
+                          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setSelectedRDV(r)}>Voir le détail</Button>
                         )}
                       </div>
                     );
@@ -3759,16 +4317,19 @@ function InstitutionDashboardInner() {
               <button onClick={() => setTab("rdv")} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "14px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
                 Voir tous les prochains RDV <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="3" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
-            </div>
+            </Card>
 
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow }}>
+            <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
               <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Rappels importants</span>
               {rappels.length === 0 ? (
-                <div style={{ color: C.t3, fontSize: "12px" }}>Aucun rappel pour l&apos;instant — tout est à jour.</div>
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <Image src="/illustrations/rdv-retard-vide.png" alt="Vous n'avez aucun RDV en retard, vous êtes à jour" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
+                  <Image src="/illustrations/annulations-vide.png" alt="Vous n'avez eu aucune annulation ces 30 derniers jours" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
+                </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {rappels.map((r, i) => (
-                    <div key={i} style={{ backgroundColor: `${r.color}0F`, border: `1px solid ${r.color}25`, borderRadius: "14px", padding: "12px 14px" }}>
+                    <div key={i} style={{ border: `1px solid ${r.color}25`, borderRadius: "14px", padding: "12px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={r.color} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                         <span style={{ color: r.color, fontSize: "12px", fontWeight: "800" }}>{r.titre}</span>
@@ -3781,12 +4342,12 @@ function InstitutionDashboardInner() {
                   ))}
                 </div>
               )}
-            </div>
+            </Card>
 
-            <div onClick={() => setTab("analyse")} className="tap yelen-card-hover" style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow, cursor: "pointer" }}>
+            <Card tokens={toCardTokens(C)} padding="20px" onClick={() => setTab("analyse")} className="tap yelen-card-hover" style={{ boxShadow: C.shadow }}>
               <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Satisfaction clients</span>
               <div style={{ textAlign: "center", marginBottom: "14px" }}>
-                <div style={{ fontSize: "36px", fontWeight: "900", letterSpacing: "-1.5px", color: stats.moyenne_avis >= 4 ? C.green : stats.moyenne_avis >= 3 ? C.gold : C.red, lineHeight: 1 }}>
+                <div style={{ fontSize: "36px", fontWeight: "800", letterSpacing: "-1.5px", color: stats.moyenne_avis >= 4 ? C.green : stats.moyenne_avis >= 3 ? C.gold : C.red, lineHeight: 1 }}>
                   {stats.moyenne_avis > 0 ? stats.moyenne_avis.toFixed(1) : "0.0"} <span style={{ fontSize: "16px", color: C.t3, fontWeight: "700" }}>/5</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "center", marginTop: "6px" }}><Stars note={stats.moyenne_avis} size={16}/></div>
@@ -3804,7 +4365,7 @@ function InstitutionDashboardInner() {
               <div style={{ color: C.gold, fontSize: "11px", fontWeight: "700", marginTop: "10px", display: "flex", alignItems: "center", gap: "4px" }}>
                 Voir les avis clients <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="3" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
               </div>
-            </div>
+            </Card>
           </div>
 
           {/* ── Bonus conservé : objectifs hebdo, accès rapides, activité
@@ -3812,7 +4373,7 @@ function InstitutionDashboardInner() {
               réelle existante, gardée telle quelle ── */}
           <ObjectifsHebdo stats={stats}/>
 
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", border: `1px solid ${C.border}`, overflow: "hidden", marginBottom: "14px" }}>
+          <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "14px" }}>
             <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>Accès rapides</span>
             </div>
@@ -3823,13 +4384,13 @@ function InstitutionDashboardInner() {
                 { label: "Signalements",tab: "signalements",  href: undefined, icon: C.red,    svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
                 { label: "FAQ",         tab: undefined,       href: `/guide-prestataire`,    icon: C.teal,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
               ] as { label: string; tab?: typeof tab; href?: string; icon: string; svg: React.ReactNode }[])
-                .filter(item => !item.tab || tabAllowed(membreRole, item.tab));
+                .filter(item => !item.tab || tabAllowed(membreRole, item.tab, accesRestreints));
               return (
                 <div style={{ display: "grid", gridTemplateColumns: `repeat(${accesRapidesItems.length}, 1fr)` }}>
                   {accesRapidesItems.map((item, i) => {
                     const content = (
                       <>
-                        <div style={{ width: "38px", height: "38px", borderRadius: "11px", backgroundColor: `${item.icon}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>{item.svg}</div>
+                        <div style={{ width: "38px", height: "38px", borderRadius: "11px", display: "flex", alignItems: "center", justifyContent: "center" }}>{item.svg}</div>
                         <span style={{ color: C.t2, fontSize: "9px", fontWeight: "700" }}>{item.label}</span>
                       </>
                     );
@@ -3844,10 +4405,10 @@ function InstitutionDashboardInner() {
                 </div>
               );
             })()}
-          </div>
+          </Card>
 
           {stats.recent_activity.length > 0 && (
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", border: `1px solid ${C.border}`, overflow: "hidden", marginBottom: "20px" }}>
+            <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "20px" }}>
               <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
                 <span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>Activité récente</span>
               </div>
@@ -3858,7 +4419,7 @@ function InstitutionDashboardInner() {
                   <span style={{ color: C.t3, fontSize: "10px", flexShrink: 0 }}>{a.time}</span>
                 </div>
               ))}
-            </div>
+            </Card>
           )}
 
           {/* ── Footer ── */}
@@ -3894,18 +4455,25 @@ function InstitutionDashboardInner() {
             @media(min-width:1024px){
               .rdv-card-inner{display:grid;grid-template-columns:52px 44px 1fr auto auto;align-items:center;gap:16px;padding:16px 20px;min-height:120px}
               .rdv-extra-filters{display:flex!important;flex-direction:row}
-              .rdv-kpis{grid-template-columns:repeat(6,1fr)}
+              .rdv-kpis{grid-template-columns:repeat(7,1fr)}
             }
           `}</style>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
             <div>
-              <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>Rendez-vous</h1>
+              <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Rendez-vous</h1>
               <p style={{ color: C.t2, fontSize: "12.5px", marginTop: "2px" }}>Gérez tous les rendez-vous de votre établissement.</p>
             </div>
-            <button onClick={exportCsv} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 12px", color: C.t2, fontSize: "11px", fontWeight: "700", cursor: "pointer", flexShrink: 0 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <Button
+              tokens={toUiTokens(C)}
+              className="tap"
+              variant="secondary"
+              size="sm"
+              style={{ flexShrink: 0 }}
+              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+              onClick={exportCsv}
+            >
               Export CSV
-            </button>
+            </Button>
           </div>
 
           {/* ── 6 cartes KPI — fond/bordure neutres (retour Bryan 15/08/2026 :
@@ -3915,29 +4483,30 @@ function InstitutionDashboardInner() {
             {[
               { label: "Nouveau",   value: stats.nouveau,   color: C.gold,   icon: <><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></> },
               { label: "En attente",value: stats.pending,   color: C.orange, icon: <><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></> },
+              { label: "Non traités", value: stats.non_traites, color: C.orange, icon: <><circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></> },
               { label: "Confirmés", value: stats.confirmed, color: C.blue,   icon: <><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></> },
               { label: "Terminés",  value: stats.done,      color: C.green,  icon: <><rect x="4" y="4" width="16" height="16" rx="4"/><polyline points="8 12 11 15 16 9"/></> },
               { label: "Annulés",   value: stats.cancelled, color: C.red,    icon: <><circle cx="12" cy="12" r="9"/><line x1="14.5" y1="9.5" x2="9.5" y2="14.5"/><line x1="9.5" y1="9.5" x2="14.5" y2="14.5"/></> },
               { label: "Total",     value: stats.rdv_total, color: C.purple, icon: <><line x1="7" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="20" y2="12"/><line x1="7" y1="17" x2="20" y2="17"/><line x1="4" y1="7" x2="4.01" y2="7"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="17" x2="4.01" y2="17"/></> },
             ].map(k => (
-              <div key={k.label} style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "10px 14px", border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+              <Card key={k.label} tokens={toCardTokens(C)} padding="10px 14px" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
                 <div>
-                  <div style={{ color: k.color, fontSize: "22px", fontWeight: "900" }}>{k.value}</div>
+                  <div style={{ color: k.color, fontSize: "22px", fontWeight: "800" }}>{k.value}</div>
                   <div style={{ color: C.t2, fontSize: "11px", fontWeight: "700" }}>{k.label}</div>
                 </div>
-                <div style={{ width: "34px", height: "34px", borderRadius: "50%", backgroundColor: C.bg3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={k.color} strokeWidth="2" strokeLinecap="round">{k.icon}</svg>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
 
           {/* ── Recherche + Date + Service + Filtres ── */}
           <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "0 14px", display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
+            <Card tokens={toCardTokens(C)} padding="0 14px" style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input value={rdvSearch} onChange={e => setRdvSearch(e.target.value)} placeholder="Rechercher un rendez-vous, un client, un service…" style={{ flex: 1, padding: "12px 0", fontSize: "13px" }}/>
-            </div>
+            </Card>
             <button onClick={() => setRdvFiltersOpen(v => !v)} className="tap" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "6px", backgroundColor: rdvFiltersOpen ? `${C.gold}15` : C.bgCard, border: `1px solid ${rdvFiltersOpen ? C.gold + "40" : C.border}`, borderRadius: "16px", padding: "0 14px", color: rdvFiltersOpen ? C.gold : C.t2, fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
               Filtres
@@ -3960,6 +4529,7 @@ function InstitutionDashboardInner() {
               { key: "effectue",   label: "Effectués",   count: stats.done },
               { key: "annule",     label: "Annulés",     count: stats.cancelled },
               { key: "absent",     label: "Absents",     count: stats.absents },
+              { key: "en_retard",  label: "Non traités",  count: stats.non_traites },
               { key: "tous",       label: "Tous",        count: rdvs.length },
             ].map(f => {
               const active = rdvFilter === f.key;
@@ -3967,16 +4537,18 @@ function InstitutionDashboardInner() {
               const isNouveau = f.key === "nouveau";
               // "Nouveau"/"En attente"/"Tous" partagent la même couleur dorée —
               // une fois sélectionnés, ils doivent afficher le vrai doré plein
-              // (comme les boutons solides du dashboard), pas un simple fond
-              // pastel léger. Les autres filtres (Confirmés/Effectués/Annulés/
-              // Absents) gardent leur propre couleur et leur style inchangés
-              // (signalé par Bryan le 19/07/2026).
+              // (comme les boutons solides du dashboard). Les autres filtres
+              // (Confirmés/Effectués/Annulés/Absents) gardent leur propre
+              // couleur mais sans fond pastel, même sélectionnés — seuls la
+              // bordure et le texte portent la couleur (retour Bryan
+              // 03/09/2026, remplace la règle du 19/07/2026 qui gardait un
+              // fond léger sur ces filtres).
               const isGoldFilter = isNouveau || f.key === "en_attente" || f.key === "tous";
               return (
                 <button key={f.key} onClick={() => setRdvFilter(f.key)} className="tap" style={{
                   flexShrink: 0,
-                  backgroundColor: active ? (isGoldFilter ? sc.c : sc.bg) : (isNouveau ? `${C.gold}30` : C.bgCard),
-                  border: `1.5px solid ${isNouveau ? sc.c : (active ? sc.c + "40" : C.border)}`,
+                  backgroundColor: active && isGoldFilter ? sc.c : C.bgCard,
+                  border: `1.5px solid ${isNouveau ? sc.c : (isGoldFilter && active ? sc.c + "40" : C.border)}`,
                   borderRadius: isNouveau ? "22px" : "20px",
                   padding: isNouveau ? "10px 18px" : "6px 12px",
                   color: active ? (isGoldFilter ? "#000" : sc.c) : (isNouveau ? sc.c : C.t2),
@@ -3986,7 +4558,7 @@ function InstitutionDashboardInner() {
                   display: "flex",
                   alignItems: "center",
                   gap: isNouveau ? "7px" : "5px",
-                  boxShadow: isNouveau ? `0 3px 12px ${sc.c}35` : "none",
+                  boxShadow: "none",
                 }}>
                   {isNouveau && (
                     active ? (
@@ -3999,7 +4571,7 @@ function InstitutionDashboardInner() {
                     )
                   )}
                   {f.label}
-                  <span style={{ backgroundColor: isNouveau ? (active ? "rgba(0,0,0,0.18)" : `${sc.c}25`) : (active ? `${sc.c}20` : C.bg3), color: isNouveau ? (active ? "#000" : sc.c) : (active ? sc.c : C.t3), fontSize: isNouveau ? "10.5px" : "9px", fontWeight: "800", padding: isNouveau ? "2px 7px" : "1px 5px", borderRadius: "10px" }}>{f.count}</span>
+                  <span style={{ color: isNouveau ? (active ? "#000" : sc.c) : (isGoldFilter && active ? sc.c : C.t3), fontSize: isNouveau ? "10.5px" : "9px", fontWeight: "800", padding: isNouveau ? "2px 7px" : "1px 5px", borderRadius: "10px" }}>{f.count}</span>
                 </button>
               );
             })}
@@ -4118,6 +4690,11 @@ function InstitutionDashboardInner() {
                   texte: "Aucun client n'a manqué son rendez-vous sous ce filtre. Continuez ainsi.",
                   illustration: <IllustrationRdvSucces C={C}/>,
                 },
+                en_retard: {
+                  titre: "Aucun rendez-vous non traité",
+                  texte: "Tous les rendez-vous dont l'heure est dépassée ont été résolus (pris en charge ou marqués absents). Rien n'est en attente de votre décision.",
+                  illustration: <IllustrationRdvSucces C={C}/>,
+                },
                 tous: {
                   titre: "Aucun rendez-vous pour l'instant",
                   texte: "Les rendez-vous apparaîtront automatiquement ici dès qu'ils correspondront à ce statut.",
@@ -4132,14 +4709,12 @@ function InstitutionDashboardInner() {
               {pageRdvs.map(r => {
                 const presenceConfirmee = r.presence_status === "present";
                 const isRetard = rdvEstEnRetard(r.date_rdv, r.heure_rdv);
-                const nonResolu = r.statut === "nouveau" || (r.statut === "en_attente" && r.presence_status !== "absent");
                 const badgeStatut = r.presence_status === "absent"
                   ? "absent"
-                  : (isRetard && nonResolu)
+                  : rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)
                   ? "en_retard"
                   : r.statut;
                 const s = stInfo(badgeStatut, C);
-                const borderColor = isRetard && nonResolu ? C.red : s.c;
                 const clientExistant = (rdvCountByCitoyen.get(r.citoyen_id) ?? 0) > 1;
                 const service = extraireService(r.objet);
                 const dateObj = parseLocalDate(r.date_rdv);
@@ -4158,12 +4733,12 @@ function InstitutionDashboardInner() {
                 if (r.pour_autre) quickBadges.push({ icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: `Pour ${r.nom_autre || "un tiers"}` });
                 const menuOpen = rdvMenuOpenId === r.id;
                 return (
-                  <div key={r.id} style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "0", border: `1px solid ${C.border}`, borderLeft: `4px solid ${borderColor}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", overflow: "visible" }}>
+                  <div key={r.id} style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "0", border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", overflow: "visible" }}>
                     <div className="rdv-card-inner">
                       <div style={{ textAlign: "center", flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "center", gap: "8px" }}>
                         <div>
                           <div style={{ color: C.t3, fontSize: "9px", fontWeight: "800" }}>{jourAbrege}</div>
-                          <div style={{ color: C.t1, fontSize: "18px", fontWeight: "900", lineHeight: 1.1 }}>{dateObj.getDate()}</div>
+                          <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800", lineHeight: 1.1 }}>{dateObj.getDate()}</div>
                           <div style={{ color: C.t3, fontSize: "9px", fontWeight: "800" }}>{moisAbrege}</div>
                         </div>
                         <div>
@@ -4172,19 +4747,19 @@ function InstitutionDashboardInner() {
                         </div>
                       </div>
 
-                      <div onClick={() => setSelectedRDV(r)} className="tap" style={{ width: "56px", height: "56px", position: "relative", borderRadius: "50%", overflow: "hidden", backgroundColor: s.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "900", color: s.c, flexShrink: 0, cursor: "pointer" }}>
+                      <div onClick={() => setSelectedRDV(r)} className="tap" style={{ width: "56px", height: "56px", position: "relative", borderRadius: "50%", overflow: "hidden", backgroundColor: s.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "800", color: s.c, flexShrink: 0, cursor: "pointer" }}>
                         {r.citoyen_photo ? <Image src={r.citoyen_photo} alt="" fill sizes="56px" style={{ objectFit: "cover" }}/> : r.citoyen_nom.slice(0, 2).toUpperCase()}
                       </div>
 
                       <div onClick={() => setSelectedRDV(r)} className="tap" style={{ minWidth: 0, cursor: "pointer" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                           <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{r.citoyen_nom}</span>
-                          <span style={{ backgroundColor: s.bg, color: s.c, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>{s.l}</span>
+                          <span style={{ color: s.c, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>{s.l}</span>
                           {clientExistant && (
-                            <span style={{ backgroundColor: C.blueL, color: C.blue, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>Client existant</span>
+                            <span style={{ color: C.blue, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>Client existant</span>
                           )}
                           {r.id === imminentRdvId && (
-                            <span style={{ backgroundColor: "#EC489920", color: "#EC4899", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>Imminent</span>
+                            <span style={{ color: "#EC4899", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>Imminent</span>
                           )}
                         </div>
                         <div style={{ color: C.t2, fontSize: "12px", fontWeight: "700", marginTop: "3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.objet || "RDV général"}</div>
@@ -4196,16 +4771,16 @@ function InstitutionDashboardInner() {
                         )}
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginTop: "7px" }}>
                           {quickBadges.map((b, i) => (
-                            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: C.bg3, color: C.t2, fontSize: "10px", fontWeight: "600", padding: "3px 8px", borderRadius: "20px", whiteSpace: "nowrap" }}>{b.icon}{b.label}</span>
+                            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: C.t2, fontSize: "10px", fontWeight: "600", padding: "3px 8px", borderRadius: "20px", whiteSpace: "nowrap" }}>{b.icon}{b.label}</span>
                           ))}
                         </div>
                       </div>
 
                       <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-                        <button onClick={() => setSelectedRDV(r)} className="tap" title="Voir" style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                        <button onClick={() => setSelectedRDV(r)} className="tap" title="Voir" style={{ width: "34px", height: "34px", borderRadius: "10px", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                         </button>
-                        <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" title="Plus" style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: menuOpen ? `${C.gold}15` : C.bg3, border: `1px solid ${menuOpen ? C.gold + "40" : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                        <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" title="Plus" style={{ width: "34px", height: "34px", borderRadius: "10px", border: `1px solid ${menuOpen ? C.gold + "40" : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
                         </button>
                       </div>
@@ -4213,43 +4788,43 @@ function InstitutionDashboardInner() {
                       <div style={{ flexShrink: 0 }}>
                         {r.statut === "nouveau" ? (
                           <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ background: `linear-gradient(135deg, ${C.green}, #009e76)`, color: "#fff", fontWeight: "800", fontSize: "12px", padding: "10px 14px", borderRadius: "10px", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
+                            <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ height: "32px", padding: "0 12px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
                               {actionLoading === r.id ? "…" : "Accepter"}
                             </button>
                             {isRetard && r.presence_status !== "absent" && (
-                              <button onClick={() => setConfirmAbsent({ id: r.id, nom: r.citoyen_nom })} disabled={!!actionLoading} className="tap" style={{ backgroundColor: C.redL, color: C.red, fontWeight: "800", fontSize: "12px", padding: "10px 14px", borderRadius: "10px", border: `1px solid ${C.red}25`, cursor: "pointer", whiteSpace: "nowrap" }}>
+                              <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" disabled={!!actionLoading} onClick={() => setConfirmAbsent({ id: r.id, nom: r.citoyen_nom })}>
                                 Absent
-                              </button>
+                              </Button>
                             )}
-                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
                           </div>
                         ) : (r.presence_status !== "absent" && r.statut === "en_attente") ? (
                           <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => handlePrendreEnCharge(r)} disabled={!!actionLoading} className="tap" style={{ backgroundColor: C.gold, color: "#000", fontWeight: "800", fontSize: "12px", padding: "10px 14px", borderRadius: "10px", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
+                            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!!actionLoading} onClick={() => handlePrendreEnCharge(r)}>
                               Prendre en charge
-                            </button>
+                            </Button>
                             {isRetard && (
-                              <button onClick={() => setConfirmAbsent({ id: r.id, nom: r.citoyen_nom })} disabled={!!actionLoading} className="tap" style={{ backgroundColor: C.orangeL, color: C.orange, fontWeight: "800", fontSize: "12px", padding: "10px 14px", borderRadius: "10px", border: `1px solid ${C.orange}25`, cursor: "pointer", whiteSpace: "nowrap" }}>
+                              <button onClick={() => setConfirmAbsent({ id: r.id, nom: r.citoyen_nom })} disabled={!!actionLoading} className="tap" style={{ height: "32px", padding: "0 12px", color: C.orange, fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: `1px solid ${C.orange}25`, cursor: "pointer", whiteSpace: "nowrap" }}>
                                 {actionLoading === r.id ? "…" : "Absent"}
                               </button>
                             )}
-                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
                           </div>
                         ) : (r.presence_status !== "absent" && r.statut === "confirme") ? (
                           <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => presenceConfirmee && setTermineDialog(r)} disabled={!!actionLoading || !presenceConfirmee} title={presenceConfirmee ? undefined : "Présence non confirmée"} className="tap" style={{ background: presenceConfirmee ? `linear-gradient(135deg, ${C.purple}, #7a55d0)` : C.bg3, color: presenceConfirmee ? "#fff" : C.t3, fontWeight: "800", fontSize: "12px", padding: "10px 14px", borderRadius: "10px", border: presenceConfirmee ? "none" : `1px solid ${C.border}`, cursor: presenceConfirmee ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}>
+                            <button onClick={() => presenceConfirmee && setTermineDialog(r)} disabled={!!actionLoading || !presenceConfirmee} title={presenceConfirmee ? undefined : "Présence non confirmée"} className="tap" style={{ height: "32px", padding: "0 12px", backgroundColor: presenceConfirmee ? C.purple : undefined, color: presenceConfirmee ? "#fff" : C.t3, fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: presenceConfirmee ? "none" : `1px solid ${C.border}`, cursor: presenceConfirmee ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}>
                               Marquer terminé
                             </button>
-                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
                           </div>
                         ) : (
-                          <span style={{ backgroundColor: s.bg, color: s.c, fontWeight: "800", fontSize: "11px", padding: "9px 14px", borderRadius: "10px", whiteSpace: "nowrap" }}>{s.l}</span>
+                          <span style={{ color: s.c, fontWeight: "800", fontSize: "11px", padding: "9px 14px", borderRadius: "10px", whiteSpace: "nowrap" }}>{s.l}</span>
                         )}
                       </div>
                     </div>
@@ -4314,7 +4889,7 @@ function InstitutionDashboardInner() {
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
                   <div style={{ width: "3px", height: "16px", background: C.green, borderRadius: "2px" }}/>
                   <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>RDV Payants — validation en attente</span>
-                  <span style={{ backgroundColor: C.green, color: "#000", fontSize: "9px", fontWeight: "900", padding: "2px 7px", borderRadius: "20px" }}>{payants.length}</span>
+                  <span style={{ backgroundColor: C.green, color: "#000", fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px" }}>{payants.length}</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {payants.map(r => (
@@ -4324,7 +4899,7 @@ function InstitutionDashboardInner() {
                         <div style={{ color: C.t2, fontSize: "11px" }}>{r.objet}</div>
                         <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(r.date_rdv, { day: "numeric", month: "short" })} · {formatHeure(r.heure_rdv)}</div>
                       </div>
-                      <button onClick={() => setTab("valider-rdv")} className="tap" style={{ backgroundColor: C.green, color: "#000", fontSize: "11px", fontWeight: "800", padding: "8px 12px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: "5px" }}>
+                      <button onClick={() => setTab("valider-rdv")} className="tap" style={{ height: "32px", backgroundColor: C.green, color: "#000", fontSize: "12px", fontWeight: "700", padding: "0 12px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: "5px" }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                         Valider paiement
                       </button>
@@ -4401,7 +4976,7 @@ function InstitutionDashboardInner() {
           .sort((a, b) => new Date(b.presence_confirmed_at || b.date_rdv).getTime() - new Date(a.presence_confirmed_at || a.date_rdv).getTime());
         return (
           <div style={{ padding: "16px" }}>
-            <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Scanner QR</h1>
+            <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Scanner QR</h1>
             <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Historique des rendez-vous dont la présence a été confirmée par scan.</p>
 
             {scanned.length === 0 ? (
@@ -4416,7 +4991,7 @@ function InstitutionDashboardInner() {
                 />
               </div>
             ) : (
-              <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
+              <Card tokens={toCardTokens(C)} noPadding>
                 {scanned.map((r, i) => (
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", borderBottom: i < scanned.length - 1 ? `1px solid ${C.border}` : "none" }}>
                     <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: C.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -4434,7 +5009,7 @@ function InstitutionDashboardInner() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </Card>
             )}
           </div>
         );
@@ -4524,12 +5099,33 @@ function InstitutionDashboardInner() {
       </KeepMounted>
       <KeepMounted tabKey="messagerie" current={tab} visited={visitedTabs}>
         {tabReadOnly(membreRole, "messagerie") && <ReadOnlyNotice C={C}/>}
-        <MessagerieTab onToast={showToast} initialCitoyenId={messagerieCitoyenInitial} suspendu={suspendu} onOpenFeedback={() => { setFeedbackType("suggestion"); setActivePopover("feedback"); }}/>
+        <MessagerieTab onToast={showToast} initialCitoyenId={messagerieCitoyenInitial} suspendu={suspendu}
+          onVoirProfilClient={tabAllowed(membreRole, "mes-clients", accesRestreints) ? (citoyenId) => { setMesClientsInitialId(citoyenId); setTab("mes-clients"); } : undefined}
+          onVoirRdv={tabAllowed(membreRole, "rdv", accesRestreints) ? () => setTab("rdv") : undefined}
+          instName={inst?.name} instLogo={inst?.logo}
+        />
+      </KeepMounted>
+      <KeepMounted tabKey="collaboration" current={tab} visited={visitedTabs}>
+        <CollaborationTab onToast={showToast}/>
+      </KeepMounted>
+      {/* Support Yelen (chantier "Séparation Messagerie/Support" 06/09/2026)
+          — URL propre /{slug}/{id}/support, ouverte dans un nouvel onglet
+          navigateur depuis le panneau header "Aide & ressources" (jamais un
+          lien de sidebar). onClose ramène vers Accueil dans CE même onglet
+          navigateur — n'a rien à voir avec le fait d'ouvrir/fermer un autre
+          onglet du navigateur. */}
+      <KeepMounted tabKey="support" current={tab} visited={visitedTabs}>
+        <SupportYelenTab
+          onClose={() => setTab("accueil")}
+          onToast={showToast}
+          onRead={() => setSupportUnread(0)}
+          instName={inst?.name} instLogo={inst?.logo}
+        />
       </KeepMounted>
       <KeepMounted tabKey="questions-clients" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
         <QuestionsClientsTab readOnly={!(membreRole !== null && can(membreRole, "questions.repondre"))} onToast={showToast}/>
       </KeepMounted>
-      <KeepMounted tabKey="profil" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}><ProfilTab onToast={showToast}/></KeepMounted>
+      <KeepMounted tabKey="profil" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}><ProfilTab onToast={showToast} onNavigate={(t) => setTab(t as DashboardTab)}/></KeepMounted>
 
       {/* ═══════════════════════════════════════════════════════════
           TAB : MES CLIENTS — fiche + timeline des RDV avec CETTE
@@ -4537,8 +5133,8 @@ function InstitutionDashboardInner() {
           Accès via menu Compte.
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="mes-clients" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        {tabReadOnly(membreRole, "mes-clients") && <ReadOnlyNotice C={C}/>}
-        <MesClientsTab instId={instId} onToast={showToast} isAdmin={isAdmin} access={tabReadOnly(membreRole, "mes-clients") ? "read" : "full"} onOuvrirMessagerie={tabAllowed(membreRole, "messagerie") ? ouvrirMessagerieClient : undefined}/>
+        {tabReadOnly(membreRole, "mes-clients", accesRestreints) && <ReadOnlyNotice C={C}/>}
+        <MesClientsTab instId={instId} onToast={showToast} isAdmin={isAdmin} access={tabReadOnly(membreRole, "mes-clients", accesRestreints) ? "read" : "full"} onOuvrirMessagerie={tabAllowed(membreRole, "messagerie") ? ouvrirMessagerieClient : undefined} initialClientId={mesClientsInitialId} onInitialClientConsumed={() => setMesClientsInitialId(null)}/>
       </KeepMounted>
 
       <KeepMounted tabKey="equipe" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
@@ -4546,7 +5142,7 @@ function InstitutionDashboardInner() {
       </KeepMounted>
 
       <KeepMounted tabKey="clock-in-shift" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <ClockInShiftTab instId={instId} onToast={showToast} access={tabReadOnly(membreRole, "clock-in-shift") ? "read" : "full"} active={tab === "clock-in-shift"}/>
+        <ClockInShiftTab instId={instId} instSlug={inst?.slug ?? ""} onToast={showToast} access={tabReadOnly(membreRole, "clock-in-shift") ? "read" : "full"} active={tab === "clock-in-shift"}/>
       </KeepMounted>
 
       <KeepMounted tabKey="journal" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
@@ -4569,7 +5165,7 @@ function InstitutionDashboardInner() {
           TAB : CENTRE D'ANALYSE
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="analyse" current={tab} visited={visitedTabs}>
-        {tabReadOnly(membreRole, "analyse") && <ReadOnlyNotice C={C}/>}
+        {tabReadOnly(membreRole, "analyse", accesRestreints) && <ReadOnlyNotice C={C}/>}
         <CentreAnalyseTab
           instId={instId}
           rdvs={rdvs}
@@ -4584,10 +5180,10 @@ function InstitutionDashboardInner() {
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="parametres" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
         <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "16px" }}>Paramètres</h1>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "16px" }}>Paramètres</h1>
 
           {inst && (
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "16px", border: `1px solid ${C.border}`, marginBottom: "14px", display: "flex", alignItems: "center", gap: "14px" }}>
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px", display: "flex", alignItems: "center", gap: "14px" }}>
               {inst.logo ? (
                 <div style={{ position: "relative", width: "52px", height: "52px", borderRadius: "14px", overflow: "hidden", border: `1px solid ${C.gold}30`, flexShrink: 0 }}><Image src={inst.logo} alt="" fill sizes="52px" style={{ objectFit: "cover" }}/></div>
               ) : (
@@ -4597,18 +5193,32 @@ function InstitutionDashboardInner() {
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst.name}</div>
-                <div style={{ color: C.t2, fontSize: "11px" }}>{inst.category} · {inst.ville}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t2, fontSize: "11px" }}>
+                  <span>{inst.category} ·</span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  <span>{inst.ville}</span>
+                </div>
                 <div style={{ display: "flex", gap: "5px", marginTop: "4px", flexWrap: "wrap" }}>
-                  {inst.statut === "validee" && <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: `${C.gold}20`, color: C.gold, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "10px" }}>✓ Compte validé</div>}
-                  {inst.badge_verifie && <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: C.greenL, color: C.green, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "10px" }}>✓ Vérifié</div>}
+                  {inst.statut === "validee" && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: C.greenL, color: C.green, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "10px" }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      Compte validé
+                    </div>
+                  )}
+                  {inst.badge_verifie && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: C.greenL, color: C.green, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "10px" }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      Vérifié
+                    </div>
+                  )}
                 </div>
               </div>
               <button onClick={() => setTab("profil-entreprise")} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", flexShrink: 0, cursor: "pointer" }}>Modifier</button>
-            </div>
+            </Card>
           )}
 
           {/* Apparence — sélecteur Système / Clair / Sombre */}
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", border: `1px solid ${C.border}`, marginBottom: "14px", overflow: "hidden" }}>
+          <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "14px" }}>
             <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.8px" }}>Apparence</span>
             </div>
@@ -4633,7 +5243,7 @@ function InstitutionDashboardInner() {
                       key={opt.key}
                       onClick={() => setMode(opt.key)}
                       className="tap"
-                      style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "12px 8px", borderRadius: "14px", backgroundColor: selected ? `${C.gold}15` : C.bg3, border: `1.5px solid ${selected ? C.gold + "50" : C.border2}`, cursor: "pointer" }}
+                      style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "12px 8px", borderRadius: "14px", backgroundColor: selected ? (opt.key === "dark" ? "#000" : "transparent") : C.bg3, border: `1.5px solid ${selected ? C.gold + "50" : C.border2}`, cursor: "pointer" }}
                     >
                       {opt.icon(selected ? C.gold : C.t2)}
                       <span style={{ color: selected ? C.gold : C.t2, fontSize: "12px", fontWeight: selected ? "700" : "500" }}>{opt.label}</span>
@@ -4642,30 +5252,33 @@ function InstitutionDashboardInner() {
                 })}
               </div>
             </div>
-          </div>
-
-          <ParametresTab instId={instId} />
+          </Card>
 
           {([
             {
+              titre: "Compte",
+              items: [
+                { label: "Sécurité du compte", href: null, onTab: "parametres-securite", color: C.gold },
+                { label: "Notifications",      href: null, onTab: "parametres-notifications", color: C.gold },
+              ],
+            },
+            {
               titre: "Abonnement",
               items: [
-                { label: "Abonnement & Forfait", href: `/institution/abonnement`, color: C.purple },
+                { label: "Abonnement et forfait", href: `/institution/abonnement`, color: C.purple },
               ],
             },
             {
               titre: "Support & Légal",
               items: [
-                { label: "Aide & FAQ",                   href: `/guide-prestataire`, color: C.blue },
-                { label: "Contacter le support",         href: "mailto:support@yelen224.com",         color: C.purple },
-                { label: "Conditions d'utilisation",     href: "/cgu",                          color: C.t2 },
-                { label: "Politique de confidentialité", href: "/confidentialite",              color: C.t2 },
+                { label: "Support", href: null, onTab: "parametres-support", color: C.blue },
+                { label: "Légal",   href: null, onTab: "parametres-legal",   color: C.t2 },
               ],
             },
           ] as SettingsSection[]).map((section, si) => (
             <div key={si} style={{ marginBottom: "14px" }}>
               <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>{section.titre}</div>
-              <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
+              <Card tokens={toCardTokens(C)} noPadding>
                 {section.items.map((item, ii) => {
                   const itemContent = (
                     <>
@@ -4681,7 +5294,7 @@ function InstitutionDashboardInner() {
                     <a key={ii} href={item.href ?? "#"} className="tap" style={itemStyle}>{itemContent}</a>
                   );
                 })}
-              </div>
+              </Card>
             </div>
           ))}
 
@@ -4690,6 +5303,56 @@ function InstitutionDashboardInner() {
           <div style={{ textAlign: "center", color: C.t3, fontSize: "10px" }}>Yelen224 Pro · Guinée · v5.1 · 2026</div>
         </div>
       </KeepMounted>
+
+      {/* ═══════════════════════════════════════════════════════════
+          Écrans dédiés issus de l'éclatement de "Paramètres" — accès
+          uniquement via les 4 lignes listées sur l'écran Paramètres
+          ci-dessus (aucune entrée sidebar dédiée), même palier RBAC que
+          "parametres" (voir lib/institutionPermissions.ts).
+      ═══════════════════════════════════════════════════════════ */}
+      <KeepMounted tabKey="parametres-securite" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <SecuriteCompteTab instId={instId}/>
+      </KeepMounted>
+
+      <KeepMounted tabKey="parametres-notifications" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <NotificationsTab instId={instId}/>
+      </KeepMounted>
+
+      <KeepMounted tabKey="parametres-support" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <AideSupportTab/>
+      </KeepMounted>
+
+      <KeepMounted tabKey="parametres-legal" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <LegalTab/>
+      </KeepMounted>
+
+      {/* ── FOOTER GÉNÉRAL — tous les onglets sauf "Vue d'ensemble" (décision
+          Bryan 16/09/2026). Un seul rendu, sibling de tous les KeepMounted
+          ci-dessus : reste dans le flux sous l'onglet actif quel qu'il soit,
+          pas besoin de le dupliquer dans chaque écran. ── */}
+      {tab !== "accueil" && (
+        <footer className="yelen-footer-fixed" style={{ padding: "12px 16px", textAlign: "center", backgroundColor: `${C.bgCard}F7`, backdropFilter: "blur(32px) saturate(200%)", borderTop: `1px solid ${C.border}` }}>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: "10px" }}>
+            <a href="/cgu" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>CGU</a>
+            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
+            <a href="/confidentialite" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>Confidentialité</a>
+            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
+            {/* Guide Yelen — même modale que le panneau "Aide" du header
+                (setShowGuide), pas un 2e composant de guide parallèle. */}
+            <button onClick={() => setShowGuide(true)} className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>Guide</button>
+            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
+            <a href="/guide-prestataire" target="_blank" rel="noopener noreferrer" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>FAQ</a>
+            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
+            {/* Support — ouvre SupportYelenTab (tab "support") dans un nouvel
+                onglet navigateur, même mécanisme que le panneau "Aide" du
+                header (retour Bryan : "l'utilisateur peut naviguer entre les
+                2 écrans"), pas une navigation interne setTab(). */}
+            <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>Support</a>
+            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
+            <span style={{ color: C.t3, fontSize: "10px" }}>© 2026 Yelen224 by SemPya224</span>
+          </div>
+        </footer>
+      )}
 
       {/* ═══════ BOTTOM NAVIGATION — 4 onglets + "Plus" (mobile) ═══════
           8-9 onglets ne tiennent plus dans une barre à 5 colonnes égales.
@@ -4715,7 +5378,7 @@ function InstitutionDashboardInner() {
             icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? C.gold : C.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg> },
         ] as { key: typeof tab | "__plus__"; label: string; badge: number; icon: (a: boolean) => React.ReactNode }[])
           .filter(item => navAllowed(item.key)).map(item => {
-          const overflowTabs: (typeof tab)[] = ["services", "communication", "communaute-pro", "signalements", "messagerie", "codeqr", "valider-rdv", "analyse", "parametres", "profil-entreprise", "profil-responsable", "documents", "paiements", "transactions", "historique-financier", "facturation", "rapports", "documents-financiers", "documents-clients"];
+          const overflowTabs: (typeof tab)[] = ["services", "communication", "communaute-pro", "signalements", "messagerie", "codeqr", "valider-rdv", "analyse", "parametres", "profil-entreprise", "profil-responsable", "documents", "paiements", "transactions", "historique-financier", "facturation", "rapports", "documents-financiers", "documents-clients", "parametres-securite", "parametres-notifications", "parametres-support", "parametres-legal"];
           const active = item.key === "__plus__" ? overflowTabs.includes(tab) : tab === item.key;
           return (
             <button key={item.key} onClick={() => item.key === "__plus__" ? setMobileMoreOpen(true) : setTab(item.key as typeof tab)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", background: "none", border: "none", padding: "8px 4px 5px", cursor: "pointer", position: "relative" }}>
@@ -4723,7 +5386,7 @@ function InstitutionDashboardInner() {
               <span style={{ position: "relative", display: "inline-flex" }}>
                 {item.icon(active)}
                 {item.badge > 0 && (
-                  <span style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.gold, color: "#000", fontSize: "8px", fontWeight: "800", borderRadius: "10px", minWidth: "14px", height: "14px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", border: `1.5px solid ${C.bg}` }}>
+                  <span style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "8px", fontWeight: "800", borderRadius: "10px", minWidth: "14px", height: "14px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", border: `1.5px solid ${C.bg}` }}>
                     {item.badge > 99 ? "99+" : item.badge}
                   </span>
                 )}
@@ -4840,6 +5503,27 @@ function InstitutionDashboardInner() {
       )}
       {etapeValidation === "celebration" && (
         <CelebrationModal instName={inst?.name ?? "Votre établissement"} onClose={() => setEtapeValidation(null)}/>
+      )}
+
+      {/* Yelen Security Activation (16/09/2026) — écran plein écran non
+          fermable une fois l'échéance dépassée, sinon simple popup
+          dismissible déclenché après quelques minutes d'usage réel. */}
+      {activationSecurite?.bloque && (
+        <SecurityActivationGate
+          bloquant
+          deadline={activationSecurite.deadline}
+          onToast={showToast}
+          onActive={() => setActivationSecurite(prev => prev ? { ...prev, requise: false, bloque: false } : prev)}
+        />
+      )}
+      {!activationSecurite?.bloque && popupActivationOuvert && (
+        <SecurityActivationGate
+          bloquant={false}
+          deadline={activationSecurite?.deadline ?? null}
+          onToast={showToast}
+          onActive={() => { setPopupActivationOuvert(false); setActivationSecurite(prev => prev ? { ...prev, requise: false } : prev); }}
+          onFermer={() => { setPopupActivationOuvert(false); setPopupActivationDismiss(true); }}
+        />
       )}
     </div>
   );

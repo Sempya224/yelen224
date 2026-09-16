@@ -104,7 +104,7 @@ export function CarteYelenClient() {
         const url = await generateBrandedQR(`YELEN-ID:${formatYelenId(userId)}`, 600);
         setQrDataUrl(url);
       } catch {
-        showToast("Impossible de générer le QR Code.", "error");
+        showToast("Impossible de générer le QR code.", "error");
       } finally {
         setQrLoading(false);
       }
@@ -297,7 +297,7 @@ export function CarteYelenClient() {
                 <div style={{ display: "inline-block", padding: "16px", backgroundColor: "#fff", borderRadius: "16px", border: "3px solid #F5A623", marginBottom: "20px", boxShadow: "0 4px 20px rgba(245,166,35,0.2)" }}>
                   {/* IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode), non fetchable par l'optimiseur next/image | reviewed=2026-08-08 */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={qrDataUrl} alt="QR Code Yelen ID" width="240" height="240" style={{ display: "block", borderRadius: "8px" }}/>
+                  <img src={qrDataUrl} alt="QR code Yelen ID" width="240" height="240" style={{ display: "block", borderRadius: "8px" }}/>
                 </div>
                 <div style={{ fontFamily: "monospace", fontSize: "18px", fontWeight: "800", color: "#F5A623", letterSpacing: "1px", marginBottom: "14px" }}>{yelenId}</div>
                 <div style={{ color: t2, fontSize: "13px", lineHeight: 1.6, textAlign: "center", maxWidth: "320px" }}>Ce code identifie votre compte Yelen. Ne le partagez qu&apos;aux personnes ou établissements de confiance.</div>

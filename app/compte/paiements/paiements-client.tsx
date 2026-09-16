@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
@@ -82,6 +82,7 @@ function IllustrationRecuVide({ isDark }: { isDark: boolean }) {
 
 export function PaiementsClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const bg   = isDark ? "#0A0A0F" : "#F2F2F7";
@@ -118,6 +119,17 @@ export function PaiementsClient() {
     if (!id) { router.replace("/inscription"); return; }
     void (async () => { setLoading(true); await charger(); setLoading(false); })();
   }, [router, charger]);
+
+  // Deep-link "?paiement=<id>" (venant de la fiche RDV, bouton "Télécharger
+  // le reçu") — ouvre la même fiche qu'un clic manuel sur la carte, une
+  // fois seulement (searchParams change de référence à chaque re-render).
+  useEffect(() => {
+    if (!paiements) return;
+    const id = searchParams.get("paiement");
+    if (!id) return;
+    const match = paiements.find(p => p.id === id);
+    if (match) setHistoriqueOuvert(match);
+  }, [paiements, searchParams]);
 
   // Copier la référence — action native légère (point 3 du brief),
   // uniquement sur une donnée déjà affichée, jamais un identifiant fabriqué.
@@ -282,6 +294,12 @@ export function PaiementsClient() {
                 </div>
               ))}
             </div>
+
+            {historiqueOuvert.recu && (
+              <button onClick={() => void telechargerRecu(historiqueOuvert)} disabled={telechargement === historiqueOuvert.id} className="tap" style={{ width: "100%", marginTop: "8px", backgroundColor: "#F5A623", border: "none", color: "#080812", fontWeight: 700, fontSize: "13px", padding: "12px", borderRadius: "12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                {telechargement === historiqueOuvert.id ? <YelenLoader size={14} color="#080812"/> : "Télécharger le reçu"}
+              </button>
+            )}
 
             <button onClick={() => setHistoriqueOuvert(null)} className="tap" style={{ width: "100%", marginTop: "8px", backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: `1px solid ${brd}`, color: t1, fontWeight: 700, fontSize: "13px", padding: "12px", borderRadius: "12px", cursor: "pointer" }}>Fermer</button>
           </div>

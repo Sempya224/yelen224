@@ -198,7 +198,7 @@ export function NotifPanel({ onClose, isDark, bg, t1, t2, t3, card, card2, brd, 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
                       <div style={{ color: t1, fontSize: "13px", fontWeight: n.lu ? "600" : "800", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.titre}</div>
-                      <span style={{ fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", flexShrink: 0, backgroundColor: n.lu ? card2 : "#F5A623", color: n.lu ? t3 : "#080812" }}>
+                      <span style={{ fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", flexShrink: 0, backgroundColor: n.lu ? card2 : "#F5A623", color: n.lu ? t3 : "#fff" }}>
                         {n.lu ? "Lu" : "Non lu"}
                       </span>
                     </div>

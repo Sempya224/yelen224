@@ -31,7 +31,9 @@ export type AuthEndpointCategory =
   | "recuperation"
   | "admin_login"
   | "admin_entry"
-  | "employee_login";
+  | "employee_login"
+  | "checkin_login"
+  | "checkin_code_manuel";
 
 export type AuthSecurityState = "normal" | "warning" | "blocked" | "support_only";
 

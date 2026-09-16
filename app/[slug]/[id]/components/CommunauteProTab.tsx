@@ -31,9 +31,11 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLoader, YelenLoaderEcran } from "@/components/YelenLoader";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { POST_CATEGORIES, POST_CATEGORIE_LABELS, POST_CATEGORIE_COULEURS, type PostCategorie } from "@/lib/communauteCategories";
 import { DemandeCommunauteOverlay } from "@/components/DemandeCommunauteOverlay";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { AvatarInstitution, CategorieBadge } from "@/components/CommunautePostCard";
 
 type PostInstitution = {
@@ -126,13 +128,13 @@ function CommunauteProBienvenue({ onCommencer, C }: { onCommencer: () => void; C
             <path d="M34 48l9 9 19-19" stroke={C.gold} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </svg>
         </div>
-        <h2 style={{ color: C.t1, fontSize: "19px", fontWeight: 900, margin: "0 0 10px", letterSpacing: "-0.3px" }}>Bienvenue dans Yelen Community</h2>
+        <h2 style={{ color: C.t1, fontSize: "19px", fontWeight: 800, margin: "0 0 10px", letterSpacing: "-0.3px" }}>Bienvenue dans Yelen Community</h2>
         <p style={{ color: C.t2, fontSize: "13.5px", lineHeight: 1.7, margin: "0 0 28px" }}>
           Votre demande a été approuvée — votre établissement peut désormais publier dans le fil communautaire des citoyens Yelen. Chaque publication reste vérifiée par notre équipe avant diffusion.
         </p>
-        <button onClick={onCommencer} className="tap" style={{ width: "100%", background: C.gold, border: "none", color: "#080812", fontWeight: 800, fontSize: "14px", padding: "14px", borderRadius: "12px", cursor: "pointer" }}>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={onCommencer}>
           Commencer
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -273,9 +275,9 @@ function CommunityEmptyScreen({ C, illustration, titre, texte, cta }: {
       <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "8px" }}>{titre}</div>
       <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: 0 }}>{texte}</div>
       {cta && (
-        <button onClick={cta.onClick} className="tap" style={{ marginTop: "20px", backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "12px 22px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ marginTop: "20px" }} onClick={cta.onClick}>
           {cta.label}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -451,7 +453,7 @@ export function CommunauteProTab({ instId, instName, canPublish, onNavigate, ref
           {ICONS.Megaphone("#080812")}
         </div>
         <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 900, margin: 0, letterSpacing: "-0.3px" }}>Yelen Community</h1>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, margin: 0, letterSpacing: "-0.3px" }}>Yelen Community</h1>
           <p style={{ color: C.t2, fontSize: "13px", margin: "2px 0 0" }}>Partagez la voix de votre établissement auprès des citoyens Yelen.</p>
         </div>
       </div>
@@ -498,7 +500,7 @@ export function CommunauteProTab({ instId, instName, canPublish, onNavigate, ref
             </div>
           )}
           {peutDemander && (
-            <button onClick={() => setFormOpen(true)} className="tap" style={{ background: heroCtaBg, border: "none", color: heroCtaText, fontWeight: 800, fontSize: "13px", padding: "13px 22px", borderRadius: "12px", cursor: "pointer", whiteSpace: "nowrap" }}>
+            <button onClick={() => setFormOpen(true)} className="tap" style={{ height: "40px", background: heroCtaBg, border: "none", color: heroCtaText, fontWeight: 700, fontSize: "13px", padding: "0 22px", borderRadius: "12px", cursor: "pointer", whiteSpace: "nowrap" }}>
               {statut === "refuse" ? "Nouvelle demande" : "Demander à rejoindre"}
             </button>
           )}
@@ -534,7 +536,7 @@ export function CommunauteProTab({ instId, instName, canPublish, onNavigate, ref
           ))
           : ETAPES.map(e => (
             <div key={e.n} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
-              <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: C.bgCard2, border: `1.5px solid ${C.gold}`, color: C.gold, fontWeight: 900, fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "10px" }}>{e.n}</div>
+              <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: C.bgCard2, border: `1.5px solid ${C.gold}`, color: C.gold, fontWeight: 800, fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "10px" }}>{e.n}</div>
               <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>{e.titre}</div>
               <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6 }}>{e.texte}</div>
             </div>
@@ -543,7 +545,7 @@ export function CommunauteProTab({ instId, instName, canPublish, onNavigate, ref
 
       <div style={{ background: C.bgCard, border: `1px solid ${C.gold}33`, borderRadius: "18px", padding: "22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, marginBottom: "4px" }}>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, marginBottom: "4px" }}>
             {statut === "en_attente" ? "Votre demande est en cours" : "Prêt à rejoindre ?"}
           </div>
           <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, maxWidth: "440px" }}>
@@ -555,9 +557,9 @@ export function CommunauteProTab({ instId, instName, canPublish, onNavigate, ref
           </div>
         </div>
         {peutDemander && (
-          <button onClick={() => setFormOpen(true)} className="tap" style={{ background: C.gold, border: "none", color: "#080812", fontWeight: 800, fontSize: "13px", padding: "14px 22px", borderRadius: "12px", cursor: "pointer", flexShrink: 0 }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 22px", flexShrink: 0 }} onClick={() => setFormOpen(true)}>
             Soumettre une demande
-          </button>
+          </Button>
         )}
       </div>
       </div>
@@ -732,7 +734,7 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
       )}
 
       <div style={{ marginBottom: "18px" }}>
-        <h2 style={{ color: C.t1, fontSize: "18px", fontWeight: 900, margin: "0 0 4px" }}>Yelen Community</h2>
+        <h2 style={{ color: C.t1, fontSize: "18px", fontWeight: 800, margin: "0 0 4px" }}>Yelen Community</h2>
         <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: 0 }}>Votre présence professionnelle sur Yelen — publiez, mesurez et faites connaître votre établissement auprès des citoyens. Chaque publication est validée par l&apos;équipe Yelen avant diffusion.</p>
       </div>
 
@@ -849,15 +851,19 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
 
             <div style={{ borderTop: `1px solid ${C.border}`, margin: "0 0 16px" }} />
             <div style={{ display: "flex", gap: "10px" }}>
-              <button onClick={fermerComposer} className="tap" style={{ flex: 1, backgroundColor: "transparent", border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "12px", color: C.t2, fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>Annuler</button>
-              <button
-                onClick={handlePublier}
-                disabled={!peutPublier}
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={fermerComposer}>Annuler</Button>
+              <Button
+                tokens={toUiTokens(C)}
                 className="tap"
-                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: C.gold, border: "none", borderRadius: "10px", padding: "12px", color: "#000", fontSize: "13px", fontWeight: 800, cursor: peutPublier ? "pointer" : "default", opacity: peutPublier ? 1 : 0.5 }}
+                variant="primary"
+                size="md"
+                style={{ flex: 1 }}
+                disabled={!peutPublier}
+                loading={saving}
+                onClick={handlePublier}
               >
-                {saving ? <YelenLoader size={14} color="#000" /> : "Publier"}
-              </button>
+                Publier
+              </Button>
             </div>
           </div>
         </div>
@@ -874,14 +880,14 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
 // composant d'un autre onglet).
 function HubKpiCard({ label, icon, color, value, sub, C }: { label: string; icon: React.ReactNode; color: string; value: string; sub?: string; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", padding: "14px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "8px" }}>
+    <Card tokens={toCardTokens(C)} padding="14px" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "26px", height: "26px", borderRadius: "8px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 700 }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "20px", fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
       <span style={{ color: C.t3, fontSize: "10px" }}>{sub ?? "Pas de comparaison disponible"}</span>
-    </div>
+    </Card>
   );
 }
 
@@ -954,9 +960,9 @@ function VueEnsembleView({ C, posts, audience, canPublish, onCreer, onVoirPublic
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>Votre présence en un coup d&apos;œil</div>
         {canPublish && (
-          <button onClick={onCreer} className="tap" style={{ backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "10px 16px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={onCreer}>
             + Nouvelle publication
-          </button>
+          </Button>
         )}
       </div>
 
@@ -977,16 +983,16 @@ function VueEnsembleView({ C, posts, audience, canPublish, onCreer, onVoirPublic
       {insights.length > 0 ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
           {insights.map((texte, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px" }}>
+            <Card key={i} tokens={toCardTokens(C)} padding="12px 14px" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12" /></svg>
               <span style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5 }}>{texte}</span>
-            </div>
+            </Card>
           ))}
         </div>
       ) : (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "16px", color: C.t2, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>
           Publiez encore quelques contenus pour débloquer des tendances sur ce qui fonctionne le mieux auprès des citoyens Yelen.
-        </div>
+        </Card>
       )}
 
       {nbRefusees > 0 && (
@@ -1104,11 +1110,11 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
       <div>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "20px" }}>
           <div>
-            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, marginBottom: "4px" }}>Publications</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, marginBottom: "4px" }}>Publications</div>
             <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>Gérez les contenus publiés par votre établissement sur Yelen Community.</div>
           </div>
         </div>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "12px" }}>
+        <Card tokens={toCardTokens(C)} padding="12px">
           <CommunityEmptyScreen
             C={C}
             illustration={<CommunauteProEmptyIllustration color={C.gold} />}
@@ -1116,7 +1122,7 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
             texte="Votre espace Community Pro est prêt. Publiez votre première actualité pour commencer à construire votre présence sur Yelen."
             cta={canPublish ? { label: "Créer une publication", onClick: onCreer } : undefined}
           />
-        </div>
+        </Card>
       </div>
     );
   }
@@ -1136,13 +1142,13 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "18px" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, marginBottom: "4px" }}>Publications</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, marginBottom: "4px" }}>Publications</div>
           <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5, maxWidth: "460px" }}>Gérez les contenus publiés par votre établissement sur Yelen Community.</div>
         </div>
         {canPublish && (
-          <button onClick={onCreer} className="tap" style={{ backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "11px 18px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ flexShrink: 0 }} onClick={onCreer}>
             + Nouvelle publication
-          </button>
+          </Button>
         )}
       </div>
 
@@ -1183,13 +1189,13 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
       </div>
 
       {postsFiltres.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "40px 24px", textAlign: "center" }}>
+        <Card tokens={toCardTokens(C)} padding="40px 24px" style={{ textAlign: "center" }}>
           <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, marginBottom: "6px" }}>Aucun résultat</div>
           <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: "0 auto 18px", maxWidth: "320px" }}>Aucune publication ne correspond à votre recherche{filtresActifs ? " ou à vos filtres" : ""}.</p>
-          <button onClick={reinitialiser} className="tap" style={{ backgroundColor: C.bg3, border: "none", borderRadius: "10px", padding: "10px 18px", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={reinitialiser}>
             Réinitialiser les filtres
-          </button>
-        </div>
+          </Button>
+        </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {postsFiltres.map(p => {
@@ -1200,7 +1206,7 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
             const titreLigne = lignes[0] ?? null;
             const resteTexte = lignes.slice(1).join(" ").trim();
             return (
-              <div key={p.id} className="communaute-pro-pub-card" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "14px" }}>
+              <Card key={p.id} tokens={toCardTokens(C)} padding="14px" className="communaute-pro-pub-card">
                 <PubThumb C={C} images={images} categorie={p.categorie} />
                 <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
@@ -1240,7 +1246,7 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
                     Voir la publication
                   </button>
                 </div>
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -1320,9 +1326,9 @@ function PublicationDetailOverlay({ C, instName, post, onClose }: { C: ThemeToke
           </div>
         )}
 
-        <button onClick={onClose} className="tap" style={{ width: "100%", backgroundColor: C.bg3, border: "none", borderRadius: "10px", padding: "12px", color: C.t2, fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={onClose}>
           Fermer
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1344,7 +1350,7 @@ function PerfMetric({ C, label, value }: { C: ThemeTokens; label: string; value:
 function PerfTile({ C, label, value, sub, subColor }: { C: ThemeTokens; label: string; value: string; sub?: string; subColor?: string }) {
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: "10px", padding: "8px 10px", textAlign: "center" }}>
-      <div style={{ color: C.t1, fontSize: "15px", fontWeight: 900, lineHeight: 1.2 }}>{value}</div>
+      <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, lineHeight: 1.2 }}>{value}</div>
       <div style={{ color: C.t3, fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px" }}>{label}</div>
       {sub && <div style={{ color: subColor ?? C.t3, fontSize: "9.5px", fontWeight: 700, marginTop: "2px" }}>{sub}</div>}
     </div>
@@ -1453,7 +1459,7 @@ function PerformanceView({ C, instName, posts, performance, canPublish, onCreer 
             : null;
 
           return (
-            <div key={p.id} className="communaute-pro-perf-row" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "12px" }}>
+            <Card key={p.id} tokens={toCardTokens(C)} padding="12px" className="communaute-pro-perf-row">
               <PubThumb C={C} images={p.images ?? []} categorie={p.categorie} />
 
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -1502,7 +1508,7 @@ function PerformanceView({ C, instName, posts, performance, canPublish, onCreer 
                   </button>
                 </div>
               </div>
-            </div>
+            </Card>
           );
         })}
       </div>
@@ -1579,30 +1585,30 @@ function PresenceView({ C, instName, posts }: { C: ThemeTokens; instName?: strin
     <div className="communaute-pro-presence" style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px", alignItems: "start" }}>
       <style>{`@media(min-width:1024px){.communaute-pro-presence{grid-template-columns:340px 1fr!important}}`}</style>
 
-      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "18px", padding: "20px" }}>
+      <Card tokens={toCardTokens(C)} padding="20px">
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
           <AvatarInstitution nom={nom} logo={null} taille={52} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ color: C.t1, fontSize: "15px", fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nom}</div>
+            <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nom}</div>
             <div style={{ color: C.t3, fontSize: "11.5px" }}>Présence Yelen Community</div>
           </div>
         </div>
         <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.7 }}>
           C&apos;est ce que voit un citoyen Yelen qui découvre votre établissement dans le fil communautaire : {publiees.length} publication{publiees.length !== 1 ? "s" : ""} visible{publiees.length !== 1 ? "s" : ""}.
         </div>
-      </div>
+      </Card>
 
       <div>
         <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Publications visibles dans le fil</div>
         {publiees.length === 0 ? (
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px" }}>
+          <Card tokens={toCardTokens(C)} padding="0">
             <CommunityEmptyScreen
               C={C}
               illustration={<IllustrationPresence color={C.gold} />}
               titre="Présentez votre activité à la communauté Yelen"
               texte="Vos prochaines publications apparaîtront ici dès qu'elles seront validées — c'est ce que verra un citoyen qui découvre votre établissement."
             />
-          </div>
+          </Card>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {publiees.slice(0, 6).map(p => {
@@ -1611,13 +1617,13 @@ function PresenceView({ C, instName, posts }: { C: ThemeTokens; instName?: strin
               const contenu = p.contenu ?? "";
               const apercu = contenu.length > 90 ? contenu.slice(0, 90).trimEnd() + "…" : contenu;
               return (
-                <div key={p.id} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px" }}>
+                <Card key={p.id} tokens={toCardTokens(C)} padding="12px 14px">
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
                     {couleurCat && <span style={{ background: `${couleurCat}18`, color: couleurCat, fontSize: "9.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "20px" }}>{label}</span>}
                     <span style={{ marginLeft: "auto", color: C.t3, fontSize: "10.5px" }}>{fmt(p.created_at)}</span>
                   </div>
                   {apercu && <div style={{ color: C.t1, fontSize: "12px", lineHeight: 1.5 }}>{apercu}</div>}
-                </div>
+                </Card>
               );
             })}
           </div>

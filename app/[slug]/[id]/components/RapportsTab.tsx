@@ -11,7 +11,9 @@
 // CentreAnalyseTab.tsx (Sparkline/DeltaLabel/KpiCard répliqués localement).
 import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 
@@ -84,19 +86,19 @@ function KpiCard({ label, icon, montant, nb, delta, sparkline, vsLabel, color, C
   sparkline: number[]; vsLabel: string; color: string; C: ThemeTokens;
 }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", display: "flex", flexDirection: "column", gap: "10px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "26px", height: "26px", borderRadius: "8px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "21px", fontWeight: "900", letterSpacing: "-0.4px", lineHeight: 1.1 }}>{formatPrix(montant)}</div>
+      <div style={{ color: C.t1, fontSize: "21px", fontWeight: "800", letterSpacing: "-0.4px", lineHeight: 1.1 }}>{formatPrix(montant)}</div>
       <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
         <DeltaBadge delta={delta} C={C}/>
         <span style={{ color: C.t3, fontSize: "10.5px" }}>{vsLabel}</span>
       </div>
       <Sparkline serie={sparkline} color={color}/>
       <div style={{ color: C.t3, fontSize: "10px", fontWeight: 600 }}>{nb} vente{nb > 1 ? "s" : ""}</div>
-    </div>
+    </Card>
   );
 }
 
@@ -136,7 +138,7 @@ function EvolutionChart({ evolution, range, onRangeChange, C }: {
   }
 
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "18px", padding: "18px", marginBottom: "16px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "6px" }}>
         <div>
           <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Évolution des revenus</div>
@@ -173,13 +175,13 @@ function EvolutionChart({ evolution, range, onRangeChange, C }: {
           {hoverIdx !== null && points[hoverIdx] && (
             <div style={{ position: "absolute", left: `${(xAt(hoverIdx) / CHART_W) * 100}%`, top: "4px", transform: xAt(hoverIdx) > CHART_W / 2 ? "translateX(-104%)" : "translateX(6%)", backgroundColor: C.t1, borderRadius: "8px", padding: "7px 10px", pointerEvents: "none", whiteSpace: "nowrap", boxShadow: "0 6px 16px rgba(0,0,0,0.22)" }}>
               <div style={{ color: C.bg, fontSize: "10.5px", fontWeight: 700, opacity: 0.75 }}>{points[hoverIdx].label}</div>
-              <div style={{ color: C.bg, fontSize: "13px", fontWeight: 900 }}>{formatPrix(points[hoverIdx].montant)}</div>
+              <div style={{ color: C.bg, fontSize: "13px", fontWeight: 800 }}>{formatPrix(points[hoverIdx].montant)}</div>
               <div style={{ color: C.bg, fontSize: "10px", fontWeight: 600, opacity: 0.75 }}>{points[hoverIdx].ventes} vente{points[hoverIdx].ventes > 1 ? "s" : ""}</div>
             </div>
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -220,7 +222,7 @@ function TopServicesTable({ services, C }: { services: ServiceRapport[]; C: Them
   }, [services, sortKey, sortDir]);
 
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "18px", padding: "18px", marginBottom: "16px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "16px" }}>
       <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "2px" }}>Top services</div>
       <div style={{ color: C.t3, fontSize: "11px", marginBottom: "14px" }}>Cette année · cliquez un en-tête pour trier</div>
       {sorted.length === 0 ? (
@@ -253,7 +255,7 @@ function TopServicesTable({ services, C }: { services: ServiceRapport[]; C: Them
           </table>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -270,7 +272,7 @@ function DonutCategories({ categories, selected, onSelect, C }: {
   let cumule = 0;
 
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "18px", padding: "18px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px">
       <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "2px" }}>Répartition des revenus</div>
       <div style={{ color: C.t3, fontSize: "11px", marginBottom: "16px" }}>Cette année, par catégorie{categories.length > 0 ? (selected ? " — cliquez pour réinitialiser" : " — cliquez pour filtrer le tableau") : ""}</div>
       {categories.length === 0 ? (
@@ -307,7 +309,7 @@ function DonutCategories({ categories, selected, onSelect, C }: {
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -316,7 +318,7 @@ function ActiviteTimeline({ points, C }: { points: PointSerie[]; C: ThemeTokens 
   const avecVentes = points.filter(p => p.ventes > 0);
   const maxVentes = Math.max(1, ...points.map(p => p.ventes));
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "18px", padding: "18px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px">
       <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "2px" }}>Activité du jour</div>
       <div style={{ color: C.t3, fontSize: "11px", marginBottom: "14px" }}>Ventes par heure, aujourd&apos;hui</div>
       {avecVentes.length === 0 ? (
@@ -334,14 +336,14 @@ function ActiviteTimeline({ points, C }: { points: PointSerie[]; C: ThemeTokens 
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
 // ── Résumé intelligent (§8) — synthèse 100% déterministe, générée côté serveur, zéro LLM ──
 function ResumeIntelligent({ lignes, C }: { lignes: string[]; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: `${C.gold}0c`, border: `1px solid ${C.gold}30`, borderRadius: "18px", padding: "18px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ border: `1px solid ${C.gold}20` }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
         <span style={{ color: C.gold }}>{ICON_SPARKLE}</span>
         <span style={{ color: C.t1, fontSize: "13.5px", fontWeight: "800" }}>Résumé</span>
@@ -354,7 +356,7 @@ function ResumeIntelligent({ lignes, C }: { lignes: string[]; C: ThemeTokens }) 
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -413,7 +415,7 @@ export function RapportsTab({ instId }: { instId: string }) {
         }
       `}</style>
 
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Rapports</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Rapports</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px", lineHeight: 1.5 }}>Analyse financière et opérationnelle de votre établissement. Toutes les données proviennent de l&apos;activité réelle de Yelen.</p>
 
       {/* Header exécutif (§2) — date, dernière synchro, actions d'export.
@@ -422,26 +424,20 @@ export function RapportsTab({ instId }: { instId: string }) {
           fonctionnel qu'avant la refonte) — un vrai sélecteur de date
           historique nécessiterait une nouvelle capacité serveur (rapport à
           une date passée), hors périmètre "visuel uniquement" de ce lot. */}
-      <div className="no-print" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "12px 16px", marginBottom: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+      <Card tokens={toCardTokens(C)} padding="12px 16px" className="no-print" style={{ marginBottom: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
           <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: "800", textTransform: "capitalize" }}>{formatDateHeure(data.genere_le)}</span>
           <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: "600" }}>Synchronisé à {formatHeureCourte(data.genere_le)}</span>
         </div>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <button onClick={() => telechargerFichier("/api/institution/rapports/pdf", `rapport-executif-${new Date().toISOString().slice(0, 10)}.pdf`, setExportingPdf)} disabled={exportingPdf} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 13px", fontSize: "12px", fontWeight: "700", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            {exportingPdf ? <YelenLoader size={13}/> : ICON_PDF} Export PDF
-          </button>
-          <button onClick={() => telechargerFichier("/api/institution/rapports", `rapport-financier-${new Date().toISOString().slice(0, 10)}.xlsx`, setExportingXlsx)} disabled={exportingXlsx} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 13px", fontSize: "12px", fontWeight: "700", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            {exportingXlsx ? <YelenLoader size={13}/> : ICON_EXCEL} Export Excel
-          </button>
-          <button onClick={() => window.print()} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 13px", fontSize: "12px", fontWeight: "700", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            {ICON_PRINT} Imprimer
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={exportingPdf} icon={ICON_PDF} onClick={() => telechargerFichier("/api/institution/rapports/pdf", `rapport-executif-${new Date().toISOString().slice(0, 10)}.pdf`, setExportingPdf)}>Export PDF</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={exportingXlsx} icon={ICON_EXCEL} onClick={() => telechargerFichier("/api/institution/rapports", `rapport-financier-${new Date().toISOString().slice(0, 10)}.xlsx`, setExportingXlsx)}>Export Excel</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" icon={ICON_PRINT} onClick={() => window.print()}>Imprimer</Button>
           <button onClick={load} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "9px", fontSize: "12.5px", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center" }} aria-label="Actualiser">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
         </div>
-      </div>
+      </Card>
 
       {/* KPI exécutifs (§3) */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px", marginBottom: "16px" }}>

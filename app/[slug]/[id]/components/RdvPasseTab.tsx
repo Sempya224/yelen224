@@ -13,8 +13,10 @@
 // sur presence_status, pas sur statut (même règle que le reste du dashboard).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/EmptyState";
 import { DEVISE_LABEL } from "@/lib/devise";
 
@@ -196,10 +198,16 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
 
       {/* 2. Export */}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
-        <button onClick={exportCsv} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "10px 16px", color: C.t2, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <Button
+          tokens={toUiTokens(C)}
+          className="tap"
+          variant="secondary"
+          size="md"
+          icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+          onClick={exportCsv}
+        >
           Exporter CSV
-        </button>
+        </Button>
       </div>
 
       {/* 3. Filtres période */}
@@ -264,7 +272,7 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
           <YelenLoader size={28}/>
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: rdvs.length === 0 && !dateFrom && !dateTo && !q ? "12px" : "44px 20px", textAlign: "center", border: `1px solid ${C.border}` }}>
+        <Card tokens={toCardTokens(C)} padding={rdvs.length === 0 && !dateFrom && !dateTo && !q ? "12px" : "44px 20px"} style={{ textAlign: "center" }}>
           {rdvs.length === 0 && !dateFrom && !dateTo && !q ? (
             <EmptyState
               variant="historique"
@@ -277,7 +285,7 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
           ) : (
             <p style={{ color: C.t2, fontSize: "13px" }}>Aucun rendez-vous trouvé pour ces filtres.</p>
           )}
-        </div>
+        </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {paged.map(r => {
@@ -287,11 +295,11 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
             const suiviOuvert = openSuivi === r.id;
             const actions = actionsPour(r);
             return (
-              <div key={r.id} className="rdvp-card" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow, padding: "20px" }}>
+              <Card key={r.id} tokens={toCardTokens(C)} padding="20px" className="rdvp-card" style={{ position: "relative", boxShadow: C.shadow }}>
                 <div className="rdvp-card-grid">
                   {/* Colonne 1 — Client */}
                   <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
-                    <div style={{ width: "42px", height: "42px", borderRadius: "50%", backgroundColor: av.bg, color: av.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: 900, flexShrink: 0 }}>
+                    <div style={{ width: "42px", height: "42px", borderRadius: "50%", backgroundColor: av.bg, color: av.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: 800, flexShrink: 0 }}>
                       {r.citoyen_nom.slice(0, 2).toUpperCase()}
                     </div>
                     <div style={{ minWidth: 0 }}>
@@ -330,15 +338,15 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
                   <div className="rdvp-actions" style={{ display: "flex", gap: "8px", position: "relative" }}>
                     {actions === "attente" && (
                       <>
-                        <button onClick={() => { setOpenSuivi(suiviOuvert ? null : r.id); setSuiviText(r.notes || ""); }} className="tap" style={{ height: "40px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, color: C.t2, fontSize: "11.5px", fontWeight: 700, padding: "0 12px", borderRadius: "12px", cursor: "pointer", whiteSpace: "nowrap" }}>Marquer un suivi</button>
-                        <button onClick={() => envoyerRappel(r.id)} disabled={busyId === r.id} className="tap" style={{ height: "40px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, color: C.t2, fontSize: "11.5px", fontWeight: 700, padding: "0 12px", borderRadius: "12px", cursor: "pointer", whiteSpace: "nowrap", opacity: busyId === r.id ? 0.6 : 1 }}>{busyId === r.id ? "…" : "Rappeler ce client"}</button>
+                        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} onClick={() => { setOpenSuivi(suiviOuvert ? null : r.id); setSuiviText(r.notes || ""); }}>Marquer un suivi</Button>
+                        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} loading={busyId === r.id} onClick={() => envoyerRappel(r.id)}>Rappeler ce client</Button>
                       </>
                     )}
                     {actions === "termine" && (
-                      <button onClick={() => setDetailRdv(r)} className="tap" style={{ height: "40px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, color: C.t2, fontSize: "11.5px", fontWeight: 700, padding: "0 12px", borderRadius: "12px", cursor: "pointer", whiteSpace: "nowrap" }}>Voir le dossier</button>
+                      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} onClick={() => setDetailRdv(r)}>Voir le dossier</Button>
                     )}
                     {actions === "annule" && (
-                      <button onClick={() => setDetailRdv(r)} className="tap" style={{ height: "40px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, color: C.t2, fontSize: "11.5px", fontWeight: 700, padding: "0 12px", borderRadius: "12px", cursor: "pointer", whiteSpace: "nowrap" }}>Détails</button>
+                      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} onClick={() => setDetailRdv(r)}>Détails</Button>
                     )}
                     <button onClick={() => setMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "40px", height: "40px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
@@ -360,12 +368,12 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
                   <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${C.border}` }}>
                     <textarea value={suiviText} onChange={e => setSuiviText(e.target.value)} placeholder="Note de suivi pour ce rendez-vous…" rows={2} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "10px 12px", fontSize: "12.5px", lineHeight: 1.6, resize: "none", color: C.t1, marginBottom: "8px" }}/>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                      <button onClick={() => setOpenSuivi(null)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontSize: "12px", fontWeight: 700, padding: "10px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-                      <button onClick={() => saveSuivi(r.id)} disabled={busyId === r.id} className="tap" style={{ backgroundColor: `${C.purple}20`, border: `1px solid ${C.purple}40`, color: C.purple, fontSize: "12px", fontWeight: 800, padding: "10px", borderRadius: "10px", cursor: "pointer", opacity: busyId === r.id ? 0.6 : 1 }}>{busyId === r.id ? "…" : "Enregistrer"}</button>
+                      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setOpenSuivi(null)}>Annuler</Button>
+                      <button onClick={() => saveSuivi(r.id)} disabled={busyId === r.id} className="tap" style={{ height: "32px", backgroundColor: `${C.purple}20`, border: `1px solid ${C.purple}40`, color: C.purple, fontSize: "12px", fontWeight: 700, padding: "0 12px", borderRadius: "10px", cursor: "pointer", opacity: busyId === r.id ? 0.6 : 1 }}>{busyId === r.id ? "Enregistrement…" : "Enregistrer"}</button>
                     </div>
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -407,7 +415,7 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
         <div onClick={() => setDetailRdv(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}>
           <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "22px", border: `1px solid ${C.border2}`, maxWidth: "440px", width: "100%", maxHeight: "86svh", overflowY: "auto", padding: "24px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900 }}>Détails du rendez-vous</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800 }}>Détails du rendez-vous</div>
               <button onClick={() => setDetailRdv(null)} style={{ width: "30px", height: "30px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", cursor: "pointer" }}>✕</button>
             </div>
             <div style={{ backgroundColor: C.bg3, borderRadius: "14px", padding: "14px 16px" }}>
@@ -416,7 +424,7 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
                 { label: "Client", value: detailRdv.citoyen_nom },
                 { label: "Téléphone", value: detailRdv.citoyen_phone || "—" },
                 { label: "Service", value: detailRdv.service_nom || detailRdv.objet || "RDV général" },
-                { label: "Date & heure", value: `${formatDate(detailRdv.date_rdv)} à ${detailRdv.heure_rdv}` },
+                { label: "Date et heure", value: `${formatDate(detailRdv.date_rdv)} à ${detailRdv.heure_rdv}` },
                 { label: "Statut", value: statutBadge(detailRdv, C).l },
                 { label: "Créé le", value: formatDateHeure(detailRdv.created_at) },
                 ...(detailRdv.agent_nom ? [{ label: "Agent", value: detailRdv.agent_nom }] : []),

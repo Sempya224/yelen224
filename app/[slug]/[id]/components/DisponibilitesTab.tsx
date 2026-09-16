@@ -34,7 +34,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { generateSlotsInRange } from "@/lib/disponibilites";
 
@@ -214,7 +216,7 @@ function HistoriqueModal({ C, onClose }: { C: ThemeTokens; onClose: () => void }
         }
       `}</style>
       <div onClick={e => e.stopPropagation()} className="dispo-fiche-panel" style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "22px 20px 32px", width: "100%", maxWidth: "480px", maxHeight: "80svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-        <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "14px" }}>Historique des modifications</div>
+        <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "14px" }}>Historique des modifications</div>
         {loading ? <div style={{ display: "flex", justifyContent: "center", padding: "24px" }}><YelenLoader size={20}/></div> : entrees.length === 0 ? (
           <div style={{ color: C.t3, fontSize: "12.5px" }}>Aucune modification enregistrée pour l&apos;instant.</div>
         ) : (
@@ -244,7 +246,7 @@ function ApercuCitoyenModal({ C, disponibilites, onClose }: { C: ThemeTokens; di
         }
       `}</style>
       <div onClick={e => e.stopPropagation()} className="dispo-fiche-panel" style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "22px 20px 32px", width: "100%", maxWidth: "480px", maxHeight: "80svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-        <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "4px" }}>Ce que voit un citoyen</div>
+        <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "4px" }}>Ce que voit un citoyen</div>
         <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5, marginBottom: "14px" }}>Prochains créneaux réellement proposés à la réservation, sur les 7 prochains jours — même moteur que le formulaire de prise de rendez-vous.</p>
         {slots.length === 0 ? (
           <div style={{ color: C.t3, fontSize: "12.5px" }}>Aucun créneau à venir avec la configuration actuellement enregistrée.</div>
@@ -423,17 +425,17 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
           <div style={{ width: "52px", height: "52px", borderRadius: "16px", backgroundColor: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M2 20h20"/><path d="M6 10V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4"/><path d="M2 14h20"/></svg>
           </div>
-          <h1 style={{ color: C.t1, fontSize: "18px", fontWeight: "900", letterSpacing: "-0.3px", marginBottom: "8px" }}>Ne s&apos;applique pas à votre établissement</h1>
+          <h1 style={{ color: C.t1, fontSize: "18px", fontWeight: "800", letterSpacing: "-0.3px", marginBottom: "8px" }}>Ne s&apos;applique pas à votre établissement</h1>
           <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, marginBottom: "22px" }}>
             Cet écran configure des créneaux horaires façon rendez-vous (durée en minutes) — pensé pour un hôpital, une mairie, une banque… Pour un hôtel, chaque chambre ou prestation a déjà son propre tarif, son unité (par nuit, par personne…) et ses horaires, réglés directement à sa création.
           </p>
           <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={() => onNavigate?.("services")} className="tap" style={{ backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "10px 18px", fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
-              Gérer chambres & prestations
-            </button>
-            <button onClick={() => onNavigate?.("profil-entreprise")} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t1, borderRadius: "10px", padding: "10px 18px", fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => onNavigate?.("services")}>
+              Gérer chambres et prestations
+            </Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => onNavigate?.("profil-entreprise")}>
               Horaires Ouvert / Fermé
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -450,7 +452,7 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
       {/* ── Hero header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
         <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Disponibilités</h1>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Disponibilités</h1>
           <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "8px", maxWidth: "480px" }}>
             Configurez vos jours et heures d&apos;ouverture. Les citoyens pourront réserver uniquement sur ces créneaux.
           </p>
@@ -468,15 +470,13 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           {peutVoirHistorique && (
-            <button onClick={() => setShowHistorique(true)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Historique
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm"
+              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>}
+              onClick={() => setShowHistorique(true)}>Historique</Button>
           )}
-          <button onClick={() => setShowApercu(true)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            Aperçu citoyen
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm"
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
+            onClick={() => setShowApercu(true)}>Aperçu citoyen</Button>
         </div>
       </div>
 
@@ -485,10 +485,10 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
           toute la configuration sans ouvrir une seule journée. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", marginBottom: "20px" }}>
         {kpis.map(k => (
-          <div key={k.label} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "14px", padding: "14px" }}>
-            <div style={{ color: k.color, fontSize: "16px", fontWeight: "900", letterSpacing: "-0.2px" }}>{k.value}</div>
+          <Card key={k.label} tokens={toCardTokens(C)} padding="14px">
+            <div style={{ color: k.color, fontSize: "16px", fontWeight: "800", letterSpacing: "-0.2px" }}>{k.value}</div>
             <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.4px", marginTop: "3px" }}>{k.label}</div>
-          </div>
+          </Card>
         ))}
       </div>
 
@@ -558,7 +558,7 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
                     </div>
 
                     {r.start && r.end && slots > 0 && (
-                      <div style={{ marginTop: "12px", backgroundColor: `${C.gold}0A`, border: `1px solid ${C.gold}25`, borderRadius: "10px", padding: "12px 14px" }}>
+                      <div style={{ marginTop: "12px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px 14px" }}>
                         <p style={{ color: C.gold, fontSize: "10px", fontWeight: "700", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Aperçu — {slots} créneaux générés</p>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                           {(() => {
@@ -582,7 +582,7 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
         </div>
 
         <div className="dispo-sidebar" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "16px", padding: "18px" }}>
+          <Card tokens={toCardTokens(C)} padding="18px">
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
               <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -596,11 +596,11 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
             </div>
             {!readOnly && capacite !== capaciteSaved && (
               <button onClick={handleSaveCapacite} disabled={capaciteSaving} className="tap" style={{ width: "100%", marginTop: "12px", backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "10px 16px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
-                {capaciteSaving ? "…" : "Enregistrer"}
+                {capaciteSaving ? "Enregistrement…" : "Enregistrer"}
               </button>
             )}
             {capaciteError && <div style={{ color: C.red, fontSize: "11.5px", fontWeight: "700", marginTop: "8px" }}>{capaciteError}</div>}
-          </div>
+          </Card>
 
           {!readOnly && (
             <div className={`dispo-save-bar${saveBarHidden ? " dispo-save-bar--hidden" : ""}`}>
@@ -611,36 +611,21 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
                   </div>
                   <div style={{ color: C.t3, fontSize: "10.5px", marginTop: "1px" }}>{totalSlots} créneaux au total</div>
                 </div>
-                <button
+                <Button
+                  tokens={toUiTokens(C)} className="tap" variant="primary" size="md"
                   onClick={handleSave}
-                  disabled={saving || !isDirty}
-                  className="tap"
+                  disabled={!isDirty}
+                  loading={saving}
                   style={{
-                    backgroundColor: saving ? C.bg3 : isDirty ? C.gold : C.bg3,
-                    color: saving ? C.t3 : isDirty ? "#000" : C.t3,
-                    border: "none", borderRadius: "12px", padding: "12px 22px", fontSize: "13px", fontWeight: "800",
-                    cursor: saving || !isDirty ? "not-allowed" : "pointer",
-                    boxShadow: isDirty && !saving ? `0 4px 16px ${C.gold}40` : "none",
-                    display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, transition: "all 0.2s",
+                    backgroundColor: isDirty ? C.gold : C.bg3,
+                    color: isDirty ? "#000" : C.t3,
+                    boxShadow: isDirty ? `0 4px 16px ${C.gold}40` : "none",
+                    flexShrink: 0,
                   }}
+                  icon={isDirty ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
                 >
-                  {saving ? (
-                    <>
-                      <YelenLoader size={13} color={C.t3}/>
-                      Sauvegarde…
-                    </>
-                  ) : isDirty ? (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      Enregistrer
-                    </>
-                  ) : (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      Enregistré
-                    </>
-                  )}
-                </button>
+                  {isDirty ? "Enregistrer" : "Enregistré"}
+                </Button>
               </div>
             </div>
           )}

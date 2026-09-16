@@ -7,6 +7,10 @@ import { useState } from 'react'
 import { D } from '@/app/admin/adminTheme'
 import { Ic } from '@/app/admin/adminIcons'
 import type { ToastItem } from '@/app/admin/adminTypes'
+import { Drawer } from '@/components/ui/Drawer'
+import { ToastContainer as SharedToastContainer, type ToastTokens } from '@/components/ui/Toast'
+import { DataTable as SharedDataTable, type TableTokens } from '@/components/ui/Table'
+import { StatBadge as SharedStatBadge, type StatBadgeTokens } from '@/components/ui/StatBadge'
 
 export function fmtMoney(n: number) {
   if (n >= 1_000_000_000) return `${(n/1e9).toFixed(2)} Mrd GNF`
@@ -44,29 +48,18 @@ export async function exportCSV(type: string) {
   } catch { /* silencieux */ }
 }
 
-export function Badge({ label, color, bg }: { label: string, color: string, bg: string }) {
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      padding: '2px 8px', borderRadius: '20px',
-      backgroundColor: bg, color,
-      fontSize: '10px', fontWeight: '700', letterSpacing: '0.3px',
-    }}>{label}</span>
-  )
-}
+// Déplacé vers components/ui/Badge.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — déjà agnostique de toute couleur,
+// donc extrait tel quel. Réexporté ici pour ne pas casser les appelants
+// existants (10 pages admin importent `Badge` depuis ce fichier).
+export { Badge } from '@/components/ui/Badge'
 
+// Déplacé vers components/ui/StatBadge.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — wrapper conservé pour ne pas casser
+// son unique appelant admin.
+const statBadgeTokens: StatBadgeTokens = { positiveBg: D.greenDim, positiveText: D.green, negativeBg: D.redDim, negativeText: D.red }
 export function StatBadge({ value, positive }: { value: string, positive: boolean }) {
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: '3px',
-      padding: '2px 7px', borderRadius: '20px',
-      backgroundColor: positive ? D.greenDim : D.redDim,
-      color: positive ? D.green : D.red,
-      fontSize: '10px', fontWeight: '700',
-    }}>
-      {positive ? Ic.TrendUp(D.green) : Ic.TrendDn(D.red)} {value}
-    </span>
-  )
+  return <SharedStatBadge value={value} positive={positive} tokens={statBadgeTokens}/>
 }
 
 export function Divider() {
@@ -93,31 +86,22 @@ export function SectionHeader({ title, sub, action, onAction }: {
   )
 }
 
+// Déplacé vers components/ui/Toast.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — wrapper conservé ici pour ne pas
+// casser les 8 appelants admin existants. Les 3 couleurs de fond (#14532d/
+// #7f1d1d/#1e3a5f) n'étaient déjà pas des tokens `D` — reprises telles
+// quelles pour un rendu strictement identique, pas "corrigées" au passage
+// (hors périmètre de cette mission, cf. couleurs Admin).
+const toastTokens: ToastTokens = {
+  text: D.text, textMuted: D.textMuted, radius: D.radius, shadow: D.shadowLg,
+  variants: {
+    success: { bg: '#14532d', border: D.greenBrd, icon: D.green },
+    error: { bg: '#7f1d1d', border: D.redBrd, icon: D.red },
+    info: { bg: '#1e3a5f', border: D.blueBrd, icon: D.blue },
+  },
+}
 export function ToastContainer({ toasts, remove }: { toasts: ToastItem[], remove: (id: string) => void }) {
-  return (
-    <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <style>{`@keyframes slideInRight { from { transform: translateX(60px); opacity: 0 } to { transform: none; opacity: 1 } }`}</style>
-      {toasts.map(t => (
-        <div key={t.id} style={{
-          display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '11px 16px', minWidth: '260px',
-          backgroundColor: t.type === 'success' ? '#14532d' : t.type === 'error' ? '#7f1d1d' : '#1e3a5f',
-          border: `1px solid ${t.type === 'success' ? D.greenBrd : t.type === 'error' ? D.redBrd : D.blueBrd}`,
-          borderRadius: D.radius, boxShadow: D.shadowLg,
-          fontSize: '13px', color: D.text, fontWeight: '500',
-          animation: 'slideInRight 0.2s ease',
-        }}>
-          <span style={{ color: t.type === 'success' ? D.green : t.type === 'error' ? D.red : D.blue, flexShrink: 0 }}>
-            {t.type === 'success' ? Ic.Check(D.green) : t.type === 'error' ? Ic.X(D.red) : Ic.Bell(D.blue)}
-          </span>
-          <span style={{ flex: 1 }}>{t.message}</span>
-          <button onClick={() => remove(t.id)} style={{ background: 'none', border: 'none', color: D.textMuted, cursor: 'pointer', padding: '0', lineHeight: 1 }}>
-            {Ic.X(D.textMuted)}
-          </button>
-        </div>
-      ))}
-    </div>
-  )
+  return <SharedToastContainer toasts={toasts} remove={remove} tokens={toastTokens}/>
 }
 
 export function KPICard({ label, value, sub, accent, delta, deltaPos, onClick, urgent, icon }: {
@@ -234,66 +218,29 @@ export function PieChart({ data }: { data: { label: string, value: number, color
   )
 }
 
-export function SlidePanel({ open, onClose, title, width = '480px', children }: {
+// Déplacé vers components/ui/Drawer.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — comportement desktop identique
+// (panneau latéral droit inchangé), ajout d'un mode bottom-sheet mobile qui
+// n'existait pas avant. Wrapper conservé ici pour ne pas casser les 8
+// appelants admin existants (aucun n'a besoin de changer sa palette : `D`
+// est injecté automatiquement, exactement comme avant).
+const slidePanelTokens = { surface: D.surface, border: D.border, text: D.text, textMuted: D.textMuted, shadow: D.shadowLg }
+export function SlidePanel({ open, onClose, title, width, children }: {
   open: boolean, onClose: () => void, title: string, width?: string, children: React.ReactNode
 }) {
-  return (
-    <>
-      {open && <div onClick={onClose} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 200, backdropFilter: 'blur(2px)' }}/>}
-      <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width,
-        backgroundColor: D.surface, borderLeft: `1px solid ${D.border}`,
-        boxShadow: D.shadowLg, zIndex: 201,
-        transform: open ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)',
-        display: 'flex', flexDirection: 'column',
-      }}>
-        <div style={{ padding: '18px 20px', borderBottom: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: D.text }}>{title}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: D.textMuted, display: 'flex', padding: '4px' }}>
-            {Ic.X(D.textMuted)}
-          </button>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>{children}</div>
-      </div>
-    </>
-  )
+  return <Drawer open={open} onClose={onClose} title={title} width={width} tokens={slidePanelTokens}>{children}</Drawer>
 }
 
+// Déplacé vers components/ui/Table.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — rendu desktop strictement identique
+// (mêmes valeurs D injectées via tokens), ajout d'un fallback cartes mobile
+// qui n'existait pas avant (masqué par défaut sur desktop via CSS, aucun
+// changement pour les 12 appelants admin existants).
+const tableTokens: TableTokens = { text: D.text, textMuted: D.textMuted, border: D.border, hoverBg: D.surface2 }
 export function DataTable({ cols, rows, onRowClick }: {
   cols: { key: string, label: string, width?: string }[]
   rows: Record<string, React.ReactNode>[]
   onRowClick?: (row: Record<string, React.ReactNode>) => void
 }) {
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-        <thead>
-          <tr>
-            {cols.map(c => (
-              <th key={c.key} style={{ padding: '8px 12px', textAlign: 'left', color: D.textMuted, fontWeight: '600', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.6px', borderBottom: `1px solid ${D.border}`, whiteSpace: 'nowrap', width: c.width }}>
-                {c.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}
-              onClick={() => onRowClick?.(row)}
-              style={{ cursor: onRowClick ? 'pointer' : 'default', transition: 'background 0.1s' }}
-              onMouseEnter={e => { if (onRowClick) (e.currentTarget as HTMLTableRowElement).style.backgroundColor = D.surface2 }}
-              onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent' }}
-            >
-              {cols.map(c => (
-                <td key={c.key} style={{ padding: '10px 12px', borderBottom: `1px solid ${D.border}`, color: D.text, verticalAlign: 'middle' }}>
-                  {row[c.key]}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+  return <SharedDataTable cols={cols} rows={rows} onRowClick={onRowClick} tokens={tableTokens}/>
 }

@@ -55,6 +55,13 @@ export type ThemeTokens = { readonly [K in keyof typeof T.dark]: string };
 // change aucune couleur, ne fait que reformer les tokens C existants dans
 // la forme générique attendue par Button/ConfirmModal (chantier
 // gouvernance des actions et confirmation, 16/08/2026).
+//
+// radius/radiusSm alignés sur app/admin/adminTheme.ts::uiTokens (10px/7px)
+// le 01/09/2026 (mission "Design System partagé Admin → Institution") —
+// avant ce correctif, les deux adaptateurs du même composant Button
+// n'avaient jamais convergé sur la même échelle (12px/10px côté
+// institution), personne ne l'avait remarqué faute de comparaison
+// pixel-level. Admin reste la référence visuelle, jamais l'inverse.
 import type { ButtonTokens } from "@/components/ui/Button";
 export function toUiTokens(C: ThemeTokens): ButtonTokens {
   return {
@@ -62,6 +69,17 @@ export function toUiTokens(C: ThemeTokens): ButtonTokens {
     surface: C.bgCard2, border: C.border2,
     text: C.t1, textMuted: C.t3,
     danger: C.red, dangerBg: C.redL, dangerBorder: `${C.red}30`,
-    radius: "12px", radiusSm: "10px",
+    radius: "10px", radiusSm: "7px",
   };
+}
+
+// Adaptateur vers components/ui/Card.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — radius aligné sur l'échelle Admin
+// (10px, cf. app/admin/adminTheme.ts::cardTokens) plutôt que sur l'un des
+// 10 radius différents déjà utilisés côté institution (2px→20px, aucun
+// converti pour le moment). Couleurs (surface/border) restent 100% celles
+// d'Institution — seule la dimension converge vers Admin, jamais la teinte.
+import type { CardTokens } from "@/components/ui/Card";
+export function toCardTokens(C: ThemeTokens): CardTokens {
+  return { surface: C.bgCard, border: C.border, radius: "10px" };
 }

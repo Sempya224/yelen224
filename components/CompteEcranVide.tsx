@@ -10,7 +10,7 @@ import { YelenLoader } from "@/components/YelenLoader";
 // En-tête partagé par tous les écrans "Mon Compte" (créés vides le
 // 18/07/2026, contenu réel ajouté progressivement depuis). Retour (icône
 // seule, sans libellé — convention Uber/Instagram, 24/07/2026) à gauche,
-// titre au centre, "?" (aide → /faq) à droite — même action retour
+// titre au centre, casque support (→ Messagerie, onglet "Yelen") à droite — même action retour
 // qu'utilisée sur la fiche établissement et le flux de prise de RDV. Le
 // header des onglets Accueil/Recherche/RDV/Compte dans
 // app/page.tsx n'a lui plus de bouton retour — la barre du bas suffit déjà
@@ -127,13 +127,11 @@ export function CompteHeader({ titre, fondNeutre, retourHref, onBackIntercept, r
       {/* Grille 1fr/auto/1fr — garde le titre centré indépendamment de la
           largeur du chip retour à gauche vs. le bouton "?" à droite. */}
       <div style={{ padding: "12px 16px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: "12px" }}>
-        <button onClick={() => onBackIntercept ? onBackIntercept() : (retourHref ? router.push(retourHref) : router.back())} className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", color: headerText, minWidth: 0 }}>
-          <div style={{ width: "36px", height: "36px", borderRadius: "9px", background: chipBg, border: `1px solid ${chipBrd}`, boxShadow: chipShadow, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0 }}>
-            <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-          </div>
+        <button onClick={() => onBackIntercept ? onBackIntercept() : (retourHref ? router.push(retourHref) : router.back())} className="tap" style={{ justifySelf: "start", display: "flex", alignItems: "center", background: "none", border: "none", padding: "4px 6px 4px 0", cursor: "pointer", color: headerText, minWidth: 0 }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
         <div style={{ color: headerText, fontSize: "16px", fontWeight: "800", minWidth: 0, maxWidth: "180px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{titre}</div>
-        <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: "10px" }}>
           {rightAction ? (
             <button onClick={rightAction.onClick} aria-label={rightAction.label} className="tap" style={{ width: "36px", height: "36px", borderRadius: "50%", background: chipBg, border: `1px solid ${chipBrd}`, boxShadow: chipShadow, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0, cursor: "pointer" }}>
               {rightAction.icon}
@@ -144,11 +142,17 @@ export function CompteHeader({ titre, fondNeutre, retourHref, onBackIntercept, r
                   overlay ouvert/fermé ici (pas une route, cf.
                   CompteRechercheOverlay), CompteHeader étant le header
                   partagé par tous les écrans /compte/* et /menu/*. */}
-              <button onClick={() => setRechercheOpen(true)} className="tap" style={{ width: "36px", height: "36px", borderRadius: "50%", background: chipBg, border: `1px solid ${chipBrd}`, boxShadow: chipShadow, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0, cursor: "pointer" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <button onClick={() => setRechercheOpen(true)} className="tap" style={{ background: "none", border: "none", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0, cursor: "pointer" }}>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
               </button>
-              <Link href="/faq" className="tap" style={{ width: "36px", height: "36px", borderRadius: "50%", background: chipBg, border: `1px solid ${chipBrd}`, boxShadow: chipShadow, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, textDecoration: "none", flexShrink: 0 }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+              {/* Casque support (chantier "Support Yelen", 04/09/2026) —
+                  pointait vers /faq (aide statique) jusqu'ici. Retour Bryan
+                  04/09/2026 : le support doit vivre dans l'écran Messagerie
+                  existant (onglet "Yelen", déjà plus rapide d'accès qu'une
+                  page séparée), pas dans une page FAQ non prioritaire pour
+                  l'instant — mène donc directement à cet onglet. */}
+              <Link href="/messagerie/citoyen?tab=yelen" className="tap" style={{ background: "none", border: "none", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, textDecoration: "none", flexShrink: 0 }}>
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
               </Link>
             </>
           )}

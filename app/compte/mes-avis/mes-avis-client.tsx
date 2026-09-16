@@ -9,6 +9,7 @@ import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { EmptyState } from "@/components/EmptyState";
 import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 
 const P = { pointerEvents: "none" as const };
@@ -277,7 +278,7 @@ export function MesAvisClient() {
         {/* Filtres */}
         <div style={{ display: "flex", gap: "8px", overflowX: "auto", marginBottom: "20px", paddingBottom: "2px" }}>
           {FILTRES.map((f) => (
-            <button key={f.key} className="tap" onClick={() => setFiltre(f.key)} style={{ ...btnGhost, flexShrink: 0, backgroundColor: filtre === f.key ? "rgba(245,166,35,0.12)" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"), borderColor: filtre === f.key ? "rgba(245,166,35,0.4)" : brd, color: filtre === f.key ? "#F5A623" : t1 }}>
+            <button key={f.key} className="tap" onClick={() => setFiltre(f.key)} style={{ ...btnGhost, flexShrink: 0, backgroundColor: filtre === f.key ? "#F5A623" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"), borderColor: filtre === f.key ? "#F5A623" : brd, color: filtre === f.key ? "#080812" : t1 }}>
               {f.label}
             </button>
           ))}
@@ -285,15 +286,13 @@ export function MesAvisClient() {
 
         {/* État vide */}
         {avisFiltres.length === 0 && (avis?.length ?? 0) === 0 && (
-          <div style={{ textAlign: "center", padding: "48px 20px" }}>
-            <div style={{ color: t3, marginBottom: "16px", display: "flex", justifyContent: "center" }}><Ic.Building/></div>
-            <div style={{ color: t1, fontSize: "16px", fontWeight: 800, marginBottom: "6px" }}>Aucun avis publié</div>
-            <div style={{ color: t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "20px" }}>Après chaque rendez-vous terminé, vous pourrez partager votre expérience afin d&apos;aider les autres citoyens.</div>
-            <Link href="/mes-rdv" className="tap" style={{ display: "inline-block", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "14px", padding: "13px 22px", borderRadius: "14px", textDecoration: "none" }}>Voir mes RDV</Link>
+          <div style={{ textAlign: "center", padding: "28px 20px 20px" }}>
+            <EmptyState variant="avis" title="Aucun avis publié" message="Après chaque rendez-vous terminé, vous pourrez partager votre expérience afin d'aider les autres citoyens." color="#F5A623" titleColor={t1} textColor={t2}/>
+            <Link href="/mes-rdv" className="tap" style={{ display: "inline-block", background: "#F5A623", color: "#080812", fontWeight: 800, fontSize: "14px", padding: "13px 22px", borderRadius: "14px", textDecoration: "none" }}>Voir mes RDV</Link>
           </div>
         )}
         {avisFiltres.length === 0 && (avis?.length ?? 0) > 0 && (
-          <div style={{ textAlign: "center", padding: "32px 20px", color: t2, fontSize: "13px" }}>Aucun résultat pour ces filtres.</div>
+          <EmptyState variant="recherche" title="Aucun résultat" message="Essayez une autre recherche ou modifiez vos filtres." color="#F5A623" titleColor={t1} textColor={t2}/>
         )}
 
         {/* Liste */}
@@ -332,13 +331,13 @@ export function MesAvisClient() {
               </div>
 
               {a.reponse_institution && (
-                <div style={{ background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.15)", borderRadius: "12px", padding: "10px 12px", marginBottom: "12px" }}>
+                <div style={{ background: "#F5A623", borderRadius: "12px", padding: "10px 12px", marginBottom: "12px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
-                    <span style={{ color: "#F5A623" }}><Ic.Reply/></span>
-                    <span style={{ color: "#F5A623", fontSize: "11.5px", fontWeight: 800 }}>Réponse de {a.institutions?.name ?? "l'établissement"}</span>
-                    {a.reponse_le && <span style={{ color: t3, fontSize: "10.5px" }}>· {formatDate(a.reponse_le)}</span>}
+                    <span style={{ color: "#080812" }}><Ic.Reply/></span>
+                    <span style={{ color: "#080812", fontSize: "11.5px", fontWeight: 800 }}>Réponse de {a.institutions?.name ?? "l'établissement"}</span>
+                    {a.reponse_le && <span style={{ color: "rgba(8,8,18,0.6)", fontSize: "10.5px" }}>· {formatDate(a.reponse_le)}</span>}
                   </div>
-                  <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.4 }}>{a.reponse_institution}</div>
+                  <div style={{ color: "rgba(8,8,18,0.8)", fontSize: "12.5px", lineHeight: 1.4 }}>{a.reponse_institution}</div>
                 </div>
               )}
 
@@ -386,7 +385,7 @@ export function MesAvisClient() {
                 </button>
               )}
               <button disabled={editNote === 0 || busy === `edit-${edition.id}`} className="tap" style={{ flex: 1, background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "13.5px", padding: "10px", borderRadius: "12px", border: "none", cursor: "pointer", opacity: editNote === 0 || busy === `edit-${edition.id}` ? 0.6 : 1 }} onClick={() => handleEnregistrerEdition(true)}>
-                {busy === `edit-${edition.id}` ? "…" : edition.brouillon ? "Publier" : "Enregistrer"}
+                {busy === `edit-${edition.id}` ? (edition.brouillon ? "Publication…" : "Enregistrement…") : edition.brouillon ? "Publier" : "Enregistrer"}
               </button>
             </div>
           </div>

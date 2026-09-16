@@ -2363,3 +2363,485 @@ réel) — dépend de la confirmation de la migration.
 **Preuve** : `lib/security/authSecurity.ts`,
 `lib/security/authSecurity.test.ts`, sortie vitest/tsc ci-dessus.
 **Date** : 12/09/2026.
+
+---
+
+### DEC-2026-09-13-01 — GAP-05-01 + GAP-07-01 : contrôle d'autorisation serveur manquant sur `/api/qr/validate`, corrigé en P0
+
+**Description** : trouvés en marge de la conception du chantier "YELEN
+Accueil" (check-in mobile isolé du dashboard, voir
+`docs/security/YELEN_ACCUEIL_CHECKIN_DESIGN.md`) pendant l'audit du code
+réel de `app/api/qr/validate/route.ts` avant réutilisation. 2 gaps
+distincts dans la même route : (1) GAP-05-01 — aucune vérification de rôle
+serveur, seul le masquage de l'onglet "Scanner" empêchait un membre
+comptable/superviseur/dirigeant d'appeler la route directement ; (2)
+GAP-07-01 — le POST chargeait le RDV sans filtre `institution_id`,
+faisant reposer l'isolation multi-tenant sur un champ du payload JSON
+fourni par le client (falsifiable), contrairement au PUT de la même route
+qui avait ce filtre depuis l'origine.
+**Décision de Bryan** : "P0, ne pas attendre une validation
+supplémentaire" — corrigé immédiatement, sans étape de conception
+préalable contrairement au reste du protocole habituel.
+**Correctif** : nouvelle clé RBAC `appointment.check_in`
+(`lib/institutionPermissions.ts`, `{ admin: true, agent: true }`,
+identique à `TAB_MATRIX.scanner`) ; vérifiée en tête des deux handlers
+`POST`/`PUT` de `app/api/qr/validate/route.ts`, avant toute lecture du
+RDV ; ajout du filtre `.eq("institution_id", membre.institutionId)`
+manquant sur la requête POST.
+**Test** : 10 tests vitest (`app/api/qr/validate/route.test.ts`) couvrant
+les 6 scénarios demandés (401 non authentifié, 403 rôle non autorisé sans
+fuite, 200 agent autorisé, 404 générique cross-institution même avec
+payload falsifié, cohérence sur QR déjà validé, non-influence des champs
+du body sur l'identité). Détail complet dans
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section "GAP-05-01 /
+GAP-07-01".
+**Statut** : 🟢 CORRIGÉ (code), **non commité, non testé en conditions
+réelles**. Bryan doit exécuter `npx vitest run
+app/api/qr/validate/route.test.ts` et `npx tsc --noEmit` avant tout
+commit — ni l'un ni l'autre n'a été lancé par Claude Code sur ce projet
+(règle du projet : aucune commande terminal sans validation explicite).
+**Preuve** : `lib/institutionPermissions.ts`,
+`app/api/qr/validate/route.ts`, `app/api/qr/validate/route.test.ts`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`. **Date** : 13/09/2026.
+
+---
+
+### DEC-2026-09-13-02 — YELEN Accueil (check-in mobile) implémenté de bout en bout, sur les arbitrages produit de Bryan
+
+**Description** : suite au correctif P0 ci-dessus, Bryan a tranché les 8
+points ouverts de la conception initiale
+(`docs/security/YELEN_ACCUEIL_CHECKIN_DESIGN.md`) et demandé
+l'implémentation complète en une passe ("continue de bout en bout").
+Détail des arbitrages retenus dans la section "MISE À JOUR — 13/09/2026"
+du document de conception — résumé : route `/check-in/{slug}`, pas de QR
+Agent en V1 (identifiant court + PIN, même credential que le dashboard),
+session dédiée 8h max / verrou d'inactivité 2 min, code manuel de secours
+pour RDV gratuits, réponse API minimale (prénom + initiale, jamais
+téléphone), historique limité à la session en cours, aucune validation
+offline en V1.
+**Livré** : 2 migrations (`checkin_sessions` + `rdv.code_secours`,
+extension `auth_security_events`), `lib/checkinAuth.ts` (session dédiée,
+JWT/cookie/secret distincts de `institutionAuth.ts`/`employeeAuth.ts`),
+extraction de `lib/qrValidation.ts` (règles de scan/confirmation partagées
+entre `/api/qr/validate` et les nouvelles routes `/api/checkin/*` — un
+seul point de vérité, cf. GAP-05-01/07-01 ci-dessus), 6 routes
+`/api/checkin/*`, extension de `/api/qr/generate` pour générer
+`code_secours`, route isolée `/check-in/{slug}` (layout minimal, même
+principe que `/clock/{slug}` — jamais nichée sous
+`app/[slug]/[id]/layout.tsx`, qui monte tout le dashboard avant
+`{children}`).
+**Autorisation appliquée à 4 niveaux** : identification par QR/identifiant,
+vérification du PIN, statut du compte, `appointment.check_in` (même clé
+RBAC que le fix P0), institution suspendue — jamais la session Check-in ne
+donne accès à une route dashboard (cookie/secret/issuer/audience distincts).
+**Test** : 3 nouveaux fichiers vitest
+(`app/api/checkin/{auth,scan,confirm}/route.test.ts`) couvrant les mêmes
+familles de scénarios que GAP-05-01/07-01 (401/423/403/200, cross-institution
+avec payload falsifié, réponse minimale sans PII), plus le verrouillage
+30 min spécifique à `/api/checkin/auth`.
+**Simplifications assumées, honnêteté explicite** : caméra réimplémentée
+dans `CheckInApp.tsx` plutôt qu'extraite de `ScannerModal`
+(`app/[slug]/[id]/layout.tsx` non touché, ~30 lignes dupliquées) ; 2FA
+TOTP dashboard non vérifiée par ce flux ; pas de retry sur collision
+`code_secours` (risque négligeable au volume actuel) ; aucun test en
+conditions réelles (navigateur mobile, vraie base Supabase).
+**Statut** : 🟠 IN PROGRESS — code complet, tests unitaires écrits mais
+**non exécutés par Claude Code** (règle du projet), **rien commité**.
+**Mise à jour 13/09/2026** : les 2 migrations
+(`20260913000001_checkin_sessions.sql`,
+`20260913000002_auth_security_checkin_login.sql`) confirmées **exécutées
+en base par Bryan** ("Success. No rows returned" sur les deux — cohérent,
+aucune des deux ne fait de `SELECT`). `checkin_sessions`, `rdv.code_secours`/
+`code_secours_expires_at`, et les catégories `checkin_login`/
+`checkin_code_manuel` sur `auth_security_events` existent donc désormais
+réellement en base. Reste avant tout test applicatif réel :
+`CHECKIN_JWT_SECRET` à définir (local + Netlify, sans quoi
+`lib/checkinAuth.ts` échoue au chargement du module), puis `npx vitest
+run` (les 4 fichiers de tests qr/checkin) et `npx tsc --noEmit`, puis test
+du parcours réel sur un téléphone avant tout commit.
+**Preuve** : fichiers listés ci-dessus,
+`docs/security/YELEN_ACCUEIL_CHECKIN_DESIGN.md` section "MISE À JOUR —
+13/09/2026". **Date** : 13/09/2026.
+
+---
+
+### DEC-2026-09-14-01 — Audit `select("*")` + IDOR/BOLA + URLs signées, demandé par Bryan ("continue, discipline, 2 fichiers max, pas à pas")
+
+**Description** : suite aux recommandations d'un tiers ("expert
+cybersécurité") transmises par Bryan sur la convergence des 4 systèmes
+d'auth et le durcissement RLS/BOLA/IDOR, Bryan a demandé une exécution
+immédiate mais cadrée. Décision prise avec Bryan (AskUserQuestion) de
+démarrer par l'item le plus borné : audit `select("*")` + IDOR/BOLA +
+URLs signées, en lecture seule d'abord, correctifs un par un seulement
+après validation explicite. La convergence des 4 systèmes d'auth n'a
+**pas** été commencée — jugée trop large pour un changement non validé
+en une fois, reste un chantier séparé à cadrer si Bryan le relance.
+**Méthode** : contrairement à la convention historique de ce fichier
+("aucune commande terminal sans validation explicite"), Bryan a autorisé
+l'usage direct de l'outil Bash dans cette session (git log, npx tsc
+--noEmit) — les résultats `tsc` cités dans les items ci-dessous ont donc
+été **exécutés et observés directement**, pas seulement demandés à
+Bryan. Écart de méthode assumé et documenté ici plutôt que passé sous
+silence.
+**Résultat global (mis à jour au fil de la session, close le
+14-15/09/2026)** : ~60 routes/fichiers vérifiés sur plusieurs lots
+(tickets support, conversations, reçus, offres, documents-citoyen,
+exports, Clock In Shift, comptes admin, recherche, balayage
+`.update()`/`.delete()`, `fetch()` serveur sur donnée utilisateur, open
+redirect, path traversal Storage, JWT/randomness, plus les 9
+`select("*")` et 20 `createSignedUrl()` du premier passage) ; 8 GAP
+nouveaux au total (GAP-06-10, GAP-08-03, GAP-11-02, GAP-05-02, GAP-05-03,
+GAP-09-01, GAP-04-06), 6 corrigés en code, 1 code mort supprimé, 1
+accepté sans changement. Aucun commit, aucun push. Détail complet dans
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`.
+**Date** : 14-15/09/2026.
+
+---
+
+### DEC-2026-09-14-02 — GAP-06-10 : `select("*")` financier exposé au dashboard institution, corrigé
+
+**Description** : `app/api/institution/services/route.ts` (GET)
+utilisait `select("*")` sur `paid_services` et `paid_bookings`
+(spread complet `...b` dans la réponse JSON), contrairement au reste du
+code financier (`paid-bookings/valider/route.ts`) qui utilise déjà des
+listes de colonnes explicites. Pas d'exploit sur les colonnes actuelles,
+mais toute colonne future (référence PSP, marge interne, note de
+remboursement) aurait atteint silencieusement le dashboard institution.
+**Correctif** : colonnes énumérées explicitement pour les deux
+`select()` du `GET` — 22 colonnes `paid_services` et 16 colonnes
+`paid_bookings`, liste construite à partir de l'historique complet des
+migrations (jusqu'à `20260821000012`/`20260805000020`), aucune colonne
+actuelle retirée. `POST`/`PATCH` laissés inchangés (profil de risque
+différent : écho de la donnée que l'institution vient d'écrire
+elle-même, pas une liste accumulée dans le temps).
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source (20 erreurs
+préexistantes dans `.next/dev/types/*`, artefacts de build sans rapport).
+**Statut** : 🟢 CORRIGÉ (code), **non commité, non testé en conditions
+réelles** — Bryan doit vérifier que l'onglet Services/Réservations
+affiche toujours tous les champs attendus avant tout commit.
+**Preuve** : `app/api/institution/services/route.ts`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-06-10".
+**Date** : 14/09/2026.
+
+---
+
+### DEC-2026-09-14-03 — GAP-08-03 : code mort `fetchNotifications()`, diagnostic corrigé puis supprimé
+
+**Description** : `lib/notifications.ts::fetchNotifications(destinataireId, limit)`
+faisait `select("*")` filtré par un `destinataireId` reçu en paramètre,
+sans aucun appelant dans tout le projet (grep exhaustif confirmé).
+Qualifié initialement de « BOLA latent » dans le rapport d'audit.
+**Correction du diagnostic avant correctif** : le module utilise le
+client Supabase **anonyme** (déjà documenté en tête de fichier), et la
+table `notifications` a pour seule policy RLS `notif_destinataire_own`
+(`FOR ALL USING (auth.uid() = destinataire_id AND destinataire_type =
+'citoyen')`, migration `20260709000006_alter_notifications.sql`). RLS
+bloque donc déjà toute lecture croisée quel que soit le `destinataireId`
+passé en argument — ce n'était pas un BOLA exploitable, seulement du
+code mort avec un nom de paramètre trompeur.
+**Correctif** : fonction supprimée entièrement (convention du projet :
+code confirmé inutilisé → suppression complète).
+**Test** : `npx tsc --noEmit` → 0 erreur.
+**Statut** : 🟢 CORRIGÉ, **non commité**.
+**Preuve** : `lib/notifications.ts`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-08-03".
+**Date** : 14/09/2026.
+
+---
+
+### DEC-2026-09-14-04 — GAP-11-02 : TTL messagerie-images — TEMPORARY ACCEPTED GAP
+
+**Description** : `messagerie-images` (5 routes institution/citoyen)
+signe ses URLs pour 3600s contre 60s partout ailleurs (documents, reçus,
+signalements) — repéré comme incohérence de politique dans l'audit
+initial.
+**Investigation avant correctif** : `MessagerieTab.tsx:187-197`
+(`resolveImageUrls`) signe chaque chemin d'image une seule fois, à
+l'arrivée des messages, puis conserve le résultat en state pour toute la
+durée où la conversation reste ouverte à l'écran — aucun mécanisme de
+re-signature n'existe. Réduire à 60s casserait visiblement l'affichage
+des images dans toute conversation ouverte plus d'une minute.
+**Décision de Bryan** : accepter 3600s comme un compromis produit
+délibéré. Aucune modification de code.
+**Amélioration future possible, non engagée** : re-signature périodique
+côté `resolveImageUrls` (ex. avant échéance à 45min) pour pouvoir
+redescendre le TTL sans casser l'UX — chantier séparé si priorisé.
+**Statut** : ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** (même
+format que GAP-10-01/GAP-04-02).
+**Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section
+"GAP-11-02". **Date** : 14/09/2026.
+
+---
+
+### DEC-2026-09-14-05 — GAP-05-02 : permission `search.read` restreinte, alignée sur `citoyens.read`
+
+**Description** : `search.read` (gate de `app/api/admin/search/route.ts`,
+recherche globale institutions+citoyens) était accordée à
+`["super_admin", "moderateur", "support", "admin"]`, alors que
+`citoyens.read` (fiche citoyen complète) est délibérément restreinte à
+`["super_admin", "admin"]` — chaque autre permission liée aux citoyens
+dans `lib/adminAuth.ts` a une séparation de rôle justifiée par un
+commentaire explicite ; `search.read` n'en avait aucune. Un admin
+`moderateur`/`support` pouvait retrouver nom/prénom/téléphone de
+n'importe quel citoyen via la recherche globale, sans lien avec un
+ticket ou une modération en cours.
+**Décision de Bryan** : restreindre à `["super_admin", "admin"]`, même
+périmètre que `citoyens.read`. Si `support` a besoin de retrouver un
+citoyen pour un ticket, ce sera une recherche séparée scopée à
+`support.access`, pas la réouverture de celle-ci.
+**Correctif** : `lib/adminAuth.ts` — `search.read` restreinte, commentaire
+ajouté expliquant la décision.
+**Test** : `npx tsc --noEmit` → 0 erreur. Vérifié que le seul appelant
+(`app/admin/page.tsx:88-95`) échoue déjà silencieusement sur `!res.ok`
+(pas de `throw`/crash) — un compte `moderateur`/`support` verra une
+recherche vide, zéro régression visible.
+**Statut** : 🟢 CORRIGÉ (code), **non commité, non testé en conditions
+réelles** (session support/modérateur réelle).
+**Preuve** : `lib/adminAuth.ts`, `app/admin/page.tsx:88-95` (lecture),
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-05-02".
+**Date** : 14/09/2026.
+
+---
+
+### DEC-2026-09-14-06 — GAP-05-03 : mass assignment sur `annonces/[id]/route.ts`, corrigé
+
+**Description** : `app/api/admin/annonces/[id]/route.ts` (PATCH)
+faisait `.update(body)` brut sur `annonces`, sans liste blanche de
+colonnes — même classe de bug que le mass-assignment déjà corrigé le
+19/07/2026 sur `admin_users` (voir commentaire dans
+`admins/[id]/route.ts`), manquée ici. `annonces.moderate` est accordée
+au rôle `support`.
+**Risque** : réassignation d'une annonce à une autre institution
+(`institution_id`), métriques falsifiées (`nb_vues`/`nb_clics`/
+`nb_partages`), ou réécriture de la clé primaire (`id` différent dans le
+corps).
+**Correctif** : même pattern que `admins/[id]/route.ts` — liste blanche
+`['titre', 'contenu', 'type', 'statut', 'date_expiration', 'epingle']`,
+construite à partir de l'usage réel confirmé dans
+`app/admin/annonces/page.tsx:44-68` (formulaire complet envoie
+exactement ces 6 champs, toggle épinglage envoie `epingle` seul — zéro
+risque de régression). `admin_logs.details` loggue désormais `updates`
+(filtré) au lieu de `body` (brut).
+**Test** : `npx tsc --noEmit` → 0 erreur.
+**Statut** : 🟢 CORRIGÉ (code), **non commité, non testé en conditions
+réelles** — Bryan doit vérifier que l'édition/l'épinglage d'annonce
+fonctionnent toujours avant tout commit.
+**Preuve** : `app/api/admin/annonces/[id]/route.ts`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-05-03".
+**Date** : 14/09/2026.
+
+---
+
+### DEC-2026-09-14-07 — GAP-09-01 : SSRF via `lib/recuPdf.ts::chargerImageDistante()`, corrigé
+
+**Description** : trouvé en élargissant l'audit à d'autres classes de
+vulnérabilités (`fetch()` serveur sur une donnée contrôlée par
+l'utilisateur). La génération du PDF de reçu fait un `fetch(url)` brut
+sur `institutions.logo` et `users.photo_url`, ni l'un ni l'autre jamais
+validé comme URL à l'écriture (`app/api/institution/profile/route.ts`
+pour `logo` — contrairement à `website`, seul champ protégé depuis le
+chantier P0 Stored XSS du 17/08/2026 ; `app/profil/actions.ts:37` pour
+`photo_url`). Même `validerUrlExterne()` (déjà en place pour `website`)
+n'aurait pas suffi : elle valide le schéma `http(s):`, jamais la cible
+réseau.
+**Risque** : une institution ou un citoyen authentifié règle son
+`logo`/`photoUrl` sur une cible interne (métadonnées cloud, service
+interne, `localhost`), puis déclenche la génération d'un reçu — SSRF
+serveur. Aggravé par l'absence de limite de taille/timeout sur le
+buffer téléchargé.
+**Correctif** : `chargerImageDistante()` n'accepte plus que les URLs
+commençant par `${NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/`
+— seule origine produite par l'upload applicatif réel (`getPublicUrl()`),
+zéro impact sur l'usage légitime.
+**Test** : `npx tsc --noEmit` → 0 erreur.
+**Statut** : 🟢 CORRIGÉ (code), **non commité, non testé en conditions
+réelles** — Bryan doit vérifier qu'un reçu avec logo/photo réels
+continue d'afficher ces images après ce correctif.
+**Preuve** : `lib/recuPdf.ts`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-09-01".
+**Date** : 14/09/2026.
+
+---
+
+### DEC-2026-09-14-08 — GAP-04-06 : randomness non cryptographique sur l'OTP citoyen, corrigée
+
+**Description** : `lib/auth/otp.ts::genererCode6Chiffres()` utilisait
+`Math.random()` pour générer le code OTP citoyen, alors que le flux
+institution équivalent (`app/api/institution/auth/send-otp/route.ts:132`)
+utilise déjà `crypto.randomInt()` depuis le durcissement du 13/08/2026 —
+le flux citoyen (population principale) avait été manqué à cette
+occasion.
+**Risque** : `Math.random()` n'est pas un CSPRNG (CWE-338). Chemin de
+code aujourd'hui dormant (actif seulement une fois `SMS_PROVIDER`
+configuré — pas encore le cas, la connexion citoyen réelle utilise
+`CITOYEN_OTP_FALLBACK`), mais corrigé maintenant plutôt qu'au moment où
+Nimba SMS sera branché.
+**Correctif** : `crypto.randomInt(100000, 1000000)`, mêmes bornes que
+le générateur institution.
+**Test** : `npx tsc --noEmit` → 0 erreur.
+**Balayage complémentaire** : `jose` (pas `jsonwebtoken`) pour tous les
+JWT du projet, résistant par conception à la confusion d'algorithme ;
+jetons de défi 2FA confirmés avec expiration explicite ; aucune autre
+occurrence de `Math.random()` sur un chemin sécuritaire.
+**Statut** : 🟢 CORRIGÉ, **non commité**.
+**Preuve** : `lib/auth/otp.ts`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-04-06".
+**Date** : 14/09/2026.
+
+---
+
+### DEC-2026-09-15-01 — GAP-08-04 : condition de course sur la capacité des créneaux RDV — corrigée en code, migration en attente
+
+**Description** : demande de Bryan de mener une revue critique élargie
+("suis le projet, pas mon avis"). En relisant `app/rdv/[id]/actions.ts`
+(déjà touché par le correctif GAP-08-02 du 01/09/2026), trouvaille d'une
+vraie condition de course TOCTOU : `validerCreneauServeur()` comptait les
+`rdv`/`paid_bookings` existants pour un créneau et comparait à
+`institutions.capacite_par_creneau` (simple colonne, aucune contrainte
+DB), mais `createRdv()` insérait séparément — deux réservations
+concurrentes sur le même dernier créneau pouvaient toutes deux passer le
+comptage avant qu'aucune n'ait inséré.
+**Risque** : surréservation silencieuse, plausible organiquement sous
+charge normale (capacité par défaut = 1), sans intention malveillante
+nécessaire.
+**Correctif** : nouvelle fonction Postgres `reserver_creneau_rdv()`
+(`supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`)
+— comptage + insertion atomiques sous `pg_advisory_xact_lock` scopé au
+créneau. Volontairement sans `SECURITY DEFINER` : s'exécute avec les
+droits de l'appelant, donc les policies RLS existantes (ownership,
+restriction no-show) continuent de s'appliquer sans contournement.
+`date_rdv`/`heure_rdv` acceptés en `text` pour ne jamais deviner le type
+réel de colonne (`rdv` est une table d'origine sans `CREATE TABLE` dans
+les migrations). `actions.ts` basculé sur `supabase.rpc(...)` au lieu
+d'un insert direct.
+**Test** : `npx tsc --noEmit` → 0 erreur.
+**Statut** : 🟡 NEEDS REVIEW — **migration exécutée avec succès par
+Bryan le 15/09/2026** ("Success. No rows returned"). Aucun test de
+concurrence réel possible dans cet environnement ; test fonctionnel du
+parcours de réservation normal (créneau libre/complet) reste à faire
+par Bryan avant tout commit, en priorité vu que ce correctif touche le
+flux de réservation principal du produit.
+**Preuve** :
+`supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`
+(exécutée), `app/rdv/[id]/actions.ts`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-08-04".
+**Date** : 15/09/2026.
+
+---
+
+### DEC-2026-09-15-02 — GAP-09-02 : flux de réservation payant sans aucune validation serveur — plus sévère que GAP-08-04, corrigé en code
+
+**Description** : en continuant la revue critique de GAP-08-04,
+vérification si le flux PAYANT avait le même défaut — trouvé pire :
+`app/rdv/[id]/page.tsx` insérait directement depuis le navigateur dans
+`paid_bookings` PUIS `rdv`, sans jamais passer par
+`validerCreneauServeur()`/un Server Action. Seules les policies RLS
+(`auth.uid()=citoyen_id`, migration `20260720000004`) protégeaient
+l'appel — aucune vérification d'institution validée, de créneau
+réellement disponible, ou de capacité, pas même une version racy comme
+GAP-08-04. Les deux inserts n'étaient de plus pas atomiques entre eux.
+Le `confirmation_code`/`qr_token` était généré et entièrement contrôlé
+côté navigateur.
+**Risque** : abus/spam du système de réservation payant (surréservation
+massive, pas juste 1-2 places), réservations pour institutions
+suspendues, `paid_booking` orphelins en cas d'échec partiel.
+**Correctif** : `reserver_creneau_rdv_payant()` (même migration que
+GAP-08-04) — même verrou de créneau, vérifie en plus l'appartenance et
+l'activité du service, insère `paid_bookings`+`rdv` en tout-ou-rien.
+Nouveau Server Action `creerReservationPayante()`, même structure que
+`createRdv()`. `page.tsx` rewiré pour l'appeler. Bonus cohérent :
+`createRdv()` (déjà modifiée pour GAP-08-04) génère désormais aussi son
+`qr_token` côté serveur (`crypto.randomInt`) au lieu de l'accepter du
+client. `genCode()` et `notifierReservationPayante()` (devenues code
+mort) supprimées.
+**Test** : `npx tsc --noEmit` → 0 erreur.
+**Statut** : 🟡 NEEDS REVIEW — **migration exécutée avec succès (même
+migration que GAP-08-04)**. Flux de réservation payante (l'un des plus
+utilisés du produit) non testé en conditions réelles — priorité absolue
+pour Bryan avant tout commit, avant même de retester le flux gratuit.
+**Preuve** : `supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`
+(exécutée), `app/rdv/[id]/actions.ts`, `app/rdv/[id]/page.tsx`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-09-02".
+**Date** : 15/09/2026.
+
+---
+
+### DEC-2026-09-15-03 — GAP-09-03 : `avis` insert client-direct — piste ouverte, bloquée sur SQL, connectée à une dette déjà signalée le 16/08/2026
+
+**Description** : en cherchant d'autres tables au même pattern que
+GAP-09-02, repéré `app/mes-rdv/page.tsx:612` (`avis` inséré directement
+depuis le navigateur, `rdv_id` non revérifié côté serveur). Recherche
+dans les docs existants : `docs/product/YELEN_TRUST_DATA_AUDIT.md`
+(16/08/2026, section 2.6) avait déjà documenté ce point exact —
+`avis_citoyen_own` "référencée en commentaire mais son `CREATE POLICY`
+littéral **[NV]**, non retrouvé (pré-existante)" — jamais refermé
+depuis. Contrairement à `rdv`/`paid_bookings` (GAP-08-04/GAP-09-02) où
+la policy exacte était confirmée par migration, le contenu réel de la
+policy INSERT sur `avis` reste inconnu.
+**Décision** : aucun correctif écrit — construire une validation sans
+connaître la policy réelle irait à l'encontre du protocole ("zéro
+donnée inventée"), risquerait de dupliquer une protection déjà en place
+ou de mal cibler le vrai trou.
+**Confirmé par Bryan (15/09/2026)** — requête SQL exécutée :
+```
+policyname,cmd,qual,with_check
+avis_citoyen_own,ALL,(auth.uid() = citoyen_id),null
+```
+Une seule policy, `FOR ALL`, `with_check` NULL — Postgres réutilise
+`USING` pour l'INSERT en l'absence de `WITH CHECK` séparé (même piège
+déjà rencontré sur `notifications`, documenté dans CLAUDE.md
+/pieges-techniques-connus). Confirmé : aucune vérification de `rdv_id`/
+statut terminé/cohérence `institution_id` à l'insertion.
+**Correctif** : `soumettreAvis()` ajoutée dans `app/mes-rdv/actions.ts`
+(même fichier/style que `annulerRdv`/`reporterRdv`, réutilise
+`chargerRdvEtVerifier()`) — vérifie appartenance + `statut==='termine'`,
+dérive `institution_id` du rdv réel, empêche les doublons (aucune
+contrainte `UNIQUE` connue sur `rdv_id`+`citoyen_id`, contrairement à
+`avis_utile`). `page.tsx::handleEnvoyerAvis` basculé dessus ;
+`notifierPublicationAvis()` (code mort) supprimée. La route API
+`/api/citoyen/avis/notifier-publication` reste utilisée par le flux
+séparé "Mes avis" (édition d'un brouillon existant, non touché).
+**Test** : `npx tsc --noEmit` → 0 erreur.
+**Différence avec GAP-08-04/GAP-09-02** : aucune migration requise —
+pur code applicatif, déployable indépendamment.
+**Statut** : 🟢 CORRIGÉ (code), **non commité, non testé en conditions
+réelles** — parcours "laisser un avis" à tester par Bryan avant tout
+commit.
+**Preuve** : `docs/product/YELEN_TRUST_DATA_AUDIT.md` section 2.6,
+`app/mes-rdv/actions.ts`, `app/mes-rdv/page.tsx`,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` section "GAP-09-03".
+**Date** : 15/09/2026.
+
+---
+
+### DEC-2026-09-15-04 — GAP-08-04/GAP-09-02 : bug réel de cast trouvé en testant, corrigé, les deux flux de réservation confirmés fonctionnels
+
+**Description** : premier test en conditions réelles par Bryan (flux
+RDV gratuit) → échec avec le message générique. Log serveur demandé et
+obtenu : `column "date_rdv" is of type date but expression is of type
+text`. Le commentaire de la migration `20260915000001` affirmait à tort
+que Postgres appliquerait un cast d'assignation automatique text→date
+dans un `INSERT` — faux pour une variable plpgsql explicitement typée
+`text` (l'auto-cast habituel via PostgREST sur un insert direct depuis
+le client ne s'applique pas à l'intérieur d'une fonction SQL). L'erreur
+elle-même a confirmé, en conditions réelles, ce qu'aucune migration ne
+donnait comme ground truth (`rdv` est une table d'origine) :
+`date_rdv` est bien `date`, et par symétrie `heure_rdv` est `time`.
+**Correctif** : `supabase/migrations/20260915000002_fix_cast_reserver_creneau.sql`
+— `CREATE OR REPLACE` des deux fonctions, cast explicite
+`p_date_rdv::date`/`p_heure_rdv::time` uniquement dans les `INSERT` (les
+comparaisons `WHERE`, qui castent la colonne EN text, n'avaient pas ce
+problème). Aucun besoin de refaire les `GRANT`/`REVOKE` — signature de
+fonction inchangée.
+**Étape intermédiaire** : avant de trouver la vraie cause, hypothèse du
+cache de schéma PostgREST non rechargé après la première migration
+(`NOTIFY pgrst, 'reload schema'` proposée et exécutée) — n'était pas la
+cause réelle, mais réflexe correct à avoir en premier après toute
+`CREATE FUNCTION` fraîche.
+**Test** : migration exécutée par Bryan, **les deux flux (gratuit et
+payant) testés en conditions réelles et confirmés fonctionnels**.
+**Statut** : 🟢 VERIFIED — GAP-08-04 et GAP-09-02 tous deux clos.
+**Preuve** : `supabase/migrations/20260915000002_fix_cast_reserver_creneau.sql`,
+confirmation de Bryan en conditions réelles,
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` sections "GAP-08-04"/
+"GAP-09-02". **Date** : 15/09/2026.

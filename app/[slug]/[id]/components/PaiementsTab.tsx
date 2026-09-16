@@ -7,9 +7,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
+import { ReauthModal } from "./ReauthModal";
 
 type Paiement = {
   id: string; reference: string; statut: string; date_rdv: string; heure_rdv: string;
@@ -74,9 +77,9 @@ function VariationBadge({ pct, C }: { pct: number | null; C: ThemeTokens }) {
 
 function KpiCard({ label, valeur, variationPct, C }: { label: string; valeur: string; variationPct: number | null; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px">
       <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{label}</div>
-      <div style={{ color: C.t1, fontSize: "18px", fontWeight: "900", letterSpacing: "-0.3px", marginBottom: "6px" }}>{valeur}</div>
+      <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800", letterSpacing: "-0.3px", marginBottom: "6px" }}>{valeur}</div>
       {variationPct !== null ? (
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <VariationBadge pct={variationPct} C={C}/>
@@ -85,7 +88,7 @@ function KpiCard({ label, valeur, variationPct, C }: { label: string; valeur: st
       ) : (
         <span style={{ color: C.t3, fontSize: "10.5px" }}>Solde courant</span>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -97,11 +100,11 @@ function initiales(nom: string): string {
 // d'avatar générique quand une photo existe, initiales sinon.
 function Avatar({ nom, photoUrl, C, size = 38 }: { nom: string; photoUrl?: string | null; C: ThemeTokens; size?: number }) {
   return (
-    <div style={{ width: size, height: size, position: "relative", borderRadius: Math.round(size * 0.32), overflow: "hidden", flexShrink: 0, backgroundColor: `${C.gold}15`, border: `1px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ width: size, height: size, position: "relative", borderRadius: Math.round(size * 0.32), overflow: "hidden", flexShrink: 0, backgroundColor: C.gold, display: "flex", alignItems: "center", justifyContent: "center" }}>
       {photoUrl ? (
         <Image src={photoUrl} alt="" fill sizes={`${size}px`} style={{ objectFit: "cover" }}/>
       ) : (
-        <span style={{ color: C.gold, fontSize: Math.round(size * 0.36), fontWeight: 900 }}>{initiales(nom)}</span>
+        <span style={{ color: "#000", fontSize: Math.round(size * 0.36), fontWeight: 800 }}>{initiales(nom)}</span>
       )}
     </div>
   );
@@ -186,6 +189,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
   const [remboursement, setRemboursement] = useState<Paiement | null>(null);
   const [motif, setMotif] = useState("");
   const [saving, setSaving] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
   const [telechargement, setTelechargement] = useState<string | null>(null);
   const [autorisationsOuvertes, setAutorisationsOuvertes] = useState(false);
   const [detailOuvert, setDetailOuvert] = useState<Paiement | null>(null);
@@ -269,7 +273,11 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Erreur lors du remboursement", C.red); return; }
+    if (!res.ok) {
+      if (j?.code === "REAUTH_REQUIRED") { setReauthOpen(true); return; }
+      onToast(j?.error || "Erreur lors du remboursement", C.red);
+      return;
+    }
     onToast("Paiement remboursé", C.green);
     setRemboursement(null); setMotif("");
     load();
@@ -286,7 +294,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
           .paiement-fiche-panel{border-radius:20px!important}
         }
       `}</style>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Paiements</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Paiements</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>Suivez tous les paiements de votre établissement, les reçus générés, les remboursements et les opérations nécessitant une intervention.</p>
 
       {/* Header Executive (Lot 1, refonte "Payment Operations Center",
@@ -294,7 +302,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
           recherche : en un coup d'œil, combien de paiements, combien
           d'argent, combien restent, s'il y a un problème. */}
       {stats && (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px 18px", marginBottom: "14px", display: "flex", flexWrap: "wrap", gap: "20px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px 18px" style={{ marginBottom: "14px", display: "flex", flexWrap: "wrap", gap: "20px" }}>
           <div style={{ color: C.t2, fontSize: "11px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", width: "100%" }}>Aujourd&apos;hui</div>
           {[
             { label: "Paiements", valeur: String(stats.aujourdhui.nbPaiements), color: C.t1 },
@@ -304,13 +312,13 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
           ].map((item, i, arr) => (
             <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "20px" }}>
               <div>
-                <div style={{ color: item.color, fontSize: "20px", fontWeight: "900", letterSpacing: "-0.3px" }}>{item.valeur}</div>
+                <div style={{ color: item.color, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.3px" }}>{item.valeur}</div>
                 <div style={{ color: C.t3, fontSize: "11px", fontWeight: "700", marginTop: "2px" }}>{item.label}</div>
               </div>
               {i < arr.length - 1 && <div style={{ width: "1px", height: "32px", background: C.border }}/>}
             </div>
           ))}
-        </div>
+        </Card>
       )}
 
       {/* 4 cartes KPI — définitions exactes documentées côté route
@@ -368,10 +376,9 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
             {agentsDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         )}
-        <button onClick={exporterCsv} disabled={filtered.length === 0} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12.5px", fontWeight: "700", color: C.t2, cursor: filtered.length === 0 ? "not-allowed" : "pointer", opacity: filtered.length === 0 ? 0.5 : 1, display: "flex", alignItems: "center", gap: "6px" }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Exporter
-        </button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={filtered.length === 0}
+          icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+          onClick={exporterCsv}>Exporter</Button>
         <button onClick={load} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px", fontSize: "12.5px", fontWeight: "700", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center" }} aria-label="Actualiser">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         </button>
@@ -413,7 +420,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
             const st = STATUT_LABEL[p.statut] ?? { label: p.statut, color: (c: ThemeTokens) => c.t3 };
             const peutRembourser = (p.statut === "confirme" || p.statut === "termine") && !lectureSeule;
             return (
-              <div key={p.id} className="paiement-row" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px 16px" }}>
+              <Card key={p.id} tokens={toCardTokens(C)} padding="14px 16px" className="paiement-row">
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
                   <Avatar nom={p.citoyen_nom} photoUrl={p.citoyen_photo_url} C={C} size={38}/>
                   <div style={{ minWidth: 0 }}>
@@ -429,24 +436,22 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
                   <TimelineMini p={p} C={C}/>
                 </div>
 
-                <div className="paiement-row-montant" style={{ color: C.green, fontSize: "15px", fontWeight: "900", marginTop: "8px" }}>{formatPrix(p.montant)}</div>
+                <div className="paiement-row-montant" style={{ color: C.green, fontSize: "15px", fontWeight: "800", marginTop: "8px" }}>{formatPrix(p.montant)}</div>
 
                 <div className="paiement-row-statut" style={{ marginTop: "8px" }}>
                   <span style={{ color: st.color(C), fontSize: "10px", fontWeight: "800", backgroundColor: `${st.color(C)}15`, padding: "3px 9px", borderRadius: "20px", whiteSpace: "nowrap" }}>{st.label}</span>
                 </div>
 
                 <div className="paiement-row-actions" style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                  <button onClick={() => setDetailOuvert(p)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, color: C.t1, fontWeight: "700", fontSize: "12px", padding: "9px 12px", borderRadius: "10px", cursor: "pointer" }}>Voir</button>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setDetailOuvert(p)}>Voir</Button>
                   {p.recu_id && (
-                    <button onClick={() => telechargerRecu(p)} disabled={telechargement === p.id} className="tap" style={{ backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}30`, color: C.gold, fontWeight: "700", fontSize: "12px", padding: "9px 12px", borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", whiteSpace: "nowrap" }}>
-                      {telechargement === p.id ? <YelenLoader size={13} color={C.gold}/> : "Reçu"}
-                    </button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={telechargement === p.id} style={{ color: C.gold, border: `1px solid ${C.gold}30`, backgroundColor: `${C.gold}12` }} onClick={() => telechargerRecu(p)}>Reçu</Button>
                   )}
                   {peutRembourser && (
-                    <button onClick={() => setRemboursement(p)} className="tap" style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: "700", fontSize: "12px", padding: "9px 12px", borderRadius: "10px", cursor: "pointer", whiteSpace: "nowrap" }}>Rembourser</button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" onClick={() => setRemboursement(p)}>Rembourser</Button>
                   )}
                 </div>
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -475,7 +480,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
             <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
               <Avatar nom={detailOuvert.citoyen_nom} photoUrl={detailOuvert.citoyen_photo_url} C={C} size={48}/>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900" }}>{detailOuvert.citoyen_nom}</div>
+                <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800" }}>{detailOuvert.citoyen_nom}</div>
                 <div style={{ color: C.t3, fontSize: "12px", marginTop: "1px" }}>{detailOuvert.citoyen_phone || "Téléphone non renseigné"}</div>
               </div>
               <span style={{ color: (STATUT_LABEL[detailOuvert.statut]?.color ?? (() => C.t3))(C), fontSize: "10.5px", fontWeight: "800", backgroundColor: `${(STATUT_LABEL[detailOuvert.statut]?.color ?? (() => C.t3))(C)}15`, padding: "4px 10px", borderRadius: "20px", whiteSpace: "nowrap" }}>{STATUT_LABEL[detailOuvert.statut]?.label ?? detailOuvert.statut}</span>
@@ -487,7 +492,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
                 <span style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase" }}>Référence</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <span style={{ color: C.green, fontSize: "20px", fontWeight: "900" }}>{formatPrix(detailOuvert.montant)}</span>
+                <span style={{ color: C.green, fontSize: "20px", fontWeight: "800" }}>{formatPrix(detailOuvert.montant)}</span>
                 <span style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>{detailOuvert.reference}</span>
               </div>
             </div>
@@ -532,11 +537,9 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
             </div>
 
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => setDetailOuvert(null)} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "10px", cursor: "pointer" }}>Fermer</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setDetailOuvert(null)}>Fermer</Button>
               {detailOuvert.recu_id && (
-                <button onClick={() => telechargerRecu(detailOuvert)} disabled={telechargement === detailOuvert.id} className="tap" style={{ flex: 1, backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}30`, color: C.gold, fontWeight: "800", fontSize: "13px", padding: "13px", borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                  {telechargement === detailOuvert.id ? <YelenLoader size={14} color={C.gold}/> : "Télécharger le reçu"}
-                </button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1, color: C.gold, border: `1px solid ${C.gold}30`, backgroundColor: `${C.gold}12` }} loading={telechargement === detailOuvert.id} onClick={() => telechargerRecu(detailOuvert)}>Télécharger le reçu</Button>
               )}
             </div>
           </div>
@@ -550,12 +553,14 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
             <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>{formatPrix(remboursement.montant)} — {remboursement.service_nom}</div>
             <textarea value={motif} onChange={e => setMotif(e.target.value)} placeholder="Motif du remboursement (facultatif)" rows={3} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "13px", color: C.t1, resize: "none", marginBottom: "14px" }}/>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <button onClick={() => setRemboursement(null)} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-              <button onClick={confirmerRemboursement} disabled={saving} style={{ backgroundColor: C.red, color: "#fff", fontWeight: "800", fontSize: "13px", padding: "13px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: saving ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>{saving ? <YelenLoader size={14} color="#fff"/> : "Confirmer le remboursement"}</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => setRemboursement(null)}>Annuler</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" loading={saving} onClick={confirmerRemboursement}>Confirmer le remboursement</Button>
             </div>
           </div>
         </div>
       )}
+
+      <ReauthModal open={reauthOpen} onClose={() => setReauthOpen(false)} onSuccess={() => { setReauthOpen(false); confirmerRemboursement(); }}/>
     </div>
   );
 }

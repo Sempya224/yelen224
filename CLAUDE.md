@@ -835,12 +835,14 @@ déployée **en même temps que** le code du Lot 1, pas avant seule) →
 (documents lifecycle + events). `20260805000011` (cron daily_attendance)
 requiert aussi `supabase functions deploy clock-in-daily-attendance`.
 
-**Buckets Storage privés à créer** (Public décoché) : `documents-citoyens`,
-`documents-employes`, `signalements-preuves`, **`documents`** (documents de
-vérification institution — `documents_institution`, table existante depuis
-le 11/07/2026 mais bucket jamais créé, trouvé cassé le 14/08/2026 en
-testant le nouveau Centre de configuration : `sb.storage.from("documents")`
-dans `app/api/institution/documents/route.ts:108`).
+**Buckets Storage privés — vérifiés 15/09/2026** (`SELECT id,name,public
+FROM storage.buckets`, GAP-11-01 clos) : les 7 buckets attendus
+(`documents-citoyens`, `documents-employes`, `signalements-preuves`,
+`documents`, `recus-paiement`, `documents-travail`, `messagerie-images`)
+existent tous et sont tous `public=false` — y compris `documents`,
+trouvé cassé le 14/08/2026 (bucket manquant à l'époque,
+`app/api/institution/documents/route.ts:108`), recréé depuis. Plus
+d'action requise sur ce point.
 
 **Variables d'environnement à ajouter (Netlify, déjà en local sauf
 mention contraire)** :

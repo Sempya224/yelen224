@@ -3,12 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useTheme, type ThemeMode } from "@/components/ThemeProvider";
 import { CompteHeader } from "@/components/CompteEcranVide";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
-import { deleteCitoyenAccount } from "@/app/profil/actions";
 import { LogoutFlow, CITOYEN_LOGOUT_COPY } from "@/components/LogoutFlow";
 
 // Écran "Paramètres" — décision CEO 18/07/2026 : plus une simple section
@@ -188,7 +186,6 @@ function Section({ titre, lignes, card, brd, t1, t2, t3, children }: {
 }
 
 export default function ParametresPage() {
-  const router = useRouter();
   const { theme, mode, setMode } = useTheme();
   const isDark = theme === "dark";
   const bg       = isDark ? "#0A0A0F" : "#F2F2F7";
@@ -199,23 +196,22 @@ export default function ParametresPage() {
   const brd      = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const avatarBg = isDark ? "#2C2C2E" : "#E5E5EA";
 
-  const [userId, setUserId] = useState<string | null>(null);
   const [profil, setProfil] = useState<Profil | null>(null);
   const [profilLoading, setProfilLoading] = useState(true);
-  // Déconnexion/Suppression — déplacées ici depuis
-  // /compte/informations-personnelles (retour Bryan 27/08/2026, brief
-  // "Profil → Paramètres → Compte") : même logique portée telle quelle
-  // (LogoutFlow, deleteCitoyenAccount, window.confirm), aucun comportement
-  // changé, seulement l'emplacement dans le produit.
+  // Déconnexion — déplacée ici depuis /compte/informations-personnelles
+  // (retour Bryan 27/08/2026, brief "Profil → Paramètres → Compte") : même
+  // logique portée telle quelle (LogoutFlow), aucun comportement changé,
+  // seulement l'emplacement dans le produit. "Supprimer mon compte"
+  // retiré le 12/09/2026 (retour Bryan) le temps de reconstruire le
+  // parcours de suppression — voir app/profil/actions.ts::deleteCitoyenAccount
+  // pour la logique serveur existante, réutilisable telle quelle.
   const [logoutOpen, setLogoutOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     let id: string | null = null;
     try { id = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     if (!id) { setProfilLoading(false); return; }
-    setUserId(id);
     void (async () => {
       const { data, error } = await supabase
         .from("users")
@@ -226,23 +222,6 @@ export default function ParametresPage() {
       setProfilLoading(false);
     })();
   }, []);
-
-  async function handleDelete() {
-    if (!userId) return;
-    if (!window.confirm("Supprimer définitivement votre compte ? Cette action est irréversible.")) return;
-    setDeleting(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) { window.alert("Session expirée, reconnectez-vous."); return; }
-      const result = await deleteCitoyenAccount(userId, session.access_token);
-      if (!result.ok) { window.alert(result.error); return; }
-      await supabase.auth.signOut();
-      localStorage.removeItem(YELEN224_USER_ID_KEY);
-      router.replace("/");
-    } finally {
-      setDeleting(false);
-    }
-  }
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
@@ -261,10 +240,7 @@ export default function ParametresPage() {
           <div style={{ backgroundColor: card, borderRadius: "14px", padding: "12px" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               <button type="button" onClick={() => setLogoutOpen(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "12px 14px", borderRadius: "12px", background: "transparent", border: `1px solid ${brd}`, color: t1, fontWeight: 700, fontSize: "13px", cursor: "pointer" }}>
-                <Ic.Out/> Déconnexion
-              </button>
-              <button type="button" onClick={handleDelete} disabled={deleting} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "12px 14px", borderRadius: "12px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", fontWeight: 700, fontSize: "13px", cursor: deleting ? "default" : "pointer" }}>
-                <Ic.Trash/> {deleting ? "Suppression…" : "Supprimer mon compte"}
+                <Ic.Out/> <span style={{ color: "#ef4444" }}>Déconnexion</span>
               </button>
             </div>
           </div>

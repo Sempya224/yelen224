@@ -8,8 +8,9 @@
 // n'a pas de structure "litige/résultat/étapes" — le contenu réel dont on
 // dispose est titre + message complet (non tronqué) + horodatage + action
 // contextuelle si un RDV est lié.
+import Image from "next/image";
 import Link from "next/link";
-import { resoudreNotif, resoudreCta } from "@/lib/notificationContent";
+import { resoudreNotif, resoudreCta, resoudreCtaSecondaire } from "@/lib/notificationContent";
 
 export type NotifDetail = {
   id: string;
@@ -39,6 +40,7 @@ export function NotificationDetailOverlay({ notif, onClose, bg, t1, t2, t3, card
   const heure = notif.created_at ? new Date(notif.created_at).toLocaleString("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) : "";
   const { Illustration } = resoudreNotif(notif.type);
   const cta = resoudreCta(notif);
+  const ctaSecondaire = resoudreCtaSecondaire(notif);
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1200, background: bg, display: "flex", flexDirection: "column" }}>
@@ -52,7 +54,13 @@ export function NotificationDetailOverlay({ notif, onClose, bg, t1, t2, t3, card
 
       <main style={{ flex: 1, overflowY: "auto", padding: "8px 24px 24px", width: "100%", maxWidth: "480px", margin: "0 auto", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: "24px" }}>
-          <Illustration size={88}/>
+          {notif.type === "rdv_annule_systeme" ? (
+            <div style={{ width: "140px", height: "140px", borderRadius: "24px", overflow: "hidden", position: "relative" }}>
+              <Image src="/illustrations/rdv-annule-systeme.png" alt="" fill style={{ objectFit: "cover" }}/>
+            </div>
+          ) : (
+            <Illustration size={88}/>
+          )}
         </div>
 
         <h1 style={{ color: t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.4px", margin: "0 0 10px", lineHeight: 1.25 }}>{notif.titre}</h1>
@@ -75,12 +83,27 @@ export function NotificationDetailOverlay({ notif, onClose, bg, t1, t2, t3, card
           </Link>
         )}
 
+        {/* CTA secondaire — approche DoorDash "problème → contexte →
+            résolution → assistance" (brief Bryan 15/09/2026) : une porte de
+            sortie vers un humain, toujours discrète, jamais aussi visible
+            que la résolution principale. */}
+        {ctaSecondaire && (
+          <Link
+            href={ctaSecondaire.href}
+            onClick={onClose}
+            className="tap"
+            style={{ display: "block", width: "100%", padding: "14px", textAlign: "center", color: t2, fontSize: "14px", fontWeight: "700", textDecoration: "none", marginTop: "10px" }}
+          >
+            {ctaSecondaire.label}
+          </Link>
+        )}
+
         <button
           onClick={onClose}
           className="tap"
           style={{ width: "100%", padding: "16px", borderRadius: "16px", background: cta ? "transparent" : "#F5A623", border: cta ? `1px solid ${brd}` : "none", color: cta ? t1 : "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer", marginTop: "10px" }}
         >
-          Compris
+          Fermer
         </button>
       </main>
     </div>

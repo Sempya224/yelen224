@@ -5,12 +5,33 @@
 // — même convention header que ProfilAuteurOverlay/OffreFicheOverlay (X +
 // titre centré), remplace l'ancien composeur qui s'étendait en ligne dans
 // le fil.
-import { Avatar, CategorieBadge } from "@/components/CommunautePostCard";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Avatar, AvatarInstitution, CategorieBadge } from "@/components/CommunautePostCard";
 import { YelenLoader } from "@/components/YelenLoader";
 import { POST_CATEGORIES, POST_CATEGORIE_LABELS, POST_CATEGORIE_COULEURS } from "@/lib/communauteCategories";
+import { chargerCiblesMentionnables, type CibleMentionnable } from "@/lib/communauteMentions";
 import type { PostSuggestion } from "@/lib/postSuggestions";
 
 const MAX_IMAGES = 4;
+
+// Mentions @profil (09/09/2026, Lot mentions) — état 100% local à ce
+// composeur (comme menuOuvert dans PostCard), pas remonté à page.tsx : ne
+// concerne que l'interaction de frappe dans le textarea, `texte` reste la
+// seule chose que le parent connaît. Note honnête : le textarea reste du
+// texte brut pendant la frappe — la mention choisie s'insère sous sa forme
+// encodée `@[Nom](type:id)`, pas comme une vraie puce visuelle tant que la
+// publication n'est pas affichée (ça demanderait un éditeur richtext,
+// hors périmètre de ce lot).
+function detecterMentionActive(texte: string, position: number): { debut: number; requete: string } | null {
+  const avant = texte.slice(0, position);
+  const idx = avant.lastIndexOf("@");
+  if (idx === -1) return null;
+  const precedent = idx > 0 ? avant[idx - 1] : "\n";
+  if (!/\s/.test(precedent)) return null;
+  const requete = avant.slice(idx + 1);
+  if (/\s/.test(requete)) return null;
+  return { debut: idx, requete };
+}
 
 export default function CreerPostOverlay({
   userName, userPhoto,
@@ -33,6 +54,40 @@ export default function CreerPostOverlay({
   isDark: boolean; bg: string; card: string; card2: string; t1: string; t2: string; brd: string;
 }) {
   const peutPublier = (texte.trim() || fichiers.length > 0) && categorie && !envoi;
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [curseur, setCurseur] = useState(0);
+  const [cibles, setCibles] = useState<CibleMentionnable[] | null>(null);
+
+  // Chargé une seule fois à l'ouverture du composeur, seulement utilisé si
+  // l'utilisateur tape "@" — pas de coût si la publication ne mentionne
+  // personne.
+  useEffect(() => {
+    let annule = false;
+    chargerCiblesMentionnables().then(res => { if (!annule) setCibles(res); });
+    return () => { annule = true; };
+  }, []);
+
+  const mentionActive = useMemo(() => detecterMentionActive(texte, curseur), [texte, curseur]);
+  const suggestionsMention = useMemo(() => {
+    if (!mentionActive || !cibles) return [];
+    const q = mentionActive.requete.toLowerCase();
+    return cibles.filter(c => c.nom.toLowerCase().includes(q)).slice(0, 6);
+  }, [mentionActive, cibles]);
+
+  function choisirMention(cible: CibleMentionnable) {
+    if (!mentionActive) return;
+    const avant = texte.slice(0, mentionActive.debut);
+    const apres = texte.slice(mentionActive.debut + 1 + mentionActive.requete.length);
+    const insere = `@[${cible.nom}](${cible.type}:${cible.id}) `;
+    setTexte(avant + insere + apres);
+    const position = avant.length + insere.length;
+    setCurseur(position);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(position, position);
+    });
+  }
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: bg, display: "flex", flexDirection: "column" }}>
@@ -59,13 +114,34 @@ export default function CreerPostOverlay({
           <span style={{ color: t1, fontSize: "14px", fontWeight: 800 }}>{userName}</span>
         </div>
 
-        <textarea
-          autoFocus
-          value={texte}
-          onChange={e => setTexte(e.target.value)}
-          placeholder="Partagez une idée, une expérience professionnelle…"
-          style={{ width: "100%", minHeight: "140px", background: "none", border: "none", outline: "none", color: t1, fontSize: "15px", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", marginBottom: "14px" }}
-        />
+        <div style={{ position: "relative", marginBottom: "14px" }}>
+          <textarea
+            ref={textareaRef}
+            autoFocus
+            value={texte}
+            onChange={e => { setTexte(e.target.value); setCurseur(e.target.selectionStart); }}
+            onClick={e => setCurseur(e.currentTarget.selectionStart)}
+            onKeyUp={e => setCurseur(e.currentTarget.selectionStart)}
+            placeholder="Partagez une idée, une expérience professionnelle… (@ pour mentionner quelqu'un)"
+            style={{ width: "100%", minHeight: "140px", background: "none", border: "none", outline: "none", color: t1, fontSize: "15px", fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", display: "block" }}
+          />
+          {/* Autocomplétion "@" (09/09/2026) — sous le textarea plutôt qu'au
+              pixel du curseur (mesure de position hors périmètre de ce lot),
+              même compromis que les dropdowns simples déjà dans le produit. */}
+          {mentionActive && suggestionsMention.length > 0 && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 2, background: isDark ? "#1C1C1E" : "#fff", border: `1px solid ${brd}`, borderRadius: "14px", boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: "6px", marginTop: "4px" }}>
+              {suggestionsMention.map(c => (
+                <button key={`${c.type}:${c.id}`} onClick={() => choisirMention(c)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left", background: "none", border: "none", padding: "8px", borderRadius: "10px", cursor: "pointer" }}>
+                  {c.type === "citoyen" ? <Avatar nom={c.nom} photo={c.photo} taille={32} /> : <AvatarInstitution nom={c.nom} logo={c.photo} taille={32} />}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: t1, fontSize: "12.5px", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nom}</div>
+                    {c.sousTitre && <div style={{ color: t2, fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.sousTitre}</div>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Suggestions dérivées de la vraie activité du citoyen (démarche
             terminée, avis positif récent — voir lib/postSuggestions.ts),

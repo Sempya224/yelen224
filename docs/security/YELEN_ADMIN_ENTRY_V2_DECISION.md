@@ -248,14 +248,28 @@ une omission.
   en décident, séparation grant/session non touchée).
 
 **Tests** : `npx tsc --noEmit` → exit 0 sur les 3 fichiers (confirmé par
-notification de tâche, pas une lecture anticipée). **Aucun test en
-conditions réelles encore rejoué** — nécessite la participation de Bryan
-(navigateur + SQL), protocole donné, en attente de sa disponibilité.
+notification de tâche, pas une lecture anticipée).
 
-**Statut** : 🟠 IN PROGRESS — code corrigé et type-vérifié, revalidation
-live des 2 écarts + recherche de régression sur les tests déjà PASS (1,
-3, 4, 5, 6, 8, 11) restant à faire avant clôture définitive. Aucun
-commit. **Date** : 31/08/2026.
+**Revalidation live effectuée par Bryan (31/08/2026, même nuit,
+redémarrage machine entre-temps)** — protocole en 4 étapes exécuté
+réellement (navigateur + SQL) :
+1. Credential inconnu vs credential révoqué (`test-revoque-1` créé puis
+   nettoyé par Bryan) → réponse HTTP strictement identique confirmée
+   (Écart 1 revalidé en conditions réelles).
+2. Vérification WebAuthn réelle sur `/entree-admin` → grant frais émis.
+3. Connexion admin réelle (mot de passe + TOTP) → dashboard accessible,
+   aucune régression sur `admin_sessions`/la connexion normale.
+4. `SELECT id, consumed_at, revoked_at, expires_at FROM
+   admin_entry_grants ORDER BY issued_at DESC LIMIT 1` juste après →
+   `consumed_at` rempli (`2026-08-31 06:39:36.115+00`), `revoked_at`
+   null, consommé ~18 minutes avant `expires_at` — **Écart 2 confirmé
+   corrigé en conditions réelles**, pas seulement type-vérifié.
+
+**Statut** : ✅ **Écarts 1 et 2 clos** — code corrigé, type-vérifié, ET
+revalidé en conditions réelles. Recherche de régression sur les tests
+déjà PASS (1, 3, 4, 5, 6, 8, 11) non rejouée explicitement ce soir (non
+bloquant : aucun de ces tests ne touche aux fichiers modifiés par les
+Écarts 1/2). **Date** : 31/08/2026.
 
 Condition de bascule section 3 (≥2 credentials WebAuthn d'entrée
 distincts et vérifiés) **non remplie** : un seul credential enregistré à
@@ -263,5 +277,58 @@ ce jour. `ADMIN_ENTRY_TOKEN` reste donc le seul filet actif.
 
 ---
 
-Aucun code, aucune migration, aucune modification de `proxy.ts` dans ce
-document. En attente de validation CEO avant Phase 3 (implémentation).
+## TROUVAILLE POST-CLÔTURE — bypass du garde-fou par simple présence de cookie (31/08/2026)
+
+**Contexte** : revue critique demandée par Bryan, faite directement (pas
+un sous-agent), du fichier `proxy.ts` dans son ensemble — hors du
+périmètre des 11 tests de la spec section 7 (qui testaient le grant
+WebAuthn lui-même, pas la condition qui déclenche son exigence).
+
+**Trouvaille** : le garde-fou (`estCheminAdminBrut && ADMIN_ENTRY_TOKEN
+&& ...`) ne testait que la **présence** du cookie
+`yelen224_admin_session`, jamais sa validité — `!request.cookies.get(...)?.value`.
+Un client HTTP direct (curl/Burp, aucun navigateur requis) envoyant
+`Cookie: yelen224_admin_session=n'importe-quoi` faisait sauter le
+garde-fou entièrement : la requête atteignait ensuite
+`PUBLIC_ADMIN_ROUTES` (`/admin/login`) et se voyait servie normalement,
+**sans jamais vérifier le JWT**. Impact : n'importe qui pouvait
+découvrir que `/admin/login` existe avec un simple en-tête `Cookie`
+forgé, sans connaître `ADMIN_ENTRY_TOKEN` ni posséder de credential
+WebAuthn — défait complètement l'obscurcissement qui est la raison
+d'être de ce chantier (section 1 : "URL admin non prédictible"). Les
+autres pages `/admin/*` restaient protégées (JWT vérifié plus loin dans
+le même fichier) ; seule la route publique de login était exposée par ce
+chemin précis.
+
+**Correction appliquée** : la validité réelle de la session
+(`verifierTokenAdmin()`, déjà existant) est désormais calculée **une
+seule fois**, dès l'entrée dans le bloc `/admin/*`, et réutilisée pour
+les deux décisions (garde-fou grant/token ET vérification JWT normale
+plus bas) — plus de double appel. Le garde-fou se base maintenant sur
+`!sessionAdmin.valide` au lieu de la simple présence du cookie.
+
+**Compromis assumé et documenté dans le code** : un JWT présent mais
+expiré/révoqué (session normale qui expire en cours de navigation) tombe
+désormais aussi sous le garde-fou grant/token (404 muet si aucun grant/
+token valide) au lieu d'un redirect direct vers `/admin/login` — sécurité
+priorisée sur le confort, décision explicite de Bryan ("corrige la mais
+assure-toi en toute prudence et sécurité").
+
+**Tests** : `npx tsc --noEmit` → 0 erreur. `npx eslint proxy.ts` → 0
+erreur/warning (2 runs confirmés par notification de tâche). **Non
+retesté en conditions réelles par Bryan** (garbage cookie contre
+`/admin/login`, session valide, entrée par token) — à faire avant tout
+push.
+
+**Commits locaux (aucun push)** :
+- `903d7ca` — sauvegarde de l'accumulation de chantiers en cours
+  (snapshot non curé, ~650 fichiers, demandé explicitement par Bryan
+  après redémarrage machine).
+- `45e585b` — retrait de 7 fichiers de debug (audit/eslint/stackdump,
+  ~2 Mo) glissés par erreur dans le snapshot ci-dessus, `.gitignore`
+  étendu.
+- `a1e1d9c` — le correctif décrit ci-dessus (`proxy.ts` seul).
+
+**Statut** : 🟡 NEEDS REVIEW — correctif appliqué, type/lint propres,
+en attente de test réel par Bryan avant tout push.
+**Date** : 31/08/2026.

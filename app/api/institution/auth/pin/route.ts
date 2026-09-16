@@ -23,7 +23,7 @@ export async function DELETE(request: NextRequest) {
     const { pin } = body
 
     if (!pin || typeof pin !== 'string') {
-      return NextResponse.json({ error: 'Code PIN actuel requis', code: 'MISSING_PIN' }, { status: 400 })
+      return NextResponse.json({ error: 'Saisissez votre code PIN actuel pour confirmer la suppression.', code: 'MISSING_PIN' }, { status: 400 })
     }
 
     const { data: institution } = await supabaseAdmin
@@ -33,12 +33,12 @@ export async function DELETE(request: NextRequest) {
       .single()
 
     if (!institution?.pin_hash) {
-      return NextResponse.json({ error: 'Aucun code configuré', code: 'NOT_CONFIGURED' }, { status: 404 })
+      return NextResponse.json({ error: "Aucun code PIN n'est configuré sur ce compte.", code: 'NOT_CONFIGURED' }, { status: 404 })
     }
 
     const valid = await bcrypt.compare(pin, institution.pin_hash)
     if (!valid) {
-      return NextResponse.json({ error: 'Code incorrect', code: 'INVALID_PIN' }, { status: 401 })
+      return NextResponse.json({ error: 'Le code PIN saisi est incorrect.', code: 'INVALID_PIN' }, { status: 401 })
     }
 
     const { error: updateError } = await supabaseAdmin
@@ -48,7 +48,7 @@ export async function DELETE(request: NextRequest) {
 
     if (updateError) {
       console.error('[INSTITUTION PIN DELETE ERROR]', updateError.code, updateError.message)
-      return NextResponse.json({ error: 'Erreur lors de la suppression', code: 'UPDATE_ERROR' }, { status: 500 })
+      return NextResponse.json({ error: "Le code PIN n'a pas pu être supprimé. Réessayez.", code: 'UPDATE_ERROR' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

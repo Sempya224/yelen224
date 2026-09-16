@@ -32,15 +32,21 @@ export const INSTITUTION_SESSION_TTL_JWT = "8h";
 // `is_active` n'est plus écrit — colonne dérivable de revoked_at/expires_at,
 // jamais lue, retirée par migration 20260830000008 après déploiement de ce
 // code (elle existait encore côté ancien code au moment de cette écriture).
+// `membreId` (16/09/2026, revue finale) — optionnel : renseigné dès que
+// l'identité du membre est connue à la création (tous les flux sauf les 3
+// connexions institution-wide sans membre_principal), pour permettre une
+// révocation ciblée (voir revoquerSessionsMembre) plutôt que "toute
+// l'institution" ou "rien".
 export async function creerSessionInstitution(
   sb: SupabaseClient,
-  params: { institutionId: string; phone?: string | null; userAgent: string | null; ip: string | null }
+  params: { institutionId: string; phone?: string | null; userAgent: string | null; ip: string | null; membreId?: string | null }
 ): Promise<string | null> {
   const expiresAt = new Date(Date.now() + INSTITUTION_SESSION_TTL_MS).toISOString();
   const { data, error } = await sb
     .from("institution_sessions")
     .insert({
       institution_id: params.institutionId,
+      membre_id: params.membreId ?? null,
       phone: params.phone ?? null,
       user_agent: params.userAgent,
       ip: params.ip,
@@ -53,6 +59,27 @@ export async function creerSessionInstitution(
     return null;
   }
   return data.id;
+}
+
+// Révocation ciblée d'UN membre précis (16/09/2026, revue finale) —
+// distincte de revoquerAutresSessionsInstitution (qui révoque TOUTE
+// l'institution sauf la session appelante, pour un changement de PIN/2FA
+// personnel). Ici l'inverse : révoquer PRÉCISÉMENT les sessions d'un
+// membre, sans toucher aux autres membres de l'équipe — appelée quand un
+// admin change le rôle, désactive, supprime, ou réinitialise le PIN d'un
+// AUTRE membre, pour que la promesse déjà affichée dans l'UI Équipe ("perd
+// l'accès immédiatement") soit réellement vraie plutôt qu'un délai de 8h.
+export async function revoquerSessionsMembre(
+  sb: SupabaseClient,
+  membreId: string,
+  reason: string
+): Promise<void> {
+  const { error } = await sb
+    .from("institution_sessions")
+    .update({ revoked_at: new Date().toISOString(), revoked_reason: reason })
+    .eq("membre_id", membreId)
+    .is("revoked_at", null);
+  if (error) console.error(`[INSTITUTION SESSIONS] Erreur révocation membre (${reason}):`, error.message);
 }
 
 // Révocation par session individuelle (dette technique comblée 30/08/2026 —
@@ -72,15 +99,39 @@ export async function creerSessionInstitution(
 // aujourd'hui tous les points d'écriture (creerSessionInstitution ci-dessus)
 // le renseignent systématiquement. Défense en profondeur si un futur point
 // d'écriture l'oublie.
-async function sessionValide(sid: string): Promise<boolean> {
+type SessionRow = { revoked_at: string | null; expires_at: string | null; reauth_at: string | null };
+
+async function chargerSession(sid: string): Promise<SessionRow | null> {
   const { data } = await supabaseAdmin
     .from("institution_sessions")
-    .select("revoked_at, expires_at")
+    .select("revoked_at, expires_at, reauth_at")
     .eq("id", sid)
     .maybeSingle();
-  if (!data || data.revoked_at || !data.expires_at) return false;
-  if (new Date(data.expires_at).getTime() < Date.now()) return false;
-  return true;
+  return data ?? null;
+}
+
+function sessionEstValide(row: SessionRow | null): boolean {
+  if (!row || row.revoked_at || !row.expires_at) return false;
+  return new Date(row.expires_at).getTime() >= Date.now();
+}
+
+async function sessionValide(sid: string): Promise<boolean> {
+  return sessionEstValide(await chargerSession(sid));
+}
+
+// Fenêtre de réauthentification récente (moteur de réauth pour actions
+// sensibles, 16/09/2026) — mirroring lib/adminAuth.ts::REAUTH_WINDOW_MS.
+// Une action sensible exige que reauth_at date de moins de 10 minutes ;
+// au-delà, la route appelante doit renvoyer REAUTH_REQUIRED plutôt que
+// d'exécuter l'action.
+export const INSTITUTION_REAUTH_WINDOW_MS = 10 * 60 * 1000;
+
+// Typé structurellement sur { reauthAt } plutôt que sur AuthenticatedMembre
+// précisément — accepte aussi bien un AuthenticatedMembre qu'une session
+// institution-wide sans membreId (voir getAuthenticatedInstitutionSession
+// ci-dessous), qui a elle aussi un reauth_at propre sur institution_sessions.
+export function estReauthRecente(session: { reauthAt: string | null }): boolean {
+  return !!session.reauthAt && Date.now() - new Date(session.reauthAt).getTime() <= INSTITUTION_REAUTH_WINDOW_MS;
 }
 
 // Décode + vérifie le cookie de session JWT institution — point unique
@@ -102,11 +153,31 @@ async function decoderJetonInstitution(request: NextRequest): Promise<Record<str
   }
 }
 
-export async function getAuthenticatedInstitutionId(request: NextRequest): Promise<string | null> {
+export type AuthenticatedInstitutionSession = { institutionId: string; sid: string; reauthAt: string | null };
+
+// Session institution SANS identité de membre précise — nécessaire pour les
+// routes "compte principal" (register-options/verify WebAuthn, PIN
+// institution-wide) qui doivent rester utilisables même quand
+// institution_membres n'a PAS ENCORE de ligne compte_principal=true : les 3
+// flux qui émettent un institutionId sans membreId (verify-otp, pin/verify,
+// webauthn/auth-verify) n'incluent ce claim QUE si un membre_principal
+// existe déjà en base au moment du login (voir ces 3 routes) — une session
+// avec institutionId mais SANS membreId ne peut donc, par construction,
+// avoir été émise que par un de ces 3 flux, jamais par membre/login (qui
+// inclut toujours membreId puisqu'il authentifie une ligne
+// institution_membres précise). Traiter cette session comme appartenant au
+// propriétaire réel de l'institution est donc sûr, pas un contournement.
+export async function getAuthenticatedInstitutionSession(request: NextRequest): Promise<AuthenticatedInstitutionSession | null> {
   const payload = await decoderJetonInstitution(request);
   if (!payload || typeof payload.institutionId !== "string" || typeof payload.sid !== "string") return null;
-  if (!(await sessionValide(payload.sid))) return null;
-  return payload.institutionId;
+  const sessionRow = await chargerSession(payload.sid);
+  if (!sessionEstValide(sessionRow)) return null;
+  return { institutionId: payload.institutionId, sid: payload.sid, reauthAt: sessionRow!.reauth_at };
+}
+
+export async function getAuthenticatedInstitutionId(request: NextRequest): Promise<string | null> {
+  const session = await getAuthenticatedInstitutionSession(request);
+  return session?.institutionId ?? null;
 }
 
 // Lit uniquement le `sid` du cookie de session, sans valider la ligne
@@ -119,12 +190,56 @@ export async function getInstitutionSessionSid(request: NextRequest): Promise<st
   return payload && typeof payload.sid === "string" ? payload.sid : null;
 }
 
+// Révoque toutes les sessions institution_sessions actives d'un compte, à
+// l'EXCEPTION de currentSid — point unique (revue sécurité 08/09/2026,
+// bug réel trouvé en prod) remplaçant 2 copies dupliquées dans pin/set et
+// totp/disable qui révoquaient AUSSI la session appelante. Conséquence
+// concrète du bug : "Configurer l'accès rapide" (juste après un premier
+// login) enchaîne pin/set puis redirige vers le dashboard avec ce même
+// cookie — pin/set le révoquait au passage, provoquant un faux "session
+// expirée" immédiat, avant même d'avoir affiché la moindre donnée.
+//
+// Exclure la session courante d'une révocation "changement d'identifiant
+// de sécurité" est le comportement standard (Google, GitHub...) et ne
+// dégrade jamais la sécurité réelle : la session qui appelle cette route
+// vient de PROUVER sa légitimité (ancien PIN correct, code TOTP valide...).
+// Dans le seul scénario où ce serait un attaquant, c'est lui qui tient la
+// session courante — l'exclure ne change rien à son accès (il reste
+// connecté dans les deux cas), alors que l'inclure ne pénalise que
+// l'utilisateur légitime. `remember/revoke-all` avait déjà ce
+// raisonnement correctement implémenté ; c'est désormais la même fonction
+// partagée pour les 3 endpoints (pin/set, totp/disable, remember/revoke-all).
+export async function revoquerAutresSessionsInstitution(
+  sb: SupabaseClient,
+  institutionId: string,
+  currentSid: string | null,
+  reason: string
+): Promise<void> {
+  let query = sb
+    .from("institution_sessions")
+    .update({ revoked_at: new Date().toISOString(), revoked_reason: reason })
+    .eq("institution_id", institutionId)
+    .is("revoked_at", null);
+  if (currentSid) query = query.neq("id", currentSid);
+  const { error } = await query;
+  if (error) console.error(`[INSTITUTION SESSIONS] Erreur révocation (${reason}):`, error.message);
+}
+
 export type { MembreRole };
 
 export type AuthenticatedMembre = {
   institutionId: string;
   membreId: string;
   role: MembreRole;
+  sid: string;
+  reauthAt: string | null;
+  // Rôles personnalisés (16/09/2026) — domaines retirés au rôle de base,
+  // transportés dans le JWT (comme `role`) plutôt que relus en base à
+  // chaque requête : rafraîchi au prochain login, forcé immédiatement par
+  // revoquerSessionsMembre quand un admin modifie la liste (voir
+  // app/api/institution/membres/route.ts). Absent sur les JWT signés avant
+  // ce claim → toujours null, jamais bloquant.
+  accesRestreints: string[] | null;
 };
 
 // Lit membreId/role du même cookie/JWT que getAuthenticatedInstitutionId —
@@ -140,6 +255,48 @@ export async function getAuthenticatedMembre(request: NextRequest): Promise<Auth
   if (typeof institutionId !== "string" || typeof membreId !== "string" || typeof role !== "string") return null;
   if (typeof payload.sid !== "string") return null;
   if (!isMembreRole(role)) return null;
-  if (!(await sessionValide(payload.sid))) return null;
-  return { institutionId, membreId, role };
+  const sessionRow = await chargerSession(payload.sid);
+  if (!sessionEstValide(sessionRow)) return null;
+  const accesRestreints = Array.isArray(payload.accesRestreints)
+    ? payload.accesRestreints.filter((v): v is string => typeof v === "string")
+    : null;
+  return { institutionId, membreId, role, sid: payload.sid, reauthAt: sessionRow!.reauth_at, accesRestreints };
+}
+
+// Yelen Security Activation (16/09/2026) — décision Bryan : après le sas de
+// confiance de première connexion, l'utilisateur découvre d'abord son
+// dashboard ; une activation MFA (TOTP OU Passkey, au choix) devient
+// obligatoire 24h après cette première connexion, sous peine de blocage du
+// dashboard (jamais une suspension du compte — réversible dès activation).
+// Volontairement DÉRIVÉ, aucune nouvelle colonne : relation_confirmee_le
+// (posée par /api/institution/auth/premiere-connexion) sert d'ancre à
+// l'échéance, totp_enabled/institution_webauthn_credentials existent déjà.
+// `relation_confirmee_le` null (compte_principal, ou tout membre créé avant
+// ce chantier) = jamais concerné, fail-open par construction — jamais un
+// compte existant bloqué rétroactivement par une fonctionnalité qu'il n'a
+// jamais vue.
+export const SECURITY_ACTIVATION_DELAI_MS = 24 * 60 * 60 * 1000;
+
+export type ActivationSecurite = {
+  requise: boolean;
+  bloque: boolean;
+  deadline: string | null;
+  totpActif: boolean;
+  passkeyActive: boolean;
+};
+
+export async function evaluerActivationSecurite(sb: SupabaseClient, membreId: string): Promise<ActivationSecurite> {
+  const [{ data: moi }, { count: nbPasskeys }] = await Promise.all([
+    sb.from("institution_membres").select("relation_confirmee_le,totp_enabled").eq("id", membreId).maybeSingle(),
+    sb.from("institution_webauthn_credentials").select("id", { count: "exact", head: true }).eq("membre_id", membreId),
+  ]);
+
+  const totpActif = !!moi?.totp_enabled;
+  const passkeyActive = (nbPasskeys ?? 0) > 0;
+  if (!moi?.relation_confirmee_le || totpActif || passkeyActive) {
+    return { requise: false, bloque: false, deadline: null, totpActif, passkeyActive };
+  }
+
+  const deadline = new Date(new Date(moi.relation_confirmee_le).getTime() + SECURITY_ACTIVATION_DELAI_MS).toISOString();
+  return { requise: true, bloque: Date.now() > new Date(deadline).getTime(), deadline, totpActif, passkeyActive };
 }

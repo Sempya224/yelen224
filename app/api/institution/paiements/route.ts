@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { getAuthenticatedMembre, estReauthRecente } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { accesUrgenceAdminDebloque } from "@/lib/comptableProtection";
 import { enregistrerTransaction } from "@/lib/transactionsFinancieres";
@@ -186,8 +186,13 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "paiements.rembourser")) {
+  if (!can(membre.role, "paiements.rembourser", membre.accesRestreints)) {
     return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
+  // Moteur de réauthentification (16/09/2026) — opération financière
+  // sensible, même palier que la suppression de compte/d'un membre.
+  if (!estReauthRecente(membre)) {
+    return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: "REAUTH_REQUIRED" }, { status: 403 });
   }
 
   const modeUrgence = membre.role === "admin";

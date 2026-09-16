@@ -7,7 +7,9 @@
 // terminé/à faire, priorité/assigné/échéance visibles d'un coup d'œil.
 import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 
 type ChecklistItem = { label: string; fait: boolean };
@@ -122,7 +124,7 @@ export function TachesSection({ instId, onToast }: { instId: string; onToast: (m
             ))}
           </div>
         )}
-        <button onClick={() => setModalTache("new")} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12px", padding: "9px 16px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Tâche</button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setModalTache("new")}>+ Tâche</Button>
       </div>
 
       {loading ? (
@@ -130,14 +132,14 @@ export function TachesSection({ instId, onToast }: { instId: string; onToast: (m
           <YelenLoader size={24}/>
         </div>
       ) : tachesAffichees.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "48px 20px", textAlign: "center", border: `1px solid ${C.border}` }}>
+        <Card tokens={toCardTokens(C)} padding="48px 20px" style={{ textAlign: "center" }}>
           <div style={{ fontSize: "32px", marginBottom: "10px" }}>✓</div>
           <div style={{ fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>Aucune tâche pour l&apos;instant</div>
           <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Organisez le travail de l&apos;équipe au-delà des rendez-vous.</p>
-          <button onClick={() => setModalTache("new")} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Créer une tâche</button>
-        </div>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => setModalTache("new")}>+ Créer une tâche</Button>
+        </Card>
       ) : (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", overflow: "hidden" }}>
+        <Card tokens={toCardTokens(C)} noPadding>
           {COLONNES.map((col, colIdx) => {
             const items = tachesAffichees.filter(t => t.statut === col.value);
             const isCollapsed = !!collapsed[col.value];
@@ -167,7 +169,7 @@ export function TachesSection({ instId, onToast }: { instId: string; onToast: (m
                           {(t.citoyen_id || t.rdv_id) && <span style={{ color: C.blue, fontSize: "9.5px", fontWeight: "700", flexShrink: 0 }}>Client lié</span>}
                           {t.checklist.length > 0 && <span style={{ color: C.t3, fontSize: "10px", flexShrink: 0 }}>{fait}/{t.checklist.length}</span>}
                           <span style={{ color: prioriteColor(t.priorite, C), fontSize: "9.5px", fontWeight: "800", backgroundColor: `${prioriteColor(t.priorite, C)}15`, padding: "2px 8px", borderRadius: "20px", flexShrink: 0, whiteSpace: "nowrap" }}>{PRIORITES.find(p => p.value === t.priorite)?.label}</span>
-                          <span style={{ width: "22px", height: "22px", borderRadius: "50%", backgroundColor: init ? C.gold : C.bg3, color: init ? "#000" : C.t3, fontSize: "9px", fontWeight: "900", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{init || "—"}</span>
+                          <span style={{ width: "22px", height: "22px", borderRadius: "50%", backgroundColor: init ? C.gold : C.bg3, color: init ? "#000" : C.t3, fontSize: "9px", fontWeight: "800", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{init || "—"}</span>
                           <span style={{ color: enRetard ? C.red : aujourdhui ? C.gold : C.t3, fontSize: "10.5px", fontWeight: enRetard || aujourdhui ? "800" : "600", flexShrink: 0, width: "56px", textAlign: "right" }}>
                             {t.echeance ? new Date(t.echeance).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "—"}
                           </span>
@@ -180,7 +182,7 @@ export function TachesSection({ instId, onToast }: { instId: string; onToast: (m
               </div>
             );
           })}
-        </div>
+        </Card>
       )}
 
       {modalTache && (
@@ -349,13 +351,13 @@ function TaskModal({ C, tache, membres, readOnly, onClose, onSaved, onToast }: {
 
         <div style={{ display: "grid", gridTemplateColumns: readOnly ? "1fr" : tache ? "auto 1fr 1.4fr" : "1fr 1.4fr", gap: "8px", marginTop: "6px" }}>
           {tache && !readOnly && (
-            <button onClick={supprimer} disabled={saving} className="tap" style={{ backgroundColor: C.redL, color: C.red, fontWeight: "700", fontSize: "12.5px", padding: "12px 16px", borderRadius: "11px", border: "none", cursor: "pointer" }}>Supprimer</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={saving} onClick={supprimer}>Supprimer</Button>
           )}
-          <button onClick={onClose} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "12.5px", padding: "12px", borderRadius: "11px", cursor: "pointer" }}>{readOnly ? "Fermer" : "Annuler"}</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onClose}>{readOnly ? "Fermer" : "Annuler"}</Button>
           {!readOnly && (
-            <button onClick={enregistrer} disabled={saving || !canSave} className="tap" style={{ background: canSave ? `linear-gradient(135deg, ${C.gold}, ${C.goldD})` : C.bg3, color: canSave ? "#000" : C.t3, fontWeight: "800", fontSize: "12.5px", padding: "12px", borderRadius: "11px", border: "none", cursor: canSave ? "pointer" : "default", opacity: saving ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!canSave} loading={saving} onClick={enregistrer}>
               {saveLabel}
-            </button>
+            </Button>
           )}
         </div>
       </div>

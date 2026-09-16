@@ -13,7 +13,6 @@ import {
   MESSAGE_DOCUMENT_ATTENTE, MESSAGE_DEMARCHE_RETARD, MESSAGE_DEMARCHE_ECHEANCE,
 } from "@/lib/assistantMessages";
 import { CarteInstitutionCard, type Institution, type CategorieById, type CategorieOption } from "@/app/recherche/shared";
-import { ParcoursYelenBandeau } from "@/components/ParcoursYelenBandeau";
 
 // ============================================================
 // "Mon Assistant" — bandeau tirable (bottom sheet), écran Accueil citoyen.
@@ -475,8 +474,12 @@ export function MonAssistant({ userId }: { userId: string | null }) {
       >
         <Ic.Grip/>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" }}>
-          <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#F5A623", color: "#080812", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Ic.Sparkle size={18}/>
+          {/* Retour Bryan 04/09/2026 : illustration conseiller Yelen (même
+              asset que la carte d'attente Support Yelen,
+              public/illustrations/support-agent-yelen.png) à la place du
+              rond doré + étincelle. */}
+          <div style={{ width: "36px", height: "36px", borderRadius: "50%", position: "relative", overflow: "hidden", flexShrink: 0, background: "#F5A623" }}>
+            <Image src="/illustrations/support-agent-yelen.png" alt="" fill sizes="36px" style={{ objectFit: "cover", objectPosition: "50% 15%" }}/>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.4px", textTransform: "uppercase" }}>Mon Assistant</div>
@@ -502,8 +505,12 @@ export function MonAssistant({ userId }: { userId: string | null }) {
       {showInfoPopup && createPortal(
         <div onClick={() => setShowInfoPopup(false)} style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: card, borderRadius: "24px 24px 0 0", padding: "28px 20px calc(20px + env(safe-area-inset-bottom))", width: "100%", maxWidth: "480px" }}>
-            <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", color: "#080812" }}>
-              <Ic.Sparkle size={28}/>
+            {/* Illustration réelle (retour Bryan 07/09/2026, chantier
+                "illustrations sur mesure") à la place du rond doré +
+                étincelle générique — même principe que l'avatar conseiller
+                de la poignée ci-dessus. */}
+            <div style={{ width: "180px", margin: "0 auto 16px" }}>
+              <Image src="/illustrations/mon-assistant-intro.png" alt="" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }}/>
             </div>
             <div style={{ color: t1, fontSize: "17px", fontWeight: "800", textAlign: "center", marginBottom: "8px" }}>Mon Assistant</div>
             <div style={{ color: t2, fontSize: "13.5px", lineHeight: 1.6, textAlign: "center", marginBottom: "22px" }}>
@@ -518,12 +525,6 @@ export function MonAssistant({ userId }: { userId: string | null }) {
 
       {/* Contenu déplié — scrollable, jamais responsable de la hauteur du panneau */}
       <div style={{ flex: 1, overflowY: "auto", padding: "4px 16px 20px", display: "flex", flexDirection: "column", gap: "18px" }}>
-        {/* "Votre parcours Yelen" — en haut du contenu du sheet (décision
-            CEO, brief §3). Composant partagé (components/ParcoursYelenBandeau.tsx,
-            retour Bryan 27/08/2026) — même instance de code que sur
-            l'Accueil, gère son propre fetch/état/fermeture session. */}
-        <ParcoursYelenBandeau userId={userId}/>
-
         {rien ? (
           <div style={{ textAlign: "center", padding: "24px 12px" }}>
             <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#F5A623", color: "#080812", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>

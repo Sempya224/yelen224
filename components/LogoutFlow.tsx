@@ -10,6 +10,7 @@
 // scission desktop puisque le côté citoyen n'existe qu'en mobile.
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
 import { logoutCitoyenStrict } from "@/lib/auth/logoutCitoyen";
@@ -75,12 +76,7 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
 
         {step === "confirm" && (
           <>
-            <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: isDark ? "rgba(255,255,255,0.06)" : "rgba(8,8,18,0.05)", border: `2px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                <path d="M9.5 12.5l1.8 1.8 3.2-3.6"/>
-              </svg>
-            </div>
+            <Image src="/illustrations/logout-citoyen.png" alt="" width={1102} height={1019} style={{ width: "168px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
             <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "10px" }}>{copy.confirmTitle}</div>
             <div style={{ color: t2, fontSize: "13.5px", lineHeight: 1.6, marginBottom: "28px" }}>{copy.confirmBody}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>

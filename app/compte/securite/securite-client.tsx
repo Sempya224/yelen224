@@ -535,7 +535,7 @@ export function SecuriteClient() {
               </div>
               {statut.remember_devices.length > 1 && (
                 <button disabled={busy === "dev-all"} className="tap" style={{ ...btnGhost, width: "100%", marginTop: "12px", opacity: busy === "dev-all" ? 0.6 : 1 }} onClick={handleRevoquerTout}>
-                  {busy === "dev-all" ? "…" : "Déconnecter tous les autres appareils"}
+                  {busy === "dev-all" ? "Déconnexion…" : "Déconnecter tous les autres appareils"}
                 </button>
               )}
             </Section>

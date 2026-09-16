@@ -13,7 +13,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { DemandePartenariatOverlay } from "@/components/DemandePartenariatOverlay";
 import { YelenLoaderEcran } from "@/components/YelenLoader";
 import { MonPartenariatTab, type InstitutionInfo } from "./MonPartenariatTab";
@@ -159,7 +161,7 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
           {ICONS.Handshake(C.gold)}
         </div>
         <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 900, margin: 0, letterSpacing: "-0.3px" }}>Programme de partenariat Yelen</h1>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, margin: 0, letterSpacing: "-0.3px" }}>Programme de partenariat Yelen</h1>
           <p style={{ color: C.t2, fontSize: "13px", margin: "2px 0 0" }}>Mettez vos offres en avant auprès des citoyens Yelen.</p>
         </div>
       </div>
@@ -179,16 +181,16 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
             </div>
             <div>
               <div style={{ color: C.t2, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Statut du partenariat</div>
-              <div style={{ color: si.color, fontSize: "18px", fontWeight: 900, letterSpacing: "-0.2px" }}>{si.label}</div>
+              <div style={{ color: si.color, fontSize: "18px", fontWeight: 800, letterSpacing: "-0.2px" }}>{si.label}</div>
               {statut === "refuse" && demande?.motif_refus && (
                 <div style={{ color: C.t2, fontSize: "12px", marginTop: "6px", maxWidth: "480px" }}>Motif : {demande.motif_refus}</div>
               )}
             </div>
           </div>
           {peutDemander && (
-            <button onClick={() => setFormOpen(true)} style={{ background: `linear-gradient(135deg,${C.gold},${C.goldD})`, border: "none", color: "#080812", fontWeight: 800, fontSize: "13px", padding: "13px 22px", borderRadius: "12px", cursor: "pointer", boxShadow: `0 6px 16px ${C.gold}33` }}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 22px", boxShadow: `0 6px 16px ${C.gold}33` }} onClick={() => setFormOpen(true)}>
               Demander un partenariat
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -198,13 +200,13 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
           {/* Hero */}
           <div className="part-hero">
             <div className="part-hero-left">
-              <h2 style={{ color: C.t1, fontSize: "19px", fontWeight: 900, margin: "0 0 8px", letterSpacing: "-0.3px" }}>Devenez partenaire officiel de Yelen</h2>
+              <h2 style={{ color: C.t1, fontSize: "19px", fontWeight: 800, margin: "0 0 8px", letterSpacing: "-0.3px" }}>Devenez partenaire officiel de Yelen</h2>
               <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.7, margin: "0 0 18px", maxWidth: "480px" }}>
                 Rejoindre le programme, c&apos;est publier vos offres directement auprès des citoyens déjà présents sur Yelen, avec un contrôle qualité qui protège votre réputation et la leur.
               </p>
               <div style={{ display: "grid", gap: "10px" }}>
                 {AVANTAGES.map(a => (
-                  <div key={a.titre} style={{ display: "flex", gap: "12px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px" }}>
+                  <Card key={a.titre} tokens={toCardTokens(C)} padding="14px" style={{ display: "flex", gap: "12px" }}>
                     <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: C.bgCard2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       {ICONS[a.icon](C.gold)}
                     </div>
@@ -212,7 +214,7 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
                       <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "2px" }}>{a.titre}</div>
                       <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6 }}>{a.texte}</div>
                     </div>
-                  </div>
+                  </Card>
                 ))}
               </div>
             </div>
@@ -233,14 +235,13 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
                 </svg>
                 <div style={{ position: "absolute", top: "18px", left: "20px", display: "flex", alignItems: "center", gap: "8px" }}>
                   {ICONS.Handshake(theme === "light" ? C.goldD : C.gold)}
-                  <span style={{ color: C.t1, fontSize: "13px", fontWeight: 900 }}>Yelen Partenariat</span>
+                  <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Yelen Partenariat</span>
                 </div>
 
                 {/* Carte flottante — chiffre réel, pas d'estimation */}
-                <div style={{
+                <Card tokens={toCardTokens(C)} padding="14px 16px" style={{
                   position: "absolute", left: "20px", right: "20px", bottom: "-14px",
-                  background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px",
-                  padding: "14px 16px", boxShadow: theme === "light" ? "0 12px 28px rgba(20,20,30,0.12)" : "0 12px 28px rgba(0,0,0,0.4)",
+                  boxShadow: theme === "light" ? "0 12px 28px rgba(20,20,30,0.12)" : "0 12px 28px rgba(0,0,0,0.4)",
                   display: "flex", alignItems: "center", gap: "12px",
                 }}>
                   <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: C.goldL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -250,7 +251,7 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
                     <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Partenaire certifié Yelen</div>
                     <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.5 }}>{phraseConfiance(stats.partenaires_actifs)}</div>
                   </div>
-                </div>
+                </Card>
               </div>
             </div>
           </div>
@@ -260,20 +261,20 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
           <div className="part-etapes" style={{ marginBottom: "28px" }}>
             {ETAPES.map((e, i) => (
               <div key={e.n} className="part-etape-wrap">
-                <div style={{ flex: 1, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
-                  <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: C.bgCard2, border: `1.5px solid ${C.gold}`, color: C.gold, fontWeight: 900, fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "10px" }}>{e.n}</div>
+                <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: 1 }}>
+                  <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: C.bgCard2, border: `1.5px solid ${C.gold}`, color: C.gold, fontWeight: 800, fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "10px" }}>{e.n}</div>
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>{e.titre}</div>
                   <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6 }}>{e.texte}</div>
-                </div>
+                </Card>
                 {i < ETAPES.length - 1 && <div className="part-etape-arrow">{ICONS.ArrowRight(C.border2)}</div>}
               </div>
             ))}
           </div>
 
           {/* CTA final */}
-          <div style={{ background: C.bgCard, border: `1px solid ${C.gold}33`, borderRadius: "18px", padding: "22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap" }}>
+          <Card tokens={toCardTokens(C)} padding="22px" style={{ border: `1px solid ${C.gold}33`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap" }}>
             <div>
-              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, marginBottom: "4px" }}>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, marginBottom: "4px" }}>
                 {statut === "en_attente" ? "Votre demande est en cours" : "Prêt à commencer ?"}
               </div>
               <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, maxWidth: "440px" }}>
@@ -289,16 +290,16 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
               </div>
             </div>
             {peutDemander && (
-              <button onClick={() => setFormOpen(true)} style={{ background: `linear-gradient(135deg,${C.gold},${C.goldD})`, border: "none", color: "#080812", fontWeight: 800, fontSize: "13px", padding: "14px 22px", borderRadius: "12px", cursor: "pointer", flexShrink: 0 }}>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 22px", flexShrink: 0 }} onClick={() => setFormOpen(true)}>
                 Soumettre une demande de partenariat
-              </button>
+              </Button>
             )}
-          </div>
+          </Card>
         </div>
 
         {/* Sidebar */}
         <aside className="part-sidebar">
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px" }}>
+          <Card tokens={toCardTokens(C)} padding="18px">
             <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800, marginBottom: "12px" }}>Avantages du programme</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               {AVANTAGES_SIDEBAR.map(a => (
@@ -313,22 +314,22 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
 
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px" }}>
+          <Card tokens={toCardTokens(C)} padding="18px">
             <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800, marginBottom: "12px" }}>Ils nous font confiance</div>
             <div style={{ display: "grid", gridTemplateColumns: stats.delai_moyen_jours !== null ? "repeat(3,1fr)" : "repeat(2,1fr)", gap: "10px", marginBottom: stats.logos.length ? "14px" : 0 }}>
               <div>
-                <div style={{ color: C.t1, fontSize: "20px", fontWeight: 900, lineHeight: 1.1 }}>{stats.partenaires_actifs}</div>
+                <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1.1 }}>{stats.partenaires_actifs}</div>
                 <div style={{ color: C.t2, fontSize: "10.5px", fontWeight: 700, marginTop: "2px" }}>Partenaires actifs</div>
               </div>
               <div>
-                <div style={{ color: C.t1, fontSize: "20px", fontWeight: 900, lineHeight: 1.1 }}>{stats.secteurs_actifs}</div>
+                <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1.1 }}>{stats.secteurs_actifs}</div>
                 <div style={{ color: C.t2, fontSize: "10.5px", fontWeight: 700, marginTop: "2px" }}>Secteurs représentés</div>
               </div>
               {stats.delai_moyen_jours !== null && (
                 <div>
-                  <div style={{ color: C.t1, fontSize: "20px", fontWeight: 900, lineHeight: 1.1 }}>{stats.delai_moyen_jours}j</div>
+                  <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1.1 }}>{stats.delai_moyen_jours}j</div>
                   <div style={{ color: C.t2, fontSize: "10.5px", fontWeight: 700, marginTop: "2px" }}>Délai moyen de réponse</div>
                 </div>
               )}
@@ -342,9 +343,9 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
                 ))}
               </div>
             )}
-          </div>
+          </Card>
 
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px" }}>
+          <Card tokens={toCardTokens(C)} padding="18px">
             <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800, marginBottom: "10px" }}>Critères d&apos;éligibilité</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {CRITERES.map(txt => (
@@ -354,7 +355,7 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
         </aside>
       </div>
 

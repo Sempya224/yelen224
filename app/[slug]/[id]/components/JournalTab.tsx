@@ -10,10 +10,12 @@
 // MesClientsTab.tsx : bottom sheet mobile, dialogue centré ≥1024px).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { MEMBRE_ROLES, ROLE_LABELS } from "@/lib/institutionPermissions";
 import { scoreRisque, type RisqueJournal } from "@/lib/journalTaxonomie";
 import { YelenLoader } from "@/components/YelenLoader";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 type Entree = {
   id: string; audit_id: string; membre_id: string | null; membre_nom: string; action: string;
@@ -95,6 +97,8 @@ const ACTION_META: Record<string, { label: string; iconKey: IconKey; couleur: (C
   export_journal:       { label: "a exporté le journal d'activité", iconKey: "file", couleur: C => C.t2 },
   message_envoye:       { label: "a envoyé un message au client",   iconKey: "share", couleur: C => C.blue },
   message_recu:         { label: "a envoyé un message à l'institution", iconKey: "share", couleur: C => C.blue },
+  reauth_reussie:       { label: "a confirmé son identité",             iconKey: "check", couleur: C => C.green },
+  reauth_echec:         { label: "a échoué à confirmer son identité",   iconKey: "x", couleur: C => C.orange },
 };
 
 const CATEGORIES = [
@@ -510,18 +514,20 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>Journal d&apos;activité</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Journal d&apos;activité</h1>
         <div style={{ position: "relative" }}>
-          <button
-            onClick={() => setOuvertExport(o => !o)}
-            disabled={exportEnCours}
+          <Button
+            tokens={toUiTokens(C)}
             className="tap"
-            style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 14px", color: C.t2, fontSize: "12.5px", fontWeight: "700", cursor: exportEnCours ? "default" : "pointer", opacity: exportEnCours ? 0.6 : 1 }}
+            variant="secondary"
+            size="sm"
+            loading={exportEnCours}
+            icon={<Icon name="file" size={14} color={C.green}/>}
+            onClick={() => setOuvertExport(o => !o)}
           >
-            {exportEnCours ? <YelenLoader size={14} color={C.green}/> : <Icon name="file" size={14} color={C.green}/>}
-            {exportEnCours ? "Export…" : "Exporter"}
+            Exporter
             <Icon name="chevronDown" size={12} color={C.t2}/>
-          </button>
+          </Button>
           {ouvertExport && (
             <>
               <div onClick={() => setOuvertExport(false)} style={{ position: "fixed", inset: 0, zIndex: 10 }}/>
@@ -550,7 +556,7 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
       <p style={{ color: C.t2, fontSize: "13.5px", marginBottom: "14px" }}>Traçabilité complète : qui a fait quoi, et quand, pour toute l&apos;équipe.</p>
 
       {resume && (
-        <div style={{ backgroundColor: `${C.gold}0D`, border: `1px solid ${C.gold}30`, borderRadius: "14px", padding: "14px 16px", marginBottom: "16px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
+        <Card tokens={toCardTokens(C)} padding="14px 16px" style={{ border: `1px solid ${C.gold}20`, marginBottom: "16px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
           <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: `${C.gold}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Icon name="spark" size={16} color={C.gold}/>
           </div>
@@ -560,7 +566,7 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
               <div key={i} style={{ color: C.t1, fontSize: "13.5px", fontWeight: 600, marginBottom: i < resume.phrases.length - 1 ? "3px" : 0 }}>{phrase}</div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "8px", marginBottom: "16px" }}>
@@ -584,7 +590,7 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
               cursor: card.onClick ? "pointer" : "default",
             }}
           >
-            <div style={{ color: card.couleur, fontSize: typeof card.valeur === "number" ? "22px" : "14px", fontWeight: "900" }}>{card.valeur}</div>
+            <div style={{ color: card.couleur, fontSize: typeof card.valeur === "number" ? "22px" : "14px", fontWeight: "800" }}>{card.valeur}</div>
             <div style={{ color: C.t2, fontSize: "10.5px", fontWeight: "800", marginTop: "2px" }}>{card.label}</div>
           </div>
         ))}
@@ -614,10 +620,9 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
             </button>
           )}
         </div>
-        <button onClick={appliquerRecherche} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: C.gold, border: "none", borderRadius: "10px", padding: "0 16px", color: "#fff", fontSize: "13px", fontWeight: "800", cursor: "pointer", flexShrink: 0 }}>
-          <Icon name="search" size={14} color="#fff"/>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flexShrink: 0 }} icon={<Icon name="search" size={14} color="#000"/>} onClick={appliquerRecherche}>
           Rechercher
-        </button>
+        </Button>
       </div>
 
       <div style={{ display: "flex", gap: "6px", marginBottom: "8px", overflowX: "auto" }}>
@@ -689,7 +694,7 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
             <button onClick={() => appliquerRole("")} style={{ ...chipStyle(C, !role, C.gold), display: "flex", alignItems: "center", gap: "6px" }}>Tous rôles</button>
             {visibles.map(r => (
               <button key={r} onClick={() => appliquerRole(r)} style={{ ...chipStyle(C, role === r, C.gold), display: "flex", alignItems: "center", gap: "6px", padding: "6px 15px 6px 6px" }}>
-                <span style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: role === r ? C.gold : `${C.gold}30`, color: role === r ? "#fff" : C.gold, fontSize: "10px", fontWeight: "900", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{ROLE_LABELS[r][0]}</span>
+                <span style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: role === r ? C.gold : `${C.gold}30`, color: role === r ? "#fff" : C.gold, fontSize: "10px", fontWeight: "800", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{ROLE_LABELS[r][0]}</span>
                 {ROLE_LABELS[r]}
               </button>
             ))}
@@ -713,11 +718,11 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
       })()}
 
       {entrees.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", padding: "48px 20px", textAlign: "center", border: `1px solid ${C.border}` }}>
+        <Card tokens={toCardTokens(C)} padding="48px 20px" style={{ textAlign: "center" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}><Icon name="inbox" size={36} color={C.t3}/></div>
           <p style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "4px" }}>{total === 0 ? "Aucune activité enregistrée pour l'instant" : "Aucun résultat pour ces filtres"}</p>
           <p style={{ color: C.t2, fontSize: "12.5px" }}>{total === 0 ? "Chaque action de votre équipe (RDV, documents, tâches...) apparaîtra ici automatiquement." : "Essayez d'élargir la période ou de changer de catégorie."}</p>
-        </div>
+        </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
           {groupes.map(([jour, items]) => (
@@ -729,8 +734,8 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
                   const roleLabel = roleLabelDe(e);
                   const risque = scoreRisque(e.action, e.niveau, e.details || {});
                   return (
-                    <div key={e.id} onClick={() => setSelected(e)} className="tap" style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "14px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", cursor: "pointer" }}>
-                      <div style={{ width: "38px", height: "38px", borderRadius: "50%", backgroundColor: `${m.couleur(C)}20`, color: m.couleur(C), display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", flexShrink: 0 }}>{initiales(e.membre_nom)}</div>
+                    <Card key={e.id} tokens={toCardTokens(C)} padding="14px" onClick={() => setSelected(e)} className="tap" style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+                      <div style={{ width: "38px", height: "38px", borderRadius: "50%", backgroundColor: `${m.couleur(C)}20`, color: m.couleur(C), display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", flexShrink: 0 }}>{initiales(e.membre_nom)}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", fontSize: "13.5px", color: C.t1, fontWeight: 600 }}>
                           <strong>{e.membre_nom}</strong>
@@ -751,7 +756,7 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
                         <ActionButton iconName="copy" title="Copier la référence" onClick={ev => { ev.stopPropagation(); copierId(e); }}/>
                         <ActionButton iconName="share" title="Partager" onClick={ev => { ev.stopPropagation(); partager(e); }}/>
                       </div>
-                    </div>
+                    </Card>
                   );
                 })}
               </div>
@@ -932,8 +937,8 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
             )}
 
             <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
-              <button onClick={() => copierId(selected)} className="tap" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "11px", color: C.t1, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}><Icon name="copy" size={14} color={C.t2}/> Copier ID</button>
-              <button onClick={() => partager(selected)} className="tap" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "11px", color: C.t1, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}><Icon name="share" size={14} color={C.t2}/> Partager</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} icon={<Icon name="copy" size={14} color={C.t2}/>} onClick={() => copierId(selected)}>Copier ID</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} icon={<Icon name="share" size={14} color={C.t2}/>} onClick={() => partager(selected)}>Partager</Button>
             </div>
             <button onClick={() => setSelected(null)} style={{ width: "100%", marginTop: "10px", background: "none", border: "none", color: C.t2, fontSize: "12.5px", fontWeight: 600, cursor: "pointer", padding: "8px" }}>Fermer</button>
           </div>

@@ -44,6 +44,13 @@ interface ButtonProps {
   title?: string
   ariaLabel?: string
   style?: CSSProperties
+  className?: string
+  /** Couleur du YelenLoader pendant `loading` — sinon dérivée de la variante
+   * (ex. noir pour primary). À fournir quand `style` recolore le fond d'une
+   * façon que la variante ne prévoit pas (ex. succès vert plein sur variant
+   * primary/secondary), sinon le spinner reste dans la couleur de texte de
+   * la variante d'origine et peut se fondre dans le nouveau fond. */
+  loadingColor?: string
 }
 
 const SIZE: Record<ButtonSize, { h: string; padX: string; font: string; gap: string; radiusKey: 'radius' | 'radiusSm' }> = {
@@ -59,7 +66,7 @@ const SIZE: Record<ButtonSize, { h: string; padX: string; font: string; gap: str
 export function Button({
   tokens, variant = 'primary', size = 'md', loading: loadingProp, disabled,
   fullWidth, icon, iconPosition = 'left', type = 'button', onClick, children,
-  title, ariaLabel, style,
+  title, ariaLabel, style, className, loadingColor,
 }: ButtonProps) {
   const [busy, setBusy] = useState(false)
   const loading = loadingProp ?? busy
@@ -105,14 +112,14 @@ export function Button({
       title={title}
       aria-label={ariaLabel}
       aria-busy={loading}
-      className="yelen-focus-ring"
+      className={className ? `yelen-focus-ring ${className}` : "yelen-focus-ring"}
       style={btnStyle}
     >
       {loading ? (
         // Un seul indicateur de chargement dans toute l'app — YelenLoader
         // (logo Yelen qui tourne), jamais un spinner générique (retour
         // Bryan 17/08/2026, cercle radar trouvé ici par erreur).
-        <YelenLoader size={size === 'sm' ? 12 : 14} color={fg} />
+        <YelenLoader size={size === 'sm' ? 12 : 14} color={loadingColor ?? fg} />
       ) : (
         icon && iconPosition === 'left' ? icon : null
       )}

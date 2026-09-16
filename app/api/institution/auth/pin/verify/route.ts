@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       const etat = await enregistrerTentative(supabaseAdmin, {
         endpointCategory: 'institution_login', deviceId, ip, identifiant: institutionId, outcome: 'code_incorrect', userAgent,
       })
-      return finaliser({ error: 'Code incorrect', code: 'INVALID_PIN', security: etat }, 401)
+      return finaliser({ error: 'Ce code ne semble pas correct. Réessayez.', code: 'INVALID_PIN', security: etat }, 401)
     }
 
     await reinitialiserEchecsConnexionInstitution(supabaseAdmin, institutionId)
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     // institution_sessions (dette technique comblée 30/08/2026, mirroring
     // admin_sessions) — voir lib/institutionAuth.ts::creerSessionInstitution.
     const sid = await creerSessionInstitution(supabaseAdmin, {
-      institutionId: institution.id, phone: institution.phone, userAgent: request.headers.get('user-agent'), ip,
+      institutionId: institution.id, membreId: membrePrincipal?.id ?? null, phone: institution.phone, userAgent: request.headers.get('user-agent'), ip,
     })
     if (!sid) {
       return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)

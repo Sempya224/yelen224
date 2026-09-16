@@ -16,8 +16,10 @@
 // librairie de charts, convention confirmée du projet.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { FormField } from "./FormField";
 import {
   DOCUMENT_STATUT_LABELS, DOCUMENT_TRANSITIONS,
@@ -138,15 +140,15 @@ function DocKpiCard({ label, icon, color, value, delta, serie, C }: {
   label: string; icon: React.ReactNode; color: string; value: string; delta: number | null; serie: number[]; C: ThemeTokens;
 }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "10px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
       <DocDelta delta={delta} C={C}/>
       {serie.some(v => v > 0) && <DocSparkline serie={serie} color={color}/>}
-    </div>
+    </Card>
   );
 }
 
@@ -213,16 +215,16 @@ function DocEmptyState({ C, illustration, titre, texte, cta }: {
   C: ThemeTokens; illustration: React.ReactNode; titre: string; texte: string; cta?: { label: string; onClick: () => void };
 }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", textAlign: "center", padding: "44px 20px" }}>
+    <Card tokens={toCardTokens(C)} padding="44px 20px" style={{ textAlign: "center" }}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>{illustration}</div>
       <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "6px" }}>{titre}</div>
       <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, maxWidth: "340px", margin: "0 auto" }}>{texte}</div>
       {cta && (
-        <button onClick={cta.onClick} className="tap" style={{ marginTop: "18px", backgroundColor: C.gold, color: "#080812", fontWeight: 800, fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ marginTop: "18px" }} onClick={cta.onClick}>
           {cta.label}
-        </button>
+        </Button>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -271,7 +273,7 @@ function DocModal({ C, titre, onClose, children }: { C: ThemeTokens; titre: stri
   );
 }
 function docConfirmBtnStyle(C: ThemeTokens, disabled: boolean): React.CSSProperties {
-  return { width: "100%", backgroundColor: disabled ? C.bg3 : C.gold, border: "none", borderRadius: "12px", padding: "13px", color: disabled ? C.t3 : "#080812", fontSize: "13.5px", fontWeight: 800, cursor: disabled ? "not-allowed" : "pointer" };
+  return { width: "100%", height: "40px", backgroundColor: disabled ? C.bg3 : C.gold, border: "none", borderRadius: "12px", padding: "0 16px", color: disabled ? C.t3 : "#000", fontSize: "13px", fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer" };
 }
 function DocBtnLoading({ C }: { C: ThemeTokens }) {
   return <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><YelenLoader size={14} color={C.t3}/></span>;
@@ -681,16 +683,16 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
 
               {creError && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "12px 16px", color: C.red, fontSize: "13px" }}>{creError}</div>}
 
-              <button onClick={validerEtapeForm} className="tap" style={{ width: "100%", backgroundColor: "#F5A623", border: "none", borderRadius: "12px", padding: "14px", color: "#080812", fontSize: "14.5px", fontWeight: "700", cursor: "pointer" }}>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={validerEtapeForm}>
                 Continuer
-              </button>
+              </Button>
             </div>
           )}
 
           {etapeCreation === "verify" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <p style={{ color: C.t2, fontSize: "13px", margin: 0 }}>Vérifiez les informations avant l&apos;envoi définitif.</p>
-              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px 18px", display: "flex", flexDirection: "column", gap: "12px" }}>
+              <Card tokens={toCardTokens(C)} padding="16px 18px" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div>
                   <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Client</div>
                   <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>{clientSelectionne?.nom}</div>
@@ -724,7 +726,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
                     <div style={{ color: C.t2, fontSize: "12.5px", wordBreak: "break-all" }}>{fichier.name}</div>
                   </div>
                 )}
-              </div>
+              </Card>
 
               <div style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.5 }}>
                 En confirmant, vous engagez votre établissement à assurer la sécurité et la confidentialité de ce document conformément aux conditions d&apos;utilisation Yelen.
@@ -733,10 +735,10 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
               {creError && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "12px 16px", color: C.red, fontSize: "13px" }}>{creError}</div>}
 
               <div style={{ display: "flex", gap: "10px" }}>
-                <button onClick={() => setEtapeCreation("form")} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "14px", color: C.t1, fontSize: "13.5px", fontWeight: "700", cursor: "pointer" }}>Modifier</button>
-                <button onClick={confirmerCreation} disabled={sending} className="tap" style={{ flex: 1, backgroundColor: sending ? C.bg3 : "#F5A623", border: "none", borderRadius: "12px", padding: "14px", color: sending ? C.t3 : "#080812", fontSize: "13.5px", fontWeight: "700", cursor: sending ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                  {sending ? <><YelenLoader size={16} color={C.t3}/> Envoi…</> : sens === "demande" ? "Envoyer la demande" : "Envoyer le document"}
-                </button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setEtapeCreation("form")}>Modifier</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 1 }} loading={sending} onClick={confirmerCreation}>
+                  {sens === "demande" ? "Envoyer la demande" : "Envoyer le document"}
+                </Button>
               </div>
             </div>
           )}
@@ -748,7 +750,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
               </div>
               <p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 4px" }}>{sens === "demande" ? "Demande envoyée" : "Document envoyé"}</p>
               <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 24px" }}>{sens === "demande" ? "Le citoyen recevra une notification pour y répondre." : "Le citoyen peut désormais le consulter."}</p>
-              <button onClick={resetCreation} className="tap" style={{ backgroundColor: C.gold, border: "none", borderRadius: "12px", padding: "13px 28px", color: "#080812", fontSize: "13.5px", fontWeight: "800", cursor: "pointer" }}>Retour à la liste</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={resetCreation}>Retour à la liste</Button>
             </div>
           )}
         </div>
@@ -786,15 +788,25 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
           </div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          <button onClick={exporterCsv} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Exporter CSV</button>
-          <button onClick={() => chargerListe(true)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter CSV</Button>
+          <Button
+            tokens={toUiTokens(C)} className="tap"
+            variant="secondary"
+            size="sm"
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
+            onClick={() => chargerListe(true)}
+          >
             Actualiser
-          </button>
-          <button onClick={ouvrirCreation} className="tap" style={{ backgroundColor: "#F5A623", border: "none", color: "#080812", fontWeight: 800, fontSize: "12.5px", padding: "9px 14px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </Button>
+          <Button
+            tokens={toUiTokens(C)} className="tap"
+            variant="primary"
+            size="sm"
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
+            onClick={ouvrirCreation}
+          >
             Nouveau
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -825,7 +837,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
         <button onClick={() => setFiltresAvances(v => !v)} className="tap" style={{ backgroundColor: filtresAvances ? `${C.gold}15` : C.bg3, color: filtresAvances ? C.gold : C.t2, border: `1px solid ${filtresAvances ? C.gold + "50" : C.border}`, fontWeight: 700, fontSize: "11.5px", padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap" }}>Filtres avancés</button>
       </div>
       {filtresAvances && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px" }}>
+        <Card tokens={toCardTokens(C)} padding="12px" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px" }}>
           <select value={filtreStatut} onChange={e => setFiltreStatut(e.target.value)} aria-label="Filtrer par statut" style={inputStyle(C)}>
             <option value="">Tous statuts</option>
             {(Object.keys(DOCUMENT_STATUT_LABELS) as DocumentStatut[]).map(s => <option key={s} value={s}>{DOCUMENT_STATUT_LABELS[s]}</option>)}
@@ -844,7 +856,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
           </select>
           <input type="date" value={filtreDateDebut} onChange={e => setFiltreDateDebut(e.target.value)} aria-label="Date de création — à partir de" style={inputStyle(C)}/>
           <input type="date" value={filtreDateFin} onChange={e => setFiltreDateFin(e.target.value)} aria-label="Date de création — jusqu'au" style={inputStyle(C)}/>
-        </div>
+        </Card>
       )}
 
       {/* Liste */}
@@ -858,9 +870,9 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
       ) : listeFiltree.length === 0 && filtreVideCfg ? (
         <DocEmptyState C={C} illustration={filtreVideCfg.illustration(C)} titre={filtreVideCfg.titre} texte={filtreVideCfg.texte}/>
       ) : listeFiltree.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "32px", textAlign: "center", color: C.t2, fontSize: "13px" }}>
+        <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center", color: C.t2, fontSize: "13px" }}>
           Aucun document ne correspond à ces critères.
-        </div>
+        </Card>
       ) : (
         <>
           {/* Desktop : tableau */}
@@ -914,7 +926,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
             {listeFiltree.map(d => {
               const cfg = DOC_STATUT_CFG(C)[d.statut];
               return (
-                <div key={d.id} onClick={() => setSelectedId(d.id)} role="button" tabIndex={0} aria-label={`Voir les détails de ${d.label}`} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(d.id); } }} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px 16px", cursor: "pointer" }}>
+                <Card key={d.id} tokens={toCardTokens(C)} padding="14px 16px" onClick={() => setSelectedId(d.id)} role="button" tabIndex={0} aria-label={`Voir les détails de ${d.label}`} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(d.id); } }} className="tap">
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
                     <span style={{ color: C.t3, fontSize: "10.5px" }}>{typeLabel(d.type)}</span>
                     <span style={{ backgroundColor: cfg.bg, color: cfg.color, fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "20px" }}>{cfg.label}</span>
@@ -925,7 +937,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
                     <span style={{ color: C.t3, fontSize: "11px" }}>{formatDate(d.created_at)}</span>
                     <span style={{ color: C.gold, fontSize: "11.5px", fontWeight: 700 }}>Ouvrir</span>
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
@@ -1009,10 +1021,16 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
                     )}
 
                     {peutTelecharger && (
-                      <button onClick={() => telecharger(doc.id)} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: C.gold, border: "none", borderRadius: "12px", padding: "13px", color: "#080812", fontSize: "13px", fontWeight: 800, cursor: "pointer" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      <Button
+                        tokens={toUiTokens(C)} className="tap"
+                        variant="primary"
+                        size="md"
+                        fullWidth
+                        icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+                        onClick={() => telecharger(doc.id)}
+                      >
                         Télécharger le document
-                      </button>
+                      </Button>
                     )}
 
                     {(() => {
@@ -1027,18 +1045,18 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
                           <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px" }}>Actions</div>
                           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                             {montrerVerifier && (
-                              <button onClick={commencerVerification} disabled={verifierSaving} className="tap" style={{ textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "11px 14px", fontSize: "12.5px", fontWeight: 700, cursor: verifierSaving ? "not-allowed" : "pointer", color: C.blue, display: "flex", alignItems: "center", gap: "8px" }}>
-                                {verifierSaving ? <DocBtnLoading C={C}/> : null}Commencer la vérification
-                              </button>
+                              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ justifyContent: "flex-start", color: C.blue }} loading={verifierSaving} onClick={commencerVerification}>
+                                Commencer la vérification
+                              </Button>
                             )}
                             {montrerValider && (
-                              <button onClick={() => setActiveModal("valider")} className="tap" style={{ textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "11px 14px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer", color: C.green }}>Valider</button>
+                              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ justifyContent: "flex-start", color: C.green }} onClick={() => setActiveModal("valider")}>Valider</Button>
                             )}
                             {montrerRefuser && (
-                              <button onClick={() => { setFormMotifRefus(""); setFormMotifRefusDetail(""); setActiveModal("refuser"); }} className="tap" style={{ textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "11px 14px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer", color: C.red }}>Refuser</button>
+                              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ justifyContent: "flex-start", color: C.red }} onClick={() => { setFormMotifRefus(""); setFormMotifRefusDetail(""); setActiveModal("refuser"); }}>Refuser</Button>
                             )}
                             {montrerArchiver && (
-                              <button onClick={() => setActiveModal("archiver")} className="tap" style={{ textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "11px 14px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer", color: C.t2 }}>Archiver</button>
+                              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ justifyContent: "flex-start" }} onClick={() => setActiveModal("archiver")}>Archiver</Button>
                             )}
                           </div>
                         </div>
@@ -1107,7 +1125,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
           <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, marginBottom: "16px" }}>Ce document sera archivé. Il reste consultable mais sort des files actives.</p>
           {modalError && <p style={{ color: C.red, fontSize: "12px", marginBottom: "10px" }}>{modalError}</p>}
           <div style={{ display: "flex", gap: "10px" }}>
-            <button onClick={() => setActiveModal(null)} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "13px", color: C.t1, fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>Annuler</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setActiveModal(null)}>Annuler</Button>
             <button onClick={() => appelerAction("archiver", {})} disabled={modalSaving} className="tap" style={{ ...docConfirmBtnStyle(C, modalSaving), flex: 1 }}>{modalSaving ? <DocBtnLoading C={C}/> : "Confirmer l'archivage"}</button>
           </div>
         </DocModal>

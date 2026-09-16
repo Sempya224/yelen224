@@ -39,7 +39,7 @@ export function SectionHeader({ label, accent, action, onAction, badge }: { labe
         <div style={{ width: "3px", height: "18px", background: accent, borderRadius: "2px", flexShrink: 0 }}/>
         <span className="yelen-h2" style={{ color: C.t1 }}>{label}</span>
         {badge !== undefined && badge > 0 && (
-          <span style={{ backgroundColor: accent, color: accent === C.gold ? "#000" : "#fff", fontSize: "9px", fontWeight: "900", padding: "2px 7px", borderRadius: "20px" }}>{badge}</span>
+          <span style={{ backgroundColor: accent, color: accent === C.gold ? "#000" : "#fff", fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px" }}>{badge}</span>
         )}
       </div>
       {action && <button onClick={onAction} style={{ background: "none", border: "none", color: accent, fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>{action}</button>}

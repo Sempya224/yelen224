@@ -138,7 +138,7 @@ const LineIc = {
   Spark: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></svg>,
 };
 
-const SECTIONS: { title: string; items: { label: string; href: string; icon: keyof typeof LineIc }[] }[] = [
+const SECTIONS: { title: string; items: { label: string; href: string; icon?: keyof typeof LineIc }[] }[] = [
   { title: "Votre espace", items: [
     { label: "Vos centres d'intérêt", href: "/menu/interets",     icon: "Target" },
     { label: "Mes dépenses",          href: "/menu/depenses",     icon: "Wallet" },
@@ -151,6 +151,19 @@ const SECTIONS: { title: string; items: { label: string; href: string; icon: key
     { label: "Yelen Rewards",    href: "/menu/recompenses", icon: "Trophy" },
     { label: "Nouveautés Yelen", href: "/menu/nouveautes",  icon: "Spark" },
   ]},
+];
+
+// Liens "Support" (demande Bryan 11/09/2026) — sans icône, sur une seule
+// ligne façon footer (Feedback · Aide · Contact), volontairement plus
+// discrets que les sections ci-dessus (liens utilitaires, pas des
+// fonctionnalités du produit). Réutilise les écrans existants plutôt que
+// d'en créer de nouveaux : /compte/feedback et /compte/aide (chantier
+// "engagement"), /contact (page publique déjà utilisée comme destination
+// support depuis la FAQ).
+const FOOTER_LINKS: { label: string; href: string }[] = [
+  { label: "Feedback", href: "/compte/feedback" },
+  { label: "Aide",     href: "/compte/aide" },
+  { label: "Contact",  href: "/contact" },
 ];
 
 export function CitoyenMenu({
@@ -178,6 +191,13 @@ export function CitoyenMenu({
         @keyframes menuFadeIn{from{opacity:0}to{opacity:1}}
         .tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}
         .tap:active{opacity:0.65;transform:scale(0.97)}
+        .menu-greeting-main{transform-origin:58% 88%;animation:handWave 5s ease-in-out infinite}
+        @keyframes handWave{
+          0%,78%,100%{transform:rotate(0deg)}
+          85%{transform:rotate(-9deg)}
+          91%{transform:rotate(7deg)}
+          97%{transform:rotate(-3deg)}
+        }
       `}</style>
 
       {/* En-tête V2 (retour Bryan 28/08/2026) — remplace le bandeau doré
@@ -208,6 +228,10 @@ export function CitoyenMenu({
             <div style={{ color: t1, fontSize: "15.5px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{userName || "Mon compte"}</div>
             <div style={{ fontFamily: "monospace", fontSize: "11px", color: t2, fontWeight: "600", letterSpacing: "0.4px", marginTop: "1px" }}>{yelenId}</div>
           </div>
+          <div style={{ position: "relative", width: "76px", aspectRatio: "1250 / 1024", flexShrink: 0 }}>
+            <Image src="/illustrations/agente-salutation.png" alt="Une agente Yelen vous souhaite la bienvenue" fill sizes="76px" style={{ objectFit: "contain" }}/>
+            <Image src="/illustrations/agente-salutation-main.png" alt="" width={380} height={380} className="menu-greeting-main" style={{ position: "absolute", left: "8.8%", top: "31.25%", width: "30.4%", height: "37.1%" }}/>
+          </div>
           <span style={{ color: "#F5A623", flexShrink: 0 }}>{MenuIc.Chev()}</span>
         </button>
         <div style={{ height: "1px", background: brd, margin: "0 16px" }}/>
@@ -227,9 +251,11 @@ export function CitoyenMenu({
               <div>
                 {section.items.map((item, i) => (
                   <Link key={item.href} href={item.href} className="tap" style={{ display: "flex", alignItems: "center", gap: "14px", padding: "13px 2px", textDecoration: "none", borderBottom: i < section.items.length - 1 ? `1px solid ${brd}` : "none" }}>
-                    <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: t1 }}>
-                      {LineIc[item.icon]()}
-                    </div>
+                    {item.icon && (
+                      <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: t1 }}>
+                        {LineIc[item.icon]()}
+                      </div>
+                    )}
                     <span style={{ color: t1, fontSize: "14.5px", fontWeight: "600", flex: 1 }}>{item.label}</span>
                     <span style={{ color: t2, opacity: 0.7 }}>{MenuIc.Chev()}</span>
                   </Link>
@@ -237,6 +263,25 @@ export function CitoyenMenu({
               </div>
             </div>
           ))}
+
+          {/* Ligne "Support" — Feedback/Aide/Contact sur une seule ligne,
+              séparés par un point médian, sans icône ni chevron (demande
+              Bryan 11/09/2026, corrigée en cours de session : d'abord
+              rendue en 3 lignes empilées, puis regroupée ici). */}
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: "8px", marginTop: "30px" }}>
+            {FOOTER_LINKS.map((item, i) => (
+              <span key={item.href} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {i > 0 && <span style={{ color: t2, opacity: 0.5, fontSize: "13px" }}>·</span>}
+                <Link href={item.href} className="tap" style={{ color: t2, fontSize: "13px", fontWeight: "600", textDecoration: "none" }}>{item.label}</Link>
+              </span>
+            ))}
+          </div>
+
+          {/* Copyright — tout en bas, sous la dernière section (demande
+              Bryan 11/09/2026). Texte statique, aucune donnée dynamique. */}
+          <div style={{ textAlign: "center", color: t2, fontSize: "11px", fontWeight: "500", opacity: 0.6, marginTop: "10px" }}>
+            © 2026 Yelen224. Tous droits réservés.
+          </div>
         </div>
       </div>
     </div>

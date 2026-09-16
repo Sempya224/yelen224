@@ -317,7 +317,7 @@ export async function POST(request: NextRequest) {
     // institution_sessions (dette technique comblée 30/08/2026, mirroring
     // admin_sessions) — voir lib/institutionAuth.ts::creerSessionInstitution.
     const sid = await creerSessionInstitution(supabaseAdmin, {
-      institutionId: institution.id, phone, userAgent: request.headers.get('user-agent'), ip,
+      institutionId: institution.id, membreId: membrePrincipal?.id ?? null, phone, userAgent: request.headers.get('user-agent'), ip,
     })
     if (!sid) {
       return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)

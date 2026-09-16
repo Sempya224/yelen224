@@ -16,7 +16,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens } from "../theme";
+import { Card } from "@/components/ui/Card";
 import { ICONS, AVANTAGES_SIDEBAR, type Demande, type Stats } from "./PartenariatTab";
 import { urlExterneSure } from "@/lib/urlValidation";
 
@@ -118,7 +119,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
           </div>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: 900, margin: 0, letterSpacing: "-0.3px" }}>{institution.name}</h1>
+              <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, margin: 0, letterSpacing: "-0.3px" }}>{institution.name}</h1>
               <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: C.greenL, color: C.green, fontSize: "11px", fontWeight: 800, padding: "4px 10px", borderRadius: "999px" }}>
                 {ICONS.Check(C.green)} Partenaire certifié Yelen
               </span>
@@ -129,7 +130,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
       </div>
 
       {/* Carte statut */}
-      <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px 20px", marginBottom: "20px" }}>
+      <Card tokens={toCardTokens(C)} padding="18px 20px" style={{ marginBottom: "20px" }}>
         <div className="mp-statut-grid">
           <div>
             <div style={{ color: C.t2, fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Statut</div>
@@ -150,15 +151,15 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
               : <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>—</div>}
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* KPI */}
       <div className="mp-kpi-grid" style={{ marginBottom: "24px" }}>
         {KPI_ITEMS.map(k => (
-          <div key={k.label} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
-            <div style={{ color: C.t1, fontSize: "22px", fontWeight: 900, lineHeight: 1.1 }}>{offres === null ? "—" : k.value}</div>
+          <Card key={k.label} tokens={toCardTokens(C)} padding="16px">
+            <div style={{ color: C.t1, fontSize: "22px", fontWeight: 800, lineHeight: 1.1 }}>{offres === null ? "—" : k.value}</div>
             <div style={{ color: C.t2, fontSize: "11px", fontWeight: 700, marginTop: "4px" }}>{k.label}</div>
-          </div>
+          </Card>
         ))}
       </div>
 
@@ -168,7 +169,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
           <h2 style={{ color: C.t1, fontSize: "15px", fontWeight: 800, margin: "0 0 12px" }}>Vos avantages partenaires</h2>
           <div className="mp-avantages-grid" style={{ marginBottom: "24px" }}>
             {AVANTAGES_SIDEBAR.map(a => (
-              <div key={a.titre} style={{ display: "flex", gap: "12px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px" }}>
+              <Card key={a.titre} tokens={toCardTokens(C)} padding="14px" style={{ display: "flex", gap: "12px" }}>
                 <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: C.bgCard2, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {ICONS[a.icon](C.gold)}
                 </div>
@@ -176,13 +177,13 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "2px" }}>{a.titre}</div>
                   <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6 }}>{a.texte}</div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
 
           {/* Historique */}
           <h2 style={{ color: C.t1, fontSize: "15px", fontWeight: 800, margin: "0 0 12px" }}>Historique du partenariat</h2>
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "6px 18px", marginBottom: "24px" }}>
+          <Card tokens={toCardTokens(C)} padding="6px 18px" style={{ marginBottom: "24px" }}>
             {historique.length === 0 ? (
               <div style={{ color: C.t3, fontSize: "12.5px", padding: "14px 0" }}>Aucun évènement pour le moment.</div>
             ) : historique.map((e, i) => (
@@ -194,7 +195,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
                 </div>
               </div>
             ))}
-          </div>
+          </Card>
 
           {/* Institutions similaires */}
           {stats.institutions_similaires.length > 0 && (
@@ -202,7 +203,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
               <h2 style={{ color: C.t1, fontSize: "15px", fontWeight: 800, margin: "0 0 12px" }}>Institutions similaires</h2>
               <div className="mp-similaires-row" style={{ marginBottom: "24px" }}>
                 {stats.institutions_similaires.map(s => (
-                  <div key={s.id} style={{ display: "flex", alignItems: "center", gap: "10px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "12px 14px", flex: "1 1 220px" }}>
+                  <Card key={s.id} tokens={toCardTokens(C)} padding="12px 14px" style={{ display: "flex", alignItems: "center", gap: "10px", flex: "1 1 220px" }}>
                     <div style={{ width: "40px", height: "40px", position: "relative", borderRadius: "10px", background: "#FFFFFF", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0, padding: s.logo ? "6px" : 0 }}>
                       {s.logo
                         ? <Image src={s.logo} alt={s.name} fill sizes="40px" style={{ objectFit: "contain" }}/>
@@ -212,7 +213,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
                       <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</div>
                       <div style={{ color: C.t2, fontSize: "11px", marginTop: "1px" }}>{s.offres_actives} offre{s.offres_actives !== 1 ? "s" : ""} active{s.offres_actives !== 1 ? "s" : ""}</div>
                     </div>
-                  </div>
+                  </Card>
                 ))}
               </div>
             </>
@@ -226,7 +227,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
 
         {/* Actions rapides */}
         <aside className="mp-sidebar">
-          <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px">
             <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800, marginBottom: "12px" }}>Actions rapides</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               <button onClick={() => onNavigate("mes-offres")} style={{ display: "flex", alignItems: "center", gap: "10px", background: `linear-gradient(135deg,${C.gold},${C.goldD})`, border: "none", borderRadius: "12px", padding: "12px 14px", cursor: "pointer", textAlign: "left" }}>
@@ -242,7 +243,7 @@ export function MonPartenariatTab({ institution, demande, stats, onNavigate }: {
                 <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Contacter Yelen</span>
               </a>
             </div>
-          </div>
+          </Card>
         </aside>
       </div>
     </div>

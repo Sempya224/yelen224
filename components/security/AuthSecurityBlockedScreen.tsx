@@ -110,10 +110,10 @@ export function AuthSecurityBlockedScreen({
 
       <div className="auth-blocked-body" style={{ marginTop: "22px" }}>
         <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.65, margin: "0 0 10px" }}>
-            Nous avons temporairement limité les actions de connexion et d&apos;inscription depuis cet appareil après plusieurs tentatives rapprochées.
+            Nous avons mis la connexion et l&apos;inscription en pause sur cet appareil, après plusieurs tentatives rapprochées.
           </p>
           <p style={{ color: t2, fontSize: "13.5px", lineHeight: 1.65, margin: "0 0 24px" }}>
-            Cette mesure permet de protéger les comptes Yelen et d&apos;empêcher les tentatives d&apos;accès non autorisées.
+            C&apos;est une simple précaution pour garder votre compte en sécurité.
           </p>
 
           {state === "blocked" ? (
@@ -128,7 +128,7 @@ export function AuthSecurityBlockedScreen({
           ) : (
             <div style={{ backgroundColor: surface, border: `1px solid ${border}`, borderRadius: "16px", padding: "16px 20px", marginBottom: "18px" }}>
               <div style={{ color: t1, fontSize: "13px", fontWeight: 700, lineHeight: 1.5 }}>
-                Une vérification par notre équipe est nécessaire pour rétablir l&apos;accès sur cet appareil.
+                Notre équipe doit vérifier votre situation avant de réactiver l&apos;accès sur cet appareil.
               </div>
             </div>
           )}
@@ -144,7 +144,7 @@ export function AuthSecurityBlockedScreen({
           <div style={{ backgroundColor: surface, border: `1px solid ${border}`, borderRadius: "14px", padding: "16px 18px", marginBottom: "26px" }}>
             <div style={{ color: t1, fontSize: "12.5px", fontWeight: 800, marginBottom: "6px" }}>Pourquoi cette protection ?</div>
             <p style={{ color: t2, fontSize: "12px", lineHeight: 1.6, margin: 0 }}>
-              Yelen applique automatiquement des mesures de sécurité lorsque le nombre de tentatives devient inhabituel. Cela permet de protéger les utilisateurs contre les accès non autorisés et les tentatives automatisées.
+              Quand plusieurs tentatives inhabituelles ont lieu en peu de temps, nous marquons une courte pause par précaution — pour vous, comme pour tous les comptes Yelen.
             </p>
           </div>
 

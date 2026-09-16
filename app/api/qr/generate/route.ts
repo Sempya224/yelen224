@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import { calculerEtatQr, combinerDateHeureRdv, QR_MINUTES_APRES_RDV, QR_MINUTES_REGENERATION_FINALE, RDV_QR_EXPIRE_DEFINITIF_MESSAGE } from "@/lib/rdvGating";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const { data: rdv, error: rdvErr } = await supabase
       .from("rdv")
-      .select("id,date_rdv,heure_rdv,statut,presence_status,institution_id,citoyen_id,qr_token,qr_expires_at")
+      .select("id,date_rdv,heure_rdv,statut,presence_status,institution_id,citoyen_id,qr_token,qr_expires_at,qr_regenere_le,code_secours")
       .eq("id", rdv_id)
       .eq("citoyen_id", citoyen_id)
       .single();
@@ -50,16 +51,30 @@ export async function POST(req: NextRequest) {
     if (rdv.presence_status === "present")
       return NextResponse.json({ error: "Déjà confirmé" }, { status: 400 });
 
-    // Réutiliser le token existant s'il est encore valide
-    const tokenValide =
-      rdv.qr_token &&
-      rdv.qr_expires_at &&
-      new Date(rdv.qr_expires_at) > new Date();
+    const maintenant = new Date();
+    const etat = calculerEtatQr(rdv.qr_expires_at, rdv.qr_regenere_le, maintenant);
+
+    // Cycle borné (décision CEO 01/09/2026, voir lib/rdvGating.ts) — plus de
+    // régénération illimitée à expiration 7 jours sans rapport avec l'heure
+    // réelle du RDV. Une fois "expire_definitif", le système refuse
+    // structurellement toute nouvelle génération : aucune ligne écrite,
+    // jamais de statut/message inventé ailleurs, la même règle protège le
+    // scan côté validate/route.ts.
+    if (etat === "expire_definitif") {
+      return NextResponse.json({
+        success: true,
+        etat: "expire_definitif",
+        titre: RDV_QR_EXPIRE_DEFINITIF_MESSAGE.titre,
+        message: RDV_QR_EXPIRE_DEFINITIF_MESSAGE.message,
+      });
+    }
 
     let qr_token = rdv.qr_token;
     let qr_expires_at = rdv.qr_expires_at;
+    let derniere_chance = !!rdv.qr_regenere_le;
+    let code_secours = rdv.code_secours;
 
-    if (!tokenValide) {
+    if (etat === "aucun" || etat === "expire_regenerable") {
       // Correctif sécurité (01/09/2026) : plus de secret de repli codé en
       // dur ("yelen224-secret") — si QR_SECRET_KEY est absente, la clé HMAC
       // signant les tokens de présence serait une chaîne publique connue
@@ -75,21 +90,50 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Générer un nouveau token
-      const rawToken = `${rdv_id}:${citoyen_id}:${rdv.date_rdv}:${Date.now()}`;
+      const rawToken = `${rdv_id}:${citoyen_id}:${rdv.date_rdv}:${maintenant.getTime()}`;
       qr_token = crypto
         .createHmac("sha256", qrSecret)
         .update(rawToken)
         .digest("hex");
 
-      // Expire 7 jours à partir de maintenant
-      qr_expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      // Code manuel de secours (chantier YELEN Accueil, 13/09/2026) —
+      // même cycle de vie que qr_token (régénéré en même temps, même
+      // expiration), pour le citoyen dont la caméra/l'écran ne
+      // fonctionne pas. Alphabet sans caractères ambigus (0/O/1/I/L),
+      // `crypto.randomInt` par caractère (pas de biais modulo).
+      const ALPHABET_CODE_SECOURS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      code_secours = "";
+      for (let i = 0; i < 8; i++) {
+        code_secours += ALPHABET_CODE_SECOURS[crypto.randomInt(ALPHABET_CODE_SECOURS.length)];
+      }
+
+      const updates: Record<string, unknown> = { qr_token, code_secours };
+
+      // Génération initiale : expiration alignée sur l'heure réelle du RDV,
+      // jamais sur l'instant de génération. Si le citoyen ouvre l'écran pour
+      // la toute première fois après que cette fenêtre naturelle soit déjà
+      // dépassée (jamais généré avant le jour J), on lui accorde directement
+      // sa seule chance de régénération finale plutôt que de créer un QR déjà
+      // mort à la création.
+      const expirationNaturelle = new Date(combinerDateHeureRdv(rdv.date_rdv, rdv.heure_rdv).getTime() + QR_MINUTES_APRES_RDV * 60000);
+      if (etat === "aucun" && expirationNaturelle > maintenant) {
+        qr_expires_at = expirationNaturelle.toISOString();
+      } else {
+        qr_expires_at = new Date(maintenant.getTime() + QR_MINUTES_REGENERATION_FINALE * 60000).toISOString();
+        updates.qr_regenere_le = maintenant.toISOString();
+        derniere_chance = true;
+      }
+      updates.qr_expires_at = qr_expires_at;
+      updates.code_secours_expires_at = qr_expires_at;
 
       await supabase
         .from("rdv")
-        .update({ qr_token, qr_expires_at })
+        .update(updates)
         .eq("id", rdv_id);
     }
+    // etat === "actif" : token déjà valide, réutilisé tel quel — aucune
+    // écriture, aucune nouvelle valeur (répond à la demande CEO "une seule
+    // génération", plus de régénération à chaque entrée sur l'écran).
 
     const qrPayload = JSON.stringify({
       t: qr_token,
@@ -100,9 +144,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      etat: "actif",
       qr_payload: qrPayload,
       qr_token,
+      code_secours,
       expires_at: qr_expires_at,
+      derniere_chance,
     });
 
   } catch {

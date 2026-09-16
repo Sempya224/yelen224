@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
-import { getAuthenticatedInstitutionId, getAuthenticatedMembre, getInstitutionSessionSid } from '@/lib/institutionAuth'
+import { getAuthenticatedInstitutionId, getAuthenticatedMembre, getInstitutionSessionSid, revoquerAutresSessionsInstitution } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,25 +59,20 @@ export async function POST(request: NextRequest) {
 
     if (updateError) {
       console.error('[INSTITUTION REMEMBER REVOKE ALL ERROR]', updateError.code, updateError.message)
-      return NextResponse.json({ error: 'Erreur lors de la révocation', code: 'DELETE_ERROR' }, { status: 500 })
+      return NextResponse.json({ error: "Les autres appareils n'ont pas pu être déconnectés. Réessayez.", code: 'DELETE_ERROR' }, { status: 500 })
     }
 
     // institution_sessions — révoque toute session active d'un AUTRE
-    // appareil (id != sid courant). currentSid peut être null (session
-    // signée avant ce déploiement, sans claim sid) : dans ce cas, on ne
-    // peut pas distinguer "cet appareil" des autres, donc on ne revoque
-    // aucune session par prudence plutôt que de risquer de couper l'appelant.
+    // appareil, via la même fonction partagée que pin/set et totp/disable
+    // (voir lib/institutionAuth.ts::revoquerAutresSessionsInstitution).
+    // currentSid peut être null (session signée avant ce déploiement, sans
+    // claim sid) : dans ce cas, on ne peut pas distinguer "cet appareil" des
+    // autres, donc on ne revoque aucune session par prudence plutôt que de
+    // risquer de couper l'appelant — comportement propre à cette route
+    // (contrairement à pin_change/totp_disabled, un sid manquant ici ne doit
+    // jamais se rabattre sur "tout révoquer").
     if (currentSid) {
-      const { error: sessionsError } = await supabaseAdmin
-        .from('institution_sessions')
-        .update({ revoked_at: new Date().toISOString(), revoked_reason: 'revoked_all_other_devices' })
-        .eq('institution_id', institutionId)
-        .neq('id', currentSid)
-        .is('revoked_at', null)
-      if (sessionsError) {
-        console.error('[INSTITUTION REMEMBER REVOKE ALL ERROR] institution_sessions:', sessionsError.message)
-        return NextResponse.json({ error: 'Erreur lors de la révocation', code: 'DELETE_ERROR' }, { status: 500 })
-      }
+      await revoquerAutresSessionsInstitution(supabaseAdmin, institutionId, currentSid, 'revoked_all_other_devices')
     }
 
     return NextResponse.json({ success: true })

@@ -12,8 +12,9 @@ import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useState } from "react";
-import type { ThemeTokens } from "../theme";
+import { type ThemeTokens, toUiTokens } from "../theme";
 import { coordonneesParVille } from "@/lib/villesCoordonnees";
+import { Button } from "@/components/ui/Button";
 
 function buildPinIcon(gold: string) {
   return L.divIcon({
@@ -35,7 +36,10 @@ export function LocationPicker({ latitude, longitude, ville, onChange, C }: {
 }) {
   const [mounted, setMounted] = useState(false);
   const [localisation, setLocalisation] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  // queueMicrotask (même convention qu'ailleurs, ex. EquipeTab.tsx) : évite
+  // react-hooks/set-state-in-effect sur ce setState synchrone en tête
+  // d'effet, sans changer le comportement (s'exécute avant tout rendu).
+  useEffect(() => { queueMicrotask(() => setMounted(true)); }, []);
 
   const aPosition = latitude !== null && longitude !== null && !Number.isNaN(latitude) && !Number.isNaN(longitude);
   const defaut = coordonneesParVille(ville);
@@ -77,10 +81,18 @@ export function LocationPicker({ latitude, longitude, ville, onChange, C }: {
         <div style={{ color: aPosition ? C.t2 : C.t3, fontSize: "11px", fontWeight: "600" }}>
           {aPosition ? `${(latitude as number).toFixed(5)}, ${(longitude as number).toFixed(5)}` : "Position non renseignée — repère placé sur le centre approximatif de votre ville"}
         </div>
-        <button onClick={utiliserPositionActuelle} disabled={localisation} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, color: C.t2, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+        <Button
+          tokens={toUiTokens(C)}
+          className="tap"
+          variant="secondary"
+          size="sm"
+          disabled={localisation}
+          style={{ flexShrink: 0 }}
+          icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>}
+          onClick={utiliserPositionActuelle}
+        >
           {localisation ? "Localisation…" : "Utiliser ma position actuelle"}
-        </button>
+        </Button>
       </div>
       <p style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.5, marginTop: "6px" }}>
         Glissez le repère ou touchez la carte pour indiquer l&apos;emplacement exact de votre établissement — c&apos;est cette position qui sera affichée aux citoyens sur la carte Yelen.

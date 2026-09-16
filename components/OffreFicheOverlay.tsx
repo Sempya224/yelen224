@@ -142,7 +142,7 @@ export function OffreFicheContenu({
               critère que la section "Offres populaires" du feed), jamais un
               chiffre inventé. */}
           {populaire && (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: isDark ? "rgba(245,166,35,0.1)" : "rgba(245,166,35,0.1)", color: "#F5A623", fontSize: "11px", fontWeight: 800, padding: "6px 12px", borderRadius: "20px", marginBottom: "14px" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", color: "#F5A623", fontSize: "11px", fontWeight: 800, marginBottom: "14px" }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="#F5A623"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               Offre populaire
             </div>
@@ -222,7 +222,7 @@ export function OffreFicheContenu({
             style={{
               display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
               width: "100%", padding: "14px", borderRadius: "14px", textDecoration: "none", boxSizing: "border-box",
-              background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812",
+              background: "#F5A623", color: "#080812",
               fontWeight: 800, fontSize: "14px", boxShadow: "0 3px 10px rgba(245,166,35,0.2)",
             }}
           >

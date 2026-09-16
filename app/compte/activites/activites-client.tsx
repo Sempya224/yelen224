@@ -8,6 +8,7 @@ import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { CATEGORIE_LABEL_DEPENSE, COULEUR_CATEGORIE_DEPENSE, type CategorieDepenseId } from "@/lib/depenses";
 
 const P = { pointerEvents: "none" as const };
 const Ic = {
@@ -39,7 +40,7 @@ type FenetreDate = "tous" | "aujourdhui" | "7jours" | "30jours" | "annee";
 type FiltreStatut = "tous" | "succes" | "attente" | "annule" | "echec";
 
 const CATEGORIE_LABEL: Record<string, string> = {
-  rdv: "Rendez-vous", qr: "QR Code", paiement: "Paiement", avis: "Avis", favori: "Favori", document: "Document", compte: "Compte",
+  rdv: "Rendez-vous", qr: "QR code", paiement: "Paiement", avis: "Avis", favori: "Favori", document: "Document", compte: "Compte",
 };
 const STATUT_COULEUR: Record<string, string> = { succes: "#22c55e", attente: "#F5A623", annule: "#8E8E93", echec: "#ef4444" };
 
@@ -58,6 +59,53 @@ function groupeDate(iso: string): string {
   if (jours < 30) return "Ce mois";
   if (jours < 365) return "Cette année";
   return "Plus ancien";
+}
+
+// Détail activité — le champ dédié au montant n'existe que pour "paiement"
+// (meta.montant, réel). Pour "depense", le montant n'est jamais renvoyé à
+// part : il est déjà intégré au texte `description` côté API
+// (`app/api/citoyen/activites/route.ts`, jamais modifié ici — périmètre
+// popup uniquement). On l'extrait donc de ce texte réel plutôt que d'en
+// fabriquer un nouveau.
+const SEP_MILLIERS = "[\\d\\s\\u00a0\\u202f]";
+
+function extraireMontantDescription(description: string | null): number | null {
+  if (!description) return null;
+  const m = description.match(new RegExp(`(${SEP_MILLIERS}+)\\s*GNF\\s*$`));
+  if (!m) return null;
+  const n = parseInt(m[1].replace(/\D/g, ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function retirerMontantDescription(description: string | null): string | null {
+  if (!description) return null;
+  if (new RegExp(`^${SEP_MILLIERS}+GNF$`).test(description.trim())) return null;
+  const sansMontant = description.replace(new RegExp(`\\s*\\u00b7\\s*${SEP_MILLIERS}+GNF\\s*$`), "").trim();
+  return sansMontant || null;
+}
+
+function formatDateRdv(dateRdv: string, heureRdv: string | null): string {
+  const d = new Date(`${dateRdv}T00:00:00`);
+  const dateStr = Number.isNaN(d.getTime()) ? dateRdv : d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  return heureRdv ? `${dateStr} à ${heureRdv.slice(0, 5)}` : dateStr;
+}
+
+function humaniser(slug: string): string {
+  const s = slug.replace(/_/g, " ").trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function Stars({ note }: { note: number }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+      <span style={{ display: "inline-flex", gap: "1px" }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <svg key={n} width="13" height="13" viewBox="0 0 20 20" fill={n <= note ? "#F5A623" : "none"} stroke="#F5A623" strokeWidth="1"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 0 0 .95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 0 0-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.539 1.118l-2.8-2.034a1 1 0 0 0-1.176 0l-2.8 2.034c-.783.57-1.838-.196-1.539-1.118l1.07-3.292a1 1 0 0 0-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 0 0 .95-.69l1.07-3.292Z"/></svg>
+        ))}
+      </span>
+      {note}/5
+    </span>
+  );
 }
 
 export function ActivitesClient() {
@@ -219,17 +267,49 @@ export function ActivitesClient() {
   };
   const chip = (actif: boolean): React.CSSProperties => ({
     ...btnGhost, flexShrink: 0,
-    backgroundColor: actif ? "rgba(245,166,35,0.12)" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"),
-    borderColor: actif ? "rgba(245,166,35,0.4)" : brd, color: actif ? "#F5A623" : t1,
+    backgroundColor: actif ? "#F5A623" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"),
+    borderColor: actif ? "#F5A623" : brd, color: actif ? "#080812" : t1,
   });
 
   if (loading) {
     return <CompteLoadingScreen titre="Activités passées"/>;
   }
 
+  // Fiche détail — dérivé uniquement des champs réels renvoyés par
+  // /api/citoyen/activites (description + meta), aucune donnée inventée.
+  let detailMontant: number | null = null;
+  const detailLignes: { label: string; value: React.ReactNode }[] = [];
+  if (detail) {
+    const meta = detail.meta;
+    detailMontant = typeof meta.montant === "number" && meta.montant > 0 ? meta.montant : extraireMontantDescription(detail.description);
+    const libelle = retirerMontantDescription(detail.description);
+    if (libelle && libelle !== detail.titre) detailLignes.push({ label: "Détail", value: libelle });
+    if (typeof meta.date_rdv === "string") {
+      const heureRdv = typeof meta.heure_rdv === "string" ? meta.heure_rdv : null;
+      detailLignes.push({ label: "Rendez-vous prévu", value: formatDateRdv(meta.date_rdv, heureRdv) });
+    }
+    if (typeof meta.motif === "string" && meta.motif) detailLignes.push({ label: "Motif", value: meta.motif });
+    if (typeof meta.methode === "string" && meta.methode) detailLignes.push({ label: "Moyen de paiement", value: humaniser(meta.methode) });
+    if (typeof meta.note === "number") detailLignes.push({ label: "Note donnée", value: <Stars note={meta.note}/> });
+    if (typeof meta.type === "string" && meta.type) detailLignes.push({ label: "Type de document", value: humaniser(meta.type) });
+    if (typeof meta.sens === "string") detailLignes.push({ label: "Sens", value: meta.sens === "demande" ? "Demandé par l'établissement" : "Envoyé par vous" });
+    if (typeof meta.categorie === "string" && meta.categorie in CATEGORIE_LABEL_DEPENSE) {
+      const cat = meta.categorie as CategorieDepenseId;
+      detailLignes.push({
+        label: "Catégorie",
+        value: (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: COULEUR_CATEGORIE_DEPENSE[cat], flexShrink: 0 }}/>
+            {CATEGORIE_LABEL_DEPENSE[cat]}
+          </span>
+        ),
+      });
+    }
+  }
+
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
-      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
+      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}@keyframes overlayIn{from{opacity:0}to{opacity:1}}`}</style>
       <CompteHeader titre="Activités passées"/>
       <PullToRefresh onRefresh={charger} isDark={isDark}>
       <main style={{ padding: "16px 16px 40px" }}>
@@ -341,7 +421,7 @@ export function ActivitesClient() {
                 const IconComp = ICON_PAR_CATEGORIE[a.categorie] ?? Ic.Doc;
                 return (
                   <button key={a.id} onClick={() => setDetail(a)} className="tap" style={{ display: "flex", alignItems: "center", gap: "12px", backgroundColor: card, borderRadius: "16px", padding: "12px 14px", cursor: "pointer", textAlign: "left", width: "100%" }}>
-                    <div style={{ width: "38px", height: "38px", borderRadius: "12px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#F5A623" }}><IconComp/></div>
+                    <div style={{ width: "38px", height: "38px", borderRadius: "12px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#080812" }}><IconComp/></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: t1, fontSize: "13.5px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.institution_nom ? `${a.institution_nom} — ${a.titre}` : a.titre}</div>
                       <div style={{ color: t2, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.description || new Date(a.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
@@ -359,20 +439,41 @@ export function ActivitesClient() {
 
       {/* Détail activité */}
       {detail && (
-        <div onClick={() => { setDetail(null); setUploadFile(null); }} style={{ position: "fixed", inset: 0, zIndex: 9000, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: card, borderRadius: "24px", padding: "24px", maxWidth: "400px", width: "100%", border: `1px solid ${brd}`, maxHeight: "85svh", overflowY: "auto" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "11px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623" }}>{(ICON_PAR_CATEGORIE[detail.categorie] ?? Ic.Doc)()}</div>
-              <div style={{ color: t1, fontSize: "16px", fontWeight: 800 }}>{detail.titre}</div>
+        <div onClick={() => { setDetail(null); setUploadFile(null); }} style={{ position: "fixed", inset: 0, zIndex: 9000, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "overlayIn 0.2s ease" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: card, borderRadius: "20px 20px 0 0", padding: "10px 20px calc(20px + env(safe-area-inset-bottom))", maxWidth: "480px", width: "100%", maxHeight: "85svh", overflowY: "auto", animation: "sheetUp 0.28s cubic-bezier(0.32,0.72,0,1)" }}>
+            <div style={{ display: "flex", justifyContent: "center", padding: "6px 0 14px" }}>
+              <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)" }}/>
             </div>
-            {detail.institution_nom && <div style={{ color: t2, fontSize: "13px", fontWeight: 600, marginBottom: "12px" }}>{detail.institution_nom}</div>}
-
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
-              <span style={{ color: STATUT_COULEUR[detail.statut], fontSize: "11.5px", fontWeight: 800, background: `${STATUT_COULEUR[detail.statut]}18`, padding: "3px 9px", borderRadius: "20px" }}>{detail.statut_label}</span>
-              <span style={{ color: t3, fontSize: "11.5px" }}>{formatDateHeure(detail.date)}</span>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", marginBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+                <div style={{ width: "42px", height: "42px", borderRadius: "13px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#080812" }}>{(ICON_PAR_CATEGORIE[detail.categorie] ?? Ic.Doc)()}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: t1, fontSize: "16.5px", fontWeight: 800, lineHeight: 1.25 }}>{detail.titre}</div>
+                  {detail.institution_nom && <div style={{ color: t2, fontSize: "12.5px", fontWeight: 600, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detail.institution_nom}</div>}
+                </div>
+              </div>
+              <span style={{ color: STATUT_COULEUR[detail.statut], fontSize: "11px", fontWeight: 800, background: `${STATUT_COULEUR[detail.statut]}18`, padding: "5px 11px", borderRadius: "20px", flexShrink: 0, whiteSpace: "nowrap" }}>{detail.statut_label}</span>
             </div>
 
-            {detail.description && <div style={{ color: t1, fontSize: "13.5px", lineHeight: 1.5, marginBottom: "16px" }}>{detail.description}</div>}
+            <div style={{ color: t2, fontSize: "12px", fontWeight: 600, marginBottom: "16px" }}>{formatDateHeure(detail.date)}</div>
+
+            {detailMontant !== null && (
+              <div style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: "16px", padding: "16px", marginBottom: "16px", textAlign: "center" }}>
+                <div style={{ color: t2, fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Montant</div>
+                <div style={{ color: "#F5A623", fontSize: "26px", fontWeight: 900 }}>{detailMontant.toLocaleString("fr-FR")} GNF</div>
+              </div>
+            )}
+
+            {detailLignes.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", borderRadius: "14px", padding: "14px 16px", marginBottom: "16px" }}>
+                {detailLignes.map((l, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+                    <span style={{ color: t2, fontSize: "12px", fontWeight: 600, flexShrink: 0 }}>{l.label}</span>
+                    <span style={{ color: t1, fontSize: "12.5px", fontWeight: 700, textAlign: "right" }}>{l.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Actions rapides selon type */}
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -407,7 +508,7 @@ export function ActivitesClient() {
               )}
             </div>
 
-            <button onClick={() => { setDetail(null); setUploadFile(null); }} className="tap" style={{ width: "100%", marginTop: "14px", background: "none", border: "none", color: t3, fontSize: "12.5px", cursor: "pointer", padding: "8px" }}>Fermer</button>
+            <button onClick={() => { setDetail(null); setUploadFile(null); }} className="tap" style={{ ...btnGhost, width: "100%", justifyContent: "center", marginTop: "10px", background: "none", border: "none", color: t3 }}>Fermer</button>
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getAuthenticatedMembre } from '@/lib/institutionAuth'
+import { getAuthenticatedMembre, estReauthRecente } from '@/lib/institutionAuth'
 import { can } from '@/lib/institutionPermissions'
 import { enregistrerAction, getMembreNomPourJournal } from '@/lib/journalActivite'
 
@@ -34,6 +34,13 @@ export async function POST(request: NextRequest) {
         req: request,
       })
       return NextResponse.json({ error: 'Accès réservé aux administrateurs', code: 'FORBIDDEN' }, { status: 403 })
+    }
+    // Moteur de réauthentification (16/09/2026) — déclencher le délai de
+    // grâce de suppression du compte est l'action la plus critique de ce
+    // fichier, jusqu'ici protégée uniquement par le rôle. Le PIN (+ TOTP si
+    // activé) doit être reconfirmé dans les 10 dernières minutes.
+    if (!estReauthRecente(membre)) {
+      return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: 'REAUTH_REQUIRED' }, { status: 403 })
     }
     const institutionId = membre.institutionId
 

@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "facturation.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!can(membre.role, "facturation.write", membre.accesRestreints)) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
 
   const modeUrgence = membre.role === "admin";
   if (modeUrgence && !(await accesUrgenceAdminDebloque(membre.institutionId))) {

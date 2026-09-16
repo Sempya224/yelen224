@@ -15,7 +15,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLoader } from "@/components/YelenLoader";
-import { T, type ThemeTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import {
   SIGNALEMENT_STATUTS, SIGNALEMENT_STATUT_LABELS,
   SIGNALEMENT_PRIORITES, SIGNALEMENT_PRIORITE_LABELS,
@@ -220,16 +222,16 @@ function SigEmptyState({ C, illustration, titre, texte, cta }: {
   C: ThemeTokens; illustration: React.ReactNode; titre: string; texte: string; cta?: { label: string; onClick: () => void };
 }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", textAlign: "center", padding: "44px 20px" }}>
+    <Card tokens={toCardTokens(C)} padding="44px 20px" style={{ textAlign: "center" }}>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>{illustration}</div>
       <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "6px" }}>{titre}</div>
       <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, maxWidth: "340px", margin: "0 auto" }}>{texte}</div>
       {cta && (
-        <button onClick={cta.onClick} className="tap" style={{ marginTop: "18px", backgroundColor: C.gold, color: "#080812", fontWeight: 800, fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ marginTop: "18px" }} onClick={cta.onClick}>
           {cta.label}
-        </button>
+        </Button>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -257,15 +259,15 @@ function SigKpiCard({ label, icon, color, value, delta, serie, C }: {
   label: string; icon: React.ReactNode; color: string; value: string; delta: number | null; serie: number[]; C: ThemeTokens;
 }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "10px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
       <SigDelta delta={delta} C={C}/>
       {serie.some(v => v > 0) && <SigSparkline serie={serie} color={color}/>}
-    </div>
+    </Card>
   );
 }
 
@@ -695,7 +697,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
 
               {creError && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "12px 16px", color: C.red, fontSize: "13px" }}>{creError}</div>}
 
-              <button onClick={validerEtapeForm} className="tap" style={{ width: "100%", backgroundColor: C.red, border: "none", borderRadius: "12px", padding: "14px", color: "#fff", fontSize: "14.5px", fontWeight: "700", cursor: "pointer" }}>
+              <button onClick={validerEtapeForm} className="tap" style={{ width: "100%", height: "40px", backgroundColor: C.red, border: "none", borderRadius: "12px", padding: "0 16px", color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>
                 Continuer
               </button>
             </div>
@@ -704,7 +706,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
           {etapeCreation === "verify" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <p style={{ color: C.t2, fontSize: "13px", margin: 0 }}>Vérifiez les informations avant l&apos;envoi définitif.</p>
-              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px 18px", display: "flex", flexDirection: "column", gap: "12px" }}>
+              <Card tokens={toCardTokens(C)} padding="16px 18px" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div>
                   <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Citoyen</div>
                   <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>{citoyenCree?.nom}</div>
@@ -730,13 +732,13 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                     <img src={creImagePreview} style={{ height: "70px", borderRadius: "8px", objectFit: "cover", border: `1px solid ${C.border}` }} alt=""/>
                   </div>
                 )}
-              </div>
+              </Card>
 
               {creError && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "12px 16px", color: C.red, fontSize: "13px" }}>{creError}</div>}
 
               <div style={{ display: "flex", gap: "10px" }}>
-                <button onClick={() => setEtapeCreation("form")} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "14px", color: C.t1, fontSize: "13.5px", fontWeight: "700", cursor: "pointer" }}>Modifier</button>
-                <button onClick={confirmerCreation} disabled={creSaving} className="tap" style={{ flex: 1, backgroundColor: creSaving ? C.bg3 : C.red, border: "none", borderRadius: "12px", padding: "14px", color: creSaving ? C.t3 : "#fff", fontSize: "13.5px", fontWeight: "700", cursor: creSaving ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setEtapeCreation("form")}>Modifier</Button>
+                <button onClick={confirmerCreation} disabled={creSaving} className="tap" style={{ flex: 1, height: "40px", backgroundColor: creSaving ? C.bg3 : C.red, border: "none", borderRadius: "12px", padding: "0 16px", color: creSaving ? C.t3 : "#fff", fontSize: "13px", fontWeight: "700", cursor: creSaving ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                   {creSaving ? <><YelenLoader size={16} color="#fff"/> Envoi…</> : "Créer le signalement"}
                 </button>
               </div>
@@ -751,7 +753,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
               <p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 4px" }}>Signalement créé</p>
               {creNumeroPublic && <p style={{ color: C.gold, fontSize: "14px", fontWeight: 700, fontFamily: "monospace", margin: "0 0 8px" }}>{creNumeroPublic}</p>}
               <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 24px" }}>Notre équipe examinera ce signalement.</p>
-              <button onClick={() => { resetCreation(); setVue("liste"); }} className="tap" style={{ backgroundColor: C.gold, border: "none", borderRadius: "12px", padding: "13px 28px", color: "#080812", fontSize: "13.5px", fontWeight: "800", cursor: "pointer" }}>Retour à la liste</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={() => { resetCreation(); setVue("liste"); }}>Retour à la liste</Button>
             </div>
           )}
         </div>
@@ -790,16 +792,28 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
           </div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          <button onClick={exporterCsv} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Exporter CSV</button>
-          <button onClick={() => chargerListe(true)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter CSV</Button>
+          <Button
+            tokens={toUiTokens(C)}
+            className="tap"
+            variant="secondary"
+            size="sm"
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
+            onClick={() => chargerListe(true)}
+          >
             Actualiser
-          </button>
+          </Button>
           {canWrite && (
-            <button onClick={() => setVue("creation")} className="tap" style={{ backgroundColor: "#F5A623", border: "none", color: "#080812", fontWeight: 800, fontSize: "12.5px", padding: "9px 14px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <Button
+              tokens={toUiTokens(C)}
+              className="tap"
+              variant="primary"
+              size="sm"
+              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
+              onClick={() => setVue("creation")}
+            >
               Nouveau signalement
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -831,7 +845,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
         <button onClick={() => setFiltresAvances(v => !v)} className="tap" style={{ backgroundColor: filtresAvances ? `${C.gold}15` : C.bg3, color: filtresAvances ? C.gold : C.t2, border: `1px solid ${filtresAvances ? C.gold + "50" : C.border}`, fontWeight: 700, fontSize: "11.5px", padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap" }}>Filtres avancés</button>
       </div>
       {filtresAvances && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px" }}>
+        <Card tokens={toCardTokens(C)} padding="12px" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px" }}>
           <select value={filtrePriorite} onChange={e => setFiltrePriorite(e.target.value)} style={inputStyle(C)}>
             <option value="">Toutes priorités</option>
             {SIGNALEMENT_PRIORITES.map(p => <option key={p} value={p}>{SIGNALEMENT_PRIORITE_LABELS[p]}</option>)}
@@ -844,7 +858,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
             <option value="">Tous les motifs</option>
             {MOTIFS_INSTITUTION.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
-        </div>
+        </Card>
       )}
 
       {/* Liste */}
@@ -858,13 +872,13 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
       ) : listeFiltree.length === 0 && filtreVideCfg ? (
         <SigEmptyState C={C} illustration={filtreVideCfg.illustration(C)} titre={filtreVideCfg.titre} texte={filtreVideCfg.texte}/>
       ) : listeFiltree.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "32px", textAlign: "center", color: C.t2, fontSize: "13px" }}>
+        <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center", color: C.t2, fontSize: "13px" }}>
           Aucun signalement ne correspond à ces critères.
-        </div>
+        </Card>
       ) : (
         <>
           {/* Desktop : tableau */}
-          <div className="sig-table" style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: "14px", backgroundColor: C.bgCard }}>
+          <Card tokens={toCardTokens(C)} padding="0" className="sig-table" style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", fontSize: "12.5px" }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -899,7 +913,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                 })}
               </tbody>
             </table>
-          </div>
+          </Card>
 
           {/* Mobile : cards */}
           <div className="sig-cards" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -907,7 +921,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
               const cfg = SIG_STATUT_CFG(C)[s.statut];
               const estime = s.statut === "cloture" || s.statut === "rejete" || s.statut === "doublon";
               return (
-                <div key={s.id} onClick={() => setSelectedId(s.id)} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px 16px", cursor: "pointer", opacity: estime ? 0.6 : 1 }}>
+                <Card key={s.id} tokens={toCardTokens(C)} padding="14px 16px" onClick={() => setSelectedId(s.id)} className="tap" style={{ opacity: estime ? 0.6 : 1 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
                     <span style={{ fontFamily: "monospace", color: C.t3, fontSize: "10.5px" }}>{s.numero_public}</span>
                     <span style={{ backgroundColor: cfg.bg, color: cfg.color, fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "20px" }}>{cfg.label}</span>
@@ -919,7 +933,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                     <span style={{ backgroundColor: prioriteBg(s.priorite, C), color: prioriteColor(s.priorite, C), fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "20px" }}>{SIGNALEMENT_PRIORITE_LABELS[s.priorite]}</span>
                     <span style={{ color: C.t3, fontSize: "11px" }}>{formatDateSig(s.created_at)}</span>
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
@@ -999,7 +1013,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                         ) : (
                           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                             {detail.attachments.map(a => (
-                              <button key={a.id} onClick={() => telechargerPreuve(a.id)} className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px 12px", cursor: "pointer", textAlign: "left" }}>
+                              <button key={a.id} onClick={() => telechargerPreuve(a.id)} className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", height: "40px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "0 12px", cursor: "pointer", textAlign: "left" }}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                 <span style={{ color: C.t1, fontSize: "12px", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nom_original}</span>
                                 <span style={{ color: C.t3, fontSize: "10.5px" }}>{a.ajoute_par_nom}</span>
@@ -1041,7 +1055,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                           {canWrite && (
                             <div style={{ display: "flex", gap: "8px" }}>
                               <input value={formNote} onChange={e => setFormNote(e.target.value)} placeholder="Ajouter une note interne…" style={{ ...inputStyle(C), fontSize: "12.5px", padding: "9px 12px" }}/>
-                              <button onClick={ajouterNoteInterne} disabled={savingNote || !formNote.trim()} className="tap" style={{ backgroundColor: C.gold, border: "none", borderRadius: "10px", padding: "0 14px", color: "#080812", fontWeight: 700, fontSize: "12px", cursor: "pointer" }}>Ajouter</button>
+                              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!formNote.trim()} loading={savingNote} onClick={ajouterNoteInterne}>Ajouter</Button>
                             </div>
                           )}
                         </div>
@@ -1087,10 +1101,10 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
 }
 
 function actionBtnStyle(C: ThemeTokens): React.CSSProperties {
-  return { textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "11px 14px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer" };
+  return { textAlign: "left", height: "40px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "0 14px", fontSize: "13px", fontWeight: 700, cursor: "pointer" };
 }
 function confirmBtnStyle(C: ThemeTokens, disabled: boolean): React.CSSProperties {
-  return { width: "100%", backgroundColor: disabled ? C.bg3 : C.gold, border: "none", borderRadius: "12px", padding: "13px", color: disabled ? C.t3 : "#080812", fontSize: "13.5px", fontWeight: 800, cursor: disabled ? "not-allowed" : "pointer" };
+  return { width: "100%", height: "40px", backgroundColor: disabled ? C.bg3 : C.gold, border: "none", borderRadius: "12px", padding: "0 16px", color: disabled ? C.t3 : "#000", fontSize: "13px", fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer" };
 }
 function SigBtnLoading({ C }: { C: ThemeTokens }) {
   return <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><YelenLoader size={14} color={C.t3}/></span>;

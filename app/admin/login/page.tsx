@@ -61,7 +61,14 @@ export default function AdminLogin() {
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
-          ...(totpRequired ? { totp_code: totpCode.trim() } : {}),
+          // .trim() seul ne retire que les espaces en début/fin — Google
+          // Authenticator affiche le code en 2 groupes de 3 séparés par un
+          // espace ("123 456"), et un copier-coller depuis l'appli conserve
+          // cet espace du milieu (7 caractères envoyés, TokenLengthError
+          // "got 7" côté serveur). replace(/\s+/g) retire tous les espaces,
+          // y compris internes, sans toucher aux tirets des codes de secours
+          // ("XXXX-XXXX", voir placeholder ci-dessous).
+          ...(totpRequired ? { totp_code: totpCode.replace(/\s+/g, "") } : {}),
         }),
       })
 

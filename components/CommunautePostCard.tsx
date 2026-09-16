@@ -12,6 +12,49 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { POST_CATEGORIE_LABELS, POST_CATEGORIE_COULEURS, type PostCategorie } from "@/lib/communauteCategories";
 import { InstitutionBadgeVerifie } from "@/lib/institutionBadge";
 
+// Liens cliquables + mentions @profil dans le texte d'une publication
+// (retour Bryan 09/09/2026, référence LinkedIn) — affichage uniquement,
+// aucune donnée modifiée. Une mention est encodée directement dans le texte
+// stocké au moment de la publication : `@[Nom](citoyen:id)` ou
+// `@[Nom](institution:id)` — jamais visible tel quel une fois publiée,
+// jamais de table dédiée (décision Bryan 09/09/2026). Ponctuation finale
+// (. , ; : ! ?)) exclue d'un lien URL pour ne pas casser une adresse en fin
+// de phrase.
+const MENTION_OU_URL_REGEX = /(@\[[^\]]+\]\((?:citoyen|institution):[0-9a-fA-F-]+\)|(?:https?:\/\/|www\.)[^\s]+)/g;
+const MENTION_REGEX = /^@\[([^\]]+)\]\((citoyen|institution):([0-9a-fA-F-]+)\)$/;
+
+function rendreContenuAvecLiens(texte: string, onOuvrirMention?: (type: "citoyen" | "institution", id: string, nom: string) => void): React.ReactNode[] {
+  const segments = texte.split(MENTION_OU_URL_REGEX);
+  const noeuds: React.ReactNode[] = [];
+  segments.forEach((seg, i) => {
+    if (i % 2 === 1) {
+      const mention = seg.match(MENTION_REGEX);
+      if (mention) {
+        const [, nom, type, id] = mention;
+        noeuds.push(
+          <span key={i} onClick={e => { e.stopPropagation(); onOuvrirMention?.(type as "citoyen" | "institution", id, nom); }} style={{ color: "#2563EB", fontWeight: 700, cursor: "pointer" }}>@{nom}</span>
+        );
+        return;
+      }
+      // "www.xxx" tapé sans protocole (cas fréquent) — même affichage que
+      // saisi, mais href complété en https:// pour rester cliquable
+      // (retour Bryan 10/09/2026 : les liens sans "http(s)://" ne
+      // s'ouvraient jamais).
+      const match = seg.match(/^((?:https?:\/\/|www\.)[^\s]+?)([.,;:!?)]*)$/);
+      const url = match ? match[1] : seg;
+      const suffixe = match ? match[2] : "";
+      const href = /^https?:\/\//.test(url) ? url : `https://${url}`;
+      noeuds.push(
+        <a key={i} href={href} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: "#2563EB", textDecoration: "underline", wordBreak: "break-all" }}>{url}</a>
+      );
+      if (suffixe) noeuds.push(suffixe);
+    } else if (seg) {
+      noeuds.push(seg);
+    }
+  });
+  return noeuds;
+}
+
 export type Post = {
   id: string;
   auteur_id: string | null;
@@ -101,7 +144,7 @@ export function Avatar({ nom, photo, taille }: { nom: string; photo: string | nu
       <Image src={photo} alt={nom} fill sizes={`${taille}px`} style={{ objectFit: "cover" }} />
     </div>
   ) : (
-    <div style={{ width: taille, height: taille, borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", color: "#080812", fontWeight: 900, fontSize: taille * 0.4, flexShrink: 0 }}>
+    <div style={{ width: taille, height: taille, borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", color: "#080812", fontWeight: 900, fontSize: taille * 0.4, flexShrink: 0 }}>
       {(nom || "Y").slice(0, 2).toUpperCase()}
     </div>
   );
@@ -147,12 +190,14 @@ const CATEGORIE_GLYPHES: Record<PostCategorie, string> = {
   reussite_temoignage: "M12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z",
 };
 
+// Fond de couleur retiré (retour Bryan 09/09/2026) — l'icône garde sa
+// couleur propre par catégorie, plus de pastille de fond teintée derrière.
 export function CategorieBadge({ categorie, taille = 32 }: { categorie: string; taille?: number }) {
   const c = categorie as PostCategorie;
   const couleur = POST_CATEGORIE_COULEURS[c] || "#8E8E93";
   const glyphe = CATEGORIE_GLYPHES[c];
   return (
-    <div style={{ width: taille, height: taille, borderRadius: "50%", flexShrink: 0, background: `${couleur}22`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ width: taille, height: taille, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <svg width={taille * 0.52} height={taille * 0.52} viewBox="0 0 24 24" fill="none" stroke={couleur} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d={glyphe} />
       </svg>
@@ -230,19 +275,19 @@ export function AbonnementConfirmationSheet({
       <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: "440px", background: card, borderRadius: "24px 24px 0 0", padding: "10px 24px calc(28px + env(safe-area-inset-bottom))", textAlign: "center", animation: "abonnementSheetUp 0.2s ease" }}>
         <div style={{ width: "36px", height: "4px", borderRadius: "4px", background: brd, margin: "0 auto 20px" }} />
         <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
-          <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: abonne ? "rgba(34,197,94,0.14)" : `${t2}18`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {abonne ? (
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-            ) : (
+          {abonne ? (
+            <Image src="/illustrations/communaute-abonnement-confirme.png" alt="" width={1536} height={1024} style={{ width: "140px", maxWidth: "100%", height: "auto", display: "block" }}/>
+          ) : (
+            <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: `${t2}18`, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={t2} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="17" y1="8" x2="22" y2="13" /><line x1="22" y1="8" x2="17" y2="13" /></svg>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         <div style={{ color: t1, fontSize: "15.5px", fontWeight: 800, lineHeight: 1.4 }}>
           {abonne ? <>Vous êtes abonné à {nom}</> : <>Vous ne suivez plus {nom}</>}
         </div>
         {abonne && (
-          <div style={{ color: t2, fontSize: "12.5px", marginTop: "6px" }}>Ses publications apparaîtront dans votre fil Yelen Community.</div>
+          <div style={{ color: t2, fontSize: "12.5px", marginTop: "6px" }}>Ses publications apparaîtront dans votre fil Communauté.</div>
         )}
       </div>
     </div>
@@ -253,7 +298,7 @@ export function PostCard({
   post, card, t1, t2, t3, brd,
   liked, likeCount, commentCount, onToggleLike, onPartager,
   onOpenAuteur, onOpenPost, onSignalerPost, onSignalerAuteur, onOuvrirImage, onOuvrirInteractions,
-  estAbonne, onToggleAbonnement,
+  estAbonne, onToggleAbonnement, onOuvrirMention,
 }: {
   post: Post; card: string; t1: string; t2: string; t3: string; brd: string;
   liked: boolean; likeCount: number; commentCount: number;
@@ -263,6 +308,7 @@ export function PostCard({
   onOuvrirImage: (images: string[], index: number) => void;
   onOuvrirInteractions: () => void;
   estAbonne: boolean; onToggleAbonnement: () => void;
+  onOuvrirMention?: (type: "citoyen" | "institution", id: string, nom: string) => void;
 }) {
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [descriptionOuverte, setDescriptionOuverte] = useState(false);
@@ -344,13 +390,13 @@ export function PostCard({
       </div>
 
       {couleurCat && (
-        <span style={{ display: "inline-block", background: `${couleurCat}18`, color: couleurCat, fontSize: "10px", fontWeight: 800, padding: "3px 9px", borderRadius: "20px", marginBottom: "10px" }}>{labelCat}</span>
+        <span style={{ display: "inline-block", color: couleurCat, fontSize: "10px", fontWeight: 800, padding: "3px 9px 3px 0", borderRadius: "20px", marginBottom: "10px" }}>{labelCat}</span>
       )}
 
       {contenu && (
         <div style={{ marginBottom: post.images?.length ? "10px" : "12px" }}>
           <div style={{ color: t1, fontSize: "13.5px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-            {contenuApercu}{contenuTronque ? "…" : ""}
+            {rendreContenuAvecLiens(contenuApercu, onOuvrirMention)}{contenuTronque ? "…" : ""}
           </div>
           {contenuTronque && (
             <button onClick={e => { e.stopPropagation(); setDescriptionOuverte(true); }} className="tap" style={{ display: "block", background: "none", border: "none", padding: "4px 0 0", color: "#F5A623", fontSize: "12.5px", fontWeight: 800, cursor: "pointer" }}>
@@ -405,7 +451,7 @@ export function PostCard({
       </div>
 
       {descriptionOuverte && (
-        <LegendePostSheet contenu={post.contenu} createdAt={post.created_at} onClose={() => setDescriptionOuverte(false)} />
+        <LegendePostSheet contenu={post.contenu} createdAt={post.created_at} onClose={() => setDescriptionOuverte(false)} onOuvrirMention={onOuvrirMention} />
       )}
     </div>
   );
@@ -645,7 +691,7 @@ export function PostDetailOverlay({
   onOpenAuteur, onSignalerPost, onSignalerAuteur, onOuvrirImage, onClose,
   commentairesListe, commentDraft, onChangeCommentDraft, onSubmitComment,
   userNom, userPhoto, viewerId,
-  estAbonne, onToggleAbonnement,
+  estAbonne, onToggleAbonnement, onOuvrirMention,
 }: {
   post: Post; isDark: boolean; bg: string; card: string; t1: string; t2: string; t3: string; brd: string;
   liked: boolean; likeCount: number; commentCount: number;
@@ -659,6 +705,7 @@ export function PostDetailOverlay({
   onSubmitComment: (parentId: string | null) => void;
   userNom: string; userPhoto: string | null; viewerId: string | null;
   estAbonne: boolean; onToggleAbonnement: () => void;
+  onOuvrirMention?: (type: "citoyen" | "institution", id: string, nom: string) => void;
 }) {
   const [menuOuvert, setMenuOuvert] = useState(false);
   const { reponseA, setReponseA, filsOuverts, toggleFil, envoyer } = useCommentsThread(commentDraft, onSubmitComment);
@@ -726,11 +773,11 @@ export function PostDetailOverlay({
           </div>
 
           {couleurCat && (
-            <span style={{ display: "inline-block", background: `${couleurCat}18`, color: couleurCat, fontSize: "10px", fontWeight: 800, padding: "3px 9px", borderRadius: "20px", marginBottom: "12px" }}>{labelCat}</span>
+            <span style={{ display: "inline-block", color: couleurCat, fontSize: "10px", fontWeight: 800, padding: "3px 9px 3px 0", borderRadius: "20px", marginBottom: "12px" }}>{labelCat}</span>
           )}
 
           {post.contenu && (
-            <p style={{ color: t1, fontSize: "14px", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: post.images?.length ? "0 0 12px" : "0 0 16px" }}>{post.contenu}</p>
+            <p style={{ color: t1, fontSize: "14px", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: post.images?.length ? "0 0 12px" : "0 0 16px" }}>{rendreContenuAvecLiens(post.contenu, onOuvrirMention)}</p>
           )}
 
           {post.images && post.images.length > 0 && (
@@ -887,12 +934,13 @@ export function InteractionsSheet({
 export function ImageViewerOverlay({
   images, index, post, liked, likeCount, commentCount,
   onToggleLike, onToggleComments, onPartager, onOpenAuteur,
-  onSignalerPost, onSignalerAuteur, onClose,
+  onSignalerPost, onSignalerAuteur, onClose, onOuvrirMention,
 }: {
   images: string[]; index: number; post: Post;
   liked: boolean; likeCount: number; commentCount: number;
   onToggleLike: () => void; onToggleComments: () => void; onPartager: () => void;
   onOpenAuteur: () => void; onSignalerPost: () => void; onSignalerAuteur: () => void; onClose: () => void;
+  onOuvrirMention?: (type: "citoyen" | "institution", id: string, nom: string) => void;
 }) {
   const [i, setI] = useState(index);
   const [legendeOuverte, setLegendeOuverte] = useState(false);
@@ -1048,7 +1096,7 @@ export function ImageViewerOverlay({
       </button>
 
       {legendeOuverte && (
-        <LegendePostSheet contenu={post.contenu} createdAt={post.created_at} onClose={() => setLegendeOuverte(false)} />
+        <LegendePostSheet contenu={post.contenu} createdAt={post.created_at} onClose={() => setLegendeOuverte(false)} onOuvrirMention={onOuvrirMention} />
       )}
     </div>
   );
@@ -1062,11 +1110,12 @@ export function ImageViewerOverlay({
 // l'écran d'où on l'ouvre (retour Bryan 22/08/2026 : "le sheet qu'on a
 // créé précédemment", pas une variante par thème).
 export function LegendePostSheet({
-  contenu, createdAt, onClose,
+  contenu, createdAt, onClose, onOuvrirMention,
 }: {
   contenu: string | null;
   createdAt: string;
   onClose: () => void;
+  onOuvrirMention?: (type: "citoyen" | "institution", id: string, nom: string) => void;
 }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1250, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={e => { e.stopPropagation(); onClose(); }}>
@@ -1079,7 +1128,7 @@ export function LegendePostSheet({
           </button>
         </div>
         <div className="legende-post-scroll" style={{ overflowY: "auto", padding: "16px" }}>
-          <div style={{ color: "rgba(255,255,255,0.92)", fontSize: "13.5px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{contenu}</div>
+          <div style={{ color: "rgba(255,255,255,0.92)", fontSize: "13.5px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{rendreContenuAvecLiens(contenu ?? "", onOuvrirMention)}</div>
         </div>
       </div>
     </div>

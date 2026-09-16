@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [{ data: profil }, { data: visibilite }, { data: partage }, { data: communication }] = await Promise.all([
-      supabaseAdmin.from("users").select("cgu_acceptee_le,confidentialite_acceptee_le").eq("id", user.id).single(),
+      supabaseAdmin.from("users").select("cgu_acceptee_le,confidentialite_acceptee_le,created_at").eq("id", user.id).single(),
       supabaseAdmin.from("citoyen_prefs_visibilite").select("champs_visibles,profil_public").eq("citoyen_id", user.id).maybeSingle(),
       supabaseAdmin.from("citoyen_prefs_partage").select("partage_historique_rdv,partage_historique_services").eq("citoyen_id", user.id).maybeSingle(),
       supabaseAdmin.from("citoyen_communication_prefs").select("communications_yelen,communications_etablissements,personnalisation").eq("citoyen_id", user.id).maybeSingle(),
@@ -33,8 +33,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      cgu_acceptee_le: profil?.cgu_acceptee_le ?? null,
-      confidentialite_acceptee_le: profil?.confidentialite_acceptee_le ?? null,
+      // Repli sur created_at pour les comptes créés avant que l'inscription
+      // ne persiste ces 2 colonnes (retour Bryan 12/09/2026) — la case CGU
+      // est obligatoire pour soumettre l'inscription (canSubmit), donc
+      // l'acceptation a réellement eu lieu à la création, même pour les
+      // comptes plus anciens où la colonne n'a jamais été écrite.
+      cgu_acceptee_le: profil?.cgu_acceptee_le ?? profil?.created_at ?? null,
+      confidentialite_acceptee_le: profil?.confidentialite_acceptee_le ?? profil?.created_at ?? null,
       champs_visibles: visibilite?.champs_visibles ?? DEFAUT_CHAMPS_VISIBLES,
       profil_public: visibilite?.profil_public ?? DEFAUT_PROFIL_PUBLIC,
       partage_historique_rdv: partage?.partage_historique_rdv ?? DEFAUT_PARTAGE.partage_historique_rdv,

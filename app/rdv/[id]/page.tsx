@@ -30,9 +30,10 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { notFound, useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createRdv, notifierReservationPayante } from "./actions";
+import { createRdv, creerReservationPayante } from "./actions";
 import { type CreneauSlot, generateSlotsInRange, toISODate } from "@/lib/disponibilites";
 import { ACTIVITE_CATEGORIE_COLORS, ActiviteCategorieIcon } from "@/lib/activiteVisuels";
+import { RdvRestrictionScreen, type RdvRestrictionData } from "@/components/RdvRestrictionScreen";
 
 // ─── Types ────────────────────────────────────────────────────────────
 type InstitutionRow = {
@@ -114,10 +115,6 @@ function formatDateLabel(dateRdv: string, heureRdv: string, dureeMinutes?: numbe
     const plage = dureeMinutes && dureeMinutes > 0 ? `${heureRdv} - ${addMinutes(heureRdv, dureeMinutes)}` : heureRdv;
     return `${jour} à ${plage}`;
   } catch { return `${dateRdv} ${heureRdv}`.trim(); }
-}
-
-function genCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 // GNF (Franc Guinéen), pas FCFA — la Guinée n'appartient pas à la zone
@@ -218,7 +215,7 @@ function ExitIntentModal({ institutionName, isDark, C, onStay, onSubmitFeedback,
   if (phase === "merci") {
     return (
       <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-        <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#FBBF24)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 16px rgba(245,166,35,0.35)", marginBottom: "16px" }}>
+        <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 16px rgba(245,166,35,0.35)", marginBottom: "16px" }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.8" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <div style={{ color: C.text, fontSize: "17px", fontWeight: "900", textAlign: "center" }}>Merci, c&apos;est noté</div>
@@ -240,6 +237,7 @@ function ExitIntentModal({ institutionName, isDark, C, onStay, onSubmitFeedback,
       </header>
 
       <div style={{ padding: "28px 16px", maxWidth: "440px", margin: "0 auto" }}>
+        <NextImage src="/illustrations/abandon-reservation.png" alt="Vous êtes libre de partir à tout moment" width={1536} height={1024} style={{ width: "220px", maxWidth: "100%", height: "auto", margin: "0 auto 18px", display: "block" }}/>
         <h2 style={{ color: C.text, fontSize: "19px", fontWeight: "900", margin: "0 0 8px", letterSpacing: "-0.3px" }}>Vous partez déjà ?</h2>
         <p style={{ color: C.textSubtle, fontSize: "13px", lineHeight: 1.6, margin: "0 0 24px" }}>
           Rien ne presse et vous êtes libre à tout moment. Si {institutionName} ne correspondait pas à ce que vous cherchiez, un mot nous suffit pour comprendre — ça nous sert à améliorer Yelen.
@@ -257,7 +255,7 @@ function ExitIntentModal({ institutionName, isDark, C, onStay, onSubmitFeedback,
             style={{ width: "100%", padding: "11px 13px", borderRadius: "10px", border: `1px solid ${inputBord}`, background: inputBg, color: C.text, fontSize: "13px", marginBottom: "20px", resize: "none" }}/>
         )}
 
-        <button onClick={onStay} disabled={phase === "sending"} className="tap" style={{ width: "100%", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: phase === "sending" ? "default" : "pointer", marginBottom: "8px" }}>
+        <button onClick={onStay} disabled={phase === "sending"} className="tap" style={{ width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: phase === "sending" ? "default" : "pointer", marginBottom: "8px" }}>
           Reprendre ma réservation
         </button>
         <button onClick={handleLeave} disabled={phase === "sending"} className="tap" style={{ width: "100%", background: "none", border: "none", color: raison ? C.text : C.textSubtle, fontSize: "12.5px", fontWeight: "700", padding: "8px", cursor: phase === "sending" ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
@@ -460,11 +458,11 @@ function SuccessScreen({ inst, service, code, dateRdv, heureRdv, C, isDark }: {
               </button>
             </div>
             <p style={{ color: C.textSubtle, fontSize: "11.5px", textAlign: "center", margin: "0 0 10px" }}>
-              Retrouvez ce QR et ce code à tout moment dans <strong style={{ color: C.text }}>Mon QR</strong>.
+              Retrouvez ce QR et ce code à tout moment dans <strong style={{ color: C.text }}>Mon QR code</strong>.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <Link href="/mon-qr" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "15px", borderRadius: "14px", textDecoration: "none" }}>
-                Mon QR
+              <Link href="/mon-qr" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "15px", borderRadius: "14px", textDecoration: "none" }}>
+                Mon QR code
               </Link>
               <Link href="/mes-rdv" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", color: C.text, fontWeight: "700", fontSize: "14px", padding: "15px", borderRadius: "14px", textDecoration: "none" }}>
                 Mes RDV
@@ -555,6 +553,33 @@ export default function RdvPage() {
       router.replace(`/inscription?redirect=${returnUrl}`);
     }
   }, [router]);
+
+  // Restriction automatique des rendez-vous (no-show, décision CEO
+  // 03/09/2026) — vérifiée à chaque ouverture du wizard, jamais mise en
+  // cache : GET /api/citoyen/rdv-restriction est la même source que le
+  // verrou serveur réel (policy RLS INSERT + createRdv), voir
+  // components/RdvRestrictionScreen.tsx.
+  const [restriction, setRestriction]             = useState<RdvRestrictionData | null>(null);
+  const [restrictionChecked, setRestrictionChecked] = useState(false);
+  const [citoyenAccessToken, setCitoyenAccessToken] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setRestrictionChecked(true); return; }
+      setCitoyenAccessToken(session.access_token);
+      try {
+        const res = await fetch("/api/citoyen/rdv-restriction", { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const json = await res.json().catch(() => null);
+        if (json?.restricted) {
+          setRestriction({
+            reference: json.reference, niveau: json.niveau, absencesTotal: json.absencesTotal,
+            jusquAu: json.jusquAu, rendezVousConcernes: json.rendezVousConcernes ?? [], appel: json.appel ?? null,
+          });
+        }
+      } catch {}
+      setRestrictionChecked(true);
+    })();
+  }, []);
 
   const load = useCallback(async (institutionId: string) => {
     setLoadError(null);
@@ -709,6 +734,12 @@ export default function RdvPage() {
 
   async function handleConfirm() {
     if (!id || !institution || !selectedService || !selectedSlot) return;
+    // Capturé dans une const dédiée avec assertion non-null : le
+    // rétrécissement de `id` (dérivé de useParams() via un ternaire sur un
+    // possible tableau, potentiellement `string | undefined` selon
+    // tsconfig) n'est pas fiable pour TypeScript dans cette fonction —
+    // déjà vérifié non vide par le garde-fou juste au-dessus.
+    const institutionId = id as string;
     setSubmitError(null);
     if (forOther && (!otherName.trim() || !otherPhone.trim())) { setSubmitError("Renseignez le nom et le téléphone."); return; }
     for (const c of selectedService.champs_complementaires) {
@@ -720,9 +751,18 @@ export default function RdvPage() {
     }
     if (!userId?.trim()) { setSubmitError("Vous devez être connecté."); return; }
 
+    // serviceIdForBooking n'est renseigné (ligne ~675) que pour les services
+    // payants, mais reste optionnel dans le type — un vrai service payant
+    // sans cet id serait une anomalie de données, jamais un cas normal.
+    // Garde explicite plutôt qu'un ts-ignore, et narrowe le type pour l'appel
+    // à creerReservationPayante ci-dessous.
+    if (selectedService.payant && !selectedService.serviceIdForBooking) {
+      setSubmitError("Ce service n'est pas correctement configuré pour le paiement. Contactez l'établissement.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const code = genCode();
       const reponses = selectedService.champs_complementaires.length > 0 ? champsReponses : null;
       const objet = `[${selectedService.nom}]${selectedService.payant ? ` ${formatPrix(selectedService.prix)} sur place` : ""}${forOther ? ` — Pour ${otherName.trim()} (${otherPhone.trim()})` : ""}`;
       const dureeMinutes = selectedService.duree_minutes > 0 ? selectedService.duree_minutes : null;
@@ -733,51 +773,29 @@ export default function RdvPage() {
       let provenance: string | null = null;
       try { provenance = sessionStorage.getItem("yelen224_provenance"); } catch {}
 
-      if (selectedService.payant) {
-        const { error: bkErr } = await supabase.from("paid_bookings").insert({
-          service_id: selectedService.serviceIdForBooking, citoyen_id: userId.trim(), institution_id: id,
-          date_rdv: selectedSlot.dateRdv, heure_rdv: selectedSlot.heureRdv || "00:00",
-          confirmation_code: code, statut: "en_attente", champs_complementaires_reponses: reponses, provenance,
-        });
-        // Message humanisé — avant, le texte brut de l'erreur Postgres
-        // (nom de contrainte, colonne...) remontait directement au citoyen
-        // (retour Bryan 25/07/2026). Le détail reste en console pour le
-        // diagnostic, jamais affiché à l'écran.
-        if (bkErr) { console.error("[rdv] paid_bookings insert:", bkErr.message); setSubmitError("Une erreur est survenue pendant la réservation. Réessayez dans un instant."); return; }
-        const { data: rdvInserted, error: rdvErr } = await supabase.from("rdv").insert({
-          citoyen_id: userId.trim(), institution_id: id, date_rdv: selectedSlot.dateRdv, heure_rdv: selectedSlot.heureRdv || "00:00",
-          // statut "nouveau" (pas "en_attente") — même valeur initiale que le
-          // flux gratuit (app/rdv/[id]/actions.ts::createRdv), corrige une
-          // incohérence signalée par Bryan le 05/08/2026 : le jumeau rdv d'une
-          // réservation payante sautait l'étape "nouveau" (accepter/refuser
-          // côté institution) que suit tout rdv gratuit. paid_bookings.statut
-          // reste "en_attente" (son propre enum statut_paid_booking n'a pas de
-          // valeur "nouveau" — c'est ce que lit l'écran de validation).
-          objet, statut: "nouveau", pour_autre: forOther, nom_autre: forOther ? otherName.trim() : null,
-          phone_autre: forOther ? otherPhone.trim() : null, qr_token: code, champs_complementaires_reponses: reponses,
-          duree_minutes: dureeMinutes, description_besoin: besoin, provenance,
-        }).select("id").single();
-        if (rdvErr) { console.error("[rdv] rdv insert (payant):", rdvErr.message); setSubmitError("Une erreur est survenue pendant la réservation. Réessayez dans un instant."); return; }
-        // Chantier "Yelen Assistant" (20/07/2026), Phase 1 — non-bloquant :
-        // une erreur ici ne doit jamais faire échouer la réservation.
-        if (rdvInserted?.id) {
-          try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.access_token) await notifierReservationPayante({ rdvId: rdvInserted.id, accessToken: session.access_token });
-          } catch (e) { console.error("[rdv] notification réservation payante:", e); }
-        }
-      } else {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) { setSubmitError("Session expirée, reconnectez-vous."); return; }
-        const result = await createRdv({
-          citoyenId: userId.trim(), institutionId: id, dateRdv: selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv || "00:00",
-          objet, pourAutre: forOther, nomAutre: forOther ? otherName.trim() : null, phoneAutre: forOther ? otherPhone.trim() : null,
-          qrToken: code, champsComplementairesReponses: reponses, dureeMinutes, descriptionBesoin: besoin, provenance, accessToken: session.access_token,
-        });
-        if (!result.ok) { setSubmitError(result.error); return; }
-      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setSubmitError("Session expirée, reconnectez-vous."); return; }
+
+      // GAP-09-02 (audit sécurité 15/09/2026) — les deux flux passent
+      // désormais par un Server Action (institution/créneau/capacité
+      // revérifiés côté serveur, code de confirmation généré côté serveur
+      // — jamais accepté tel quel du navigateur, voir app/rdv/[id]/actions.ts).
+      const result = selectedService.payant && selectedService.serviceIdForBooking
+        ? await creerReservationPayante({
+            citoyenId: userId.trim(), institutionId, serviceId: selectedService.serviceIdForBooking,
+            dateRdv: selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv || "00:00",
+            objet, pourAutre: forOther, nomAutre: forOther ? otherName.trim() : null, phoneAutre: forOther ? otherPhone.trim() : null,
+            champsComplementairesReponses: reponses, dureeMinutes, descriptionBesoin: besoin, provenance, accessToken: session.access_token,
+          })
+        : await createRdv({
+            citoyenId: userId.trim(), institutionId, dateRdv: selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv || "00:00",
+            objet, pourAutre: forOther, nomAutre: forOther ? otherName.trim() : null, phoneAutre: forOther ? otherPhone.trim() : null,
+            champsComplementairesReponses: reponses, dureeMinutes, descriptionBesoin: besoin, provenance, accessToken: session.access_token,
+          });
+      if (!result.ok) { setSubmitError(result.error); return; }
+
       try { sessionStorage.removeItem("yelen224_provenance"); } catch {}
-      setSuccess({ code, dateRdv: selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv });
+      setSuccess({ code: result.code, dateRdv: selectedSlot.dateRdv, heureRdv: selectedSlot.heureRdv });
     } finally { setSubmitting(false); }
   }
 
@@ -795,6 +813,20 @@ export default function RdvPage() {
       message={loadError || "Elle a peut-être été supprimée ou l'adresse saisie est incorrecte."}
       primaryHref="/recherche" primaryLabel="Retour à la recherche"
       secondaryHref="/" secondaryLabel="Retour à l'accueil"
+    />
+  );
+
+  if (!restrictionChecked) return (
+    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <YelenLoader size={44} label="Chargement…" labelColor={C.textSubtle}/>
+    </div>
+  );
+
+  if (restriction && citoyenAccessToken) return (
+    <RdvRestrictionScreen
+      C={C} isDark={isDark} data={restriction} accessToken={citoyenAccessToken}
+      onClose={() => router.push(id ? `/institution/${id}` : "/recherche")}
+      onAppelEnvoye={(appel) => setRestriction((r) => (r ? { ...r, appel } : r))}
     />
   );
 
@@ -1003,7 +1035,7 @@ export default function RdvPage() {
             {selectedSlot && (
               <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 300, padding: "14px 16px calc(14px + env(safe-area-inset-bottom))", background: isDark ? "rgba(8,8,15,0.98)" : "rgba(255,255,255,0.98)", backdropFilter: "blur(20px)", borderTop: `1px solid ${C.borderCard}`, animation: "barUp 0.25s ease" }}>
                 <div>
-                  <button onClick={() => setStep("recap")} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer" }}>
+                  <button onClick={() => setStep("recap")} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: "#F5A623", color: "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer" }}>
                     Continuer avec {selectedService.duree_minutes > 0 ? `${selectedSlot.heureRdv} - ${addMinutes(selectedSlot.heureRdv, selectedService.duree_minutes)}` : selectedSlot.heureRdv} →
                   </button>
                 </div>
@@ -1152,11 +1184,11 @@ export default function RdvPage() {
             {submitError && submitError !== "Renseignez le nom et le téléphone." && (
               <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "12px", color: "#ef4444", fontSize: "13px" }}>{submitError}</div>
             )}
-            <button onClick={goToRecapOrConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "linear-gradient(135deg,#F5A623,#C8940A)", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+            <button onClick={goToRecapOrConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "#F5A623", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
               {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Confirmation…</> : (selectedService.champs_complementaires.length > 0 ? "Continuer →" : "Confirmer le rendez-vous")}
             </button>
             <p style={{ color: C.textSubtle, fontSize: "10.5px", lineHeight: 1.6, textAlign: "center", margin: "10px 0 0" }}>
-              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions Générales d&apos;Utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de Confidentialité</Link>.
+              En continuant, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Conditions d&apos;utilisation</Link> et notre <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: "700" }}>Politique de confidentialité</Link>.
             </p>
           </div>
         )}
@@ -1176,7 +1208,7 @@ export default function RdvPage() {
               ))}
             </div>
             {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "12px", color: "#ef4444", fontSize: "13px" }}>{submitError}</div>}
-            <button onClick={handleConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "linear-gradient(135deg,#F5A623,#C8940A)", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+            <button onClick={handleConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "16px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "#F5A623", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
               {submitting ? <><YelenLoader size={16} color="#080812"/>Confirmation…</> : "Confirmer le rendez-vous"}
             </button>
             <p style={{ color: C.textSubtle, fontSize: "10.5px", lineHeight: 1.6, textAlign: "center", margin: "10px 0 0" }}>

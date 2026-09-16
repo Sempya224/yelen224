@@ -45,6 +45,9 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   membre_supprime: "equipe",
   membre_acces_refuse: "equipe",
   pin_change_personnel: "equipe",
+  // Premier accès (sas de confiance, 16/09/2026) — un membre invité indique
+  // ne pas reconnaître l'organisation avant d'accéder au dashboard.
+  invitation_non_reconnue: "equipe",
   // Projets
   projet_cree: "projets",
   projet_modifie: "projets",
@@ -75,6 +78,10 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   suppression_compte_acces_refuse: "compte",
   // Authentification
   connexion: "authentification",
+  // Moteur de réauthentification pour actions sensibles (16/09/2026,
+  // mirroring REAUTH_SUCCESS/REAUTH_FAILED côté admin_logs).
+  reauth_reussie: "authentification",
+  reauth_echec: "authentification",
   // Journal (méta-actions sur le journal lui-même)
   export_journal: "journal",
   // Offres partenaires (chantier "Centre de pilotage des offres",
@@ -105,8 +112,11 @@ export const NIVEAU_PAR_DEFAUT: Partial<Record<string, NiveauJournal>> = {
   rdv_annule: "attention",
   rdv_validation_annulee: "attention",
   membre_acces_refuse: "erreur",
+  invitation_non_reconnue: "critique",
   suppression_compte_acces_refuse: "erreur",
   connexion: "succes",
+  reauth_reussie: "succes",
+  reauth_echec: "attention",
   offre_supprimee: "attention",
   offre_archivee: "attention",
   offre_suspendue: "attention",

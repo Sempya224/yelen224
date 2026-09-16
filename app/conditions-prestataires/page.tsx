@@ -559,10 +559,9 @@ export default function ConditionsPrestatairesPage() {
                 }}
               >
                 <span style={{
-                  width: "20px", height: "20px", borderRadius: "6px", flexShrink: 0,
-                  backgroundColor: activeSection === s.id ? "rgba(245,166,35,0.15)" : C.borderSubtle,
+                  width: "20px", height: "20px", flexShrink: 0,
                   color: activeSection === s.id ? "#F5A623" : C.textFaint,
-                  fontSize: "10px", fontWeight: "800",
+                  fontSize: "11px", fontWeight: "800",
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}>{s.numero}</span>
                 <span style={{ fontSize: "12px", fontWeight: activeSection === s.id ? "700" : "500", lineHeight: 1.3 }}>{s.titre}</span>
@@ -601,10 +600,9 @@ export default function ConditionsPrestatairesPage() {
             {/* En-tête article */}
             <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "28px", paddingBottom: "20px", borderBottom: `1px solid ${C.borderSubtle}` }}>
               <div style={{
-                width: "48px", height: "48px", borderRadius: "12px", flexShrink: 0,
-                backgroundColor: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)",
+                width: "48px", height: "48px", flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#F5A623", fontSize: "20px", fontWeight: "900",
+                color: "#F5A623", fontSize: "26px", fontWeight: "900",
               }}>{currentSection.numero}</div>
               <div>
                 <p style={{ color: "#F5A623", fontSize: "10px", fontWeight: "700", letterSpacing: "2px", margin: "0 0 4px" }}>ARTICLE {currentSection.numero}</p>

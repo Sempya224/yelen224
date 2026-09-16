@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ErrorBanner, PrimaryButton, StepHeading } from "../ui";
 import { useSignupTheme } from "../theme";
 import { SignupState } from "../types";
@@ -36,7 +37,7 @@ export function PhoneStep({ updateState, onVerified }: {
     if (honeypot) return; // bot piégé par le champ invisible — échec silencieux
     setError("");
     if (!validation.valide) return;
-    if (!cgu) { setError("Acceptez les conditions d'utilisation pour continuer."); return; }
+    if (!cgu) { setError("Merci d'accepter les conditions d'utilisation pour continuer."); return; }
 
     setLoading(true);
     const fullPhone = versE164Guinee(digits);
@@ -75,17 +76,24 @@ export function PhoneStep({ updateState, onVerified }: {
     // .signup-split ne prend effet qu'à partir de 960px (voir SignupShell) —
     // en dessous, ces deux div restent simplement empilées dans leur ordre
     // naturel, rendu mobile strictement inchangé.
-    <div className="signup-split">
+    <div className="signup-split signup-split-illustrated">
       <div className="signup-split-side">
-        <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "16px" }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
-          </svg>
+        {/* Illustration réelle (retour Bryan 07/09/2026), remplace l'icône
+            téléphone générique — visible uniquement à partir de 960px (voir
+            .signup-split-illustration dans SignupShell.tsx), cette étape
+            reste texte seul sur mobile. Le titre/sous-titre vit désormais
+            dans la colonne formulaire (voir plus bas) plutôt qu'empilé sous
+            l'image — évite que le texte essentiel se retrouve poussé sous le
+            pli/en scroll quand l'image est haute (retour Bryan 07/09/2026),
+            même structure que les maquettes de référence (titre à côté du
+            formulaire, pas sous l'illustration). */}
+        <div className="signup-split-illustration" style={{ width: "100%", borderRadius: "20px", overflow: "hidden", border: `1px solid ${C.border}` }}>
+          <Image src="/illustrations/institution-inscription.png" alt="Les institutions se connectent avec Yelen" width={947} height={822} style={{ width: "100%", height: "auto", display: "block" }} priority/>
         </div>
-        <StepHeading title="Commençons par votre téléphone" subtitle="Nous utiliserons ce numéro pour sécuriser votre espace et vous permettre de vous connecter à Yelen." C={C}/>
       </div>
 
       <div className="signup-split-body">
+      <StepHeading title="Commençons par votre téléphone" subtitle="Nous utiliserons ce numéro pour sécuriser votre espace et vous permettre de vous connecter à Yelen." C={C}/>
       <div style={{ marginBottom: "16px" }}>
         <div style={{ display: "flex", borderRadius: "14px", border: `1.5px solid ${validation.code === "prefixe_inconnu" || validation.code === "caracteres_invalides" ? C.red : (validation.valide ? C.green : C.border)}`, overflow: "hidden", backgroundColor: C.card, transition: "border-color 0.2s" }}>
           <div style={{ padding: "0 14px", display: "flex", alignItems: "center", gap: "6px", borderRight: `1.5px solid ${C.border}`, backgroundColor: C.goldBg2, flexShrink: 0 }}>
@@ -133,7 +141,7 @@ export function PhoneStep({ updateState, onVerified }: {
         </div>
       </label>
 
-      {error && <ErrorBanner msg={error} C={C}/>}
+      {error && <ErrorBanner msg={error} C={C} onClose={() => setError("")}/>}
 
       <PrimaryButton onClick={handleSubmit} disabled={disabled} loading={loading} loadingLabel="Envoi du code…" C={C}>
         Continuer

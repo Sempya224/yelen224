@@ -241,6 +241,24 @@ export async function proxy(request: NextRequest) {
   const response = appliquerHeadersSecurite(NextResponse.next())
 
   // ═══════════════════════════════════════════
+  // Assets statiques publics — exemptés de TOUTES les couches ci-dessous
+  // (mur mobile, anti-abus edge/UA suspect, rate limiting, géoblocage).
+  // Trouvé le 04/09/2026 (illustration support Yelen, next/image sur un
+  // fichier local) : le fetch interne que next/image fait pour optimiser
+  // une image locale n'envoie AUCUN user-agent — il se faisait donc
+  // rejeter par estUserAgentSuspect() (UA vide = suspect par design) puis,
+  // une fois cette couche contournée, par le mur mobile (UA vide n'est ni
+  // mobile ni robot connu) : l'optimiseur recevait du JSON/HTML au lieu du
+  // PNG ("isn't a valid image"). Contenu inerte non sensible, donc aucune
+  // des couches de sécurité ci-dessous n'a de raison de s'y appliquer —
+  // seuls les headers de sécurité globaux restent posés.
+  // ═══════════════════════════════════════════
+  const STATIC_ASSET_PREFIXES = ['/illustrations']
+  if (STATIC_ASSET_PREFIXES.some(p => pathname === p || pathname.startsWith(`${p}/`))) {
+    return response
+  }
+
+  // ═══════════════════════════════════════════
   // SÉCURITÉ 0 — Restriction géographique de pré-lancement
   // (mission sécurité, 09/08/2026, décision CEO) — désactivée par défaut
   // (GEO_BLOCK_ENABLED non défini/≠"true") : à activer par Bryan
@@ -455,7 +473,16 @@ export async function proxy(request: NextRequest) {
       return appliquerHeadersSecurite(NextResponse.redirect(new URL(`${basePublique}/admin/security`, request.url)))
     }
 
-    return reecrireSiBesoin(response)
+    // Sécurisation Logout Admin (décision CEO 03/09/2026) — empêche qu'une
+    // page admin déjà rendue (dashboard, données citoyennes/institution)
+    // reste exposable via le bouton Back / bfcache une fois la session
+    // révoquée : sans no-store, le navigateur peut restaurer le DOM déjà
+    // peint sans repasser par ce middleware. Ne touche que la réponse
+    // d'une session authentifiée valide — /admin/login (PUBLIC_ADMIN_ROUTES,
+    // plus haut) et les redirects ne passent jamais par cette ligne.
+    const pageAuthentifiee = reecrireSiBesoin(response)
+    pageAuthentifiee.headers.set('Cache-Control', 'no-store')
+    return pageAuthentifiee
   }
 
   // ═══════════════════════════════════════════

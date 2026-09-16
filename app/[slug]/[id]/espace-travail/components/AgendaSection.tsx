@@ -5,7 +5,8 @@
 // les événements internes (CRUD) via /api/institution/agenda.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../../theme";
+import { T, type ThemeTokens, toUiTokens } from "../../theme";
+import { Button } from "@/components/ui/Button";
 import { YelenLoader } from "@/components/YelenLoader";
 
 type Evenement = { id: string; titre: string; description: string | null; type: string; date: string; date_originale: string; heure_debut: string | null; heure_fin: string | null; membre_id: string | null; cree_par_membre_id: string | null; recurrence: string; recurrence_fin: string | null };
@@ -196,7 +197,7 @@ export function AgendaSection({ instId, onToast }: { instId: string; onToast: (m
           <div style={{ fontSize: "32px", marginBottom: "10px" }}>📅</div>
           <div style={{ fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>Votre agenda est vide</div>
           <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Planifiez un rappel, une réunion ou bloquez du temps.</p>
-          <button onClick={() => openCreateModal(toISODate(new Date()))} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Planifier un événement</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => openCreateModal(toISODate(new Date()))}>+ Planifier un événement</Button>
         </div>
       ) : view === "mois" ? (
         <>
@@ -282,7 +283,7 @@ export function AgendaSection({ instId, onToast }: { instId: string; onToast: (m
                     return (
                       <div key={r.id} onClick={e => { e.stopPropagation(); setSelectedEventId(r.id); setRdvDetail(r); }} style={{ position: "absolute", top: `${top}px`, left: "3px", right: "3px", height: `${height}px`, backgroundColor: `${C.blue}15`, borderLeft: `3px solid ${C.blue}`, borderRadius: "6px", border: `1px solid ${isSelected ? C.gold : C.blue + "30"}`, boxShadow: isSelected ? "0 2px 8px rgba(0,0,0,0.18)" : "none", filter: isSelected ? "brightness(1.08)" : "none", padding: "5px 7px", overflow: "hidden", cursor: "pointer" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" }}>
-                          <span style={{ fontSize: "7.5px", fontWeight: "900", color: C.blue, textTransform: "uppercase", letterSpacing: "0.3px", backgroundColor: `${C.blue}20`, padding: "1px 5px", borderRadius: "4px" }}>RDV</span>
+                          <span style={{ fontSize: "7.5px", fontWeight: "800", color: C.blue, textTransform: "uppercase", letterSpacing: "0.3px", backgroundColor: `${C.blue}20`, padding: "1px 5px", borderRadius: "4px" }}>RDV</span>
                           <span style={{ fontSize: "8px", fontWeight: "700", color: C.t2 }}>{r.heure_rdv}</span>
                         </div>
                         <div style={{ fontSize: "9.5px", fontWeight: "700", color: C.t1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.objet || "RDV général"}</div>
@@ -301,7 +302,7 @@ export function AgendaSection({ instId, onToast }: { instId: string; onToast: (m
                     return (
                       <div key={e.id} onClick={ev => { ev.stopPropagation(); setSelectedEventId(e.id); openEditModal(e); }} style={{ position: "absolute", top: `${top}px`, left: "3px", right: "3px", height: `${height}px`, backgroundColor: `${color}15`, borderLeft: `3px solid ${color}`, borderRadius: "6px", border: `1px solid ${isSelected ? C.gold : color + "30"}`, boxShadow: isSelected ? "0 2px 8px rgba(0,0,0,0.18)" : "none", filter: isSelected ? "brightness(1.08)" : "none", padding: "5px 7px", overflow: "hidden", cursor: "pointer" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" }}>
-                          <span style={{ fontSize: "7.5px", fontWeight: "900", color, textTransform: "uppercase", letterSpacing: "0.3px", backgroundColor: `${color}20`, padding: "1px 5px", borderRadius: "4px" }}>{typeLabel(e.type)}</span>
+                          <span style={{ fontSize: "7.5px", fontWeight: "800", color, textTransform: "uppercase", letterSpacing: "0.3px", backgroundColor: `${color}20`, padding: "1px 5px", borderRadius: "4px" }}>{typeLabel(e.type)}</span>
                           <span style={{ fontSize: "8px", fontWeight: "700", color: C.t2 }}>{e.heure_debut || "—"}</span>
                         </div>
                         <div style={{ fontSize: "9.5px", fontWeight: "700", color: C.t1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.titre}</div>
@@ -390,7 +391,7 @@ function RdvDetailModal({ C, rdv, sending, onClose, onEnvoyerRappel }: {
         <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
 
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
-          <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `linear-gradient(135deg, ${C.blue}30, ${C.blue}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: C.blue, flexShrink: 0 }}>
+          <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `linear-gradient(135deg, ${C.blue}30, ${C.blue}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "800", color: C.blue, flexShrink: 0 }}>
             {rdv.citoyen_nom.slice(0, 2).toUpperCase()}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -421,9 +422,7 @@ function RdvDetailModal({ C, rdv, sending, onClose, onEnvoyerRappel }: {
           <div style={{ color: C.t1, fontSize: "13px" }}>{rdv.objet || "RDV général"}</div>
         </div>
 
-        <button onClick={onEnvoyerRappel} disabled={sending} className="tap" style={{ width: "100%", backgroundColor: C.bgCard, color: C.gold, fontSize: "13px", fontWeight: "800", padding: "13px", borderRadius: "12px", border: `1px solid ${C.gold}40`, cursor: "pointer", opacity: sending ? 0.6 : 1, marginBottom: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {sending ? <YelenLoader size={13} color={C.gold}/> : "Envoyer un rappel"}
-        </button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth loading={sending} style={{ color: C.gold, border: `1px solid ${C.gold}40`, marginBottom: "8px" }} onClick={onEnvoyerRappel}>Envoyer un rappel</Button>
         <button onClick={onClose} style={{ width: "100%", background: "none", border: "none", color: C.t3, fontSize: "12px", cursor: "pointer", padding: "8px" }}>Fermer</button>
       </div>
     </div>
@@ -470,12 +469,13 @@ function EventModal({ C, modal, saving, membres, readOnly, onClose, onSave, onDe
           {membres.map(m => <option key={m.id} value={m.id}>Assigné à — {m.prenom} {m.nom}</option>)}
         </select>
         <div style={{ display: "grid", gridTemplateColumns: readOnly ? "1fr" : onDelete ? "auto 1fr 1fr" : "1fr 1fr", gap: "8px" }}>
-          {onDelete && <button onClick={onDelete} disabled={saving} style={{ backgroundColor: C.redL, color: C.red, fontWeight: "700", fontSize: "12.5px", padding: "11px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>Suppr.</button>}
-          <button onClick={onClose} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>{readOnly ? "Fermer" : "Annuler"}</button>
+          {onDelete && <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={saving} onClick={onDelete}>Suppr.</Button>}
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onClose}>{readOnly ? "Fermer" : "Annuler"}</Button>
           {!readOnly && (
-            <button onClick={() => onSave({ titre, description: description || null, type, date, heure_debut: heureDebut || null, heure_fin: heureFin || null, membre_id: membreId || null })} disabled={saving || !titre.trim()} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: saving || !titre.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {saving ? <YelenLoader size={12} color="#000"/> : "Enregistrer"}
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!titre.trim()} loading={saving}
+              onClick={() => onSave({ titre, description: description || null, type, date, heure_debut: heureDebut || null, heure_fin: heureFin || null, membre_id: membreId || null })}>
+              Enregistrer
+            </Button>
           )}
         </div>
       </div>

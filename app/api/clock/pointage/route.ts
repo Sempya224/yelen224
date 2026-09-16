@@ -19,6 +19,21 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 
 const DUPLICATE_TAP_MS = 5000;
 
+// Arrivée/départ (pas les pauses, décision Bryan 10/09/2026) passent par le
+// scan du QR déjà affiché/imprimé par l'institution — voir
+// ClockInShiftTab.tsx::clockPortalUrl, même contenu ("<APP_URL>/clock/<slug>").
+// Parsing par pathname, jamais par host : reste valide que l'URL soit le
+// lien de test local actuel ou APP_URL en prod.
+function extraireSlugDepuisQr(payload: string): string | null {
+  try {
+    const url = new URL(payload);
+    const match = url.pathname.match(/\/clock\/([^/]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   const employee = await getAuthenticatedEmployee(req);
   if (!employee) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
@@ -32,6 +47,25 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
   if (!fiche || fiche.statut !== "actif") {
     return NextResponse.json({ error: "Compte employé inactif", code: "EMPLOYEE_INACTIVE" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const qrPayload: string | undefined = typeof body?.qr_payload === "string" ? body.qr_payload : undefined;
+  let methode: "pin" | "qr" = "pin";
+  if (qrPayload !== undefined) {
+    const slugScanne = extraireSlugDepuisQr(qrPayload);
+    if (!slugScanne) {
+      return NextResponse.json({ error: "QR invalide, réessayez.", code: "QR_INVALID" }, { status: 400 });
+    }
+    const { data: inst } = await sb
+      .from("institutions")
+      .select("slug")
+      .eq("id", employee.institutionId)
+      .maybeSingle();
+    if (!inst || inst.slug !== slugScanne) {
+      return NextResponse.json({ error: "Ce QR ne correspond pas à votre établissement.", code: "QR_MISMATCH" }, { status: 400 });
+    }
+    methode = "qr";
   }
 
   const { data: audits } = await sb
@@ -72,7 +106,7 @@ export async function POST(req: NextRequest) {
       institution_id: employee.institutionId,
       employee_id: employee.employeeId,
       type_action: typeAction,
-      methode: "pin",
+      methode,
       ip,
     })
     .select("id,type_action,horodatage")

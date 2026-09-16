@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { getAuthenticatedInstitutionId, getAuthenticatedMembre } from '@/lib/institutionAuth'
+import { canAccessTab } from '@/lib/institutionPermissions'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,20 +27,47 @@ export async function GET(request: NextRequest) {
     // la session expire naturellement sous 8h.
     const membre = await getAuthenticatedMembre(request)
 
-    const [{ data: institution }, { data: credentials }, { data: rememberTokens }, membreRow] = await Promise.all([
-      supabaseAdmin.from('institutions').select('pin_hash').eq('id', institutionId).single(),
-      supabaseAdmin
-        .from('institution_webauthn_credentials')
-        .select('id, device_label, created_at, last_used_at')
-        .eq('institution_id', institutionId)
-        .order('created_at', { ascending: false }),
-      supabaseAdmin
-        .from('institution_remember_tokens')
-        .select('id, token_hash, user_agent, ip, device_label, device_type, status, created_at, expires_at, last_used_at')
-        .eq('institution_id', institutionId)
-        .order('created_at', { ascending: false }),
+    // "parametres-securite" = "full" pour admin seul, "none" pour les 4
+    // autres rôles (TAB_MATRIX). Corrigé 16/09/2026 (revue) : un premier
+    // correctif bloquait TOUTE la route derrière ce contrôle, cassant
+    // TotpSection.tsx pour les 4 rôles non-admin qui l'utilisent depuis
+    // ProfilTab.tsx (self-scope, voir en-tête de TotpSection.tsx — cette
+    // route "n'a aucune restriction de rôle... safe à appeler depuis
+    // n'importe quel onglet self-scope"). Seules les données INSTITUTION-WIDE
+    // (recovery email/phone, IP des appareils "remember me", passkeys
+    // institution-wide) restent admin-only ; totp_enabled/backup_codes du
+    // membre appelant restent toujours renvoyés, quel que soit son rôle.
+    const accesInstitutionWide = !membre || canAccessTab(membre.role, 'parametres-securite') !== 'none'
+
+    const [institution, credentials, rememberTokens, membreRow] = await Promise.all([
+      accesInstitutionWide
+        ? supabaseAdmin.from('institutions').select('pin_hash, email, phone').eq('id', institutionId).single().then(r => r.data)
+        : Promise.resolve(null),
+      // Passkeys par membre (16/09/2026) — cet écran ("Sécurité du compte")
+      // ne montre QUE les clés institution-wide du compte principal
+      // (membre_id NULL). Les passkeys personnelles d'un membre d'équipe
+      // vivent désormais dans son propre "Administration & accès", jamais
+      // mélangées ici (éviterait un revoke silencieusement inopérant, la
+      // route revoke étant scopée par membre_id).
+      accesInstitutionWide
+        ? supabaseAdmin
+            .from('institution_webauthn_credentials')
+            .select('id, device_label, created_at, last_used_at')
+            .eq('institution_id', institutionId)
+            .is('membre_id', null)
+            .order('created_at', { ascending: false })
+            .then(r => r.data)
+        : Promise.resolve(null),
+      accesInstitutionWide
+        ? supabaseAdmin
+            .from('institution_remember_tokens')
+            .select('id, token_hash, user_agent, ip, device_label, device_type, status, created_at, expires_at, last_used_at')
+            .eq('institution_id', institutionId)
+            .order('created_at', { ascending: false })
+            .then(r => r.data)
+        : Promise.resolve(null),
       membre
-        ? supabaseAdmin.from('institution_membres').select('totp_enabled').eq('id', membre.membreId).maybeSingle().then(r => r.data)
+        ? supabaseAdmin.from('institution_membres').select('totp_enabled, totp_backup_codes').eq('id', membre.membreId).maybeSingle().then(r => r.data)
         : Promise.resolve(null),
     ])
 
@@ -52,6 +80,9 @@ export async function GET(request: NextRequest) {
       success: true,
       pin_configured: !!institution?.pin_hash,
       totp_enabled: !!membreRow?.totp_enabled,
+      totp_backup_codes_remaining: Array.isArray(membreRow?.totp_backup_codes) ? membreRow.totp_backup_codes.length : 0,
+      recovery_email: institution?.email ?? null,
+      recovery_phone: institution?.phone ?? null,
       webauthn_credentials: (credentials ?? []).map(c => ({
         id: c.id,
         device_label: c.device_label,

@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [{ data: membre }, { data: institution }] = await Promise.all([
-      supabaseAdmin.from("institution_membres").select("totp_secret, totp_backup_codes").eq("id", challenge.membreId).maybeSingle(),
+      supabaseAdmin.from("institution_membres").select("totp_secret, totp_backup_codes, acces_restreints").eq("id", challenge.membreId).maybeSingle(),
       supabaseAdmin.from("institutions").select("id, name, phone, statut").eq("id", challenge.institutionId).single(),
     ]);
 
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     // jusqu'à la réponse finale.
     const suspended = institution.statut === "suspendue";
 
-    let codeValide = (await verifyTotp({ secret: membre.totp_secret, token: code.trim() })).valid;
+    let codeValide = (await verifyTotp({ secret: membre.totp_secret, token: code.trim(), epochTolerance: 30 })).valid;
     if (!codeValide && Array.isArray(membre.totp_backup_codes)) {
       const codes: string[] = membre.totp_backup_codes;
       for (let i = 0; i < codes.length; i++) {
@@ -123,14 +123,14 @@ export async function POST(request: NextRequest) {
     // institution_sessions (dette technique comblée 30/08/2026, mirroring
     // admin_sessions) — voir lib/institutionAuth.ts::creerSessionInstitution.
     const sid = await creerSessionInstitution(supabaseAdmin, {
-      institutionId: institution.id, phone: institution.phone,
+      institutionId: institution.id, membreId: challenge.membreId, phone: institution.phone,
       userAgent: request.headers.get("user-agent"), ip: extraireIpClient(request),
     });
     if (!sid) {
       return NextResponse.json({ error: "Erreur serveur", code: "SERVER_ERROR" }, { status: 500 });
     }
 
-    const token = await new SignJWT({ institutionId: institution.id, membreId: challenge.membreId, role: challenge.role, sid })
+    const token = await new SignJWT({ institutionId: institution.id, membreId: challenge.membreId, role: challenge.role, sid, accesRestreints: membre.acces_restreints ?? null })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(institution.id)
       .setIssuedAt()

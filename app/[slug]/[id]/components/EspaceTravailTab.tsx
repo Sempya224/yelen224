@@ -36,7 +36,7 @@ export function EspaceTravailTab({ instId, onToast }: { instId: string; onToast:
 
   return (
     <div style={{ padding: "16px", paddingBottom: "40px", animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "4px" }}>Espace de travail</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "4px" }}>Espace de travail</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Organisez l&apos;activité de l&apos;institution au-delà des seuls rendez-vous.</p>
 
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", overflowX: "auto" }}>

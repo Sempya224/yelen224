@@ -35,7 +35,18 @@ const Illu: Record<CentreInteretId, () => React.ReactNode> = {
   "fraudes": () => (<svg viewBox="0 0 52 52" width="52" height="52"><circle cx="26" cy="26" r="26" fill="#FFE4E6"/><path d="M26 12l14 6v10c0 10-6 15-14 17-8-2-14-7-14-17V18z" fill="#E11D48"/><line x1="26" y1="21" x2="26" y2="31" stroke="#fff" strokeWidth="3.4" strokeLinecap="round"/><circle cx="26" cy="35" r="2" fill="#fff"/></svg>),
 };
 
-export function InteretsClient() {
+// Mode wizard (chantier Onboarding Phase 2/3, 11/09/2026) : réutilise cet
+// écran existant comme 1ère étape du parcours post-inscription
+// (app/premiers-pas/centres-interet) sans dupliquer sa logique de
+// chargement/sauvegarde — seul l'habillage (header, copy, boutons,
+// destination) change quand `wizard` est fourni. Décision explicite de
+// Bryan (11/09/2026) : jamais de compteur "Étape X/Y" sur ce parcours —
+// ça donnerait l'impression d'un long formulaire juste après
+// l'inscription. Passer/Continuer toujours ensemble en bas, jamais Passer
+// isolé en haut.
+type WizardProps = { onContinuer: () => void; onPasser: () => void };
+
+export function InteretsClient({ wizard }: { wizard?: WizardProps } = {}) {
   const router = useRouter();
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -118,11 +129,15 @@ export function InteretsClient() {
         @keyframes chipIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
         @keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
       `}</style>
-      <CompteHeader titre="Vos centres d'intérêt" fondNeutre onBackIntercept={tenterQuitter}/>
+      {wizard ? (
+        <div style={{ height: "calc(env(safe-area-inset-top) + 8px)" }}/>
+      ) : (
+        <CompteHeader titre="Vos centres d'intérêt" fondNeutre onBackIntercept={tenterQuitter}/>
+      )}
 
       <div style={{ padding: "20px 20px 8px" }}>
-        <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "6px" }}>Qu&apos;est-ce qui compte pour vous ?</div>
-        <div style={{ color: t2, fontSize: "13px", lineHeight: "1.5" }}>Vous pouvez en choisir plusieurs, revenir modifier quand vous voulez, et ça ne touche jamais à vos rendez-vous en cours.</div>
+        <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "6px" }}>{wizard ? "Vos centres d'intérêt" : "Qu'est-ce qui compte pour vous ?"}</div>
+        <div style={{ color: t2, fontSize: "13px", lineHeight: "1.5" }}>{wizard ? "Sélectionnez les domaines qui vous concernent pour personnaliser votre fil d'actualité." : "Vous pouvez en choisir plusieurs, revenir modifier quand vous voulez, et ça ne touche jamais à vos rendez-vous en cours."}</div>
       </div>
 
       {loading ? (
@@ -153,9 +168,14 @@ export function InteretsClient() {
         </div>
       )}
 
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px calc(env(safe-area-inset-bottom) + 16px)", background: `linear-gradient(180deg, transparent, ${bg} 30%)` }}>
-        <button onClick={() => enregistrer()} disabled={saving || loading || !estDifferent} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "26px", border: "none", backgroundColor: (!estDifferent && !saving) ? card : "#F5A623", color: (!estDifferent && !saving) ? t3 : "#080812", fontSize: "15px", fontWeight: "800", cursor: (saving || !estDifferent) ? "default" : "pointer", opacity: saving ? 0.7 : 1, transition: "background-color 0.2s ease, color 0.2s ease" }}>
-          {saving ? "Enregistrement…" : dejaEnregistre ? "Modifier" : "Enregistrer"}
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px calc(env(safe-area-inset-bottom) + 16px)", background: `linear-gradient(180deg, transparent, ${bg} 30%)`, display: "flex", gap: "10px" }}>
+        {wizard && (
+          <button onClick={wizard.onPasser} disabled={saving} className="tap" style={{ flex: "0 0 auto", padding: "16px 20px", borderRadius: "26px", border: "none", backgroundColor: "transparent", color: t2, fontSize: "15px", fontWeight: "800", cursor: saving ? "default" : "pointer" }}>
+            Passer
+          </button>
+        )}
+        <button onClick={() => wizard ? enregistrer(wizard.onContinuer) : enregistrer()} disabled={saving || loading || !estDifferent} className="tap" style={{ flex: 1, padding: "16px", borderRadius: "26px", border: "none", backgroundColor: (!estDifferent && !saving) ? card : "#F5A623", color: (!estDifferent && !saving) ? t3 : "#080812", fontSize: "15px", fontWeight: "800", cursor: (saving || !estDifferent) ? "default" : "pointer", opacity: saving ? 0.7 : 1, transition: "background-color 0.2s ease, color 0.2s ease" }}>
+          {saving ? "Enregistrement…" : wizard ? "Continuer" : dejaEnregistre ? "Modifier" : "Enregistrer"}
         </button>
       </div>
 

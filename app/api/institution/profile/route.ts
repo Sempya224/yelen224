@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await sb
     .from("institutions")
-    .select("id,slug,name,category,secteur,activite_categorie_id,statut_juridique,ville,logo,badge_verifie,moyenne_avis,nb_avis,description,phone,whatsapp,email,website,created_at,statut,plan,adresse,quartier,latitude,longitude,disponibilites,disponibilites_modifie_le,disponibilites_modifie_par,banniere,annee_creation,capacite,capacite_par_creneau,langue,services,horaires,conditions_prestataire_acceptees_le,conditions_entreprise,informations_importantes,informations_legales,conditions_entreprise_le,informations_importantes_le,informations_legales_le,partenaire_statut,equipements_etablissement")
+    .select("id,slug,name,category,secteur,activite_categorie_id,statut_juridique,ville,logo,badge_verifie,moyenne_avis,nb_avis,description,phone,whatsapp,email,website,created_at,statut,plan,adresse,quartier,latitude,longitude,disponibilites,disponibilites_modifie_le,disponibilites_modifie_par,banniere,annee_creation,capacite,capacite_par_creneau,langue,services,horaires,conditions_prestataire_acceptees_le,conditions_entreprise,informations_importantes,informations_legales,conditions_entreprise_le,informations_importantes_le,informations_legales_le,conditions_entreprise_creee_le,informations_importantes_creee_le,informations_legales_creee_le,partenaire_statut,equipements_etablissement")
     .eq("id", institution_id)
     .maybeSingle();
 
@@ -106,6 +106,16 @@ const DATE_STAMP_FIELDS: Record<string, string> = {
   informations_legales: "informations_legales_le",
 };
 
+// Date de première écriture (migration 20260831000001) — posée une seule
+// fois, jamais réécrite ensuite (contrairement à DATE_STAMP_FIELDS
+// ci-dessus, mis à jour à chaque sauvegarde). Permet à la fiche publique
+// d'afficher "Écrit le X" distinctement de "Mis à jour le Y".
+const CREATION_STAMP_FIELDS: Record<string, string> = {
+  conditions_entreprise: "conditions_entreprise_creee_le",
+  informations_importantes: "informations_importantes_creee_le",
+  informations_legales: "informations_legales_creee_le",
+};
+
 // Gating par groupe de champs — cette route n'a pas un seul propriétaire
 // fonctionnel : "services" appartient à Services (comptable/superviseur y ont
 // accès), "capacite_par_creneau" à Disponibilités (superviseur seulement en
@@ -126,7 +136,7 @@ export async function PUT(req: NextRequest) {
 
   const fieldsPresent = [...EDITABLE_FIELDS.filter(f => f in body), ...(["secteur", "statut_juridique", "activite_categorie_id"] as const).filter(f => f in body)];
   for (const field of fieldsPresent) {
-    if (!can(membre.role, actionForField(field))) {
+    if (!can(membre.role, actionForField(field), membre.accesRestreints)) {
       return NextResponse.json({ error: `Champ "${field}" non autorisé pour votre rôle` }, { status: 403 });
     }
   }
@@ -137,6 +147,12 @@ export async function PUT(req: NextRequest) {
   // sont validés plus bas — la table institution_activites est écrite
   // après le succès de l'UPDATE institutions, jamais avant (cohérence).
   let activitesAEcrire: { principale: string; secondaires: string[] } | null = null;
+  // Un seul horodatage pour toute la requête — réutilisé pour _le ET,
+  // sur une première écriture, pour _creee_le : les deux doivent être
+  // rigoureusement identiques ce jour-là, sinon la fiche publique
+  // afficherait à tort "mis à jour" quelques millisecondes après la
+  // création (deux `new Date()` distincts ne tombent jamais pile égaux).
+  const nowIso = new Date().toISOString();
   for (const field of EDITABLE_FIELDS) {
     if (!(field in body)) continue;
     let value = body[field];
@@ -144,7 +160,21 @@ export async function PUT(req: NextRequest) {
       value = null;
     }
     payload[field] = value;
-    if (field in DATE_STAMP_FIELDS) payload[DATE_STAMP_FIELDS[field]] = new Date().toISOString();
+    if (field in DATE_STAMP_FIELDS) payload[DATE_STAMP_FIELDS[field]] = nowIso;
+  }
+
+  // Date de première écriture — posée seulement si elle n'existe pas déjà
+  // (jamais réécrite ensuite), voir CREATION_STAMP_FIELDS ci-dessus. Une
+  // seule lecture groupée des colonnes concernées, pas une par champ.
+  const champsCreationConcernes = Object.keys(CREATION_STAMP_FIELDS).filter(f => f in payload);
+  if (champsCreationConcernes.length > 0) {
+    const colonnesCreation = champsCreationConcernes.map(f => CREATION_STAMP_FIELDS[f]);
+    const { data: currentCreation } = await sb.from("institutions").select(colonnesCreation.join(",")).eq("id", authInstId).maybeSingle();
+    const currentCreationRow = (currentCreation ?? {}) as Record<string, unknown>;
+    for (const field of champsCreationConcernes) {
+      const colonne = CREATION_STAMP_FIELDS[field];
+      if (!currentCreationRow[colonne]) payload[colonne] = nowIso;
+    }
   }
 
   // P0 Stored XSS (17/08/2026, docs/ui/YELEN_PRESTATAIRE_MODEL_AUDIT_PHASE_0_5.md

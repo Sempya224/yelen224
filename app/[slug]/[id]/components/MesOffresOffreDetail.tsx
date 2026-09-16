@@ -8,7 +8,9 @@
 // (OffreFicheContenu), ici sur les vraies données enregistrées — "très
 // explicite sur l'offre", stats réelles + toutes les actions.
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { OFFRE_GENRE_LABELS, OFFRE_GENRE_COULEURS, type OffreGenre } from "@/lib/offresCategories";
 import { OffreFicheContenu } from "@/components/OffreFicheOverlay";
 import { type Offre } from "./MesOffresTab";
@@ -106,10 +108,10 @@ export function MesOffresOffreDetail({
               { label: "Clics", value: offre.nb_clics },
               { label: "CTR", value: ctrLabel(vues, offre.nb_clics) },
             ].map(s => (
-              <div key={s.label} style={{ flex: 1, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "12px", textAlign: "center" }}>
-                <div style={{ color: C.t1, fontSize: "18px", fontWeight: 900 }}>{s.value}</div>
+              <Card key={s.label} tokens={toCardTokens(C)} padding="12px" style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ color: C.t1, fontSize: "18px", fontWeight: 800 }}>{s.value}</div>
                 <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginTop: "3px" }}>{s.label}</div>
-              </div>
+              </Card>
             ))}
           </div>
 
@@ -126,26 +128,26 @@ export function MesOffresOffreDetail({
       <footer style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, background: C.bgCard, padding: "14px 20px calc(14px + env(safe-area-inset-bottom))" }}>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", maxWidth: "560px", margin: "0 auto" }}>
           {(offre.statut === "brouillon" || offre.statut === "refusee") && (
-            <button onClick={onEdit} disabled={busy} className="tap" style={actionBtnStyle(C, "primaire", busy)}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={busy} style={{ flex: 1, minWidth: "120px" }} onClick={onEdit}>
               {offre.statut === "refusee" ? "Modifier et renvoyer" : "Modifier"}
-            </button>
+            </Button>
           )}
           {publiee && (
             <>
-              <button onClick={onShare} disabled={busy} className="tap" style={actionBtnStyle(C, "neutre", busy)}>Partager</button>
-              <button onClick={copierLien} className="tap" style={actionBtnStyle(C, "neutre")}>Copier le lien</button>
-              <button onClick={onPreview} className="tap" style={actionBtnStyle(C, "neutre")}>Voir le portail public</button>
-              <button onClick={onSuspendre} disabled={busy} className="tap" style={actionBtnStyle(C, "attention", busy)}>Suspendre</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={busy} style={{ flex: 1, minWidth: "120px" }} onClick={onShare}>Partager</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1, minWidth: "120px" }} onClick={copierLien}>Copier le lien</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1, minWidth: "120px" }} onClick={onPreview}>Voir le portail public</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={busy} style={{ flex: 1, minWidth: "120px", color: C.orange, border: `1px solid ${C.orange}30`, backgroundColor: C.orangeL }} onClick={onSuspendre}>Suspendre</Button>
             </>
           )}
           {offre.statut === "suspendue" && (
-            <button onClick={onRepublier} disabled={busy} className="tap" style={actionBtnStyle(C, "primaire", busy)}>Republier (modération)</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={busy} style={{ flex: 1, minWidth: "120px" }} onClick={onRepublier}>Republier (modération)</Button>
           )}
           {offre.statut !== "archivee" && (
-            <button onClick={onArchiver} disabled={busy} className="tap" style={actionBtnStyle(C, "neutre", busy)}>Archiver</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={busy} style={{ flex: 1, minWidth: "120px" }} onClick={onArchiver}>Archiver</Button>
           )}
           {offre.statut === "brouillon" && (
-            <button onClick={onSupprimer} disabled={busy} className="tap" style={actionBtnStyle(C, "danger", busy)}>Supprimer</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={busy} style={{ flex: 1, minWidth: "120px" }} onClick={onSupprimer}>Supprimer</Button>
           )}
         </div>
       </footer>

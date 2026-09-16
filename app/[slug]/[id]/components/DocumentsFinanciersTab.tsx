@@ -27,7 +27,9 @@
 //   déjà existante — pas une nouvelle donnée métier.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { CATEGORIES_DOCUMENT_TRAVAIL, CATEGORIES_FINANCIERES, type CategorieDocumentTravail } from "@/lib/documentsTravail";
 import { YelenLoader } from "@/components/YelenLoader";
 
@@ -86,10 +88,10 @@ function couleurMime(mime: string, C: ThemeTokens): string {
 // ── KPI documentaires (§5) — 4 cartes, réelles, jamais nulles/inventées ──
 function KpiCard({ label, valeur, color, C }: { label: string; valeur: string; color: string; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px">
       <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{label}</div>
-      <div style={{ color, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.4px" }}>{valeur}</div>
-    </div>
+      <div style={{ color, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.4px" }}>{valeur}</div>
+    </Card>
   );
 }
 
@@ -104,7 +106,7 @@ function EmptyState({ onRefresh, C }: { onRefresh: () => void; C: ThemeTokens })
       <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.7, maxWidth: "340px", margin: "0 auto 18px" }}>
         Les documents générés automatiquement apparaîtront ici. Vous pourrez ensuite les rechercher, les consulter, les imprimer ou les télécharger.
       </div>
-      <button onClick={onRefresh} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, color: C.t1, fontWeight: "700", fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", cursor: "pointer" }}>Actualiser</button>
+      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={onRefresh}>Actualiser</Button>
     </div>
   );
 }
@@ -135,7 +137,10 @@ export function DocumentsFinanciersTab({ instId, onToast }: { instId: string; on
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [instId]);
+  // queueMicrotask (même convention qu'ailleurs, ex. EquipeTab.tsx) : évite
+  // react-hooks/set-state-in-effect sur ce setLoading(true) synchrone en
+  // tête d'effet, sans changer le comportement (s'exécute avant tout rendu).
+  useEffect(() => { queueMicrotask(() => load()); }, [instId]);
 
   useEffect(() => {
     fetch("/api/institution/membres").then(res => res.ok ? res.json() : null).then(j => {
@@ -264,23 +269,23 @@ export function DocumentsFinanciersTab({ instId, onToast }: { instId: string; on
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "6px" }}>
         <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Documents financiers</h1>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Documents financiers</h1>
           <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5, maxWidth: "440px" }}>Centralisez tous les documents financiers générés par votre établissement.</p>
           <p style={{ color: C.t3, fontSize: "11.5px", marginTop: "4px", fontWeight: 600 }}>Factures · Reçus · Avoirs · Bordereaux · Justificatifs</p>
         </div>
         <div className="no-print" style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <button onClick={() => setShowUpload(true)} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12px", padding: "10px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Ajouter</button>
-          <button onClick={exporterCsv} disabled={filtres.length === 0} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 13px", fontSize: "12px", fontWeight: "700", color: C.t2, cursor: filtres.length === 0 ? "not-allowed" : "pointer", opacity: filtres.length === 0 ? 0.5 : 1 }}>Exporter</button>
-          <button onClick={() => window.print()} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 13px", fontSize: "12px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>Imprimer</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowUpload(true)}>+ Ajouter</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" disabled={filtres.length === 0} onClick={exporterCsv}>Exporter</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => window.print()}>Imprimer</Button>
         </div>
       </div>
 
-      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "12px 16px", margin: "14px 0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+      <Card tokens={toCardTokens(C)} padding="12px 16px" style={{ margin: "14px 0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
         <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: "800" }}>{kpis.total} document{kpis.total > 1 ? "s" : ""}</span>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: "600" }}>
           {dernierDocument ? <>Dernière mise à jour · {formatDateHeure(dernierDocument.uploaded_at)}</> : "Aucune mise à jour pour l'instant"}
         </span>
-      </div>
+      </Card>
 
       {/* KPI documentaires (§5) */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", marginBottom: "16px" }}>
@@ -323,7 +328,7 @@ export function DocumentsFinanciersTab({ instId, onToast }: { instId: string; on
             const auteur = nomMembre(d.membre_id, membres);
             const occupe = busyId === d.id;
             return (
-              <div key={d.id} className="docfin-row" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px 16px", transition: "box-shadow 0.15s ease" }}>
+              <Card key={d.id} tokens={toCardTokens(C)} padding="14px 16px" className="docfin-row" style={{ transition: "box-shadow 0.15s ease" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
                   <div style={{ width: "34px", height: "34px", borderRadius: "9px", backgroundColor: `${couleurMime(d.type_mime, C)}15`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <IconFichier mime={d.type_mime} color={couleurMime(d.type_mime, C)}/>
@@ -362,7 +367,7 @@ export function DocumentsFinanciersTab({ instId, onToast }: { instId: string; on
                     </button>
                   )}
                 </div>
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -384,15 +389,18 @@ export function DocumentsFinanciersTab({ instId, onToast }: { instId: string; on
             </select>
             <label style={{ display: "block", color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", marginBottom: "6px" }}>Fichier</label>
             <input ref={nomFichierInputRef} type="file" onChange={e => setNomFichier(e.target.files?.[0] ?? null)} style={{ display: "none" }}/>
-            <button
-              type="button"
-              onClick={() => nomFichierInputRef.current?.click()}
+            <Button
+              tokens={toUiTokens(C)}
               className="tap"
-              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: C.bg3, border: `1.5px dashed ${C.border2}`, color: C.t1, fontWeight: "700", fontSize: "13px", padding: "12px", borderRadius: "10px", cursor: "pointer", marginBottom: "8px" }}
+              variant="secondary"
+              size="md"
+              fullWidth
+              style={{ border: `1.5px dashed ${C.border2}`, marginBottom: "8px" }}
+              icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t1} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>}
+              onClick={() => nomFichierInputRef.current?.click()}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t1} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
               {nomFichier ? "Changer le fichier" : "Ajouter un fichier"}
-            </button>
+            </Button>
             {nomFichier && (
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
                 <div style={{ flex: 1, color: C.t2, fontSize: "12px", wordBreak: "break-all" }}>{nomFichier.name}</div>
@@ -408,8 +416,8 @@ export function DocumentsFinanciersTab({ instId, onToast }: { instId: string; on
               </div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <button onClick={() => setShowUpload(false)} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-              <button onClick={upload} disabled={uploading || !nomFichier} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "13px", padding: "13px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: uploading || !nomFichier ? 0.5 : 1 }}>{uploading ? "…" : "Envoyer"}</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setShowUpload(false)}>Annuler</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!nomFichier} loading={uploading} onClick={upload}>Envoyer</Button>
             </div>
           </div>
         </div>

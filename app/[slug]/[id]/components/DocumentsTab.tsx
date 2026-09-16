@@ -9,7 +9,8 @@
 // si le document est en 'complement_demande' ou 'rejete'.
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens } from "../theme";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 
 type DocStatut = "recu" | "valide" | "complement_demande" | "rejete" | null;
@@ -91,12 +92,12 @@ export function DocumentsTab({ instId, onToast, access = "full" }: { instId: str
             <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: C.greenL, border: `1.5px solid ${C.green}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><path d="M6 13.5L11 18.5L20 8" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </div>
-            <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "900", marginBottom: "8px" }}>Vos documents ont été validés</h1>
+            <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", marginBottom: "8px" }}>Vos documents ont été validés</h1>
             <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, maxWidth: "420px", margin: "0 auto" }}>
               Votre établissement est vérifié auprès de Yelen224. Voici les documents retenus pour cette validation.
             </p>
           </div>
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", overflow: "hidden" }}>
+          <Card tokens={toCardTokens(C)} noPadding>
             {data.documents.map((d) => (
               <div key={d.type} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
                 <div style={{ width: "26px", height: "26px", borderRadius: "50%", backgroundColor: C.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -105,7 +106,7 @@ export function DocumentsTab({ instId, onToast, access = "full" }: { instId: str
                 <span style={{ color: C.t1, fontSize: "13px", fontWeight: "600" }}>{d.label}</span>
               </div>
             ))}
-          </div>
+          </Card>
         </div>
       </div>
     );
@@ -139,19 +140,19 @@ export function DocumentsTab({ instId, onToast, access = "full" }: { instId: str
               <circle cx="66" cy="58" r="14" fill={C.bgCard} stroke={C.gold} strokeWidth="3" />
               <path d="M60 58l4 4 8-8" stroke={C.gold} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "900", marginBottom: "8px" }}>Merci, vos documents sont bien reçus</h1>
+            <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", marginBottom: "8px" }}>Merci, vos documents sont bien reçus</h1>
             <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, maxWidth: "440px", margin: "0 auto" }}>
               Merci de l&apos;intérêt que vous portez à Yelen et de votre patience — notre équipe vérifie actuellement ces documents. Vous serez automatiquement redirigé vers votre tableau de bord dès que l&apos;examen sera terminé, aucune action supplémentaire n&apos;est nécessaire de votre part.
             </p>
           </div>
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", overflow: "hidden" }}>
+          <Card tokens={toCardTokens(C)} noPadding>
             {data.documents.map((d) => (
               <div key={d.type} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
                 <span style={{ color: C.t1, fontSize: "13px", fontWeight: "600" }}>{d.label}</span>
                 {statutBadge(d.statut, d.soumis_le, C)}
               </div>
             ))}
-          </div>
+          </Card>
         </div>
       </div>
     );
@@ -161,7 +162,7 @@ export function DocumentsTab({ instId, onToast, access = "full" }: { instId: str
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Documents institutionnels</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Documents institutionnels</h1>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
           Ces documents permettent à Yelen224 de vérifier l&apos;existence légale de votre établissement. Ils ne sont consultables que par l&apos;équipe de vérification — jamais visibles publiquement.
         </p>
@@ -194,7 +195,7 @@ function DocumentCard({ doc, uploading, onPick, inputRef, onFile, readOnly }: {
   const badge = statutBadge(doc.statut, doc.soumis_le, C);
 
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", marginBottom: "12px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "12px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "8px" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ color: C.t1, fontSize: "14px", fontWeight: "700", marginBottom: "3px" }}>{doc.label}</div>
@@ -233,7 +234,7 @@ function DocumentCard({ doc, uploading, onPick, inputRef, onFile, readOnly }: {
           <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }}/>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 

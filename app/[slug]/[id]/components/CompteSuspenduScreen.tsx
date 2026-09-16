@@ -22,10 +22,11 @@
 // crée toujours la ligne, ce cas disparaît naturellement avec le temps.
 import { useCallback, useEffect, useState } from "react";
 import type { ThemeTokens } from "../theme";
-import { toUiTokens } from "../theme";
+import { toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
 import { YelenLogo } from "@/components/YelenLogo";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 type Revision = {
   reference: string; statut: "en_attente" | "acceptee" | "rejetee"; message: string;
@@ -55,10 +56,10 @@ function IconShield({ C }: { C: ThemeTokens }) {
 
 function Section({ C, title, children }: { C: ThemeTokens; title: string; children: React.ReactNode }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px 20px", marginBottom: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px 20px" style={{ marginBottom: "14px" }}>
       <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800, marginBottom: "10px" }}>{title}</div>
       {children}
-    </div>
+    </Card>
   );
 }
 
@@ -163,7 +164,7 @@ export function CompteSuspenduScreen({ C, instName, onOuvrirMessagerie, onOuvrir
           <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: C.red }} />
           ACCÈS PUBLIC SUSPENDU
         </div>
-        <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: 900, letterSpacing: "-0.3px", margin: "0 0 8px" }}>
+        <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.3px", margin: "0 0 8px" }}>
           Votre établissement est temporairement indisponible aux citoyens
         </h1>
         <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, maxWidth: "460px", margin: "0 auto" }}>
@@ -301,7 +302,7 @@ export function CompteSuspenduScreen({ C, instName, onOuvrirMessagerie, onOuvrir
                     <span style={{ color: C.t3, fontSize: "10.5px" }}>Suivre vos conversations avec les citoyens</span>
                   </button>
                   <button onClick={onOuvrirParametres} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "12px 14px", cursor: "pointer", textAlign: "left" }}>
-                    <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Paramètres &amp; Compte</span>
+                    <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Paramètres et compte</span>
                     <span style={{ color: C.t3, fontSize: "10.5px" }}>Sécurité, équipe, informations</span>
                   </button>
                 </div>

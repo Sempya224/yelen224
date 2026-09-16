@@ -75,18 +75,21 @@ type DeletionInfo = { motif: string; scheduled_purge_at: string };
 function InstitutionConnexionInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const sessionExpired = searchParams.get("expired") === "1";
-  const loggedOut = searchParams.get("logged_out") === "1";
+  // useState plutôt que des const dérivées directement de searchParams
+  // (retour Bryan, cohérence avec app/login/page.tsx) — pour pouvoir fermer
+  // chaque bandeau localement avec un X, sans toucher à l'URL.
+  const [sessionExpired, setSessionExpired] = useState(searchParams.get("expired") === "1");
+  const [loggedOut, setLoggedOut] = useState(searchParams.get("logged_out") === "1");
   // Déclenché par page.tsx du dashboard quand l'ID d'institution de l'URL
   // ne correspond pas à celui de la session (URL modifiée manuellement) —
   // distinct de "session expirée" : ici la session était valide, c'est
   // l'accès demandé qui a été refusé, message volontairement différent.
-  const accesRefuse = searchParams.get("acces_refuse") === "1";
+  const [accesRefuse, setAccesRefuse] = useState(searchParams.get("acces_refuse") === "1");
   // Bug préexistant (indépendant de ce chantier) : ParametresTab.tsx redirige
   // déjà vers ?deletion_requested=1 après une demande de suppression de
   // compte, mais ce paramètre n'a jamais été lu ici — la bannière
   // correspondante ne s'affichait donc jamais.
-  const deletionRequested = searchParams.get("deletion_requested") === "1";
+  const [deletionRequested, setDeletionRequested] = useState(searchParams.get("deletion_requested") === "1");
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const t = T[theme];
@@ -276,7 +279,7 @@ function InstitutionConnexionInner() {
       const res = await fetch("/api/institution/auth/deletion/cancel", { method: "POST" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || "Erreur lors de l'annulation.");
+        setError(data.error || "Nous n'avons pas pu annuler la suppression. Réessayez.");
         setCancelLoading(false);
         return;
       }
@@ -291,7 +294,7 @@ function InstitutionConnexionInner() {
       setStep("success");
       setTimeout(() => router.push(`/institution/${id}/dashboard`), 1500);
     } catch {
-      setError("Erreur réseau.");
+      setError("Un problème de connexion est survenu.");
       setCancelLoading(false);
     }
   }
@@ -311,7 +314,7 @@ function InstitutionConnexionInner() {
       if (!optRes.ok) {
         setError(optData.code === "NOT_CONFIGURED"
           ? "Aucun accès rapide par empreinte/Face ID configuré. Utilisez votre code ou reconnectez-vous par SMS."
-          : (optData.error || "Erreur lors de la préparation de la vérification."));
+          : (optData.error || "Nous n'avons pas pu préparer la vérification. Réessayez."));
         setLoading(false);
         return;
       }
@@ -332,7 +335,7 @@ function InstitutionConnexionInner() {
       });
       const verifyData = await verifyRes.json();
       if (!verifyRes.ok) {
-        setError(verifyData.error || "Échec de la vérification.");
+        setError(verifyData.error || "Nous n'avons pas pu vérifier votre identité. Réessayez.");
         setLoading(false);
         return;
       }
@@ -356,7 +359,7 @@ function InstitutionConnexionInner() {
   async function handlePinUnlock() {
     if (!remembered) return;
     setError("");
-    if (unlockPin.length < 4) { setError("Entrez votre code de déverrouillage."); return; }
+    if (unlockPin.length < 4) { setError("Merci d'entrer votre code de déverrouillage."); return; }
     setLoading(true);
     try {
       const res = await fetch("/api/institution/auth/pin/verify", {
@@ -366,7 +369,7 @@ function InstitutionConnexionInner() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Code incorrect.");
+        setError(data.error || "Ce code ne semble pas correct.");
         setUnlockPin("");
         setLoading(false);
         return;
@@ -403,7 +406,7 @@ function InstitutionConnexionInner() {
     if (securityState === "blocked" || securityState === "support_only") { setError(messageBlocageActuel(securityState, securityRetryAfterS)); return; }
 
     if (!phoneValidation.valide) {
-      setError(phoneValidation.message || "Format de numéro invalide.");
+      setError(phoneValidation.message || "Ce numéro ne semble pas valide. Vérifiez-le et réessayez.");
       return;
     }
     if (!chalOk) { setError("La réponse ne semble pas correcte, réessayez."); return; }
@@ -531,7 +534,7 @@ function InstitutionConnexionInner() {
     // Bouton désactivé tant que le code n'est pas complet — même garde-fou
     // silencieux que l'OTP téléphone (retour Bryan 09/08/2026).
     if (totpBackupMode ? !entered : entered.length < 6) {
-      if (totpBackupMode) setError("Entrez un code de secours.");
+      if (totpBackupMode) setError("Merci d'entrer un code de secours.");
       return;
     }
     setLoading(true);
@@ -543,7 +546,7 @@ function InstitutionConnexionInner() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || "Code invalide.");
+        setError(data.error || "Ce code ne semble pas correct.");
         setTotpCode(["","","","","",""]);
         setLoading(false);
         setTimeout(() => totpRefs.current[0]?.focus(), 100);
@@ -586,7 +589,7 @@ function InstitutionConnexionInner() {
       const optRes = await fetch("/api/institution/auth/webauthn/register-options", { method: "POST" });
       const optData = await optRes.json();
       if (!optRes.ok) {
-        setError(optData.error || "Erreur lors de la préparation.");
+        setError(optData.error || "Nous n'avons pas pu préparer cette étape. Réessayez.");
         setLoading(false);
         return;
       }
@@ -607,7 +610,7 @@ function InstitutionConnexionInner() {
       });
       const verifyData = await verifyRes.json();
       if (!verifyRes.ok) {
-        setError(verifyData.error || "Échec de l'enregistrement.");
+        setError(verifyData.error || "Nous n'avons pas pu terminer l'enregistrement. Réessayez.");
         setLoading(false);
         return;
       }
@@ -621,7 +624,7 @@ function InstitutionConnexionInner() {
 
   async function handleSetupPin() {
     setError("");
-    if (setupPin.length < 4) { setError("Le code doit contenir au moins 4 chiffres."); return; }
+    if (setupPin.length < 4) { setError("Votre code doit contenir au moins 4 chiffres."); return; }
     setLoading(true);
     try {
       const res = await fetch("/api/institution/auth/pin/set", {
@@ -631,7 +634,7 @@ function InstitutionConnexionInner() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Erreur lors de l'enregistrement du code.");
+        setError(data.error || "Nous n'avons pas pu enregistrer votre code. Réessayez.");
         setLoading(false);
         return;
       }
@@ -684,15 +687,15 @@ function InstitutionConnexionInner() {
     /* ── Écran de connexion unique (style Mailchimp) : formulaire toujours
        visible et centré, sans page d'accueil marketing ni pop-up à ouvrir ── */
     .yelen-login-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;min-height:0}
-    .yelen-login-card{width:100%;max-width:440px;max-height:100%;background:${C.white};border-radius:24px;box-shadow:${C.shadow2};display:flex;flex-direction:column;overflow:hidden;animation:authPop .22s cubic-bezier(.2,.8,.2,1)}
+    .yelen-login-card{position:relative;width:100%;max-width:440px;max-height:100%;background:${C.white};border-radius:24px;box-shadow:${C.shadow2};display:flex;flex-direction:column;overflow:hidden;animation:authPop .22s cubic-bezier(.2,.8,.2,1)}
     .yelen-login-scroll{overflow-y:auto;padding:40px 36px 30px;min-height:0}
     .yelen-login-side{text-align:center;margin-bottom:22px}
-    .yelen-login-icon{margin:0 auto 12px}
 
-    /* ── Footer ── */
-    .yelen-footer{flex-shrink:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px;padding:12px 20px;font-size:11px;color:${C.gray}}
-    .yelen-footer a{color:${C.gray};text-decoration:none}
-    .yelen-footer a:hover{color:${C.goldD};text-decoration:underline}
+    /* ── Liens légaux dans la carte (retire le footer séparé, style Google
+       Sign-in, retour Bryan 07/09/2026) ── */
+    .yelen-login-legal{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px;margin-top:28px;padding-top:18px;border-top:1px solid ${C.border};font-size:11px;color:${C.gray}}
+    .yelen-login-legal a{color:${C.gray};text-decoration:none}
+    .yelen-login-legal a:hover{color:${C.goldD};text-decoration:underline}
 
     @media (max-width: 640px){
       .yelen-login-wrap{padding:0}
@@ -706,10 +709,15 @@ function InstitutionConnexionInner() {
        interne (.yelen-login-scroll) n'apparaît plus sur un écran de bureau. ── */
     @media (min-width: 960px){
       .yelen-login-card.wide{max-width:820px}
-      .yelen-login-step-split{display:flex;flex-direction:row;align-items:center;gap:56px}
+      /* Étape téléphone : carte encore plus large pour laisser de la place à
+         l'illustration réelle (retour Bryan 07/09/2026) sans écraser le
+         formulaire. */
+      .yelen-login-card.illustrated{max-width:980px}
+      .yelen-login-step-split{display:flex;flex-direction:row;align-items:center;gap:48px}
       .yelen-login-step-split .yelen-login-side{flex:0 0 260px;text-align:left;margin-bottom:0}
-      .yelen-login-step-split .yelen-login-icon{margin:0 0 16px 0}
+      .yelen-login-card.illustrated .yelen-login-step-split .yelen-login-side{flex:0 0 340px}
       .yelen-login-step-split .yelen-login-form{flex:1;min-width:0}
+      .yelen-login-illustration{display:block!important}
     }
   `;
 
@@ -721,7 +729,10 @@ function InstitutionConnexionInner() {
         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
         <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
       </svg>
-      <span style={{ color: C.red, fontSize: "13px", fontWeight: "600" }}>{msg}</span>
+      <span style={{ color: C.red, fontSize: "13px", fontWeight: "600", flex: 1 }}>{msg}</span>
+      <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </div>
   );
 
@@ -753,53 +764,55 @@ function InstitutionConnexionInner() {
     <div className="yelen-conn-root" style={{ display: "flex", flexDirection: "column", background: C.bg, fontFamily: "-apple-system,'SF Pro Display','Helvetica Neue',sans-serif", color: C.dark }}>
       <style>{css}</style>
 
-      {/* HEADER */}
-      <header style={{ position: "relative", zIndex: 10, padding: "calc(16px + env(safe-area-inset-top)) 24px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}`, backgroundColor: `${C.white}E6`, backdropFilter: "blur(20px)" }}>
-        <Link href="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}>
-          <div style={{ width: "36px", height: "36px", background: `${C.gold}`, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${C.gold}40` }}>
-            <YelenLogo size={18} color={C.dark}/>
-          </div>
-          <div>
-            <div style={{ color: C.dark, fontSize: "15px", fontWeight: "900", letterSpacing: "0.5px", lineHeight: 1 }}>YELEN224</div>
-            <div style={{ color: C.gold, fontSize: "9px", fontWeight: "700", letterSpacing: "1.5px", textTransform: "uppercase" }}>Espace Institution</div>
-          </div>
-        </Link>
-        <Link href="/guide-prestataire" className="tap" aria-label="Aide et guide institution" title="Aide et guide institution" style={{ width: "38px", height: "38px", borderRadius: "50%", border: `1.5px solid ${C.border}`, backgroundColor: `${C.white}99`, display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none", flexShrink: 0 }}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </Link>
-      </header>
-
       {/* ÉCRAN DE CONNEXION — style Mailchimp : le formulaire est le contenu
-          principal de la page, toujours visible, sans pop-up à ouvrir. */}
+          principal de la page, toujours visible, sans pop-up à ouvrir.
+          Décision CEO 07/09/2026 : plus de header séparé (même traitement
+          que l'inscription) — le logo Yelen vit désormais dans la carte,
+          en haut à droite, plutôt que dans une barre au-dessus. */}
       <div className="yelen-login-wrap">
-        <div className={`yelen-login-card${step === "phone" || step === "preview" || step === "otp" ? " wide" : ""}`} role="main" aria-label="Connexion institution">
+        <div className={`yelen-login-card${step === "phone" ? " wide illustrated" : step === "preview" || step === "otp" || step === "setup" || step === "unlock" ? " wide" : ""}`} role="main" aria-label="Connexion institution">
+          <Link href="/" aria-label="Retour à l'accueil Yelen224" title="Yelen224" className="tap" style={{ position: "absolute", top: "20px", right: "20px", zIndex: 5, width: "36px", height: "36px", background: C.gold, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${C.gold}40`, textDecoration: "none" }}>
+            <YelenLogo size={18} color={C.dark}/>
+          </Link>
           <div className="yelen-login-scroll">
 
         {sessionExpired && step !== "success" && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: C.redL, border: `1px solid ${C.red}25`, borderLeft: `3px solid ${C.red}`, borderRadius: "12px", marginBottom: "20px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <span style={{ color: C.red, fontSize: "13px", fontWeight: "700" }}>Votre session a expiré. Reconnectez-vous pour continuer.</span>
+            <span style={{ color: C.red, fontSize: "13px", fontWeight: "700", flex: 1 }}>Votre session a expiré. Reconnectez-vous pour continuer.</span>
+            <button onClick={() => setSessionExpired(false)} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
         )}
 
         {accesRefuse && step !== "success" && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: C.redL, border: `1px solid ${C.red}25`, borderLeft: `3px solid ${C.red}`, borderRadius: "12px", marginBottom: "20px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
-            <span style={{ color: C.red, fontSize: "13px", fontWeight: "700" }}>Accès refusé : votre session ne correspond pas à cet établissement. Reconnectez-vous pour continuer en sécurité.</span>
+            <span style={{ color: C.red, fontSize: "13px", fontWeight: "700", flex: 1 }}>Accès refusé : votre session ne correspond pas à cet établissement. Reconnectez-vous pour continuer en sécurité.</span>
+            <button onClick={() => setAccesRefuse(false)} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
         )}
 
         {loggedOut && step !== "success" && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: C.greenL, border: `1px solid ${C.green}30`, borderLeft: `3px solid ${C.green}`, borderRadius: "12px", marginBottom: "20px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
-            <span style={{ color: C.green, fontSize: "13px", fontWeight: "700" }}>Vous avez été déconnecté avec succès</span>
+            <span style={{ color: C.green, fontSize: "13px", fontWeight: "700", flex: 1 }}>Vous avez été déconnecté avec succès</span>
+            <button onClick={() => setLoggedOut(false)} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.green, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
         )}
 
         {deletionRequested && step !== "success" && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: "#FFF3CD", border: "1px solid #FFC107", borderLeft: "3px solid #FFC107", borderRadius: "12px", marginBottom: "20px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#856404" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <span style={{ color: "#856404", fontSize: "13px", fontWeight: "700" }}>Votre demande de suppression de compte a bien été enregistrée.</span>
+            <span style={{ color: "#856404", fontSize: "13px", fontWeight: "700", flex: 1 }}>Votre demande de suppression de compte a bien été enregistrée.</span>
+            <button onClick={() => setDeletionRequested(false)} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: "#856404", cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
         )}
 
@@ -809,15 +822,20 @@ function InstitutionConnexionInner() {
         <>
         {/* ═══ STEP: UNLOCK (déverrouillage rapide) ═══ */}
         {step === "unlock" && remembered && (
-          <div style={{ animation: "fadeUp 0.3s ease" }}>
-            <div style={{ textAlign: "center", marginBottom: "28px" }}>
-              <div style={{ width: "72px", height: "72px", borderRadius: "22px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, border: `2px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", boxShadow: C.shadow }}>
-                <FingerprintIcon color={C.gold}/>
+          <div className="yelen-login-step-split" style={{ animation: "fadeUp 0.3s ease" }}>
+            <div className="yelen-login-side">
+              {/* Illustration réelle (même traitement que les autres étapes,
+                  retour Bryan 07/09/2026) — visible uniquement à partir de
+                  960px, sur la même ligne que le titre plutôt qu'empilée
+                  au-dessus. */}
+              <div className="yelen-login-illustration" style={{ display: "none", width: "100%", borderRadius: "20px", overflow: "hidden", marginBottom: "18px", border: `1px solid ${C.border}` }}>
+                <Image src="/illustrations/deverrouillage-rapide.png" alt="Déverrouillage rapide de l'espace institution" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }} priority/>
               </div>
               <h1 style={{ color: C.dark, fontSize: "28px", fontWeight: "900", letterSpacing: "-0.6px", marginBottom: "6px" }}>Bonjour, {remembered.name}</h1>
               <p style={{ color: C.gray, fontSize: "14px" }}>Déverrouillez votre espace pour continuer</p>
             </div>
 
+            <div className="yelen-login-form">
             {error && <ErrorBanner msg={error}/>}
 
             {unlockMode === "choice" && (
@@ -863,6 +881,7 @@ function InstitutionConnexionInner() {
                 Ce n&apos;est pas vous ? Se connecter avec un autre compte
               </button>
             </div>
+            </div>
           </div>
         )}
 
@@ -870,11 +889,12 @@ function InstitutionConnexionInner() {
         {step === "phone" && (
           <div className="yelen-login-step-split" style={{ animation: "fadeUp 0.3s ease" }}>
             <div className="yelen-login-side">
-              <div className="yelen-login-icon" style={{ width: "56px", height: "56px", borderRadius: "18px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.dark} strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
-                  <path d="M9 9h1"/><path d="M9 13h1"/><path d="M9 17h1"/>
-                </svg>
+              {/* Illustration réelle (retour Bryan 07/09/2026), remplace
+                  l'icône bâtiment générique — visible uniquement à partir de
+                  960px (voir .yelen-login-step-split), l'étape téléphone
+                  reste texte seul sur mobile. */}
+              <div className="yelen-login-illustration" style={{ display: "none", width: "100%", borderRadius: "20px", overflow: "hidden", marginBottom: "18px", border: `1px solid ${C.border}` }}>
+                <Image src="/illustrations/institution-connexion.png" alt="Espace institution Yelen224" width={888} height={876} style={{ width: "100%", height: "auto", display: "block" }} priority/>
               </div>
               <h1 style={{ color: C.dark, fontSize: "30px", fontWeight: "900", letterSpacing: "-0.7px", marginBottom: "5px" }}>Connexion</h1>
               <p style={{ color: C.gray, fontSize: "13.5px", lineHeight: 1.5 }}>Accédez à l&apos;espace sécurisé de votre institution</p>
@@ -985,8 +1005,15 @@ function InstitutionConnexionInner() {
 
         {/* ═══ STEP: PREVIEW INSTITUTION ═══ */}
         {step === "preview" && inst && (
-          <div style={{ animation: "scaleIn 0.3s ease" }}>
-            <div style={{ textAlign: "center", marginBottom: "24px" }}>
+          <div className="yelen-login-step-split" style={{ animation: "scaleIn 0.3s ease" }}>
+            <div className="yelen-login-side">
+              {/* Illustration réelle (même traitement que l'étape OTP,
+                  retour Bryan 07/09/2026) — visible uniquement à partir de
+                  960px, sur la même ligne que le titre plutôt qu'empilée
+                  au-dessus. */}
+              <div className="yelen-login-illustration" style={{ display: "none", width: "100%", borderRadius: "20px", overflow: "hidden", marginBottom: "18px", border: `1px solid ${C.border}` }}>
+                <Image src="/illustrations/confirmer-identite-institution.png" alt="Confirmation de l'identité de l'institution" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }} priority/>
+              </div>
               <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 14px", backgroundColor: C.greenL, border: `1px solid ${C.green}30`, borderRadius: "20px", marginBottom: "16px" }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                 <span style={{ color: C.green, fontSize: "12px", fontWeight: "800" }}>Institution trouvée</span>
@@ -995,6 +1022,7 @@ function InstitutionConnexionInner() {
               <p style={{ color: C.gray, fontSize: "13px", marginTop: "4px" }}>Vérifiez que c&apos;est bien votre institution</p>
             </div>
 
+            <div className="yelen-login-form">
             {/* Card institution */}
             <div className="card-hover" style={{ backgroundColor: C.white, borderRadius: "20px", padding: "20px", border: `2px solid ${C.gold}30`, boxShadow: C.shadow, marginBottom: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
@@ -1102,29 +1130,35 @@ function InstitutionConnexionInner() {
                 </button>
               )}
             </div>
+            </div>
           </div>
         )}
 
         {/* ═══ STEP: OTP ═══ */}
         {step === "otp" && (
-          <div style={{ animation: "fadeUp 0.3s ease" }}>
-            <div style={{ textAlign: "center", marginBottom: "28px" }}>
-              <div style={{ width: "68px", height: "68px", borderRadius: "20px", background: `linear-gradient(135deg, ${C.gold}20, ${C.gold}08)`, border: `2px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", boxShadow: C.shadow }}>
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.5" strokeLinecap="round">
-                  <rect x="5" y="2" width="14" height="20" rx="2"/>
-                  <line x1="12" y1="18" x2="12.01" y2="18"/>
-                </svg>
+          <div className="yelen-login-step-split" style={{ animation: "fadeUp 0.3s ease" }}>
+            <div className="yelen-login-side">
+              {/* Illustration réelle (même traitement que l'étape téléphone,
+                  retour Bryan 07/09/2026) — visible uniquement à partir de
+                  960px, sur la même ligne que le titre (voir
+                  .yelen-login-step-split) plutôt qu'empilée au-dessus. */}
+              <div className="yelen-login-illustration" style={{ display: "none", width: "100%", borderRadius: "20px", overflow: "hidden", marginBottom: "18px", border: `1px solid ${C.border}` }}>
+                <Image src="/illustrations/verification-code-otp.png" alt="Vérification du code envoyé par SMS" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }} priority/>
               </div>
-              <h2 style={{ color: C.dark, fontSize: "22px", fontWeight: "900", marginBottom: "6px" }}>Code de vérification</h2>
+              <h2 style={{ color: C.dark, fontSize: "22px", fontWeight: "900", marginBottom: "6px" }}>Saisissez le code</h2>
               <p style={{ color: C.gray, fontSize: "13px" }}>
-                Entrez le code à 6 chiffres envoyé au<br/><strong style={{ color: C.dark }}>{inst?.phone.replace(/(\+224)(\d{2})(\d{3})(\d{4})/, "$1 $2•••$4")}</strong>
+                Un code SMS à 6 chiffres a été envoyé au<br/><strong style={{ color: C.dark }}>{inst?.phone.replace(/(\+224)(\d{2})(\d{3})(\d{4})/, "$1 $2•••$4")}</strong>
               </p>
             </div>
 
+            <div className="yelen-login-form">
             {success && (
               <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: C.greenL, border: `1px solid ${C.green}30`, borderRadius: "12px", marginBottom: "16px" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
-                <span style={{ color: C.green, fontSize: "13px", fontWeight: "600" }}>{success}</span>
+                <span style={{ color: C.green, fontSize: "13px", fontWeight: "600", flex: 1 }}>{success}</span>
+                <button onClick={() => setSuccess("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.green, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             )}
 
@@ -1173,6 +1207,7 @@ function InstitutionConnexionInner() {
                   Renvoyer le code
                 </button>
               )}
+            </div>
             </div>
           </div>
         )}
@@ -1253,15 +1288,20 @@ function InstitutionConnexionInner() {
 
         {/* ═══ STEP: SETUP (configurer l'accès rapide) ═══ */}
         {step === "setup" && inst && (
-          <div style={{ animation: "fadeUp 0.3s ease" }}>
-            <div style={{ textAlign: "center", marginBottom: "28px" }}>
-              <div style={{ width: "72px", height: "72px", borderRadius: "22px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, border: `2px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", boxShadow: C.shadow }}>
-                <FingerprintIcon color={C.gold}/>
+          <div className="yelen-login-step-split" style={{ animation: "fadeUp 0.3s ease" }}>
+            <div className="yelen-login-side">
+              {/* Illustration réelle (même traitement que les étapes OTP/
+                  Confirmer l'identité, retour Bryan 07/09/2026) — visible
+                  uniquement à partir de 960px, sur la même ligne que le
+                  titre plutôt qu'empilée au-dessus. */}
+              <div className="yelen-login-illustration" style={{ display: "none", width: "100%", borderRadius: "20px", overflow: "hidden", marginBottom: "18px", border: `1px solid ${C.border}` }}>
+                <Image src="/illustrations/configurer-acces-rapide.png" alt="Configuration de l'accès rapide par empreinte ou Face ID" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }} priority/>
               </div>
               <h2 style={{ color: C.dark, fontSize: "21px", fontWeight: "900", marginBottom: "6px" }}>Configurer l&apos;accès rapide</h2>
               <p style={{ color: C.gray, fontSize: "13px", lineHeight: 1.6 }}>La prochaine fois, déverrouillez votre espace sans repasser par le SMS.</p>
             </div>
 
+            <div className="yelen-login-form">
             {error && <ErrorBanner msg={error}/>}
 
             {setupMode === "choice" && (
@@ -1301,6 +1341,7 @@ function InstitutionConnexionInner() {
               <button onClick={skipSetup} disabled={loading} className="tap" style={{ background: "none", border: "none", color: C.gray, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>
                 Plus tard
               </button>
+            </div>
             </div>
           </div>
         )}
@@ -1369,18 +1410,19 @@ function InstitutionConnexionInner() {
         </>
         )}
 
+          {/* Liens légaux — dans la carte, façon Google Sign-in, plutôt
+              qu'une barre de pied de page séparée (retour Bryan 07/09/2026). */}
+          <div className="yelen-login-legal">
+            <span>© {new Date().getFullYear()} Yelen224</span>
+            <Link href="/confidentialite">Confidentialité</Link>
+            <Link href="/cgu">CGU</Link>
+            <Link href="/guide-prestataire">FAQ</Link>
+            <Link href="/contact">Contact</Link>
+          </div>
+
           </div>
         </div>
       </div>
-
-      {/* FOOTER — discret, uniquement des routes réelles */}
-      <footer className="yelen-footer">
-        <span>© {new Date().getFullYear()} Yelen224</span>
-        <Link href="/confidentialite">Confidentialité</Link>
-        <Link href="/cgu">CGU</Link>
-        <Link href="/guide-prestataire">FAQ</Link>
-        <Link href="/contact">Contact</Link>
-      </footer>
     </div>
   );
 }

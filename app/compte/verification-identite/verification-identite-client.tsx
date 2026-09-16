@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
@@ -114,7 +115,7 @@ const SLOT_META: Record<Slot, SlotMeta> = {
     guideTitre: "Cadrez le recto de votre CIN",
     dos: ["Document entièrement visible, coins inclus", "Photo nette, sans flou", "Bien éclairé, sans reflet ni flash direct"],
     donts: ["Coin ou bord coupé", "Reflet, flash direct ou ombre"],
-    mock: (T) => <ExempleCarte T={T} verso={false} label="RECTO"/>,
+    mock: (T) => <ExempleCarte T={T} verso={false} label="RECTO" image="/illustrations/verification-recto-cin.png"/>,
   },
   verso: {
     n: "2/3", label: "Verso de la CIN",
@@ -125,7 +126,7 @@ const SLOT_META: Record<Slot, SlotMeta> = {
     guideTitre: "Cadrez le verso de votre CIN",
     dos: ["Document entièrement visible, coins inclus", "Photo nette, sans flou", "Bien éclairé, sans reflet ni flash direct"],
     donts: ["Coin ou bord coupé", "Reflet, flash direct ou ombre"],
-    mock: (T) => <ExempleCarte T={T} verso label="VERSO"/>,
+    mock: (T) => <ExempleCarte T={T} verso label="VERSO" image="/illustrations/verification-verso-cin.png"/>,
   },
   selfie: {
     n: "3/3", label: "Photo de vous",
@@ -136,7 +137,7 @@ const SLOT_META: Record<Slot, SlotMeta> = {
     guideTitre: "Prenez une photo de vous",
     dos: ["Visage bien visible, sans lunettes de soleil ni couvre-chef", "Regardez directement l'appareil", "Fond neutre, bonne luminosité"],
     donts: ["Photo de groupe", "Visage masqué ou à contre-jour"],
-    mock: (T) => <ExempleFace T={T}/>,
+    mock: (T) => <ExempleFace T={T} image="/illustrations/verification-selfie-id.png"/>,
   },
 };
 
@@ -357,9 +358,7 @@ function FlowEnvoi({ T, showToast, onEnvoye }: { T: Tokens; showToast: (m: strin
     <>
       {/* ── Hero ── */}
       <div style={{ textAlign: "center", padding: "8px 8px 24px" }}>
-        <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "rgba(245,166,35,0.12)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", color: GOLD }}>
-          <Ic.Shield size={30}/>
-        </div>
+        <Image src="/illustrations/verification-identite.png" alt="" width={1312} height={1199} style={{ width: "320px", maxWidth: "100%", height: "auto", margin: "0 auto 14px", display: "block" }}/>
         <div style={{ color: T.t1, fontSize: "19px", fontWeight: 900, letterSpacing: "-0.3px", marginBottom: "8px" }}>Vérifiez votre identité</div>
         <p style={{ color: T.t2, fontSize: "13.5px", lineHeight: 1.55, margin: "0 auto 14px", maxWidth: "380px" }}>
           Confirmez votre identité pour sécuriser votre compte Yelen et obtenir le badge « Vérifié » sur votre Yelen ID.
@@ -610,7 +609,20 @@ function FlowEnvoi({ T, showToast, onEnvoye }: { T: Tokens; showToast: (m: strin
 // Exemples d'illustration (recto/verso/selfie) — cartes vertes en pointillé
 // façon viewfinder, réutilisées dans le sheet de guidage.
 // ══════════════════════════════════════════════════════════════════
-function ExempleCarte({ T, verso, label }: { T: Tokens; verso?: boolean; label: string }) {
+function ExempleCarte({ T, verso, label, image }: { T: Tokens; verso?: boolean; label: string; image?: string }) {
+  if (image) {
+    // Illustration Yelen sur mesure (07/09/2026) — déjà cadrée/badge ✓
+    // intégrés dans l'image, donc pas de bordure pointillée verte ni de
+    // badge ✓ du code par-dessus (contrairement au mock générique ci-dessous).
+    return (
+      <div style={{ maxWidth: "320px", margin: "0 auto" }}>
+        <div style={{ position: "relative", width: "100%", aspectRatio: "1536/1024" }}>
+          <Image src={image} alt="" fill style={{ objectFit: "contain" }}/>
+        </div>
+        <div style={{ textAlign: "center", color: T.t2, fontSize: "10.5px", fontWeight: 800, letterSpacing: "0.5px", marginTop: "6px" }}>{label}</div>
+      </div>
+    );
+  }
   return (
     <div style={{ maxWidth: "170px", margin: "0 auto" }}>
       <div style={{ position: "relative", borderRadius: "12px", border: `1.5px dashed ${GREEN}`, padding: "8px", background: T.isDark ? "rgba(34,197,94,0.05)" : "rgba(34,197,94,0.04)" }}>
@@ -622,7 +634,19 @@ function ExempleCarte({ T, verso, label }: { T: Tokens; verso?: boolean; label: 
   );
 }
 
-function ExempleFace({ T }: { T: Tokens }) {
+function ExempleFace({ T, image }: { T: Tokens; image?: string }) {
+  if (image) {
+    // Illustration Yelen sur mesure (07/09/2026) — même traitement que
+    // ExempleCarte : cadrage/badge ✓ déjà intégrés dans l'image.
+    return (
+      <div style={{ maxWidth: "320px", margin: "0 auto" }}>
+        <div style={{ position: "relative", width: "100%", aspectRatio: "1536/1024" }}>
+          <Image src={image} alt="" fill style={{ objectFit: "contain" }}/>
+        </div>
+        <div style={{ textAlign: "center", color: T.t2, fontSize: "10.5px", fontWeight: 800, letterSpacing: "0.5px", marginTop: "6px" }}>VOTRE PHOTO</div>
+      </div>
+    );
+  }
   return (
     <div style={{ maxWidth: "170px", margin: "0 auto" }}>
       <div style={{ position: "relative", borderRadius: "12px", border: `1.5px dashed ${GREEN}`, padding: "8px", background: T.isDark ? "rgba(34,197,94,0.05)" : "rgba(34,197,94,0.04)" }}>
@@ -655,7 +679,7 @@ function GuideSheet({ T, slot, mode, onClose, onConfirm }: { T: Tokens; slot: Sl
       >
         <div style={{ width: "36px", height: "4px", borderRadius: "2px", background: T.brd, margin: "0 auto 16px" }}/>
 
-        <div style={{ display: "inline-flex", alignItems: "center", background: T.isDark ? "rgba(245,166,35,0.12)" : "rgba(245,166,35,0.1)", color: GOLD, fontSize: "10.5px", fontWeight: 800, padding: "4px 10px", borderRadius: "20px", marginBottom: "10px" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", background: GOLD, color: "#080812", fontSize: "10.5px", fontWeight: 800, padding: "4px 10px", borderRadius: "20px", marginBottom: "10px" }}>
           Étape {meta.n}
         </div>
         <div style={{ color: T.t1, fontSize: "17px", fontWeight: 900, letterSpacing: "-0.2px", marginBottom: "2px" }}>{meta.guideTitre}</div>

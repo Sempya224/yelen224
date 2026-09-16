@@ -14,7 +14,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLoader } from "@/components/YelenLoader";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
 import type { NiveauReputation } from "@/lib/reputationScore";
 
 type Signaux = { tNote: number; tReponseNegatifs: number; tAnnulation: number; tReclamations: number };
@@ -62,7 +63,7 @@ function ScoreRing({ score, color, C }: { score: number; color: string; C: Theme
           strokeDasharray={`${pct * circ} ${circ - pct * circ}`} strokeLinecap="round"/>
       </svg>
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ color: C.t1, fontSize: "40px", fontWeight: "900", letterSpacing: "-1px", lineHeight: 1 }}>{score}</span>
+        <span style={{ color: C.t1, fontSize: "40px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}>{score}</span>
         <span style={{ color: C.t3, fontSize: "12px", fontWeight: "700" }}>/ 100</span>
       </div>
     </div>
@@ -241,7 +242,7 @@ function AvisDetaillesSection({ C, onToast, readOnly }: { C: ThemeTokens; onToas
               {a.commentaire && <div style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "8px" }}>{a.commentaire}</div>}
 
               {a.reponse_institution ? (
-                <div style={{ background: `${C.gold}12`, border: `1px solid ${C.gold}25`, borderRadius: "10px", padding: "8px 10px" }}>
+                <div style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 10px" }}>
                   <div style={{ color: C.gold, fontSize: "10px", fontWeight: "800", marginBottom: "3px" }}>Votre réponse{a.reponse_le ? ` · ${dayLabel(a.reponse_le)}` : ""}</div>
                   <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.4 }}>{a.reponse_institution}</div>
                 </div>
@@ -252,14 +253,12 @@ function AvisDetaillesSection({ C, onToast, readOnly }: { C: ThemeTokens; onToas
                     style={{ width: "100%", background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 10px", fontSize: "12.5px", color: C.t1, resize: "none" }}
                   />
                   <div style={{ display: "flex", gap: "8px" }}>
-                    <button onClick={() => envoyerReponse(a.id)} disabled={!reponseTexte.trim() || savingReponse} className="tap" style={{ flex: 1, background: C.gold, color: "#080812", border: "none", borderRadius: "8px", padding: "7px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer" }}>
-                      {savingReponse ? "..." : "Envoyer"}
-                    </button>
-                    <button onClick={() => { setReponseOuverte(null); setReponseTexte(""); }} className="tap" style={{ background: "none", border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "7px 10px", fontSize: "11.5px", color: C.t2, cursor: "pointer" }}>Annuler</button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ flex: 1 }} loading={savingReponse} disabled={!reponseTexte.trim()} onClick={() => envoyerReponse(a.id)}>Envoyer</Button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => { setReponseOuverte(null); setReponseTexte(""); }}>Annuler</Button>
                   </div>
                 </div>
               ) : !readOnly && (
-                <button onClick={() => { setReponseOuverte(a.id); setReponseTexte(""); }} className="tap" style={{ background: "none", border: `1px solid ${C.gold}40`, color: C.gold, borderRadius: "8px", padding: "6px 10px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}>Répondre</button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold, border: `1px solid ${C.gold}40` }} onClick={() => { setReponseOuverte(a.id); setReponseTexte(""); }}>Répondre</Button>
               )}
             </div>
           ))}
@@ -298,7 +297,7 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
   if (loading) {
     return (
       <div>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "20px" }}>Suivez la qualité de service de votre établissement et améliorez votre réputation sur Yelen.</p>
         <div style={{ padding: "48px 16px", display: "flex", justifyContent: "center" }}>
           <YelenLoader size={28}/>
@@ -310,7 +309,7 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
   if (!data || data.score === null || !data.niveau) {
     return (
       <div style={{ animation: "fadeUp 0.2s ease" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "20px" }}>Suivez la qualité de service de votre établissement et améliorez votre réputation sur Yelen.</p>
         <div style={{ marginBottom: "16px" }}>
           <EtatVideSante C={C} avisCount={data?.avisCount ?? 0} minAvisRequis={data?.minAvisRequis ?? 3}/>
@@ -334,7 +333,7 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
 
   return (
     <div style={{ animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "20px" }}>Suivez la qualité de service de votre établissement et améliorez votre réputation sur Yelen.</p>
 
       {data.alerteAdmin && (
@@ -349,7 +348,7 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
       {/* Carte principale : score + niveau */}
       <div style={{ backgroundColor: C.bgCard, borderRadius: "24px", padding: "28px 20px", border: `1px solid ${C.border}`, boxShadow: C.shadow, marginBottom: "16px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
         <ScoreRing score={data.score} color={couleur} C={C}/>
-        <div style={{ marginTop: "16px", color: couleur, fontSize: "18px", fontWeight: "900", letterSpacing: "0.3px" }}>{NIVEAU_LABEL[data.niveau]}</div>
+        <div style={{ marginTop: "16px", color: couleur, fontSize: "18px", fontWeight: "800", letterSpacing: "0.3px" }}>{NIVEAU_LABEL[data.niveau]}</div>
         <div style={{ color: C.t2, fontSize: "13px", marginTop: "4px" }}>{data.phrase}</div>
       </div>
 
@@ -372,7 +371,7 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
             { label: "Sans commentaire", value: data.mois.sansCommentaire, color: C.t3 },
           ].map(k => (
             <div key={k.label} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px" }}>
-              <div style={{ color: k.color, fontSize: "20px", fontWeight: "900", lineHeight: 1 }}>{k.value}</div>
+              <div style={{ color: k.color, fontSize: "20px", fontWeight: "800", lineHeight: 1 }}>{k.value}</div>
               <div style={{ color: C.t2, fontSize: "10.5px", fontWeight: "700", marginTop: "6px" }}>{k.label}</div>
             </div>
           ))}
@@ -411,7 +410,7 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
       <Section title="Recommandations" sub="Analyse automatique des tendances récentes" C={C}>
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {data.recommandations.map((r, i) => (
-            <div key={i} style={{ backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}25`, borderRadius: "10px", padding: "10px 12px", color: C.t2, fontSize: "12.5px", lineHeight: 1.5 }}>{r}</div>
+            <div key={i} style={{ backgroundColor: C.bg3, borderLeft: `3px solid ${C.gold}`, borderRadius: "10px", padding: "10px 12px", color: C.t2, fontSize: "12.5px", lineHeight: 1.5 }}>{r}</div>
           ))}
         </div>
       </Section>

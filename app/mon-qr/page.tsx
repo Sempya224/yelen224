@@ -10,6 +10,7 @@ import { PullToRefresh } from "@/components/PullToRefresh";
 import { CompteHeader } from "@/components/CompteEcranVide";
 import { YelenIdQrModal } from "@/components/YelenIdQrModal";
 import { DEVISE_LABEL } from "@/lib/devise";
+import { QR_MINUTES_APRES_RDV, QR_MINUTES_REGENERATION_FINALE, RDV_QR_EXPIRE_DEFINITIF_MESSAGE } from "@/lib/rdvGating";
 
 // Refonte 16/07/2026 (décision CEO, écran wizard RDV) : cet écran mélangeait
 // déjà les RDV gratuits ET payants dans une seule liste "rdv" — un RDV payant
@@ -80,7 +81,7 @@ function IllustrationHistoriqueVide() {
   );
 }
 
-type RdvGratuit = { id: string; date_rdv: string; heure_rdv: string; statut: string; objet: string | null; institution_id: string; presence_status: string | null };
+type RdvGratuit = { id: string; date_rdv: string; heure_rdv: string; statut: string; objet: string | null; institution_id: string; presence_status: string | null; qr_token: string | null };
 type PaidBookingRow = {
   id: string; confirmation_code: string; statut: string; date_rdv: string; heure_rdv: string; institution_id: string;
   montant_declare_citoyen: number | null; declare_le: string | null;
@@ -128,6 +129,22 @@ function formatDatetimeFull(iso: string): string {
   return `${d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} à ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+// Format lisible du compte à rebours QR — le cycle borné (30 min après le
+// RDV, puis 10 min de régénération finale, voir lib/rdvGating.ts) ne dépasse
+// jamais l'heure en conditions normales ; les paliers jour/heure ne servent
+// qu'à rester lisible sur les codes générés avant ce cycle (ancienne
+// expiration 7 jours), plutôt que d'afficher un total de minutes à 4 chiffres.
+function formatDuree(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const j = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (j > 0) return `${j}j ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
+}
+
 export default function MonQRPage() {
   const router = useRouter();
   const [subTab, setSubTab] = useState<"gratuit" | "payant">("gratuit");
@@ -135,6 +152,7 @@ export default function MonQRPage() {
   const [paidBookings, setPaidBookings] = useState<PaidBookingRow[]>([]);
   const [selected, setSelected] = useState<RdvGratuit | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [codeSecours, setCodeSecours] = useState("");
   const [selectedPaid, setSelectedPaid] = useState<PaidBookingRow | null>(null);
   const [paidQrUrl, setPaidQrUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -142,6 +160,13 @@ export default function MonQRPage() {
   const [expiresAt, setExpiresAt] = useState("");
   const [error, setError] = useState("");
   const [timeLeft, setTimeLeft] = useState("");
+  // Cycle borné (décision CEO 01/09/2026, voir lib/rdvGating.ts::calculerEtatQr)
+  // — derniereChance signale que le QR affiché est l'unique régénération
+  // finale (fenêtre 10 min au lieu de 30). expireInfo est posé quand le
+  // serveur confirme l'état "expire_definitif" — jamais un "expiré" muet,
+  // toujours titre + raison complète affichés à la place du QR.
+  const [derniereChance, setDerniereChance] = useState(false);
+  const [expireInfo, setExpireInfo] = useState<{ titre: string; message: string } | null>(null);
   const [yelenIdQrOpen, setYelenIdQrOpen] = useState(false);
 
   // Lot A (double confirmation paiement, décision CEO 05/08/2026) — "Je
@@ -203,7 +228,7 @@ export default function MonQRPage() {
     const dateMin = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
     const [rdvRes, paidRes, scansRes, paidHistoRes] = await Promise.all([
-      supabase.from("rdv").select("id,date_rdv,heure_rdv,statut,objet,institution_id,presence_status")
+      supabase.from("rdv").select("id,date_rdv,heure_rdv,statut,objet,institution_id,presence_status,qr_token")
         .eq("citoyen_id", id).neq("statut", "annule").gte("date_rdv", dateMin).order("date_rdv").limit(20),
       supabase.from("paid_bookings").select("id,confirmation_code,statut,date_rdv,heure_rdv,institution_id,montant_declare_citoyen,declare_le,paid_services(nom,prix,duree_minutes),institutions!paid_bookings_institution_id_fkey(name,logo)")
         .eq("citoyen_id", id).neq("statut", "annule").gte("date_rdv", dateMin).order("date_rdv").limit(20),
@@ -296,16 +321,22 @@ export default function MonQRPage() {
     if (!expiresAt) return;
     const t = setInterval(() => {
       const diff = new Date(expiresAt).getTime() - Date.now();
-      if (diff <= 0) { setTimeLeft("Expiré"); setQrDataUrl(""); clearInterval(t); return; }
-      const m = Math.floor(diff / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setTimeLeft(`${m}m ${s}s`);
+      if (diff <= 0) {
+        setTimeLeft("Expiré"); setQrDataUrl(""); clearInterval(t);
+        // Si c'était déjà l'unique régénération finale, inutile d'attendre un
+        // aller-retour serveur pour le savoir — le même message que
+        // "expire_definitif" s'affiche immédiatement (source unique du texte,
+        // voir lib/rdvGating.ts).
+        if (derniereChance) setExpireInfo({ titre: RDV_QR_EXPIRE_DEFINITIF_MESSAGE.titre, message: RDV_QR_EXPIRE_DEFINITIF_MESSAGE.message });
+        return;
+      }
+      setTimeLeft(formatDuree(diff));
     }, 1000);
     return () => clearInterval(t);
-  }, [expiresAt]);
+  }, [expiresAt, derniereChance]);
 
   async function genererQR(rdv: RdvGratuit) {
-    setGenerating(true); setError(""); setSelected(rdv); setQrDataUrl(""); setTimeLeft("");
+    setGenerating(true); setError(""); setSelected(rdv); setQrDataUrl(""); setCodeSecours(""); setTimeLeft(""); setExpireInfo(null); setDerniereChance(false);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { setError("Session expirée, reconnectez-vous."); setGenerating(false); return; }
@@ -317,12 +348,33 @@ export default function MonQRPage() {
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Erreur génération QR"); setGenerating(false); return; }
 
+      // Cycle borné — le serveur peut répondre "expire_definitif" (aucun QR à
+      // afficher, la seule régénération finale a déjà expiré sans scan).
+      if (data.etat === "expire_definitif") {
+        setExpireInfo({ titre: data.titre, message: data.message });
+        setGenerating(false);
+        return;
+      }
+
       const payload = data.qr_payload;
       setExpiresAt(data.expires_at);
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(payload)}&bgcolor=ffffff&color=080812&margin=10`;
+      setDerniereChance(!!data.derniere_chance);
+      setCodeSecours(typeof data.code_secours === "string" ? data.code_secours : "");
+      // ecc=H (30% de correction d'erreur, vs M par défaut) — nécessaire pour
+      // tolérer le logo Yelen superposé au centre (overlay CSS, voir plus
+      // bas) sans casser la lecture du code.
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(payload)}&bgcolor=ffffff&color=080812&margin=10&ecc=H`;
       setQrDataUrl(qrUrl);
     } catch { setError("Erreur réseau"); }
     setGenerating(false);
+  }
+
+  // Ferme le sheet plein écran du RDV sélectionné, réinitialise tout l'état
+  // transitoire — sinon rouvrir un autre RDV pouvait hériter du compte à
+  // rebours/de l'erreur du précédent le temps que genererQR() réponde.
+  function fermerSelection() {
+    setSelected(null); setQrDataUrl(""); setCodeSecours(""); setTimeLeft(""); setExpiresAt("");
+    setDerniereChance(false); setExpireInfo(null); setError("");
   }
 
   function afficherQrPayant(booking: PaidBookingRow) {
@@ -388,9 +440,9 @@ export default function MonQRPage() {
   }
 
   function stColor(s: string) {
-    if (s === "confirme") return { c: "#22c55e", bg: "rgba(34,197,94,0.12)", l: "Confirmé" };
-    if (s === "en_attente") return { c: "#F5A623", bg: "rgba(245,166,35,0.12)", l: "En attente" };
-    return { c: "#8E8E93", bg: "rgba(142,142,147,0.12)", l: s };
+    if (s === "confirme") return { c: "#fff", bg: "#22c55e", l: "Confirmé" };
+    if (s === "en_attente") return { c: "#080812", bg: "#F5A623", l: "En attente" };
+    return { c: "#fff", bg: "#8E8E93", l: s };
   }
 
   function presColor(s: string) {
@@ -408,13 +460,13 @@ export default function MonQRPage() {
   // reçoit) mais reste géré ici par défense, comme partout ailleurs dans
   // ce fichier.
   function paiementInfo(statut: string, declareLe?: string | null) {
-    if (statut === "confirme" || statut === "termine") return { c: "#22c55e", bg: "rgba(34,197,94,0.12)", l: "Paiement confirmé" };
-    if (statut === "rembourse") return { c: "#22c55e", bg: "rgba(34,197,94,0.12)", l: "Remboursé" };
-    if (statut === "no_show") return { c: "#ef4444", bg: "rgba(239,68,68,0.12)", l: "Absence constatée" };
-    if (statut === "annule") return { c: "#8E8E93", bg: "rgba(142,142,147,0.12)", l: "Annulé" };
-    if (statut === "en_attente" && declareLe) return { c: "#F5A623", bg: "rgba(245,166,35,0.12)", l: "En attente de confirmation" };
-    if (statut === "en_attente") return { c: "#F5A623", bg: "rgba(245,166,35,0.12)", l: "Paiement à remettre" };
-    return { c: "#8E8E93", bg: "rgba(142,142,147,0.12)", l: statut };
+    if (statut === "confirme" || statut === "termine") return { c: "#fff", bg: "#22c55e", l: "Paiement confirmé" };
+    if (statut === "rembourse") return { c: "#fff", bg: "#22c55e", l: "Remboursé" };
+    if (statut === "no_show") return { c: "#fff", bg: "#ef4444", l: "Absence constatée" };
+    if (statut === "annule") return { c: "#fff", bg: "#8E8E93", l: "Annulé" };
+    if (statut === "en_attente" && declareLe) return { c: "#080812", bg: "#F5A623", l: "En attente de confirmation" };
+    if (statut === "en_attente") return { c: "#080812", bg: "#F5A623", l: "Paiement à remettre" };
+    return { c: "#fff", bg: "#8E8E93", l: statut };
   }
 
   return (
@@ -426,7 +478,7 @@ export default function MonQRPage() {
           ouvre la modale "Mon Yelen ID" déjà utilisée sur l'écran Carte
           Yelen (components/YelenIdQrModal.tsx), pas une nouvelle fonctionnalité. */}
       <CompteHeader
-        titre="Mon QR Code"
+        titre="Mon QR code"
         rightAction={{
           icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><path d="M14 14h3v3h-3zM17 17h3v3h-3z" /></svg>,
           label: "Mon Yelen ID",
@@ -445,13 +497,13 @@ export default function MonQRPage() {
 
         {/* ── Onglets Gratuit / Payant ── */}
         <div style={{ display: "flex", gap: "6px", backgroundColor: "#fff", borderRadius: "16px", padding: "5px", marginBottom: "16px", border: "1px solid rgba(0,0,0,0.06)" }}>
-          <button onClick={() => switchTab("gratuit")} style={{ flex: 1, background: "transparent", border: subTab === "gratuit" ? "1.5px solid rgba(245,166,35,0.3)" : "1.5px solid transparent", borderRadius: "12px", padding: "10px 8px", color: subTab === "gratuit" ? "#080812" : "#8E8E93", fontSize: "13px", fontWeight: subTab === "gratuit" ? 800 : 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+          <button onClick={() => switchTab("gratuit")} style={{ flex: 1, background: subTab === "gratuit" ? "#080812" : "transparent", border: "1.5px solid transparent", borderRadius: "12px", padding: "10px 8px", color: subTab === "gratuit" ? "#fff" : "#8E8E93", fontSize: "13px", fontWeight: subTab === "gratuit" ? 800 : 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
             Gratuit
             {rdvsGratuits.length > 0 && <span style={{ backgroundColor: subTab === "gratuit" ? "#F5A623" : "rgba(0,0,0,0.08)", color: subTab === "gratuit" ? "#fff" : "#8E8E93", fontSize: "9px", fontWeight: 900, padding: "2px 6px", borderRadius: "20px" }}>{rdvsGratuits.length}</span>}
           </button>
-          <button onClick={() => switchTab("payant")} style={{ flex: 1, background: subTab === "payant" ? `${BLUE}15` : "transparent", border: subTab === "payant" ? `1.5px solid ${BLUE}50` : "1.5px solid transparent", borderRadius: "12px", padding: "10px 8px", color: subTab === "payant" ? BLUE : "#8E8E93", fontSize: "13px", fontWeight: subTab === "payant" ? 800 : 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+          <button onClick={() => switchTab("payant")} style={{ flex: 1, background: subTab === "payant" ? BLUE : "transparent", border: "1.5px solid transparent", borderRadius: "12px", padding: "10px 8px", color: subTab === "payant" ? "#fff" : "#8E8E93", fontSize: "13px", fontWeight: subTab === "payant" ? 800 : 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
             Payant
-            {paidBookingsActifs.length > 0 && <span style={{ backgroundColor: subTab === "payant" ? BLUE : "rgba(0,0,0,0.08)", color: subTab === "payant" ? "#fff" : "#8E8E93", fontSize: "9px", fontWeight: 900, padding: "2px 6px", borderRadius: "20px" }}>{paidBookingsActifs.length}</span>}
+            {paidBookingsActifs.length > 0 && <span style={{ backgroundColor: subTab === "payant" ? "#fff" : "rgba(0,0,0,0.08)", color: subTab === "payant" ? BLUE : "#8E8E93", fontSize: "9px", fontWeight: 900, padding: "2px 6px", borderRadius: "20px" }}>{paidBookingsActifs.length}</span>}
           </button>
         </div>
 
@@ -464,9 +516,9 @@ export default function MonQRPage() {
         {/* ═══════════════ ONGLET PAYANT ═══════════════ */}
         {!loading && subTab === "payant" && (
           <>
-            <div style={{ backgroundColor: "#fff", borderRadius: "16px", padding: "14px 16px", marginBottom: "16px", display: "flex", alignItems: "flex-start", gap: "12px", border: `1px solid ${BLUE}30` }}>
-              <div style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: `${BLUE}18`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={BLUE} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div style={{ backgroundColor: "#fff", borderRadius: "16px", padding: "14px 16px", marginBottom: "16px", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+              <div style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: BLUE, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               </div>
               <div style={{ fontSize: "12px", color: "#6C6C70", lineHeight: 1.5 }}>
                 Ce code identifie votre réservation auprès de l&apos;établissement. Le montant à régler est indiqué sur chaque réservation ci-dessous et se paie sur place, jamais dans l&apos;application.
@@ -474,18 +526,18 @@ export default function MonQRPage() {
             </div>
 
             {paidQrUrl && selectedPaid && (
-              <div style={{ backgroundColor: "#fff", borderRadius: "24px", padding: "28px 24px", textAlign: "center", marginBottom: "16px", boxShadow: "0 8px 40px rgba(245,166,35,0.2)", border: "2px solid rgba(245,166,35,0.3)" }}>
+              <div style={{ backgroundColor: "#fff", borderRadius: "24px", padding: "28px 24px", textAlign: "center", marginBottom: "16px", boxShadow: "0 8px 40px rgba(245,166,35,0.2)", border: "2px solid #F5A623" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginBottom: "20px" }}>
-                  <span style={{ background: `${BLUE}18`, color: BLUE, fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "20px", textTransform: "uppercase" }}>Service payant</span>
+                  <span style={{ background: BLUE, color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "20px", textTransform: "uppercase" }}>Service payant</span>
                 </div>
                 <div style={{ display: "inline-block", padding: "16px", backgroundColor: "#fff", borderRadius: "16px", border: "3px solid #F5A623", marginBottom: "16px", boxShadow: "0 4px 20px rgba(245,166,35,0.2)" }}>
                   {/* IMG-EXCEPTION: reason=URL externe api.qrserver.com générée à la volée par confirmation_code — décision CEO 08/08/2026 de ne pas ajouter ce tiers non maîtrisé aux remotePatterns next/image (aucun gain de cache réel sur un code court-vécu) | reviewed=2026-08-08 */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={paidQrUrl} alt="QR Code" width="220" height="220" style={{ display: "block", borderRadius: "8px" }} />
+                  <img src={paidQrUrl} alt="QR code" width="220" height="220" style={{ display: "block", borderRadius: "8px" }} />
                 </div>
                 <div style={{ display: "flex", justifyContent: "center", gap: "4px", marginBottom: "16px" }}>
                   {selectedPaid.confirmation_code.split("").map((c: string, i: number) => (
-                    <div key={i} style={{ width: "30px", height: "38px", borderRadius: "8px", background: "rgba(245,166,35,0.1)", border: "1.5px solid rgba(245,166,35,0.3)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", fontSize: "18px", fontWeight: "900", fontFamily: "monospace" }}>{c}</div>
+                    <div key={i} style={{ width: "30px", height: "38px", borderRadius: "8px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", color: "#080812", fontSize: "18px", fontWeight: "900", fontFamily: "monospace" }}>{c}</div>
                   ))}
                 </div>
                 <div style={{ backgroundColor: "#F2F2F7", borderRadius: "12px", padding: "12px 16px", marginBottom: "16px", textAlign: "left" }}>
@@ -505,7 +557,7 @@ export default function MonQRPage() {
                     "Ce code est permanent — pas besoin de le régénérer",
                   ].map((txt, i) => (
                     <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", textAlign: "left" }}>
-                      <div style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "rgba(245,166,35,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "11px", fontWeight: "800", color: "#F5A623" }}>{i + 1}</div>
+                      <div style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "11px", fontWeight: "800", color: "#080812" }}>{i + 1}</div>
                       <span style={{ color: "#6C6C70", fontSize: "12px", lineHeight: 1.4 }}>{txt}</span>
                     </div>
                   ))}
@@ -527,21 +579,21 @@ export default function MonQRPage() {
                       <span style={{ color: "#22c55e", fontSize: "12.5px", fontWeight: "800" }}>Paiement confirmé</span>
                     </div>
                     {recusMap[selectedPaid.id] && (
-                      <button onClick={() => telechargerRecu(selectedPaid.id)} disabled={telechargement === selectedPaid.id} className="tap" style={{ width: "100%", backgroundColor: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)", color: "#F5A623", fontWeight: "700", fontSize: "12.5px", padding: "10px", borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                        {telechargement === selectedPaid.id ? <YelenLoader size={14} color="#F5A623"/> : "Télécharger mon reçu"}
+                      <button onClick={() => telechargerRecu(selectedPaid.id)} disabled={telechargement === selectedPaid.id} className="tap" style={{ width: "100%", backgroundColor: "#F5A623", border: "none", color: "#080812", fontWeight: "700", fontSize: "12.5px", padding: "10px", borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                        {telechargement === selectedPaid.id ? <YelenLoader size={14} color="#080812"/> : "Télécharger mon reçu"}
                       </button>
                     )}
                   </div>
                 ) : selectedPaid.declare_le ? (
-                  <div style={{ marginTop: "16px", padding: "14px 16px", borderRadius: "14px", backgroundColor: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.25)", display: "flex", alignItems: "center", gap: "10px", textAlign: "left" }}>
-                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#F5A623", animation: "pulse 1.5s ease-in-out infinite", flexShrink: 0 }} />
+                  <div style={{ marginTop: "16px", padding: "14px 16px", borderRadius: "14px", backgroundColor: "#F5A623", display: "flex", alignItems: "center", gap: "10px", textAlign: "left" }}>
+                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#080812", animation: "pulse 1.5s ease-in-out infinite", flexShrink: 0 }} />
                     <div>
                       <div style={{ color: "#080812", fontSize: "12.5px", fontWeight: "800" }}>En attente de confirmation par {selectedPaid.institutions?.name || "l&apos;établissement"}…</div>
-                      <div style={{ color: "#6C6C70", fontSize: "11px", marginTop: "2px" }}>Vous avez déclaré remettre {formatPrix(selectedPaid.montant_declare_citoyen ?? 0)}. Montrez votre code à l&apos;agent.</div>
+                      <div style={{ color: "rgba(8,8,18,0.75)", fontSize: "11px", marginTop: "2px" }}>Vous avez déclaré remettre {formatPrix(selectedPaid.montant_declare_citoyen ?? 0)}. Montrez votre code à l&apos;agent.</div>
                     </div>
                   </div>
                 ) : selectedPaid.statut === "en_attente" && (
-                  <button onClick={() => { setDeclarerError(""); setDeclarerChecked(false); setDeclarerOpen(true); }} style={{ marginTop: "16px", width: "100%", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+                  <button onClick={() => { setDeclarerError(""); setDeclarerChecked(false); setDeclarerOpen(true); }} style={{ marginTop: "16px", width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
                     Je remets le paiement à {selectedPaid.institutions?.name || "l&apos;établissement"}
                   </button>
                 )}
@@ -552,10 +604,10 @@ export default function MonQRPage() {
                 terminé, indépendamment de la présence de paiements actifs
                 en dessous. */}
             {paiementsTermines.length > 0 && (
-              <Link href="/compte/paiements" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff", border: "1px solid rgba(245,166,35,0.3)", borderRadius: "16px", padding: "14px 16px", marginBottom: "12px", textDecoration: "none" }}>
+              <Link href="/compte/paiements" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff", borderRadius: "16px", padding: "14px 16px", marginBottom: "12px", textDecoration: "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "rgba(245,166,35,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/></svg>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/></svg>
                   </div>
                   <div>
                     <div style={{ color: "#080812", fontSize: "13.5px", fontWeight: "800" }}>Mes reçus</div>
@@ -589,7 +641,7 @@ export default function MonQRPage() {
                   <div key={b.id} onClick={() => afficherQrPayant(b)}
                     style={{ backgroundColor: "#fff", borderRadius: "18px", padding: "16px", marginBottom: "10px", cursor: "pointer", border: `2px solid ${isSelected ? BLUE : "transparent"}`, boxShadow: isSelected ? `0 4px 20px ${BLUE}30` : "none", transition: "all 0.2s ease" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "12px" }}>
-                      <div style={{ width: "40px", height: "40px", position: "relative", borderRadius: "12px", backgroundColor: `${BLUE}12`, border: `1px solid ${BLUE}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", color: BLUE, overflow: "hidden", flexShrink: 0 }}>
+                      <div style={{ width: "40px", height: "40px", position: "relative", borderRadius: "12px", backgroundColor: BLUE, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", color: "#fff", overflow: "hidden", flexShrink: 0 }}>
                         {inst?.logo ? <Image src={inst.logo} alt={inst?.name ?? ""} fill sizes="40px" style={{ objectFit: "cover" }}/> : getInitials(inst?.name ?? "?")}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -624,72 +676,20 @@ export default function MonQRPage() {
         {/* ═══════════════ ONGLET GRATUIT ═══════════════ */}
         {!loading && subTab === "gratuit" && (
           <>
-            <div style={{ backgroundColor: "#fff", borderRadius: "16px", padding: "14px 16px", marginBottom: "16px", display: "flex", alignItems: "flex-start", gap: "12px", border: "1px solid rgba(245,166,35,0.2)" }}>
-              <div style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div style={{ backgroundColor: "#fff", borderRadius: "16px", padding: "14px 16px", marginBottom: "16px", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+              <div style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               </div>
               <div style={{ fontSize: "12px", color: "#6C6C70", lineHeight: 1.5 }}>
-                Sélectionnez un RDV ci-dessous pour générer votre QR Code unique. Présentez-le à l&apos;accueil pour confirmer votre présence.
+                Sélectionnez un RDV ci-dessous pour générer votre QR code unique. Présentez-le à l&apos;accueil pour confirmer votre présence.
               </div>
             </div>
-
-            {generating && (
-              <div style={{ backgroundColor: "#fff", borderRadius: "20px", padding: "40px", textAlign: "center", marginBottom: "16px" }}>
-                <div style={{ width: "60px", height: "60px", borderRadius: "50%", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", animation: "spin 1s linear infinite" }}>
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                </div>
-                <div style={{ color: "#080812", fontSize: "16px", fontWeight: "700" }}>Génération sécurisée...</div>
-                <div style={{ color: "#6C6C70", fontSize: "13px", marginTop: "6px" }}>Création de votre QR Code unique</div>
-              </div>
-            )}
-
-            {qrDataUrl && !generating && selected && (
-              <div style={{ backgroundColor: "#fff", borderRadius: "24px", padding: "28px 24px", textAlign: "center", marginBottom: "16px", boxShadow: "0 8px 40px rgba(245,166,35,0.2)", border: "2px solid rgba(245,166,35,0.3)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginBottom: "20px" }}>
-                  <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", animation: "pulse 1.5s ease-in-out infinite" }} />
-                  <span style={{ color: "#22c55e", fontSize: "13px", fontWeight: "700" }}>QR Code actif</span>
-                  {timeLeft && <span style={{ color: "#6C6C70", fontSize: "12px" }}> Expire dans {timeLeft}</span>}
-                </div>
-
-                <div style={{ display: "inline-block", padding: "16px", backgroundColor: "#fff", borderRadius: "16px", border: "3px solid #F5A623", marginBottom: "20px", boxShadow: "0 4px 20px rgba(245,166,35,0.2)" }}>
-                  {/* IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode), non fetchable par l'optimiseur next/image | reviewed=2026-08-08 */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={qrDataUrl} alt="QR Code" width="240" height="240" style={{ display: "block", borderRadius: "8px" }} />
-                </div>
-
-                <div style={{ backgroundColor: "#F2F2F7", borderRadius: "12px", padding: "12px 16px", marginBottom: "16px", textAlign: "left" }}>
-                  <div style={{ color: "#6C6C70", fontSize: "11px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "6px" }}>Votre rendez-vous</div>
-                  <div style={{ color: "#080812", fontSize: "14px", fontWeight: "700" }}>{selected?.objet || "Rendez-vous général"}</div>
-                  <div style={{ color: "#6C6C70", fontSize: "12px", marginTop: "3px" }}>
-                    {selected && new Date(selected.date_rdv).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
-                    {selected?.heure_rdv && ` à ${selected.heure_rdv}`}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {[
-                    "Présentez ce QR Code à l'accueil de l'institution",
-                    "Le personnel va scanner votre code pour confirmer votre présence",
-                    "Ne partagez pas ce code  il est personnel et unique",
-                  ].map((txt, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", textAlign: "left" }}>
-                      <div style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "rgba(245,166,35,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "11px", fontWeight: "800", color: "#F5A623" }}>{i + 1}</div>
-                      <span style={{ color: "#6C6C70", fontSize: "12px", lineHeight: 1.4 }}>{txt}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <button onClick={() => genererQR(selected)} style={{ marginTop: "16px", width: "100%", backgroundColor: "rgba(245,166,35,0.1)", color: "#F5A623", fontWeight: "700", fontSize: "14px", padding: "12px", borderRadius: "12px", border: "1px solid rgba(245,166,35,0.3)", cursor: "pointer" }}>
-                   Regénérer le QR Code
-                </button>
-              </div>
-            )}
 
             {rdvsGratuits.length === 0 ? (
               <div style={{ backgroundColor: "#fff", borderRadius: "16px", padding: "40px 20px", textAlign: "center" }}>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}><IllustrationCalendrierVide/></div>
                 <div style={{ color: "#080812", fontSize: "17px", fontWeight: "700", marginBottom: "8px" }}>Aucun rendez-vous gratuit à venir</div>
-                <div style={{ color: "#6C6C70", fontSize: "13px", marginBottom: "20px", lineHeight: 1.5 }}>Dès que vous prenez rendez-vous, votre QR Code apparaît ici pour confirmer votre présence.</div>
+                <div style={{ color: "#6C6C70", fontSize: "13px", marginBottom: "20px", lineHeight: 1.5 }}>Dès que vous prenez rendez-vous, votre QR code apparaît ici pour confirmer votre présence.</div>
                 <Link href="/recherche" style={{ display: "inline-block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "14px", padding: "12px 24px", borderRadius: "12px", textDecoration: "none" }}>
                   Trouver une institution
                 </Link>
@@ -702,12 +702,12 @@ export default function MonQRPage() {
                 return (
                   <div key={rdv.id} onClick={() => genererQR(rdv)}
                     style={{ backgroundColor: "#fff", borderRadius: "18px", padding: "16px", marginBottom: "10px", cursor: "pointer", border: `2px solid ${isSelected ? "#F5A623" : "transparent"}`, boxShadow: isSelected ? "0 4px 20px rgba(245,166,35,0.2)" : "none", transition: "all 0.2s ease" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", gap: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                        <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                         </div>
-                        <div>
+                        <div style={{ minWidth: 0 }}>
                           <div style={{ color: "#080812", fontSize: "14px", fontWeight: "700" }}>{rdv.objet || "Rendez-vous"}</div>
                           <div style={{ color: "#6C6C70", fontSize: "12px" }}>
                             {new Date(rdv.date_rdv).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
@@ -715,14 +715,19 @@ export default function MonQRPage() {
                           </div>
                         </div>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
-                        <span style={{ backgroundColor: st.bg, color: st.c, fontSize: "9px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>{st.l}</span>
-                        <span style={{ color: pr.c, fontSize: "10px", fontWeight: "700" }}>{pr.l}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                          <span style={{ backgroundColor: st.bg, color: st.c, fontSize: "9px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>{st.l}</span>
+                          <span style={{ color: pr.c, fontSize: "10px", fontWeight: "700" }}>{pr.l}</span>
+                        </div>
+                        {/* Chevron — même signal de tappabilité que les lignes
+                            de l'Historique des scans juste en dessous. */}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C7C7CC" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                       </div>
                     </div>
                     {!isSelected && (
                       <div style={{ backgroundColor: "#F5A623", color: "#080812", fontSize: "12px", fontWeight: "800", padding: "8px 14px", borderRadius: "10px", display: "inline-block" }}>
-                        Générer mon QR Code
+                        {rdv.qr_token ? "Afficher mon QR code" : "Générer mon QR code"}
                       </div>
                     )}
                   </div>
@@ -739,8 +744,8 @@ export default function MonQRPage() {
             ScanRow plus haut). Reste dans ce même sheet, pas un nouvel
             écran — "Voir tout" ne fait qu'étendre la liste déjà chargée. */}
         {!loading && (
-          <div style={{ marginBottom: "16px" }}>
-            <div style={{ color: "#080812", fontSize: "15px", fontWeight: "800", padding: "0 4px", marginBottom: "10px" }}>
+          <div style={{ marginTop: "32px", marginBottom: "16px" }}>
+            <div style={{ color: "#080812", fontSize: "15px", fontWeight: "800", padding: "0 4px", marginBottom: "12px" }}>
               Historique des scans
             </div>
 
@@ -748,24 +753,20 @@ export default function MonQRPage() {
               <div style={{ backgroundColor: "#fff", borderRadius: "16px", padding: "32px 20px", textAlign: "center" }}>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}><IllustrationHistoriqueVide/></div>
                 <div style={{ color: "#080812", fontSize: "15px", fontWeight: "700", marginBottom: "6px" }}>Aucun passage enregistré</div>
-                <div style={{ color: "#6C6C70", fontSize: "12.5px", lineHeight: 1.5 }}>Vos rendez-vous validés par QR Code apparaîtront ici.</div>
+                <div style={{ color: "#6C6C70", fontSize: "12.5px", lineHeight: 1.5 }}>Vos rendez-vous validés par QR code apparaîtront ici.</div>
               </div>
             ) : (
               <div style={{ backgroundColor: "#fff", borderRadius: "16px", padding: "4px 16px" }}>
                 {(scansExpanded ? scans : scans.slice(0, 3)).map((s, i, arr) => (
                   <div key={s.id} onClick={() => setDetailScan(s)} className="tap" role="button" tabIndex={0} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setDetailScan(s); }} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 0", borderBottom: i < arr.length - 1 ? "1px solid rgba(0,0,0,0.06)" : "none", cursor: "pointer" }}>
-                    <div style={{ width: "40px", height: "40px", position: "relative", borderRadius: "12px", background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.18)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", color: "#F5A623", overflow: "hidden", flexShrink: 0 }}>
+                    <div style={{ width: "40px", height: "40px", position: "relative", borderRadius: "12px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", color: "#080812", overflow: "hidden", flexShrink: 0 }}>
                       {s.institutionLogo ? <Image src={s.institutionLogo} alt={s.institutionNom} fill sizes="40px" style={{ objectFit: "cover" }}/> : getInitials(s.institutionNom)}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: "#080812", fontSize: "13.5px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.institutionNom}</div>
                       <div style={{ color: "#6C6C70", fontSize: "12px", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.objet || "Rendez-vous"}</div>
                       <div style={{ display: "flex", alignItems: "center", gap: "5px", marginTop: "5px" }}>
-                        <span style={{ backgroundColor: s.type === "payant" ? `${BLUE}15` : "rgba(245,166,35,0.12)", color: s.type === "payant" ? BLUE : "#F5A623", fontSize: "9.5px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px" }}>{s.type === "payant" ? "Payant" : "Gratuit"}</span>
-                        {s.type === "payant" && s.paiementStatut && (() => {
-                          const pInfo = paiementInfo(s.paiementStatut);
-                          return <span style={{ backgroundColor: pInfo.bg, color: pInfo.c, fontSize: "9.5px", fontWeight: "700", padding: "2px 7px", borderRadius: "20px" }}>{pInfo.l}</span>;
-                        })()}
+                        <span style={{ backgroundColor: s.type === "payant" ? BLUE : "#F5A623", color: s.type === "payant" ? "#fff" : "#080812", fontSize: "9.5px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px" }}>{s.type === "payant" ? "Payant" : "Gratuit"}</span>
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -800,10 +801,141 @@ export default function MonQRPage() {
         {/* SÉCURITÉ */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", padding: "12px", backgroundColor: "rgba(34,197,94,0.06)", borderRadius: "12px", border: "1px solid rgba(34,197,94,0.15)" }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          <span style={{ color: "#22c55e", fontSize: "11px", fontWeight: "700" }}>QR Code chiffré  Valide 3h  Unique par RDV</span>
+          <span style={{ color: "#22c55e", fontSize: "11px", fontWeight: "700" }}>QR code chiffré · Expire automatiquement · Unique par RDV</span>
         </div>
       </div>
       </PullToRefresh>
+
+      {/* Sheet plein écran (01/09/2026, retour Bryan) — couvre tout l'écran
+          sous le header ("Mon QR Code" reste accessible, avec son bouton
+          retour). Avant, le contenu du RDV sélectionné (QR actif / expiré /
+          définitivement expiré) s'affichait en ligne au-dessus de la liste
+          ET de l'Historique des scans, mélangeant "un RDV en attente" et
+          "l'historique" dans le même défilement. Désormais la liste et
+          l'historique restent une page propre, cliquer sur un RDV ouvre ce
+          contenu en pop — plus de dispersion. */}
+      {selected && (
+        <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 76px)", left: 0, right: 0, bottom: 0, zIndex: 950, backgroundColor: "#F2F2F7", overflowY: "auto", animation: "sheetUp 0.28s ease" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 6px", maxWidth: "480px", margin: "0 auto" }}>
+            <div style={{ color: "#080812", fontSize: "15px", fontWeight: "900" }}>Votre QR code</div>
+            <button onClick={fermerSelection} aria-label="Fermer" className="tap" style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: "#fff", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#6C6C70" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+
+          <div style={{ padding: "10px 16px 40px", maxWidth: "480px", margin: "0 auto" }}>
+            {generating && (
+              <div style={{ backgroundColor: "#fff", borderRadius: "20px", padding: "40px", textAlign: "center" }}>
+                <div style={{ width: "60px", height: "60px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", animation: "spin 1s linear infinite" }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                </div>
+                <div style={{ color: "#080812", fontSize: "16px", fontWeight: "700" }}>Génération sécurisée...</div>
+                <div style={{ color: "#6C6C70", fontSize: "13px", marginTop: "6px" }}>Création de votre QR code unique</div>
+              </div>
+            )}
+
+            {qrDataUrl && !generating && selected && (
+              <div style={{ backgroundColor: "#fff", borderRadius: "24px", padding: "28px 24px", textAlign: "center", boxShadow: "0 8px 40px rgba(245,166,35,0.2)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginBottom: "20px" }}>
+                  <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", animation: "pulse 1.5s ease-in-out infinite" }} />
+                  <span style={{ color: "#22c55e", fontSize: "13px", fontWeight: "700" }}>QR code actif</span>
+                  {timeLeft && <span style={{ color: "#6C6C70", fontSize: "12px" }}> · Expire dans {timeLeft}</span>}
+                </div>
+
+                <div style={{ position: "relative", display: "inline-block", padding: "16px", backgroundColor: "#fff", borderRadius: "16px", border: "3px solid #F5A623", marginBottom: "20px", boxShadow: "0 4px 20px rgba(245,166,35,0.2)" }}>
+                  {/* IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode), non fetchable par l'optimiseur next/image | reviewed=2026-08-08 */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={qrDataUrl} alt="QR code" width="240" height="240" style={{ display: "block", borderRadius: "8px" }} />
+                  {/* Logo Yelen au centre — vraie icône PWA (public/icon-512.png,
+                      mêmes couleurs de marque que le badge du QR Yelen ID en
+                      compte citoyen, lib/qrBrand.ts), plus l'approximation SVG
+                      contourée. ecc=H (30% de correction) posé sur l'URL de
+                      génération le rend tolérable sans casser la lecture du code. */}
+                  <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "54px", height: "54px", borderRadius: "14px", backgroundColor: "#fff", padding: "4px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
+                    <Image src="/icon-512.png" alt="" width={46} height={46} style={{ borderRadius: "10px" }} />
+                  </div>
+                </div>
+
+                {/* Code de secours (chantier YELEN Accueil, 13/09/2026) —
+                    même code que celui saisissable par l'agent via "Saisir le
+                    code YELEN" (CheckInApp.tsx), même expiration que le QR
+                    ci-dessus. Absent de cet écran jusqu'ici (trou trouvé
+                    14/09/2026) : le code existait déjà en base et côté agent,
+                    mais /api/qr/generate ne le renvoyait jamais au citoyen —
+                    aucun moyen de le lire à voix haute si le scan échouait. */}
+                {codeSecours && (
+                  <div style={{ marginBottom: "16px" }}>
+                    <div style={{ color: "#6C6C70", fontSize: "11px", fontWeight: "700", marginBottom: "8px" }}>Le scan ne fonctionne pas ? Donnez ce code à l&apos;accueil</div>
+                    <div style={{ display: "flex", justifyContent: "center", gap: "4px", flexWrap: "wrap" }}>
+                      {codeSecours.split("").map((c, i) => (
+                        <div key={i} style={{ width: "26px", height: "34px", borderRadius: "7px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", color: "#080812", fontSize: "15px", fontWeight: "900", fontFamily: "monospace" }}>{c}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ backgroundColor: "#F2F2F7", borderRadius: "12px", padding: "12px 16px", marginBottom: "16px", textAlign: "left" }}>
+                  <div style={{ color: "#6C6C70", fontSize: "11px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "6px" }}>Votre rendez-vous</div>
+                  <div style={{ color: "#080812", fontSize: "14px", fontWeight: "700" }}>{selected?.objet || "Rendez-vous général"}</div>
+                  <div style={{ color: "#6C6C70", fontSize: "12px", marginTop: "3px" }}>
+                    {selected && new Date(selected.date_rdv).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                    {selected?.heure_rdv && ` à ${selected.heure_rdv}`}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {[
+                    "Présentez ce QR code à l'accueil de l'institution",
+                    "Le personnel va scanner votre code pour confirmer votre présence",
+                    "Si le scan échoue, communiquez le code ci-dessus à l'agent",
+                    "Ne partagez pas ce code — il est personnel et unique",
+                  ].map((txt, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", textAlign: "left" }}>
+                      <div style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "11px", fontWeight: "800", color: "#080812" }}>{i + 1}</div>
+                      <span style={{ color: "#6C6C70", fontSize: "12px", lineHeight: 1.4 }}>{txt}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {derniereChance && (
+                  <div style={{ marginTop: "16px", padding: "10px 14px", borderRadius: "10px", backgroundColor: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444", fontSize: "11.5px", fontWeight: "700", textAlign: "left" }}>
+                    Dernière chance — ce code est l&apos;unique régénération possible. S&apos;il n&apos;est pas scanné dans ce délai, ce rendez-vous ne sera plus valide.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Délai initial dépassé sans scan (30 min après l'heure du RDV) —
+                une seule régénération finale reste possible, 10 min. Jamais un
+                QR ré-affiché automatiquement : le citoyen doit explicitement
+                redemander le dernier code. */}
+            {!qrDataUrl && !generating && !expireInfo && timeLeft === "Expiré" && !derniereChance && (
+              <div style={{ backgroundColor: "#fff", borderRadius: "20px", padding: "28px 24px", textAlign: "center", border: "2px solid #F5A623" }}>
+                <div style={{ color: "#080812", fontSize: "15px", fontWeight: "800", marginBottom: "8px" }}>QR expiré — dernière régénération possible</div>
+                <div style={{ color: "#6C6C70", fontSize: "12.5px", lineHeight: 1.5, marginBottom: "18px" }}>
+                  Le délai de {QR_MINUTES_APRES_RDV} minutes après l&apos;heure du rendez-vous est passé sans scan. Une seule régénération finale reste possible, valable {QR_MINUTES_REGENERATION_FINALE} minutes.
+                </div>
+                <button onClick={() => genererQR(selected)} style={{ width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+                  Générer mon dernier QR code
+                </button>
+              </div>
+            )}
+
+            {/* Définitivement expiré (délai final aussi dépassé, ou confirmé
+                par le serveur) — jamais un simple "expiré" silencieux, la
+                raison complète reste affichée tant que ce RDV est sélectionné. */}
+            {expireInfo && (
+              <div style={{ backgroundColor: "#fff", borderRadius: "20px", padding: "28px 24px", textAlign: "center", border: "2px solid #ef4444" }}>
+                <div style={{ width: "48px", height: "48px", borderRadius: "50%", backgroundColor: "rgba(239,68,68,0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </div>
+                <div style={{ color: "#ef4444", fontSize: "15px", fontWeight: "800", marginBottom: "8px" }}>{expireInfo.titre}</div>
+                <div style={{ color: "#6C6C70", fontSize: "12.5px", lineHeight: 1.6, whiteSpace: "pre-line" }}>{expireInfo.message}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Bottom-sheet — détail d'une entrée de l'Historique des scans
           (24/08/2026). Glissement vers le bas natif géré à la main
@@ -828,7 +960,7 @@ export default function MonQRPage() {
 
             <div style={{ padding: "12px 20px 28px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "18px" }}>
-                <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "16px", background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "800", color: "#F5A623", overflow: "hidden", flexShrink: 0 }}>
+                <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "16px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "800", color: "#080812", overflow: "hidden", flexShrink: 0 }}>
                   {detailScan.institutionLogo ? <Image src={detailScan.institutionLogo} alt={detailScan.institutionNom} fill sizes="52px" style={{ objectFit: "cover" }}/> : getInitials(detailScan.institutionNom)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -841,7 +973,7 @@ export default function MonQRPage() {
                 {(() => {
                   const rdvSt = stColor(detailScan.rdvStatut);
                   const rows: { label: string; value: React.ReactNode }[] = [
-                    { label: "Type", value: <span style={{ backgroundColor: detailScan.type === "payant" ? `${BLUE}15` : "rgba(245,166,35,0.12)", color: detailScan.type === "payant" ? BLUE : "#F5A623", fontSize: "11px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{detailScan.type === "payant" ? "Payant" : "Gratuit"}</span> },
+                    { label: "Type", value: <span style={{ backgroundColor: detailScan.type === "payant" ? BLUE : "#F5A623", color: detailScan.type === "payant" ? "#fff" : "#080812", fontSize: "11px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{detailScan.type === "payant" ? "Payant" : "Gratuit"}</span> },
                     { label: "Rendez-vous", value: formatDatetimeFull(`${detailScan.dateRdv}T${detailScan.heureRdv || "00:00"}`) },
                     { label: "Statut de la réservation", value: <span style={{ backgroundColor: rdvSt.bg, color: rdvSt.c, fontSize: "11px", fontWeight: "700", padding: "3px 9px", borderRadius: "20px" }}>{rdvSt.l}</span> },
                   ];
@@ -883,6 +1015,7 @@ export default function MonQRPage() {
         <div onClick={() => !declarerLoading && setDeclarerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
           <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#fff", borderRadius: "24px 24px 0 0", padding: "22px 20px 32px", width: "100%", maxWidth: "480px", animation: "slideUp 0.3s ease" }}>
             <div style={{ width: "40px", height: "4px", backgroundColor: "rgba(0,0,0,0.15)", borderRadius: "4px", margin: "0 auto 18px" }} />
+            <Image src="/illustrations/remise-paiement-agent.png" alt="Remise du paiement à l'agent de l'établissement" width={1536} height={1024} style={{ width: "180px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
             <div style={{ color: "#080812", fontSize: "16px", fontWeight: "900", marginBottom: "4px" }}>Je remets le paiement</div>
             <div style={{ color: "#6C6C70", fontSize: "12.5px", marginBottom: "18px", lineHeight: 1.5 }}>Confirmez que vous remettez ce montant à l&apos;agent de {selectedPaid.institutions?.name || "l&apos;établissement"}. {selectedPaid.institutions?.name || "L&apos;établissement"} devra confirmer le même montant pour que le paiement soit validé.</div>
 
@@ -902,7 +1035,7 @@ export default function MonQRPage() {
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "10px" }}>
               <button onClick={() => setDeclarerOpen(false)} disabled={declarerLoading} className="tap" style={{ padding: "14px", borderRadius: "14px", border: "1px solid rgba(0,0,0,0.1)", backgroundColor: "#F2F2F7", color: "#080812", fontSize: "13px", fontWeight: "700", cursor: declarerLoading ? "not-allowed" : "pointer" }}>Annuler</button>
-              <button onClick={declarerPaiement} disabled={!declarerChecked || declarerLoading} className="tap" style={{ padding: "14px", borderRadius: "14px", border: "none", background: !declarerChecked || declarerLoading ? "#D1D1D6" : "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontSize: "13px", fontWeight: "800", cursor: !declarerChecked || declarerLoading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              <button onClick={declarerPaiement} disabled={!declarerChecked || declarerLoading} className="tap" style={{ padding: "14px", borderRadius: "14px", border: "none", background: !declarerChecked || declarerLoading ? "#D1D1D6" : "#F5A623", color: "#080812", fontSize: "13px", fontWeight: "800", cursor: !declarerChecked || declarerLoading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                 {declarerLoading ? <YelenLoader size={15} color="#080812"/> : "Confirmer"}
               </button>
             </div>
@@ -917,6 +1050,7 @@ export default function MonQRPage() {
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.7;transform:scale(0.85)} }
         @keyframes fadeIn { from{opacity:0} to{opacity:1} }
         @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes sheetUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
         .tap { transition: transform 0.1s, opacity 0.1s; touch-action: manipulation; }
         .tap:active { opacity: 0.65; transform: scale(0.97); }
       `}</style>

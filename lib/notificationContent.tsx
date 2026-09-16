@@ -157,11 +157,32 @@ export function resoudreNotif(type: string | null | undefined): Entree {
 // CTA résolu par FK présente (pas par type exact) : robuste à tout type
 // futur qui porterait la même FK sans registre dédié. Ordre de priorité
 // = spécificité (une démarche/étape avant un simple RDV générique).
+//
+// Exception explicite par `type` (15/09/2026, annulation système d'un RDV
+// imminent — institution suspendue, voir
+// docs/product/YELEN_RDV_NOSHOW_RESTRICTIONS.md §7) : "Voir la
+// conversation" n'a aucun sens sur un RDV qui vient d'être annulé, il
+// faut orienter vers une solution immédiate (approche DoorDash — un
+// CTA d'action, jamais une impasse). Vérifiée AVANT la branche rdv_id
+// générique.
 export function resoudreCta(notif: NotifFk): { label: string; href: string } | null {
+  if (notif.type === "rdv_annule_systeme") return { label: "Trouver un nouveau rendez-vous", href: "/recherche" };
   if (notif.demarche_id) return { label: "Voir ma démarche", href: `/compte/mes-demarches?id=${notif.demarche_id}` };
   if (notif.objectif_id) return { label: "Voir mon objectif", href: `/menu/depenses?objectif=${notif.objectif_id}` };
   if (notif.budget_id) return { label: "Voir mon budget", href: `/menu/depenses?budget=${notif.budget_id}` };
   if (notif.depense_id) return { label: "Voir la dépense", href: `/menu/depenses?depense=${notif.depense_id}` };
   if (notif.rdv_id) return { label: "Voir la conversation", href: `/messagerie?rdv_id=${notif.rdv_id}` };
+  return null;
+}
+
+// CTA secondaire, plus discret (jamais rempli) — brief Bryan 15/09/2026,
+// approche DoorDash "problème → contexte → résolution → assistance" :
+// après le CTA de résolution principal, une porte de sortie vers un humain
+// reste toujours visible sur un événement négatif (annulation système),
+// jamais en imposant l'aide comme premier choix. Vide pour tout le reste
+// du registre — un second bouton systématique deviendrait du bruit sur des
+// notifications neutres (rappel, dépense ajoutée, etc.).
+export function resoudreCtaSecondaire(notif: NotifFk): { label: string; href: string } | null {
+  if (notif.type === "rdv_annule_systeme") return { label: "Besoin d'aide ?", href: "/messagerie/citoyen" };
   return null;
 }

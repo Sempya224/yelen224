@@ -90,6 +90,17 @@ export function versE164Guinee(neufChiffres: string): string {
   return `+224${neufChiffres}`;
 }
 
+// Masque un numéro pour l'affichage (écrans OTP/vérification) — un numéro
+// complet à l'écran n'a aucune utilité pour le citoyen à cette étape
+// (regard par-dessus l'épaule, capture d'écran) et n'est là que pour lui
+// confirmer que c'est bien SON numéro. Même convention/format que
+// app/institution/inscription/engine/steps/VerificationStep.tsx::maskPhone
+// (garde les 2 premiers + 4 derniers chiffres), reprise ici pour les écrans
+// citoyen (login/inscription) plutôt que dupliquée une 2e fois.
+export function masquerPhoneGuinee(neufChiffres: string): string {
+  return `+224${neufChiffres}`.replace(/(\+224)(\d{2})(\d{3})(\d{4})/, "$1 $2•••$4");
+}
+
 // Validation stricte côté serveur d'un numéro déjà au format +224XXXXXXXXX —
 // remplace la regex /^\+224\d{8,9}$/ dupliquée dans les routes API.
 // Strictement 9 chiffres (décision Bryan 14/08/2026, aucune tolérance à 8

@@ -64,7 +64,7 @@ export function MesDonneesClient() {
             width: "100%", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800,
             fontSize: "15px", padding: "15px", borderRadius: "14px", border: "none", cursor: "pointer", opacity: busy ? 0.6 : 1,
           }} onClick={telechargerDonnees}>
-            {busy ? "Génération…" : "Exporter mes données"}
+            {busy ? "Génération…" : "Télécharger mes données"}
           </button>
         </div>
       </main>

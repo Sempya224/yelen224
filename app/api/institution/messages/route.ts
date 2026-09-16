@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
-import { can } from "@/lib/institutionPermissions";
+import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 import { envoyerNotification } from "@/lib/notifications";
 import { conversationFermee } from "@/lib/messagerie";
@@ -40,6 +40,16 @@ export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   const authInstId = membre.institutionId;
+
+  // "messagerie" suit exactement le même accès que "mes-clients" pour les 5
+  // rôles (voir lib/institutionPermissions.ts, TAB_MATRIX) — un seul contrôle
+  // couvre donc les 3 modes de cette route (aucun paramètre, citoyen_id,
+  // rdv_id). Absent jusqu'ici : un membre comptable/dirigeant authentifié
+  // pouvait lire l'intégralité des conversations citoyen-institution en
+  // appelant directement cette route, malgré messagerie="none" pour ces rôles.
+  if (canAccessTab(membre.role, "messagerie", membre.accesRestreints) === "none") {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const citoyenId = searchParams.get("citoyen_id");

@@ -4,9 +4,10 @@ import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 import { enregistrerTransaction } from "@/lib/transactionsFinancieres";
-import { creneauEstOuvert, RDV_HORS_CRENEAU_MESSAGE } from "@/lib/rdvGating";
+import { creneauEstOuvert, RDV_HORS_CRENEAU_MESSAGE, absenceDeclarable, RDV_ABSENT_TROP_TOT_MESSAGE } from "@/lib/rdvGating";
 import { chargerDonneesRecu, genererRecuPdf } from "@/lib/recuPdf";
 import { notifierArrivee, notifierPriseEnCharge } from "@/lib/notificationEngine";
+import { chargerRestrictionActive, notifierSiEscalade } from "@/lib/rdvRestrictions";
 
 // URL de vérification publique — jamais un sous-domaine dédié (décision
 // CEO 05/08/2026 : "zéro complexité DNS" pour la V2), une route interne de
@@ -162,6 +163,18 @@ export async function PATCH(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
+  // Même correctif que app/api/institution/rdv/statut/route.ts (trouvé en
+  // conditions réelles le 15/09/2026) — une institution suspendue ne doit
+  // plus pouvoir traiter de réservation payante non plus (confirmer, no-show,
+  // annuler, annuler une validation).
+  const { data: institutionSuspension } = await sb.from("institutions").select("statut").eq("id", membre.institutionId).maybeSingle();
+  if (institutionSuspension?.statut === "suspendue") {
+    return NextResponse.json(
+      { error: "Votre établissement est actuellement suspendu — vous ne pouvez plus traiter de réservation tant que cette mesure n'est pas levée. Consultez l'écran « Espace suspendu » pour comprendre pourquoi et, si besoin, demander une révision." },
+      { status: 403 }
+    );
+  }
+
   const body = await req.json().catch(() => null);
   const id = body?.id;
   const action = body?.action;
@@ -187,7 +200,7 @@ export async function PATCH(req: NextRequest) {
 
   if (action === "annuler_validation") return handleAnnulerValidation(req, membre, booking, typeof body?.motif === "string" ? body.motif : "");
 
-  if (!can(membre.role, "rdv.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!can(membre.role, "rdv.write", membre.accesRestreints)) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
 
   // "Confirmé" = preuve de présence (paiement encaissé + présence validée en
   // une seule action ici, pas de scan séparé pour le payant) — jamais
@@ -197,13 +210,26 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: RDV_HORS_CRENEAU_MESSAGE.message, hors_creneau: true, titre: RDV_HORS_CRENEAU_MESSAGE.titre }, { status: 403 });
   }
 
+  // Même règle que rdv/statut/route.ts (trou trouvé 08/09/2026) : une
+  // absence ne peut jamais être déclarée avant l'ouverture de la fenêtre de
+  // confirmation de présence elle-même.
+  if (action === "no_show" && !absenceDeclarable(booking.date_rdv, booking.heure_rdv)) {
+    return NextResponse.json({ error: RDV_ABSENT_TROP_TOT_MESSAGE }, { status: 403 });
+  }
+
   // Motif obligatoire pour "annule" (signalé par Bryan 05/08/2026 : le
   // bouton déclenchait l'annulation sans aucune confirmation ni motif,
-  // "pas normal" pour une action qui annule le rendez-vous du citoyen).
-  // Pas exigé pour confirme/no_show, hors périmètre de la demande.
-  const motifAnnule = typeof body?.motif === "string" ? body.motif.trim() : "";
-  if (action === "annule" && motifAnnule.length < 5) {
+  // "pas normal" pour une action qui annule le rendez-vous du citoyen) ET
+  // pour "no_show" (décision CEO 08/09/2026, revenant sur le choix initial
+  // du 05/08/2026 qui l'excluait volontairement — un no-show déclenche
+  // désormais une mécanique de restriction citoyen potentiellement lourde,
+  // l'accountability l'exige). Pas exigé pour "confirme".
+  const motifSaisi = typeof body?.motif === "string" ? body.motif.trim() : "";
+  if (action === "annule" && motifSaisi.length < 5) {
     return NextResponse.json({ error: "Un motif (au moins 5 caractères) est requis pour annuler une réservation." }, { status: 400 });
+  }
+  if (action === "no_show" && motifSaisi.length < 5) {
+    return NextResponse.json({ error: "Un motif (au moins 5 caractères) est requis pour marquer ce client absent." }, { status: 400 });
   }
 
   // montant_paye figé à la confirmation si pas déjà fait (module financier,
@@ -264,9 +290,32 @@ export async function PATCH(req: NextRequest) {
     : action === "no_show" ? { presence_status: "absent", presence_confirmed_at: new Date().toISOString() }
     : { statut: "annule" };
 
+  // Restriction automatique des rendez-vous (no-show, décision CEO
+  // 03/09/2026) — même pont que rdv/statut/route.ts, capturé AVANT l'update
+  // pour détecter une éventuelle escalade juste après.
+  const restrictionAvant = action === "no_show" ? await chargerRestrictionActive(sb, booking.citoyen_id) : null;
+
   const { data: rdvJumeau } = await sb.from("rdv").update(rdvUpdates)
     .eq("institution_id", membre.institutionId).eq("date_rdv", booking.date_rdv).eq("heure_rdv", booking.heure_rdv)
     .select("id").maybeSingle();
+
+  if (action === "no_show") {
+    await notifierSiEscalade(sb, booking.citoyen_id, restrictionAvant?.id ?? null);
+    // Pas de journalisation avant ce correctif (trou pré-existant, distinct
+    // de la demande en cours) — ajoutée ici pour que le motif désormais
+    // obligatoire soit réellement conservé quelque part, même chose que
+    // "annule" juste en dessous.
+    await enregistrerAction({
+      institutionId: membre.institutionId,
+      membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: "rdv_absent",
+      cibleTable: "rdv",
+      cibleId: rdvJumeau?.id ?? id,
+      details: { motif: motifSaisi },
+      req,
+    });
+  }
 
   if (action === "confirme") {
     const membreNom = await getMembreNomPourJournal(membre.membreId);
@@ -383,7 +432,7 @@ export async function PATCH(req: NextRequest) {
       action: "rdv_annule",
       cibleTable: "rdv",
       cibleId: rdvJumeau?.id ?? id,
-      details: { motif: motifAnnule },
+      details: { motif: motifSaisi },
       req,
     });
   }

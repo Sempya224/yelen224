@@ -18,7 +18,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLoader } from "@/components/YelenLoader";
 import { supabase } from "@/lib/supabase";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { OFFRE_GENRES, OFFRE_GENRE_LABELS, OFFRE_GENRE_COULEURS, type OffreGenre } from "@/lib/offresCategories";
 import { APP_URL } from "@/lib/config";
 import { MesOffresPerformanceChart, type LignePerf } from "./MesOffresPerformanceChart";
@@ -108,7 +110,7 @@ function KpiCard({ label, value, color, bg, onClick, delta, deltaText }: { label
       className={onClick ? "tap" : undefined}
       style={{ backgroundColor: bg, borderRadius: "16px", padding: "14px", cursor: onClick ? "pointer" : "default" }}
     >
-      <div style={{ color, fontSize: "22px", fontWeight: 900, letterSpacing: "-0.4px", lineHeight: 1.1 }}>{value}</div>
+      <div style={{ color, fontSize: "22px", fontWeight: 800, letterSpacing: "-0.4px", lineHeight: 1.1 }}>{value}</div>
       <div style={{ color, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginTop: "5px", opacity: 0.85 }}>{label}</div>
       {deltaText ? (
         <div style={{ color, fontSize: "9.5px", fontWeight: 700, marginTop: "4px", opacity: 0.7 }}>{deltaText}</div>
@@ -129,10 +131,10 @@ function FormSection({ numero, icon, titre, description, children }: { numero: n
   return (
     <div style={{ marginBottom: "36px", paddingBottom: "36px", borderBottom: `1px solid ${C.border}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
-        <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: `linear-gradient(135deg,${C.gold},${C.goldD})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#080812", fontSize: "14px", fontWeight: 900 }}>{numero}</div>
+        <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: `linear-gradient(135deg,${C.gold},${C.goldD})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#080812", fontSize: "14px", fontWeight: 800 }}>{numero}</div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <div style={{ color: C.gold, flexShrink: 0 }}>{icon}</div>
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 900, letterSpacing: "-0.2px" }}>{titre}</div>
+          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, letterSpacing: "-0.2px" }}>{titre}</div>
         </div>
       </div>
       {description && <div style={{ color: C.t3, fontSize: "12px", lineHeight: 1.6, marginBottom: "16px", marginLeft: "46px" }}>{description}</div>}
@@ -321,7 +323,7 @@ export function MesOffresTab({ instId, onToast, access }: {
       : await fetch(`/api/institution/offres`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Erreur", C.red); return; }
+    if (!res.ok) { onToast(j?.error || "Cette offre n'a pas pu être enregistrée.", C.red); return; }
     if (soumettre && !editingId && j?.id) {
       await fetch(`/api/institution/offres/${j.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "soumettre" }) });
     }
@@ -492,15 +494,15 @@ export function MesOffresTab({ instId, onToast, access }: {
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px", gap: "12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: 900, margin: 0 }}>Mes offres</h1>
+          <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, margin: 0 }}>Mes offres</h1>
           <button onClick={() => setIntroOpen(true)} className="tap" title="Pourquoi publier des offres ?" aria-label="Pourquoi publier des offres ?" style={{ width: "22px", height: "22px", borderRadius: "50%", background: C.bgCard2, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.t2, cursor: "pointer", flexShrink: 0 }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           </button>
         </div>
         {access === "full" && (
-          <button onClick={openCreate} style={{ background: `linear-gradient(135deg,${C.gold},${C.goldD})`, border: "none", color: "#080812", fontWeight: 800, fontSize: "13px", padding: "10px 18px", borderRadius: "10px", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ flexShrink: 0, whiteSpace: "nowrap" }} onClick={openCreate}>
             + Nouvelle offre
-          </button>
+          </Button>
         )}
       </div>
       <div style={{ color: C.t2, fontSize: "12.5px", marginBottom: "16px" }}>Gérez ici toutes les offres publiées par votre institution.</div>
@@ -651,29 +653,29 @@ export function MesOffresTab({ instId, onToast, access }: {
                   <span style={{ position: "relative", width: "8px", height: "8px", borderRadius: "50%", background: C.green, flexShrink: 0 }}>
                     <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: C.green, animation: "ping 1.6s ease-out infinite" }}/>
                   </span>
-                  <div style={{ color: C.t1, fontSize: "15px", fontWeight: 900 }}>Aperçu en direct</div>
+                  <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800 }}>Aperçu en direct</div>
                 </div>
-                <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "24px", padding: "24px" }}>
+                <Card tokens={toCardTokens(C)} padding="24px">
                   <div style={{ width: "270px", maxWidth: "100%", margin: "0 auto", height: "500px", borderRadius: "38px", border: `8px solid ${theme === "dark" ? "#000" : "#1a1a1a"}`, overflow: "hidden", position: "relative", background: C.bg, boxShadow: "0 20px 50px rgba(0,0,0,0.25)" }}>
                     <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "90px", height: "18px", background: theme === "dark" ? "#000" : "#1a1a1a", borderRadius: "0 0 12px 12px", zIndex: 2 }}/>
                     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", paddingTop: "18px" }}>
                       <OffreFicheContenu offre={draftOffre} isDark={theme === "dark"} card={C.bgCard} t1={C.t1} t2={C.t2} t3={C.t3} brd={C.border} populaire={false}/>
                     </div>
                   </div>
-                </div>
+                </Card>
               </div>
             </div>
           </main>
 
           <footer style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, background: C.bgCard, padding: "14px 20px calc(14px + env(safe-area-inset-bottom))" }}>
             <div style={{ display: "flex", gap: "10px", maxWidth: "1100px", margin: "0 auto" }}>
-              <button onClick={() => submitForm(false)} disabled={saving || !form.titre} style={{ background: C.bgCard2, border: `1px solid ${C.border}`, color: !form.titre ? C.t3 : C.t1, fontWeight: 700, fontSize: "13px", padding: "10px 18px", borderRadius: "10px", cursor: saving || !form.titre ? "not-allowed" : "pointer", opacity: !form.titre ? 0.5 : 1, display: "flex", alignItems: "center", gap: "8px" }}>
-                {saving ? <YelenLoader size={15} color={C.t1}/> : "Enregistrer en brouillon"}
-              </button>
-              <button onClick={() => submitForm(true)} disabled={saving || champsCompletes < champsRequisTotal} style={{ background: champsCompletes < champsRequisTotal ? C.bgCard2 : `linear-gradient(135deg,${C.gold},${C.goldD})`, border: champsCompletes < champsRequisTotal ? `1px solid ${C.border}` : "none", color: champsCompletes < champsRequisTotal ? C.t3 : "#080812", fontWeight: 800, fontSize: "13px", padding: "10px 18px", borderRadius: "10px", cursor: saving || champsCompletes < champsRequisTotal ? "not-allowed" : "pointer", opacity: champsCompletes < champsRequisTotal ? 0.6 : 1, display: "flex", alignItems: "center", gap: "8px" }}>
-                {saving ? <YelenLoader size={15} color="#080812"/> : `Soumettre à Yelen${champsCompletes < champsRequisTotal ? ` (${champsCompletes}/${champsRequisTotal})` : ""}`}
-              </button>
-              <button onClick={() => setFormOpen(false)} style={{ background: "none", border: "none", color: C.t2, fontWeight: 700, fontSize: "13px", cursor: "pointer" }}>Annuler</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={!form.titre} loading={saving} onClick={() => submitForm(false)}>
+                Enregistrer en brouillon
+              </Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={champsCompletes < champsRequisTotal} loading={saving} onClick={() => submitForm(true)}>
+                {`Soumettre à Yelen${champsCompletes < champsRequisTotal ? ` (${champsCompletes}/${champsRequisTotal})` : ""}`}
+              </Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="ghost" size="md" onClick={() => setFormOpen(false)}>Annuler</Button>
             </div>
           </footer>
         </div>
@@ -682,14 +684,14 @@ export function MesOffresTab({ instId, onToast, access }: {
       {loading ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}><YelenLoader size={24} labelColor={C.t2}/></div>
       ) : items.length === 0 ? (
-        <div style={{ background: C.bgCard, border: `1.5px solid ${C.border}`, borderRadius: "20px", padding: "44px 24px", textAlign: "center" }}>
+        <Card tokens={toCardTokens(C)} padding="44px 24px" style={{ textAlign: "center" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}><IllustrationOffres C={C}/></div>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, marginBottom: "8px" }}>Vos offres n&apos;attendent que vous</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, marginBottom: "8px" }}>Vos offres n&apos;attendent que vous</div>
           <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65, marginBottom: "20px", maxWidth: "340px", margin: "0 auto 20px" }}>Une offre publiée devient visible par tous les utilisateurs de Yelen — remise, avantage, ou service mis en avant. Yelen valide chaque offre avant publication.</div>
           {access === "full" && (
-            <button onClick={openCreate} style={{ background: `linear-gradient(135deg,${C.gold},${C.goldD})`, color: "#080812", fontWeight: 800, fontSize: "14px", padding: "13px 28px", borderRadius: "14px", border: "none", cursor: "pointer" }}>Créer ma première offre</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={openCreate}>Créer ma première offre</Button>
           )}
-        </div>
+        </Card>
       ) : (
         <>
           <div className="offres-kpi-grid" style={{ marginBottom: "16px" }}>
@@ -709,7 +711,7 @@ export function MesOffresTab({ instId, onToast, access }: {
             </div>
             <div className="offres-perf-col-right">
               {access === "full" && (
-                <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "18px", marginBottom: "16px" }}>
+                <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "16px" }}>
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Actions rapides</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                     <button onClick={openCreate} className="tap" style={actionRapideStyle(C, false)}>
@@ -729,7 +731,7 @@ export function MesOffresTab({ instId, onToast, access }: {
                       <div><div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Programmer</div><div style={{ color: C.t3, fontSize: "10.5px" }}>Bientôt disponible</div></div>
                     </button>
                   </div>
-                </div>
+                </Card>
               )}
             </div>
           </div>
@@ -741,7 +743,7 @@ export function MesOffresTab({ instId, onToast, access }: {
               return (
                 <button key={s.key} onClick={() => setStatutFiltre(s.key)} className="tap" style={{ flexShrink: 0, backgroundColor: activeTab ? `${C.gold}15` : C.bgCard2, border: `1.5px solid ${activeTab ? C.gold + "50" : C.border}`, borderRadius: "20px", padding: "7px 13px", color: activeTab ? C.gold : C.t2, fontSize: "12px", fontWeight: activeTab ? 800 : 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
                   {s.label}
-                  {count > 0 && <span style={{ backgroundColor: activeTab ? C.gold : C.border2, color: activeTab ? "#000" : C.t2, fontSize: "9px", fontWeight: 900, padding: "2px 6px", borderRadius: "20px" }}>{count}</span>}
+                  {count > 0 && <span style={{ backgroundColor: activeTab ? C.gold : C.border2, color: activeTab ? "#000" : C.t2, fontSize: "9px", fontWeight: 800, padding: "2px 6px", borderRadius: "20px" }}>{count}</span>}
                 </button>
               );
             })}
@@ -753,9 +755,9 @@ export function MesOffresTab({ instId, onToast, access }: {
           </div>
 
           {visibleItems.length === 0 ? (
-            <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "32px", textAlign: "center", color: C.t2, fontSize: "13px" }}>
+            <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center", color: C.t2, fontSize: "13px" }}>
               Aucune offre ne correspond à ces critères.
-            </div>
+            </Card>
           ) : (
             <MesOffresTable
               items={visibleItems}

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Aucune configuration 2FA en attente — recommencez depuis le début.' }, { status: 400 })
     }
 
-    const result = await verify({ secret: admin.totp_secret, token: code })
+    const result = await verify({ secret: admin.totp_secret, token: code, epochTolerance: 30 })
     if (!result.valid) {
       return NextResponse.json({ error: 'Code invalide' }, { status: 401 })
     }

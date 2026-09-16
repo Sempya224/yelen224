@@ -35,7 +35,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
 import { YelenLoader } from "@/components/YelenLoader";
 import { tabAllowed, tabReadOnly, type MembreRole, type TabKey } from "@/lib/institutionPermissions";
 
@@ -203,13 +204,9 @@ export function CentreConfigurationTab({
         <p style={{ color: C.t2, fontSize: "12.5px", fontWeight: "600", margin: "0 0 16px" }}>
           Vos informations n&apos;ont pas été perdues — réessayez dans un instant.
         </p>
-        <button
-          onClick={() => { setLoading(true); load(); }}
-          className="tap"
-          style={{ background: C.gold, color: "#080812", border: "none", borderRadius: "10px", padding: "10px 18px", fontSize: "13px", fontWeight: "800", cursor: "pointer" }}
-        >
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => { setLoading(true); load(); }}>
           Réessayer
-        </button>
+        </Button>
       </div>
     );
   }
@@ -320,7 +317,7 @@ export function CentreConfigurationTab({
         <span style={{ color: "#FFFFFF", fontSize: "11.5px", fontWeight: "800", letterSpacing: "0.4px", textTransform: "uppercase", opacity: 0.92, display: "block", marginBottom: "6px" }}>
           Bienvenue{data.responsable?.prenom ? `, ${data.responsable.prenom}` : ""} !
         </span>
-        <h1 style={{ color: "#1A1206", fontSize: "22px", fontWeight: "900", margin: "0 0 6px", letterSpacing: "-0.3px" }}>Votre espace Yelen est presque prêt.</h1>
+        <h1 style={{ color: "#1A1206", fontSize: "22px", fontWeight: "800", margin: "0 0 6px", letterSpacing: "-0.3px" }}>Votre espace Yelen est presque prêt.</h1>
         <p style={{ color: "#4A3410", fontSize: "13px", fontWeight: "600", margin: 0, maxWidth: "480px", position: "relative" }}>
           Prenez un moment pour vérifier les informations de {instName} et compléter les quelques étapes restantes. Une fois tout finalisé, votre espace pourra être activé.
         </p>
@@ -353,8 +350,8 @@ export function CentreConfigurationTab({
             <circle cx="66" cy="58" r="14" fill={C.bgCard2} stroke={C.gold} strokeWidth="3" />
             <path d="M60 58l4 4 8-8" stroke={C.gold} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: "900", margin: "0 0 4px" }}>Merci pour votre confiance.</h2>
-          <div style={{ color: C.gold, fontSize: "26px", fontWeight: "900", letterSpacing: "-0.4px", margin: "0 0 18px" }}>{instName}</div>
+          <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: "800", margin: "0 0 4px" }}>Merci pour votre confiance.</h2>
+          <div style={{ color: C.gold, fontSize: "26px", fontWeight: "800", letterSpacing: "-0.4px", margin: "0 0 18px" }}>{instName}</div>
           <div style={{ maxWidth: "460px", margin: "0 auto", textAlign: "left" }}>
             <p style={{ color: C.t2, fontSize: "13px", fontWeight: "600", lineHeight: 1.65, margin: "0 0 12px" }}>
               Votre dossier est maintenant en cours de vérification par notre équipe. Nous vous remercions de l&apos;intérêt que vous portez à Yelen et de votre patience pendant l&apos;examen de vos informations et documents.
@@ -372,7 +369,7 @@ export function CentreConfigurationTab({
       {/* ── Statut de préparation ──────────────────────────────────── */}
       <div style={{ backgroundColor: C.bgCard2, border: `1px solid ${C.border2}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "10px" }}>
-          <span style={{ color: C.t1, fontSize: "15px", fontWeight: "900" }}>Préparation — {data.pct}%</span>
+          <span style={{ color: C.t1, fontSize: "15px", fontWeight: "800" }}>Préparation — {data.pct}%</span>
           <span style={{ color: C.t3, fontSize: "11.5px", fontWeight: "700" }}>
             {missingBlocking.length === 0 ? "Toutes les étapes obligatoires sont terminées" : `${missingBlocking.length} étape${missingBlocking.length > 1 ? "s" : ""} obligatoire${missingBlocking.length > 1 ? "s" : ""} restante${missingBlocking.length > 1 ? "s" : ""}`}
           </span>
@@ -396,7 +393,7 @@ export function CentreConfigurationTab({
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                   <span style={{ color: C.t1, fontSize: "14.5px", fontWeight: "800" }}>{g.label}</span>
                   <span style={{
-                    fontSize: "9.5px", fontWeight: "900", letterSpacing: "0.3px", padding: "2px 7px", borderRadius: "5px",
+                    fontSize: "9.5px", fontWeight: "800", letterSpacing: "0.3px", padding: "2px 7px", borderRadius: "5px",
                     color: g.blocking ? C.orange : C.t3,
                     backgroundColor: g.blocking ? C.orangeL : C.bg3,
                   }}>
@@ -406,7 +403,7 @@ export function CentreConfigurationTab({
                 <p style={{ color: C.t3, fontSize: "12px", fontWeight: "600", margin: "3px 0 0" }}>{GROUP_DESC[g.id]}</p>
               </div>
               {g.done && (
-                <span style={{ display: "flex", alignItems: "center", gap: "3px", color: C.green, fontSize: "10px", fontWeight: "900", flexShrink: 0 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: "3px", color: C.green, fontSize: "10px", fontWeight: "800", flexShrink: 0 }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
                   TERMINÉ
                 </span>
@@ -527,7 +524,7 @@ export function CentreConfigurationTab({
                     <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700", display: "block" }}>{row.label}</span>
                     <span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{row.value}</span>
                   </div>
-                  <span style={{ display: "flex", alignItems: "center", gap: "3px", color: C.green, fontSize: "10px", fontWeight: "900", flexShrink: 0 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: "3px", color: C.green, fontSize: "10px", fontWeight: "800", flexShrink: 0 }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>
                     COMPLÉTÉ
                   </span>
@@ -595,7 +592,7 @@ export function CentreConfigurationTab({
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          <span style={{ color: C.t1, fontSize: "17px", fontWeight: "900", letterSpacing: "-0.2px" }}>Questions fréquentes</span>
+          <span style={{ color: C.t1, fontSize: "17px", fontWeight: "800", letterSpacing: "-0.2px" }}>Questions fréquentes</span>
         </div>
         <p style={{ color: C.t3, fontSize: "12.5px", fontWeight: "600", margin: "0 0 16px" }}>
           Tout ce qu&apos;il faut savoir sur la préparation et l&apos;activation de votre espace.
@@ -686,7 +683,7 @@ export function CentreConfigurationTab({
                   "Votre espace est activé automatiquement, sans action supplémentaire de votre part.",
                 ].map((t, i) => (
                   <div key={i} style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
-                    <span style={{ color: C.gold, fontSize: "11px", fontWeight: "900", flexShrink: 0 }}>{i + 1}.</span>
+                    <span style={{ color: C.gold, fontSize: "11px", fontWeight: "800", flexShrink: 0 }}>{i + 1}.</span>
                     <span style={{ color: C.t2, fontSize: "12px", fontWeight: "600", lineHeight: 1.5 }}>{t}</span>
                   </div>
                 ))}

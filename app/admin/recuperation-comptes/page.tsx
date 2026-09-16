@@ -52,6 +52,7 @@ export default function RecuperationComptesPage() {
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirmForcer, setConfirmForcer] = useState<Demande | null>(null)
+  const [motifForcer, setMotifForcer] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -200,8 +201,8 @@ export default function RecuperationComptesPage() {
 
       <ConfirmModal
         open={!!confirmForcer}
-        onClose={() => setConfirmForcer(null)}
-        onConfirm={async () => { if (confirmForcer) { await agir(confirmForcer.id, 'forcer'); setConfirmForcer(null) } }}
+        onClose={() => { setConfirmForcer(null); setMotifForcer('') }}
+        onConfirm={async () => { if (confirmForcer) { await agir(confirmForcer.id, 'forcer', motifForcer); setConfirmForcer(null); setMotifForcer('') } }}
         tokens={uiTokens}
         level={3}
         danger
@@ -216,6 +217,9 @@ export default function RecuperationComptesPage() {
         ]}
         reversible={false}
         irreversibleNote="Non annulable automatiquement — seule une nouvelle action manuelle inverse peut revenir en arrière."
+        motifValue={motifForcer}
+        onMotifChange={setMotifForcer}
+        motifPlaceholder="Raison du passage en force — conservée dans les notes admin..."
         confirmWord="FORCER"
         confirmLabel="Forcer maintenant"
       />

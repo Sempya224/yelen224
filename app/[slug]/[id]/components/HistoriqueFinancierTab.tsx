@@ -7,7 +7,8 @@
 // dessus, Historique = consulter/exporter).
 import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 
@@ -19,6 +20,11 @@ type Paiement = {
 
 function formatPrix(p: number): string { return Math.round(p).toLocaleString("fr-FR") + " " + DEVISE_LABEL; }
 function formatDate(iso: string): string { return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }); }
+
+const STATUT_LABEL: Record<string, string> = {
+  en_attente: "En attente", confirme: "Confirmé", termine: "Terminé",
+  no_show: "Absent", annule: "Annulé", rembourse: "Remboursé",
+};
 
 export function HistoriqueFinancierTab({ instId }: { instId: string }) {
   const { theme } = useTheme();
@@ -67,8 +73,8 @@ export function HistoriqueFinancierTab({ instId }: { instId: string }) {
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px", flexWrap: "wrap", gap: "10px" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>Historique financier</h1>
-        <button onClick={exporterCsv} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, color: C.t1, fontWeight: "700", fontSize: "12px", padding: "9px 14px", borderRadius: "10px", cursor: "pointer" }}>Exporter CSV</button>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Historique financier</h1>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter CSV</Button>
       </div>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Consultation seule — {filtered.length} paiement{filtered.length > 1 ? "s" : ""}, total confirmé {formatPrix(total)}.</p>
 
@@ -110,7 +116,7 @@ export function HistoriqueFinancierTab({ instId }: { instId: string }) {
                   <td style={{ padding: "11px 14px", fontWeight: "700", color: C.t1, whiteSpace: "nowrap" }}>{p.citoyen_nom}</td>
                   <td style={{ padding: "11px 14px", color: C.t2, whiteSpace: "nowrap" }}>{p.service_nom}</td>
                   <td style={{ padding: "11px 14px", color: C.t3, whiteSpace: "nowrap" }}>{formatDate(p.date_rdv)}</td>
-                  <td style={{ padding: "11px 14px", color: C.t2, whiteSpace: "nowrap" }}>{p.statut}</td>
+                  <td style={{ padding: "11px 14px", color: C.t2, whiteSpace: "nowrap" }}>{STATUT_LABEL[p.statut] ?? p.statut}</td>
                   <td style={{ padding: "11px 14px", color: C.green, fontWeight: "800", whiteSpace: "nowrap" }}>{formatPrix(p.montant)}</td>
                 </tr>
               ))}

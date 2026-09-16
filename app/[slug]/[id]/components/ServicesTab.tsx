@@ -15,10 +15,12 @@
 // n'existe pas en base.
 import { useEffect, useState, useCallback } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { SECTEURS, SERVICES_PAR_SECTEUR, type SecteurId } from "@/lib/institutionTaxonomy";
 import { supabase } from "@/lib/supabase";
 import { YelenLoader } from "@/components/YelenLoader";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { FormField } from "./FormField";
 
@@ -207,12 +209,12 @@ function KpiCard({ label, value, color, bg, icon, delta }: { label: string; valu
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow, padding: "20px", display: "flex", alignItems: "flex-start", gap: "14px" }}>
+    <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow, display: "flex", alignItems: "flex-start", gap: "14px" }}>
       <div style={{ width: "52px", height: "52px", borderRadius: "50%", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <KpiIcon name={icon} color={color}/>
       </div>
       <div style={{ minWidth: 0 }}>
-        <div style={{ color: C.t1, fontSize: "26px", fontWeight: 900, letterSpacing: "-0.6px", lineHeight: 1.1 }}>{value}</div>
+        <div style={{ color: C.t1, fontSize: "26px", fontWeight: 800, letterSpacing: "-0.6px", lineHeight: 1.1 }}>{value}</div>
         <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginTop: "6px" }}>{label}</div>
         {delta && (
           <div style={{ color: C.green, fontSize: "11px", fontWeight: 700, marginTop: "6px", display: "flex", alignItems: "center", gap: "3px" }}>
@@ -221,7 +223,7 @@ function KpiCard({ label, value, color, bg, icon, delta }: { label: string; valu
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -315,7 +317,7 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </div>
         <div>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", letterSpacing: "-0.3px" }}>{isEdit ? "Modifier le service" : "Nouveau service payant"}</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", letterSpacing: "-0.3px" }}>{isEdit ? "Modifier le service" : "Nouveau service payant"}</div>
           <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>Visible sur votre fiche profil</div>
         </div>
       </div>
@@ -391,11 +393,17 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
         )}
 
         <div className="svc-form-span2" style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: "10px" }}>
-          <button onClick={onCancel} className="tap" style={{ backgroundColor: C.bg3, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1.5px solid ${C.border2}`, cursor: "pointer" }}>Annuler</button>
-          <button onClick={submit} disabled={saving} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", opacity: saving ? 0.7 : 1 }}>
-            {saving ? <YelenLoader size={14} color="#000"/> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
-            {saving ? (isEdit ? "Enregistrement…" : "Création…") : (isEdit ? "Enregistrer les modifications" : "Créer le service")}
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onCancel}>Annuler</Button>
+          <Button
+            tokens={toUiTokens(C)} className="tap"
+            variant="primary"
+            size="md"
+            loading={saving}
+            icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+            onClick={submit}
+          >
+            {isEdit ? "Enregistrer les modifications" : "Créer le service"}
+          </Button>
         </div>
       </div>
     </div>
@@ -506,7 +514,7 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
   const nbAttente   = bookings.filter(b => b.statut === "en_attente").length;
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${service.is_active ? C.border2 : C.border}`, marginBottom: "12px", overflow: "hidden", opacity: service.is_active ? 1 : 0.6 }}>
+    <Card tokens={toCardTokens(C)} noPadding style={{ border: `1.5px solid ${service.is_active ? C.border2 : C.border}`, marginBottom: "12px", opacity: service.is_active ? 1 : 0.6 }}>
       <div style={{ height: "3px", background: service.is_active ? `linear-gradient(90deg, ${C.gold}, ${C.goldL}, ${C.gold})` : C.border }}/>
       <div style={{ padding: "16px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "12px" }}>
@@ -514,9 +522,9 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={service.is_active ? C.gold : C.t3} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: C.t1, fontSize: "15px", fontWeight: 900, marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{service.nom}</div>
+            <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{service.nom}</div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <span style={{ color: C.gold, fontSize: "16px", fontWeight: 900 }}>{formatPrix(service.prix)}</span>
+              <span style={{ color: C.gold, fontSize: "16px", fontWeight: 800 }}>{formatPrix(service.prix)}</span>
               <span style={{ color: C.t3, fontSize: "11px" }}>·</span>
               <span style={{ color: C.t3, fontSize: "12px", fontWeight: 600 }}>{service.duree_minutes} min</span>
             </div>
@@ -538,7 +546,7 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
             { label: "En attente",   value: nbAttente,   color: nbAttente > 0 ? C.orange : C.t3 },
           ].map(m => (
             <div key={m.label} style={{ backgroundColor: C.bg3, borderRadius: "11px", padding: "9px", textAlign: "center", border: `1px solid ${C.border}` }}>
-              <div style={{ color: m.color, fontSize: "16px", fontWeight: 900, lineHeight: 1 }}>{m.value}</div>
+              <div style={{ color: m.color, fontSize: "16px", fontWeight: 800, lineHeight: 1 }}>{m.value}</div>
               <div style={{ color: C.t3, fontSize: "8.5px", fontWeight: 700, marginTop: "3px", textTransform: "uppercase", letterSpacing: "0.4px" }}>{m.label}</div>
             </div>
           ))}
@@ -546,16 +554,23 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
         {resaDelta > 0 && <div style={{ color: C.green, fontSize: "10.5px", fontWeight: 700, marginBottom: "10px" }}>+{resaDelta} réservation{resaDelta > 1 ? "s" : ""} ce mois</div>}
 
         <div style={{ display: "flex", gap: "8px", marginBottom: nbTotal > 0 ? "10px" : 0 }}>
-          <button onClick={onEdit} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1.5px solid ${C.border2}`, color: C.t1, fontWeight: 700, fontSize: "12px", padding: "10px", borderRadius: "11px", cursor: "pointer" }}>Modifier</button>
-          <button onClick={onDuplicate} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1.5px solid ${C.border2}`, color: C.t1, fontWeight: 700, fontSize: "12px", padding: "10px", borderRadius: "11px", cursor: "pointer" }}>Dupliquer</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ flex: 1 }} onClick={onEdit}>Modifier</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ flex: 1 }} onClick={onDuplicate}>Dupliquer</Button>
           <ServiceActionsMenu service={service} isOpen={menuOpen} onToggle={onMenuToggle} onClose={onMenuClose} onEdit={onEdit} onDuplicate={onDuplicate} onToggleActive={onToggleActive} onDelete={onDelete} togglingActive={toggling} showToggleActive={false} direction="up"/>
         </div>
 
         {nbTotal > 0 && (
-          <button onClick={() => setExpanded(e => !e)} className="tap" style={{ width: "100%", backgroundColor: C.bg3, border: `1.5px solid ${C.border2}`, color: C.gold, fontWeight: 700, fontSize: "12px", padding: "10px", borderRadius: "11px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2.5" strokeLinecap="round">{expanded ? <polyline points="18 15 12 9 6 15"/> : <polyline points="6 9 12 15 18 9"/>}</svg>
+          <Button
+            tokens={toUiTokens(C)} className="tap"
+            variant="secondary"
+            size="sm"
+            fullWidth
+            style={{ color: C.gold }}
+            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2.5" strokeLinecap="round">{expanded ? <polyline points="18 15 12 9 6 15"/> : <polyline points="6 9 12 15 18 9"/>}</svg>}
+            onClick={() => setExpanded(e => !e)}
+          >
             {expanded ? "Masquer" : `Voir ${nbTotal} RDV`}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -566,7 +581,7 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
             const si = statutInfo(b.statut, C);
             return (
               <div key={b.id} style={{ padding: "11px 16px", borderBottom: i < bookings.length - 1 ? `1px solid ${C.border}` : "none", display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ width: "38px", height: "38px", borderRadius: "11px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
+                <div style={{ width: "38px", height: "38px", borderRadius: "11px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.citoyen_nom || "Citoyen"}</div>
                   <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{formatDate(b.date_rdv)} · {b.heure_rdv}</div>
@@ -581,7 +596,7 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
           <div style={{ padding: "8px" }}/>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -725,7 +740,7 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 900, letterSpacing: "-0.3px" }}>Offre gratuite</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, letterSpacing: "-0.3px" }}>Offre gratuite</div>
           <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, marginTop: "2px" }}>
             Ce que vous proposez à vos clients — <strong style={{ color: C.t1 }}>toujours gratuit</strong>, réservable par les citoyens et visible sur votre fiche publique. Totalement différent du catalogue <strong style={{ color: C.t1 }}>Services payants</strong>.
           </div>
@@ -742,7 +757,7 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
             <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700, marginBottom: "2px" }}>Impossible de charger vos offres existantes</div>
             <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.5, marginBottom: "4px" }}>Vos offres sont peut-être toujours là (visibles côté citoyen) — c&apos;est le chargement ici qui a échoué. Reconnectez-vous si le problème persiste.</div>
             <div style={{ color: C.t3, fontSize: "10.5px", fontFamily: "monospace", marginBottom: "8px" }}>{loadError}</div>
-            <button onClick={() => loadServices()} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "7px 14px", color: C.t1, fontSize: "11.5px", fontWeight: 700, cursor: "pointer" }}>Réessayer</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => loadServices()}>Réessayer</Button>
           </div>
         </div>
       ) : (
@@ -799,7 +814,7 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
           )}
 
           <div style={{ color: C.t3, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{editingIndex !== null ? "Modifier l'offre" : "Ajouter une offre"}</div>
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <Card tokens={toCardTokens(C)} padding="14px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom du service (ex: Ouverture de compte)" style={inputStyle}/>
             <div style={{ display: "flex", gap: "8px" }}>
               <input type="number" value={duree} onChange={e => setDuree(e.target.value)} placeholder="Durée (min)" style={{ ...inputStyle, maxWidth: "140px" }}/>
@@ -809,13 +824,13 @@ function OffreGeneraleSection({ instId }: { instId: string }) {
             {err && <div style={{ color: C.red, fontSize: "11.5px", fontWeight: 700 }}>{err}</div>}
             <div style={{ display: "flex", gap: "8px" }}>
               {editingIndex !== null && (
-                <button onClick={resetForm} className="tap" style={{ backgroundColor: C.bg3, color: C.t2, border: `1.5px solid ${C.border2}`, borderRadius: "12px", padding: "0 16px", height: "38px", fontWeight: 700, fontSize: "12.5px", cursor: "pointer" }}>Annuler</button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={resetForm}>Annuler</Button>
               )}
-              <button onClick={submit} className="tap" style={{ flex: 1, backgroundColor: C.blue, color: "#fff", border: "none", borderRadius: "12px", height: "38px", fontWeight: 800, fontSize: "13px", cursor: "pointer" }}>
+              <button onClick={submit} className="tap" style={{ flex: 1, height: "32px", backgroundColor: C.blue, color: "#fff", border: "none", borderRadius: "10px", fontWeight: 700, fontSize: "12px", cursor: "pointer" }}>
                 {editingIndex !== null ? "Enregistrer" : "Ajouter à l'offre"}
               </button>
             </div>
-          </div>
+          </Card>
         </>
       )}
     </div>
@@ -1048,10 +1063,16 @@ export function ServicesTab({ instId }: { instId: string }) {
         </div>
         <div className="svc-header-actions">
           <div style={{ position: "relative" }}>
-            <button onClick={() => setGuideOpen(o => !o)} className="tap svc-header-btn" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", color: C.t2, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <Button
+              tokens={toUiTokens(C)}
+              variant="secondary"
+              size="md"
+              className="tap svc-header-btn"
+              icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>}
+              onClick={() => setGuideOpen(o => !o)}
+            >
               Guide des services
-            </button>
+            </Button>
             {guideOpen && (
               <>
                 <div onClick={() => setGuideOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 500 }}/>
@@ -1062,14 +1083,21 @@ export function ServicesTab({ instId }: { instId: string }) {
               </>
             )}
           </div>
-          <button onClick={() => setOffreOpen(true)} className="tap svc-header-btn" style={{ backgroundColor: C.blueL, border: `1px solid ${C.blue}40`, borderRadius: "14px", padding: "10px 16px", color: C.blue, fontWeight: "800", fontSize: "12.5px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", whiteSpace: "nowrap" }}>
+          <button onClick={() => setOffreOpen(true)} className="tap svc-header-btn" style={{ height: "40px", backgroundColor: C.blueL, border: `1px solid ${C.blue}40`, borderRadius: "12px", padding: "0 16px", color: C.blue, fontWeight: "700", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", whiteSpace: "nowrap" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
             Offre gratuite
           </button>
-          <button onClick={() => setFormTarget("new")} className="tap svc-header-btn" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "900", fontSize: "12.5px", padding: "10px 16px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", whiteSpace: "nowrap" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <Button
+            tokens={toUiTokens(C)}
+            variant="primary"
+            size="md"
+            className="tap svc-header-btn"
+            style={{ whiteSpace: "nowrap" }}
+            icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
+            onClick={() => setFormTarget("new")}
+          >
             Créer un service payant
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1093,7 +1121,7 @@ export function ServicesTab({ instId }: { instId: string }) {
         ] as { key: typeof subTab; label: string; count: number }[]).map(t => (
           <button key={t.key} onClick={() => setSubTab(t.key)} className="tap" style={{ flex: 1, backgroundColor: subTab === t.key ? C.bgCard : "transparent", border: subTab === t.key ? `1.5px solid ${C.gold}50` : "1.5px solid transparent", borderRadius: "14px", padding: "10px 8px", color: subTab === t.key ? C.gold : C.t3, fontSize: "12px", fontWeight: subTab === t.key ? "800" : "600", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", transition: "all 0.2s" }}>
             {t.label}
-            {t.count > 0 && <span style={{ backgroundColor: subTab === t.key ? C.gold : C.border2, color: subTab === t.key ? "#000" : C.t2, fontSize: "9px", fontWeight: "900", padding: "2px 7px", borderRadius: "20px" }}>{t.count}</span>}
+            {t.count > 0 && <span style={{ backgroundColor: subTab === t.key ? C.gold : C.border2, color: subTab === t.key ? "#000" : C.t2, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px" }}>{t.count}</span>}
           </button>
         ))}
       </div>
@@ -1101,14 +1129,14 @@ export function ServicesTab({ instId }: { instId: string }) {
       {subTab === "services" && (
         <>
           {services.length === 0 ? (
-            <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${C.border}`, padding: "44px 24px", textAlign: "center" }}>
+            <Card tokens={toCardTokens(C)} padding="44px 24px" style={{ textAlign: "center" }}>
               <div style={{ width: "60px", height: "60px", borderRadius: "18px", background: `${C.gold}15`, border: `1.5px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
               </div>
-              <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "8px" }}>Aucun service payant</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "8px" }}>Aucun service payant</div>
               <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65, marginBottom: "20px" }}>Créez votre premier service payant pour commencer à recevoir des réservations via Yelen.</div>
-              <button onClick={() => setFormTarget("new")} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "14px", border: "none", cursor: "pointer" }}>Créer mon premier service</button>
-            </div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={() => setFormTarget("new")}>Créer mon premier service</Button>
+            </Card>
           ) : (
             <>
               <div className="svc-filters-row" style={{ marginBottom: "16px" }}>
@@ -1142,7 +1170,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                 </div>
               )}
 
-              <div className="svc-table-wrap" style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow, overflow: "hidden", marginBottom: "16px" }}>
+              <Card tokens={toCardTokens(C)} noPadding className="svc-table-wrap" style={{ boxShadow: C.shadow, marginBottom: "16px" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -1165,7 +1193,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                     })}
                   </tbody>
                 </table>
-              </div>
+              </Card>
 
               <div className="svc-cards-wrap">
                 {pagedServices.length === 0 && (
@@ -1203,21 +1231,21 @@ export function ServicesTab({ instId }: { instId: string }) {
                 </div>
               </div>
 
-              <div style={{ backgroundColor: C.bgCard, borderRadius: "24px", border: `1px solid ${C.border}`, boxShadow: C.shadow, padding: "32px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "24px", flexWrap: "wrap" }}>
+              <Card tokens={toCardTokens(C)} padding="32px" style={{ boxShadow: C.shadow, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "24px", flexWrap: "wrap" }}>
                 <div style={{ flex: "1 1 320px", display: "flex", alignItems: "flex-start", gap: "18px" }}>
                   <div style={{ width: "64px", height: "64px", borderRadius: "18px", backgroundColor: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2l1.5 5M18 2l-1.5 5M3 7h18l-1.4 13a2 2 0 0 1-2 2H6.4a2 2 0 0 1-2-2z"/></svg>
                   </div>
                   <div>
-                    <div style={{ color: C.t1, fontSize: "17px", fontWeight: 900, marginBottom: "6px" }}>Développez votre offre de services</div>
+                    <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "6px" }}>Développez votre offre de services</div>
                     <div style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, marginBottom: "16px", maxWidth: "420px" }}>Ajoutez de nouveaux services payants pour répondre aux besoins de vos clients et augmenter vos revenus.</div>
-                    <button onClick={() => setFormTarget("new")} className="tap" style={{ backgroundColor: C.bgCard, border: `1.5px solid ${C.gold}`, color: C.gold, fontWeight: 800, fontSize: "13px", padding: "12px 22px", borderRadius: "13px", cursor: "pointer" }}>Créer mon premier service</button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ border: `1.5px solid ${C.gold}`, color: C.gold, padding: "0 22px" }} onClick={() => setFormTarget("new")}>Créer mon premier service</Button>
                   </div>
                 </div>
                 <div className="svc-encourage-illu" style={{ flexShrink: 0 }}>
                   <EncourageIllustration C={C}/>
                 </div>
-              </div>
+              </Card>
             </>
           )}
         </>
@@ -1225,21 +1253,21 @@ export function ServicesTab({ instId }: { instId: string }) {
 
       {subTab === "reservations" && (
         allBookingsSorted.length === 0 ? (
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${C.border}`, padding: "44px 24px", textAlign: "center" }}>
+          <Card tokens={toCardTokens(C)} padding="44px 24px" style={{ textAlign: "center" }}>
             <div style={{ width: "60px", height: "60px", borderRadius: "18px", background: `${C.gold}15`, border: `1.5px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             </div>
-            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "8px" }}>Aucune réservation</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "8px" }}>Aucune réservation</div>
             <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65 }}>Les réservations de vos services payants apparaîtront ici avec leur code Yelen.</div>
-          </div>
+          </Card>
         ) : (
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${C.border2}`, overflow: "hidden" }}>
+          <Card tokens={toCardTokens(C)} noPadding>
             {allBookingsSorted.map((b, i) => {
               const si  = statutInfo(b.statut, C);
               const svc = services.find(s => s.id === b.service_id);
               return (
                 <div key={b.id} style={{ padding: "14px 16px", borderBottom: i < allBookingsSorted.length - 1 ? `1px solid ${C.border}` : "none", display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{ width: "42px", height: "42px", borderRadius: "13px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "900", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
+                  <div style={{ width: "42px", height: "42px", borderRadius: "13px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "800", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.citoyen_nom || "Citoyen"}</div>
                     <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{svc?.nom ?? "Service"}{svc ? ` · ${formatPrix(svc.prix)}` : ""}</div>
@@ -1252,7 +1280,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                 </div>
               );
             })}
-          </div>
+          </Card>
         )
       )}
     </div>

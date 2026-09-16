@@ -20,7 +20,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { useTheme } from "@/components/ThemeProvider";
 import { STATUTS_JURIDIQUES, type StatutJuridiqueId } from "@/lib/institutionTaxonomy";
 import { validerUrlExterne } from "@/lib/urlValidation";
@@ -332,14 +334,14 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
             .profil-entreprise-form{max-width:1000px!important}
           }
         `}</style>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Profil Entreprise</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Profil Entreprise</h1>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
           Identité publique de votre institution — visible par les citoyens sur Yelen224.
         </p>
 
         {/* ── Identité visuelle ── */}
         <SectionLabel>Identité visuelle</SectionLabel>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "18px", padding: "18px", marginBottom: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "18px" }}>
           <label style={fieldLabel(C)}>Bannière de couverture</label>
           <div onClick={() => banniereInputRef.current?.click()} className="tap" style={{ position: "relative", width: "100%", height: "110px", borderRadius: "14px", backgroundColor: C.bg3, border: `1.5px dashed ${C.border2}`, cursor: "pointer", overflow: "hidden", marginBottom: "16px" }}>
             {form.banniere ? <Image src={form.banniere} alt="" fill sizes="(min-width: 640px) 600px, 100vw" style={{ objectFit: "cover" }}/> : (
@@ -377,7 +379,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
               )}
             </div>
           </div>
-        </div>
+        </Card>
 
         {(!activitePrincipaleId || !statutJuridique) && (
           <div style={{ backgroundColor: C.orangeL, border: `1px solid ${C.orange}40`, borderRadius: "14px", padding: "14px 16px", marginBottom: "18px", display: "flex", alignItems: "center", gap: "12px" }}>
@@ -389,15 +391,15 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
               <div style={{ color: C.orange, fontSize: "12.5px", fontWeight: "800" }}>Statut juridique et activité manquants</div>
               <div style={{ color: C.t2, fontSize: "11.5px", marginTop: "2px", lineHeight: 1.5 }}>Requis pour soumettre vos documents de vérification Yelen224.</div>
             </div>
-            <button onClick={openTaxoModal} className="tap" style={{ backgroundColor: C.orange, color: "#000", border: "none", borderRadius: "10px", padding: "9px 14px", fontSize: "12px", fontWeight: "800", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ backgroundColor: C.orange, borderColor: C.orange, color: "#000", flexShrink: 0 }} onClick={openTaxoModal}>
               Compléter maintenant
-            </button>
+            </Button>
           </div>
         )}
 
         {/* ── Informations générales ── */}
         <SectionLabel>Informations générales</SectionLabel>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
           <FormField C={C} label="Nom officiel" required value={form.name} onChange={v => fc("name", v)} name="name" error={fieldErrors.name}/>
           <div>
             <label style={fieldLabel(C)}>Description publique</label>
@@ -407,7 +409,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
             <FormField C={C} label="Année de création" value={form.annee_creation} onChange={v => fc("annee_creation", v)} placeholder="Ex: 1998" name="annee_creation"/>
             <FormField C={C} label="Capacité d'accueil" value={form.capacite} onChange={v => fc("capacite", v)} placeholder="Ex: 50" name="capacite"/>
           </div>
-        </div>
+        </Card>
 
         {/* ── Services proposés — déplacé dans l'onglet "Services" (section
              "Offre générale"), pour ne plus cohabiter avec Services payants
@@ -422,7 +424,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
 
         {/* ── Langues de service ── */}
         <SectionLabel>Langues de service</SectionLabel>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", marginBottom: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "18px" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
             {LANGUES_OPTIONS.map(l => (
               <button key={l} onClick={() => toggleLangue(l)} className="tap" style={{ backgroundColor: form.langue.includes(l) ? `${C.gold}15` : C.bg3, border: `1.5px solid ${form.langue.includes(l) ? C.gold + "50" : C.border2}`, borderRadius: "20px", padding: "7px 14px", color: form.langue.includes(l) ? C.gold : C.t2, fontSize: "12px", fontWeight: form.langue.includes(l) ? "700" : "500", cursor: "pointer" }}>
@@ -430,11 +432,11 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
               </button>
             ))}
           </div>
-        </div>
+        </Card>
 
         {/* ── Contact & Localisation ── */}
-        <SectionLabel>Contact & Localisation</SectionLabel>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
+        <SectionLabel>Contact et localisation</SectionLabel>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <FormField C={C} label="Ville" required value={form.ville} onChange={v => fc("ville", v)} name="ville" autoComplete="address-level2" error={fieldErrors.ville}/>
             <FormField C={C} label="Quartier" value={form.quartier} onChange={v => fc("quartier", v)} name="quartier"/>
@@ -452,7 +454,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
             <FormField C={C} label="Email" type="email" value={form.email} onChange={v => fc("email", v)} name="email" autoComplete="email"/>
             <FormField C={C} label="Site web" type="url" value={form.website} onChange={v => fc("website", v)} name="website" error={fieldErrors.website}/>
           </div>
-        </div>
+        </Card>
 
         {/* ── Identité internationale (chantier Taxonomie des activités,
              Phase 4, 20/08/2026) — composant autonome (état/chargement/
@@ -479,7 +481,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
             Ces horaires déterminent le badge <strong style={{ color: C.blue }}>Ouvert / Fermé</strong> affiché sur votre fiche publique. Ils sont distincts des créneaux de rendez-vous configurés dans l&apos;onglet <strong style={{ color: C.t1 }}>Disponibilités</strong> — les deux restent séparés pour le moment.
           </div>
         </div>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "8px", display: "flex", flexDirection: "column", gap: "6px", marginBottom: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="8px" style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "18px" }}>
           {form.horaires.map((h, i) => (
             <div key={h.jour} style={{ display: "grid", gridTemplateColumns: "100px 1fr auto", gap: "10px", alignItems: "center", padding: "8px 8px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -500,12 +502,12 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
               <span/>
             </div>
           ))}
-        </div>
+        </Card>
 
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button onClick={handleSave} disabled={saving || !dirty} className="tap" style={{ backgroundColor: saving || !dirty ? C.bg3 : C.gold, color: saving || !dirty ? C.t3 : "#000", border: "none", borderRadius: "12px", padding: "13px 28px", fontSize: "13px", fontWeight: "800", cursor: saving || !dirty ? "not-allowed" : "pointer", boxShadow: saving || !dirty ? "none" : `0 4px 20px ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-            {saving ? <><YelenLoader size={14} color={C.t3}/>Sauvegarde…</> : dirty ? "Enregistrer" : "Modifier"}
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!dirty} loading={saving} style={{ padding: "0 28px", boxShadow: !dirty ? "none" : `0 4px 20px ${C.gold}40` }} onClick={handleSave}>
+            {saving ? "Sauvegarde…" : dirty ? "Enregistrer" : "Modifier"}
+          </Button>
         </div>
       </div>
 
@@ -649,7 +651,7 @@ function IdentiteInternationaleSection({ onToast }: { onToast: (msg: string, col
   return (
     <>
       <SectionLabel>Origine de l&apos;organisation</SectionLabel>
-      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "18px", padding: "18px", marginBottom: "18px" }}>
+      <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "18px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: origineType === "etrangere" ? "18px" : 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: "700", marginBottom: "3px" }}>Organisation basée à l&apos;étranger</div>
@@ -700,13 +702,13 @@ function IdentiteInternationaleSection({ onToast }: { onToast: (msg: string, col
             <FormField C={C} label="Zone d'intervention" value={form.zone_intervention} onChange={v => fc("zone_intervention", v)} placeholder="Ex: toute la Guinée, Conakry uniquement, à distance…" name="zone_intervention"/>
 
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={handleSave} disabled={saving || !dirty} className="tap" style={{ backgroundColor: saving || !dirty ? C.bg3 : C.gold, color: saving || !dirty ? C.t3 : "#000", border: "none", borderRadius: "12px", padding: "12px 24px", fontSize: "13px", fontWeight: "800", cursor: saving || !dirty ? "not-allowed" : "pointer" }}>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!dirty} loading={saving} style={{ padding: "0 24px" }} onClick={handleSave}>
                 {saving ? "Enregistrement…" : dirty ? "Enregistrer l'identité internationale" : "Modifier"}
-              </button>
+              </Button>
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </>
   );
 }
@@ -743,7 +745,7 @@ function TaxoModal({
         <div style={{ width: "36px", height: "4px", background: C.border2, borderRadius: "100px", margin: "14px auto 0" }}/>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900" }}>{stepTitle}</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800" }}>{stepTitle}</div>
             <div style={{ color: C.t3, fontSize: "11px", fontWeight: "600", marginTop: "2px" }}>Étape {step} / 3</div>
           </div>
           <button onClick={onClose} className="tap" style={{ width: "28px", height: "28px", borderRadius: "50%", background: C.bg3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -774,9 +776,9 @@ function TaxoModal({
                 })}
               </div>
               {docsLocked && (
-                <button onClick={onNextFromStatut} disabled={!pendingStatut} className="tap" style={{ width: "100%", marginTop: "14px", backgroundColor: pendingStatut ? C.gold : C.bg3, color: pendingStatut ? "#000" : C.t3, border: "none", borderRadius: "12px", padding: "12px", fontSize: "13px", fontWeight: "800", cursor: pendingStatut ? "pointer" : "not-allowed" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!pendingStatut} style={{ marginTop: "14px" }} onClick={onNextFromStatut}>
                   Suivant
-                </button>
+                </Button>
               )}
             </>
           )}
@@ -849,9 +851,9 @@ function TaxoModal({
                   </details>
                 )}
 
-                <button onClick={onSave} disabled={!pendingActivitePrincipaleId || saving} className="tap" style={{ width: "100%", backgroundColor: pendingActivitePrincipaleId ? C.gold : C.bg3, color: pendingActivitePrincipaleId ? "#000" : C.t3, border: "none", borderRadius: "12px", padding: "12px", fontSize: "13px", fontWeight: "800", cursor: pendingActivitePrincipaleId && !saving ? "pointer" : "not-allowed" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!pendingActivitePrincipaleId} loading={saving} onClick={onSave}>
                   {saving ? "Enregistrement…" : "Enregistrer"}
-                </button>
+                </Button>
                 </>
               )}
             </>

@@ -34,7 +34,8 @@ export type UploadCategory =
   | "PUBLIC_VIDEO"
   | "SIGNALEMENT_PREUVE"
   | "FEEDBACK_CAPTURE"
-  | "SELFIE_IDENTITE";
+  | "SELFIE_IDENTITE"
+  | "COLLAB_FICHIER";
 
 type Regle = { mime: string; extension: string };
 
@@ -86,6 +87,17 @@ const REGLES: Record<UploadCategory, Regle[]> = {
   // plus (certains appareils Android enregistrent la galerie dans ce
   // format), contrairement à DOCUMENT_KYC qui reste pdf/jpg/png.
   SELFIE_IDENTITE: [
+    { mime: "image/jpeg", extension: "jpg" },
+    { mime: "image/png", extension: "png" },
+    { mime: "image/webp", extension: "webp" },
+  ],
+  // Module Collaboration, Lot D (16/09/2026) — pièce jointe échangée entre
+  // membres d'une même institution, mêmes types que DOCUMENT_TRAVAIL
+  // (usage interne comparable : documents de travail partagés en équipe).
+  COLLAB_FICHIER: [
+    { mime: "application/pdf", extension: "pdf" },
+    { mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", extension: "docx" },
+    { mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", extension: "xlsx" },
     { mime: "image/jpeg", extension: "jpg" },
     { mime: "image/png", extension: "png" },
     { mime: "image/webp", extension: "webp" },

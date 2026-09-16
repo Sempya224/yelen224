@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const { tokenId } = body
 
     if (!tokenId || typeof tokenId !== 'string') {
-      return NextResponse.json({ error: 'Identifiant manquant', code: 'MISSING_FIELDS' }, { status: 400 })
+      return NextResponse.json({ error: "Identifiant de l'appareil manquant.", code: 'MISSING_FIELDS' }, { status: 400 })
     }
 
     // Trusted Device (30/08/2026) — status='revoked' plutôt qu'un DELETE :
@@ -41,10 +41,10 @@ export async function POST(request: NextRequest) {
 
     if (updateError) {
       console.error('[INSTITUTION REMEMBER REVOKE ERROR]', updateError.code, updateError.message)
-      return NextResponse.json({ error: 'Erreur lors de la révocation', code: 'DELETE_ERROR' }, { status: 500 })
+      return NextResponse.json({ error: "Cet appareil n'a pas pu être déconnecté. Réessayez.", code: 'DELETE_ERROR' }, { status: 500 })
     }
     if (!revoked || revoked.length === 0) {
-      return NextResponse.json({ error: 'Appareil introuvable', code: 'NOT_FOUND' }, { status: 404 })
+      return NextResponse.json({ error: 'Cet appareil est introuvable — il a peut-être déjà été déconnecté.', code: 'NOT_FOUND' }, { status: 404 })
     }
 
     return NextResponse.json({ success: true })

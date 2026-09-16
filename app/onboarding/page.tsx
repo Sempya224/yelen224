@@ -84,8 +84,8 @@ const slides = [
   },
   {
     id: 3,
-    title: "Connecté aux institutions",
-    subtitle: "Accédez aux services de l'État et aux entreprises privées depuis votre téléphone",
+    title: "Toutes vos institutions, en un seul endroit",
+    subtitle: "Services publics et entreprises privées, accessibles directement depuis votre téléphone",
     illustration: (
       <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
         <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
@@ -121,8 +121,8 @@ const slides = [
   },
   {
     id: 4,
-    title: "Sécurisé & Fiable",
-    subtitle: "Vos données sont protégées. Rejoignez des milliers de Guinéens qui font confiance à Yelen224",
+    title: "Sécurisé et fiable",
+    subtitle: "Vos données restent privées et protégées par un chiffrement de niveau bancaire, à chaque étape",
     illustration: (
       <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
         <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
@@ -141,7 +141,7 @@ const slides = [
           </g>
         ))}
         <rect x="100" y="235" width="120" height="28" rx="14" fill="#F5A623" opacity="0.15"/>
-        <text x="160" y="254" textAnchor="middle" fill="#C97A0E" fontSize="11" fontFamily="sans-serif" fontWeight="bold">+10 000 utilisateurs</text>
+        <text x="160" y="254" textAnchor="middle" fill="#C97A0E" fontSize="11" fontFamily="sans-serif" fontWeight="bold">Chiffrement AES-256</text>
       </svg>
     ),
   },
@@ -390,7 +390,7 @@ export default function OnboardingPage() {
               <circle cx="12" cy="10" r="3"/>
             </svg>
           }
-          title="Activer la localisation"
+          title="Trouvez les services près de chez vous"
           description="Yelen224 utilise votre position pour vous montrer les institutions et services disponibles près de chez vous, et calculer les distances en temps réel."
           buttonLabel="Activer la localisation"
           onAllow={requestLocation}
@@ -406,7 +406,7 @@ export default function OnboardingPage() {
               <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
           }
-          title="Activer les notifications"
+          title="Ne manquez aucun rendez-vous"
           description="Recevez des rappels pour vos rendez-vous, des confirmations de réservation et des alertes importantes de vos institutions directement sur votre téléphone."
           buttonLabel="Activer les notifications"
           onAllow={requestNotifications}

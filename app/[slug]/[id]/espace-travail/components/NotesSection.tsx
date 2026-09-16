@@ -6,7 +6,9 @@
 // architecture visuelle que ProjetsSection.tsx.
 import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { TYPES_NOTE } from "@/lib/projetsNotes";
 import { YelenLoader } from "@/components/YelenLoader";
 
@@ -70,7 +72,7 @@ export function NotesSection({ instId, onToast }: { instId: string; onToast: (ms
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
-        <button onClick={() => setModal("new")} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12px", padding: "9px 16px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Note</button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setModal("new")}>+ Note</Button>
       </div>
 
       {loading ? (
@@ -78,12 +80,12 @@ export function NotesSection({ instId, onToast }: { instId: string; onToast: (ms
           <YelenLoader size={24}/>
         </div>
       ) : notes.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "48px 20px", textAlign: "center", border: `1px solid ${C.border}` }}>
+        <Card tokens={toCardTokens(C)} padding="48px 20px" style={{ textAlign: "center" }}>
           <div style={{ fontSize: "32px", marginBottom: "10px" }}>🗒️</div>
           <div style={{ fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>Aucune note pour l&apos;instant</div>
           <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Consignez les infos importantes pour toute l&apos;équipe.</p>
-          <button onClick={() => setModal("new")} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Créer une note</button>
-        </div>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => setModal("new")}>+ Créer une note</Button>
+        </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {notes.map(n => {
@@ -166,12 +168,10 @@ function NoteModal({ C, note, readOnly, onClose, onSaved, onToast }: {
         </select>
         <textarea disabled={readOnly} value={contenu} onChange={e => setContenu(e.target.value)} placeholder="Contenu de la note…" rows={8} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12.5px", marginBottom: "16px", color: C.t1, resize: "vertical", opacity: readOnly ? 0.6 : 1 }}/>
         <div style={{ display: "grid", gridTemplateColumns: readOnly ? "1fr" : note ? "auto 1fr 1fr" : "1fr 1fr", gap: "8px" }}>
-          {note && !readOnly && <button onClick={supprimer} disabled={saving} style={{ backgroundColor: C.redL, color: C.red, fontWeight: "700", fontSize: "12.5px", padding: "11px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>Suppr.</button>}
-          <button onClick={onClose} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>{readOnly ? "Fermer" : "Annuler"}</button>
+          {note && !readOnly && <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={saving} onClick={supprimer}>Suppr.</Button>}
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onClose}>{readOnly ? "Fermer" : "Annuler"}</Button>
           {!readOnly && (
-            <button onClick={enregistrer} disabled={saving || !titre.trim()} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12.5px", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: saving || !titre.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {saving ? <YelenLoader size={12} color="#000"/> : "Enregistrer"}
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!titre.trim()} loading={saving} onClick={enregistrer}>Enregistrer</Button>
           )}
         </div>
       </div>

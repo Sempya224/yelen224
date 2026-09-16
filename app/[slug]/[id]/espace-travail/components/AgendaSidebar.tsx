@@ -7,7 +7,8 @@
 // onglets restent pleine largeur.
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../../theme";
+import { T, type ThemeTokens, toCardTokens } from "../../theme";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 
 type Tache = { id: string; titre: string; statut: string; echeance: string | null };
@@ -52,10 +53,10 @@ function heure(iso: string): string {
 
 function SidebarCard({ title, C, children }: { title: string; C: ThemeTokens; children: React.ReactNode }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1px solid ${C.border}`, boxShadow: C.shadow, padding: "16px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ boxShadow: C.shadow }}>
       <div style={{ fontSize: "12.5px", fontWeight: "800", color: C.t1, marginBottom: "12px" }}>{title}</div>
       {children}
-    </div>
+    </Card>
   );
 }
 
@@ -119,7 +120,7 @@ export function AgendaSidebar({ instId }: { instId: string }) {
             { label: "Réunions", value: meetingsToday, color: C.purple },
           ].map(item => (
             <div key={item.label} style={{ flex: 1, textAlign: "center" }}>
-              <div style={{ fontSize: "20px", fontWeight: "900", color: item.color }}>{item.value}</div>
+              <div style={{ fontSize: "20px", fontWeight: "800", color: item.color }}>{item.value}</div>
               <div style={{ fontSize: "9.5px", color: C.t3, fontWeight: "700" }}>{item.label}</div>
             </div>
           ))}

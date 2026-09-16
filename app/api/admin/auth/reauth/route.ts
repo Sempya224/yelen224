@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       if (typeof totpCode !== 'string' || !totpCode) {
         return NextResponse.json({ requiresTotp: true }, { status: 200 })
       }
-      let totpValide = admin.totp_secret ? (await verifyTotp({ secret: admin.totp_secret, token: totpCode })).valid : false
+      let totpValide = admin.totp_secret ? (await verifyTotp({ secret: admin.totp_secret, token: totpCode, epochTolerance: 30 })).valid : false
       if (!totpValide && Array.isArray(admin.totp_backup_codes)) {
         const codes: string[] = admin.totp_backup_codes
         for (let i = 0; i < codes.length; i++) {

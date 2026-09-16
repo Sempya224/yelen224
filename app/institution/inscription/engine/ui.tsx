@@ -30,7 +30,7 @@ export function textInputStyle(C: SignupThemeTokens, extra?: React.CSSProperties
 // seulement l'expliquer en obligeant plusieurs clics "Retour" successifs).
 // Rétrocompatible : sans ces props, le rendu est strictement identique à
 // avant pour tous les autres appels de ce composant.
-export function ErrorBanner({ msg, C, actionLabel, onAction }: { msg: string; C: SignupThemeTokens; actionLabel?: string; onAction?: () => void }) {
+export function ErrorBanner({ msg, C, actionLabel, onAction, onClose }: { msg: string; C: SignupThemeTokens; actionLabel?: string; onAction?: () => void; onClose?: () => void }) {
   return (
     <div role="alert" aria-live="assertive" style={{ padding: "12px 16px", backgroundColor: C.redL, border: `1px solid ${C.red}25`, borderLeft: `3px solid ${C.red}`, borderRadius: 0, marginBottom: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -38,7 +38,12 @@ export function ErrorBanner({ msg, C, actionLabel, onAction }: { msg: string; C:
           <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
           <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
-        <span style={{ color: C.red, fontSize: "13px", fontWeight: 600 }}>{msg}</span>
+        <span style={{ color: C.red, fontSize: "13px", fontWeight: 600, flex: 1 }}>{msg}</span>
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        )}
       </div>
       {actionLabel && onAction && (
         <button type="button" onClick={onAction} className="signup-tap" style={{ marginTop: "8px", marginLeft: "26px", background: "none", border: "none", color: C.red, fontSize: "12.5px", fontWeight: 800, textDecoration: "underline", cursor: "pointer", padding: 0 }}>

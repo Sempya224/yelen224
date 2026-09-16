@@ -5,7 +5,9 @@
 // tant qu'un comptable actif existe (même protection que Paiements).
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 
@@ -88,9 +90,9 @@ export function FacturationTab({ instId, onToast, isAdmin }: { instId: string; o
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px", flexWrap: "wrap", gap: "10px" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>Facturation</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Facturation</h1>
         {!lectureSeule && (
-          <button onClick={ouvrirGenerer} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: "800", fontSize: "12px", padding: "9px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Générer une facture</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={ouvrirGenerer}>+ Générer une facture</Button>
         )}
       </div>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Factures émises pour les paiements confirmés.</p>
@@ -117,13 +119,13 @@ export function FacturationTab({ instId, onToast, isAdmin }: { instId: string; o
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {factures.map(f => (
-            <div key={f.id} onClick={() => ouvrirImpression(f.id)} className="tap" style={{ cursor: "pointer", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Card key={f.id} tokens={toCardTokens(C)} padding="14px 16px" onClick={() => ouvrirImpression(f.id)} className="tap" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: "800" }}>{f.numero}</div>
                 <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>{f.users ? `${f.users.prenom ?? ""} ${f.users.nom ?? ""}`.trim() : "Client"} · {formatDate(f.created_at)}</div>
               </div>
-              <div style={{ color: C.green, fontSize: "14px", fontWeight: "900" }}>{formatPrix(f.montant_ttc)}</div>
-            </div>
+              <div style={{ color: C.green, fontSize: "14px", fontWeight: "800" }}>{formatPrix(f.montant_ttc)}</div>
+            </Card>
           ))}
         </div>
       )}
@@ -140,7 +142,7 @@ export function FacturationTab({ instId, onToast, isAdmin }: { instId: string; o
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>{p.citoyen_nom}</div>
                   <div style={{ color: C.t3, fontSize: "11px" }}>{p.service_nom} · {formatPrix(p.montant)}</div>
                 </div>
-                <button onClick={() => genererFacture(p.id)} disabled={genererId === p.id} className="tap" style={{ backgroundColor: C.gold, color: "#000", fontWeight: "800", fontSize: "12px", padding: "8px 14px", borderRadius: "8px", border: "none", cursor: "pointer" }}>{genererId === p.id ? "…" : "Générer"}</button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" loading={genererId === p.id} onClick={() => genererFacture(p.id)}>Générer</Button>
               </div>
             ))}
           </div>
@@ -158,7 +160,7 @@ function FactureImprimable({ facture, onClose }: { facture: FactureDetail; onClo
     <div className="facture-print-overlay" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 300, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
       <div onClick={e => e.stopPropagation()} className="facture-print-content" style={{ backgroundColor: "#fff", color: "#111", borderRadius: "16px", padding: "36px", width: "100%", maxWidth: "520px", maxHeight: "90svh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "28px" }}>
-          <div style={{ fontSize: "20px", fontWeight: 900 }}>Reçu {facture.numero}</div>
+          <div style={{ fontSize: "20px", fontWeight: 800 }}>Facture {facture.numero}</div>
           <div style={{ fontSize: "12px", color: "#666" }}>{formatDate(facture.created_at)}</div>
         </div>
         <div style={{ fontSize: "13px", color: "#444", marginBottom: "20px" }}>
@@ -170,7 +172,7 @@ function FactureImprimable({ facture, onClose }: { facture: FactureDetail; onClo
           <tbody>
             <tr><td style={{ padding: "6px 0" }}>Montant HT</td><td style={{ padding: "6px 0", textAlign: "right" }}>{formatPrix(facture.montant_ht)}</td></tr>
             <tr><td style={{ padding: "6px 0" }}>Taxe ({facture.taux_taxe}%)</td><td style={{ padding: "6px 0", textAlign: "right" }}>{formatPrix(facture.montant_ttc - facture.montant_ht)}</td></tr>
-            <tr style={{ borderTop: "1px solid #ddd", fontWeight: 900 }}><td style={{ padding: "10px 0" }}>Total TTC</td><td style={{ padding: "10px 0", textAlign: "right" }}>{formatPrix(facture.montant_ttc)}</td></tr>
+            <tr style={{ borderTop: "1px solid #ddd", fontWeight: 800 }}><td style={{ padding: "10px 0" }}>Total TTC</td><td style={{ padding: "10px 0", textAlign: "right" }}>{formatPrix(facture.montant_ttc)}</td></tr>
           </tbody>
         </table>
         <div className="facture-print-actions" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>

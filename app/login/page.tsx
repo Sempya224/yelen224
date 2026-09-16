@@ -4,13 +4,14 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { isWebAuthnSupported, authenticateBiometrie } from "@/lib/auth/citoyenBiometrie";
 import { YelenLoader } from "@/components/YelenLoader";
-import { validerFormatPhoneGuinee, normaliserChiffresPhone, versE164Guinee, filtrerSaisiePhone } from "@/lib/phoneGuinee";
+import { validerFormatPhoneGuinee, normaliserChiffresPhone, versE164Guinee, filtrerSaisiePhone, masquerPhoneGuinee } from "@/lib/phoneGuinee";
 import { AuthSecurityBlockedScreen } from "@/components/security/AuthSecurityBlockedScreen";
 
 // Identité mémorisée (Se souvenir de moi) — façon Capital One, retour CEO
@@ -76,6 +77,10 @@ function LoginCitoyenInner() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false); // micro-animation avant redirection
   const [error, setError]     = useState("");
+  // Fermeture locale de l'avertissement "tentatives détectées" — n'affecte
+  // jamais securityState (qui reste la seule source de vérité côté
+  // sécurité), seulement l'affichage du bandeau.
+  const [avertissementFerme, setAvertissementFerme] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [bioAvailable, setBioAvailable] = useState(false);
@@ -219,13 +224,13 @@ function LoginCitoyenInner() {
     // Honeypot
     if (honeypot) { await new Promise(r => setTimeout(r, 2000)); router.push("/"); return; }
     // Bot comportemental (vitesse de frappe)
-    if (isBotTyping()) { setError("Comportement inhabituel détecté. Réessayez normalement."); return; }
+    if (isBotTyping()) { setError("Un souci est survenu pendant votre saisie. Réessayez tranquillement."); return; }
 
     if (securityState === "blocked" || securityState === "support_only") { setError(messageBlocageActuel(securityState, securityRetryAfterS)); return; }
     if (notFoundTerminal) return; // état terminal — rien à renvoyer tant que le numéro n'a pas changé
-    if (!chalValid) { setError("Répondez correctement à la question de sécurité."); return; }
+    if (!chalValid) { setError("Merci de répondre correctement à la question de sécurité."); return; }
 
-    if (!phoneValidation.valide) { setError(phoneValidation.message || "Format de numéro invalide."); return; }
+    if (!phoneValidation.valide) { setError(phoneValidation.message || "Ce numéro ne semble pas valide. Vérifiez-le et réessayez."); return; }
 
     const fullPhone = versE164Guinee(phoneDigitsNormalized);
     setLoading(true);
@@ -252,7 +257,7 @@ function LoginCitoyenInner() {
         // requête après cette réponse). Modifier le numéro réarme le
         // formulaire, voir l'onChange du champ téléphone plus bas.
         setNotFoundTerminal(true);
-        setError("Aucun compte trouvé avec ce numéro. Créez votre compte.");
+        setError("Nous n'avons trouvé aucun compte avec ce numéro.");
         setLoading(false);
         return;
       }
@@ -268,7 +273,7 @@ function LoginCitoyenInner() {
       setChallenge(CHALLENGES[idx]);
       setChalAnswer("");
       setTimeout(() => otpRefs[0].current?.focus(), 300);
-    } catch { setError("Erreur réseau. Réessayez."); }
+    } catch { setError("Un problème de connexion est survenu. Réessayez."); }
     finally { setLoading(false); }
   };
 
@@ -280,7 +285,7 @@ function LoginCitoyenInner() {
   const finaliserConnexion = useCallback(async (uid: string, tokenHash: string): Promise<boolean> => {
     const { error: sessionError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "email" });
     if (sessionError) {
-      setError("Impossible d'établir une session sécurisée. Réessayez.");
+      setError("Nous n'avons pas pu sécuriser votre connexion. Réessayez.");
       return false;
     }
 
@@ -347,11 +352,11 @@ function LoginCitoyenInner() {
         // juste ou faux, voir lib/auth/otp.ts) — on ramène directement à
         // l'étape numéro plutôt que de laisser ressaisir un code déjà mort.
         if (json.code === "INVALID_CODE") {
-          setError(`${json.error} Retournez à l'étape précédente pour redemander un code.`);
+          setError(`${json.error} Retournez à l'étape précédente pour recevoir un nouveau code.`);
           setCode(["","","","","",""]);
           return;
         }
-        setError(json.error || "Compte introuvable.");
+        setError(json.error || "Nous n'avons trouvé aucun compte correspondant.");
         return;
       }
 
@@ -368,11 +373,11 @@ function LoginCitoyenInner() {
       }
 
       if (!json.success || !json.tokenHash) {
-        setError("Impossible d'établir une session sécurisée. Réessayez.");
+        setError("Nous n'avons pas pu sécuriser votre connexion. Réessayez.");
         return;
       }
       await finaliserConnexion(json.userId, json.tokenHash);
-    } catch { setError("Erreur réseau."); }
+    } catch { setError("Un problème de connexion est survenu. Réessayez."); }
     finally { setLoading(false); }
   };
 
@@ -394,7 +399,7 @@ function LoginCitoyenInner() {
         setTimeout(() => totpRefs[0].current?.focus(), 300);
         return;
       }
-      if (!result.ok) { setError("Authentification biométrique impossible. Utilisez le code SMS."); setBioLoading(false); return; }
+      if (!result.ok) { setError("La biométrie n'a pas fonctionné cette fois. Utilisez le code reçu par SMS."); setBioLoading(false); return; }
 
       localStorage.setItem(YELEN224_USER_ID_KEY, userId);
       setSuccess(true);
@@ -403,7 +408,7 @@ function LoginCitoyenInner() {
       const redirect = params.get("redirect");
       router.push(redirect ? decodeURIComponent(redirect) : "/");
     } catch {
-      setError("Erreur réseau.");
+      setError("Un problème de connexion est survenu. Réessayez.");
       setBioLoading(false);
     }
   };
@@ -417,7 +422,7 @@ function LoginCitoyenInner() {
     // Bouton désactivé tant que le code n'est pas complet — même garde-fou
     // silencieux que l'OTP téléphone (retour Bryan 09/08/2026).
     if (totpBackupMode ? !entered : entered.length < 6) {
-      if (totpBackupMode) setError("Entrez un code de secours.");
+      if (totpBackupMode) setError("Merci d'entrer un code de secours.");
       return;
     }
 
@@ -430,13 +435,13 @@ function LoginCitoyenInner() {
       });
       const json = await res.json();
       if (!res.ok || !json.success || !json.tokenHash) {
-        setError(json?.error || "Code invalide.");
+        setError(json?.error || "Ce code ne semble pas correct.");
         setTotpCode(["","","","","",""]);
         setTimeout(() => totpRefs[0].current?.focus(), 100);
         return;
       }
       await finaliserConnexion(json.userId, json.tokenHash);
-    } catch { setError("Erreur réseau."); }
+    } catch { setError("Un problème de connexion est survenu. Réessayez."); }
     finally { setLoading(false); }
   };
 
@@ -450,6 +455,25 @@ function LoginCitoyenInner() {
   const handleTotpKeyDown = (i: number, e: React.KeyboardEvent) => {
     if (e.key === "Backspace" && !totpCode[i] && i > 0) { totpRefs[i-1].current?.focus(); }
     if (e.key === "Enter") handleTotpVerify();
+  };
+
+  // Collage/autofill du code (retour Bryan 03/09/2026 : "bon code refusé")
+  // — chaque case a `maxLength={1}`, donc coller "123456" (ou "123 456",
+  // format d'affichage de Google Authenticator) s'y tronquait nativement à
+  // un seul caractère AVANT même que handleTotpChange ne s'exécute : le
+  // citoyen collait le bon code, la case n'en gardait qu'un chiffre, et la
+  // vérification échouait sans qu'il comprenne pourquoi. preventDefault
+  // court-circuite le collage natif pour répartir nous-mêmes chaque chiffre
+  // (espaces/tirets retirés) sur les cases à partir du point de collage.
+  const handleTotpPaste = (i: number, e: React.ClipboardEvent<HTMLInputElement>) => {
+    const chiffres = e.clipboardData.getData("text").replace(/\D/g, "");
+    if (!chiffres) return;
+    e.preventDefault();
+    const n = [...totpCode];
+    for (let k = 0; k < chiffres.length && i + k < 6; k++) n[i + k] = chiffres[k];
+    setTotpCode(n);
+    totpRefs[Math.min(i + chiffres.length, 5)].current?.focus();
+    if (n.join("").length === 6) setTimeout(handleTotpVerify, 200);
   };
 
   // Numéro déjà connu (identité mémorisée) — saute directement à l'OTP,
@@ -475,11 +499,11 @@ function LoginCitoyenInner() {
       const json = await res.json();
       if (json.security?.state) { setSecurityState(json.security.state); setSecurityRetryAfterS(json.security.retryAfterS || 0); }
       if (res.status === 423) { setError(json.error || "Accès temporairement protégé."); return; }
-      if (!res.ok || !json.success) { setError("Impossible d'envoyer un code pour ce compte. Réessayez."); return; }
+      if (!res.ok || !json.success) { setError("Nous n'avons pas pu envoyer de code pour ce compte. Réessayez."); return; }
       localStorage.setItem("yelen_login_phone", fullPhone);
       setStep("otp");
       setTimeout(() => otpRefs[0].current?.focus(), 300);
-    } catch { setError("Erreur réseau. Réessayez."); }
+    } catch { setError("Un problème de connexion est survenu. Réessayez."); }
     finally { setLoading(false); }
   };
 
@@ -513,10 +537,11 @@ function LoginCitoyenInner() {
   // un signal d'erreur).
   const errBg   = isDark ? "rgba(239,68,68,0.14)" : "#FEE2E2";
   const errBrd  = "#ef4444";
+  const bloque  = securityState === "blocked" || securityState === "support_only";
   const errText = isDark ? "#FCA5A5" : "#991B1B";
 
   return (
-    <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif", overflowX: "hidden" }}>
+    <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif", overflowX: "hidden" }}>
       <style>{`
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
         html,body{overflow-x:hidden;background:${C.pageBg}}
@@ -553,8 +578,6 @@ function LoginCitoyenInner() {
 
       {/* ── HERO JAUNE ── */}
       <div style={{ height: "220px", background: "#F5A623", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: "-50px", right: "-50px", width: "200px", height: "200px", borderRadius: "50%", background: "rgba(255,255,255,0.07)" }}/>
-        <div style={{ position: "absolute", bottom: "-40px", left: "-40px", width: "150px", height: "150px", borderRadius: "50%", background: "rgba(0,0,0,0.06)" }}/>
         {/* Drapeau */}
         <div style={{ position: "absolute", top: "16px", right: "20px", display: "flex", opacity: 0.4 }}>
           <div style={{ width: "9px", height: "16px", background: "#CE1126", borderRadius: "2px 0 0 2px" }}/>
@@ -563,19 +586,25 @@ function LoginCitoyenInner() {
         </div>
         <div style={{ position: "absolute", bottom: "28px", left: "24px", right: "24px" }}>
           <div style={{ color: "rgba(0,0,0,0.55)", fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "5px" }}>
-            {step === "phone" ? "Espace citoyen" : step === "remembered" ? "Espace citoyen" : "Vérification"}
+            {bloque ? "Sécurité" : step === "phone" ? "Espace citoyen" : step === "remembered" ? "Espace citoyen" : "Vérification"}
           </div>
           <h1 style={{ color: "#080812", fontSize: "26px", fontWeight: "900", margin: "0 0 4px", lineHeight: 1.15, letterSpacing: "-0.5px" }}>
-            {step === "phone" ? "Bienvenue" : step === "remembered" ? "Bon retour" : step === "totp" ? "Double authentification" : "Code reçu ?"}
+            {bloque ? "Accès protégé" : step === "phone" ? "Bienvenue" : step === "remembered" ? "Bon retour" : step === "totp" ? "Double authentification" : "Saisissez le code"}
           </h1>
-          <div style={{ color: "rgba(0,0,0,0.6)", fontSize: "14px", fontWeight: "600" }}>
-            {step === "phone" ? "Connectez-vous à votre compte." : step === "remembered" ? `${userName.split(" ")[0]}, ravi de vous revoir.` : step === "totp" ? "Entrez le code de votre application d'authentification." : `Envoyé au +224 ${phone}`}
-          </div>
+          {/* Sous-titre masqué en blocage — AuthSecurityBlockedScreen
+              ci-dessous répète déjà toute l'explication en détail, un
+              sous-titre générique ("Envoyé au...") serait à la fois
+              redondant et faux (le code n'a plus cours pendant le blocage). */}
+          {!bloque && (
+            <div style={{ color: "rgba(0,0,0,0.6)", fontSize: "14px", fontWeight: "600" }}>
+              {step === "phone" ? "Connectez-vous à votre compte." : step === "remembered" ? `${userName.split(" ")[0]}, ravi de vous revoir.` : step === "totp" ? "Entrez le code de votre application d'authentification." : `Un code SMS a été envoyé au ${masquerPhoneGuinee(phone)}.`}
+            </div>
+          )}
         </div>
       </div>
 
       {/* ── FORMULAIRE ── */}
-      <div style={{ padding: "24px 20px 40px", maxWidth: "480px", margin: "0 auto", animation: "fadeUp 0.3s ease" }}>
+      <div style={{ flex: "1", display: "flex", flexDirection: "column", padding: "24px 20px 40px", maxWidth: "480px", width: "100%", margin: "0 auto", animation: "fadeUp 0.3s ease" }}>
 
         {/* État BLOCKED/SUPPORT_ONLY : remplace tout le formulaire — aucun
             contournement possible en changeant d'étape (brief : "aucune
@@ -585,7 +614,7 @@ function LoginCitoyenInner() {
         ) : (
         <>
         {recoveryPending && (step === "phone" || step === "remembered") && (
-          <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", backgroundColor: isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.25)", borderLeft: "3px solid #F5A623", borderRadius: "12px", marginBottom: "18px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", backgroundColor: "transparent", border: "1px solid rgba(245,166,35,0.25)", borderLeft: "3px solid #F5A623", borderRadius: "12px", marginBottom: "18px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: txt1, fontSize: "12.5px", fontWeight: "700", lineHeight: 1.5 }}>
@@ -607,7 +636,10 @@ function LoginCitoyenInner() {
         {sessionExpired && step === "phone" && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", backgroundColor: errBg, border: `1px solid ${errBrd}`, borderLeft: `3px solid ${errBrd}`, borderRadius: "12px", marginBottom: "18px" }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={errBrd} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <span style={{ color: errText, fontSize: "13px", fontWeight: "700" }}>Votre session est arrivée à expiration pour protéger votre compte. Reconnectez-vous pour continuer.</span>
+            <span style={{ color: errText, fontSize: "13px", fontWeight: "700", flex: 1 }}>Votre session est arrivée à expiration pour protéger votre compte. Reconnectez-vous pour continuer.</span>
+            <button onClick={() => setSessionExpired(false)} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: errText, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
         )}
 
@@ -615,13 +647,16 @@ function LoginCitoyenInner() {
           <div key="remembered" className="step-in">
             <div style={{ marginBottom: "22px" }}>
               <div style={{ color: txt1, fontSize: "19px", fontWeight: "900", marginBottom: "4px" }}>Bon retour, {userName.split(" ")[0]}</div>
-              <div style={{ color: txt2, fontSize: "13px" }}>+224 {phone}</div>
+              <div style={{ color: txt2, fontSize: "13px" }}>{masquerPhoneGuinee(phone)}</div>
             </div>
 
             {error && (
               <div className="error-shake" style={{ background: errBg, border: `1px solid ${errBrd}`, borderLeft: `3px solid ${errBrd}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "16px", display: "flex", alignItems: "center", gap: "10px" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={errBrd} strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
-                <span style={{ color: errText, fontSize: "13px", fontWeight: "600" }}>{error}</span>
+                <span style={{ color: errText, fontSize: "13px", fontWeight: "600", flex: 1 }}>{error}</span>
+                <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: errText, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             )}
 
@@ -668,6 +703,8 @@ function LoginCitoyenInner() {
             <div style={{ textAlign: "center" }}>
               <button onClick={handleSwitchAccount} className="tap" style={{ background: "none", border: "none", color: "#F5A623", fontWeight: "700", fontSize: "13px", cursor: "pointer" }}>Utiliser un autre numéro</button>
             </div>
+
+            <Image src="/illustrations/login-bon-retour.png" alt="" width={969} height={1469} style={{ width: "180px", maxWidth: "100%", height: "auto", margin: "28px auto 0", display: "block" }}/>
           </div>
         )}
 
@@ -749,7 +786,10 @@ function LoginCitoyenInner() {
             {error && (
               <div className="error-shake" style={{ background: errBg, border: `1px solid ${errBrd}`, borderLeft: `3px solid ${errBrd}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "16px", display: "flex", alignItems: "center", gap: "10px" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={errBrd} strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
-                <span style={{ color: errText, fontSize: "13px", fontWeight: "600" }}>{error}</span>
+                <span style={{ color: errText, fontSize: "13px", fontWeight: "600", flex: 1 }}>{error}</span>
+                <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: errText, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             )}
 
@@ -787,7 +827,7 @@ function LoginCitoyenInner() {
                 marginBottom: "14px",
               }}>
                 {loading
-                  ? <><YelenLoader size={16} color="#080812"/> Vérification…</>
+                  ? <><YelenLoader size={16} color="#080812"/> Envoi…</>
                   : <>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17v-.08z"/></svg>
                       Recevoir le code SMS
@@ -817,13 +857,13 @@ function LoginCitoyenInner() {
         {step === "otp" && (
           <div key="otp" className="step-in">
             {/* Profil aperçu */}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "16px", marginBottom: "22px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", background: "transparent", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "16px", marginBottom: "22px" }}>
               <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
                 {userName.split(" ").map(p => p[0]).join("").toUpperCase().slice(0,2) || "C"}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: txt1, fontSize: "14px", fontWeight: "800" }}>{userName}</div>
-                <div style={{ color: "#F5A623", fontSize: "12px", fontWeight: "600" }}>+224 {phone}</div>
+                <div style={{ color: "#F5A623", fontSize: "12px", fontWeight: "600" }}>{masquerPhoneGuinee(phone)}</div>
               </div>
               <button onClick={() => { setStep("phone"); setCode(["","","","","",""]); setError(""); }} className="tap" style={{ background: "none", border: "none", color: txt2, cursor: "pointer", padding: "4px" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -859,10 +899,16 @@ function LoginCitoyenInner() {
             </div>
 
             {/* Avertissement — tentatives encore possibles mais protection
-                renforcée (état WARNING du brief). */}
-            {securityState === "warning" && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginBottom: "12px", padding: "8px 12px", background: isDark ? "rgba(245,166,35,0.08)" : "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: "10px" }}>
-                <span style={{ color: "#F5A623", fontSize: "11.5px", fontWeight: "700" }}>Plusieurs tentatives détectées — quelques essais restants avant blocage temporaire.</span>
+                renforcée (état WARNING du brief). Modernisé et repassé en
+                noir/neutre (retour Bryan 03/09/2026) — plus aucun doré ici,
+                réservé à la marque/aux CTA, jamais à un message de sécurité. */}
+            {securityState === "warning" && !avertissementFerme && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "14px", padding: "12px 14px", background: inputBg, border: `1px solid ${inputBrd}`, borderLeft: `3px solid ${txt1}`, borderRadius: "12px" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={txt1} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
+                <span style={{ color: txt1, fontSize: "12.5px", fontWeight: "600", flex: 1, lineHeight: 1.4 }}>Yelen a détecté plusieurs tentatives inhabituelles sur ce compte. Il vous reste quelques essais avant une courte pause de sécurité.</span>
+                <button onClick={() => setAvertissementFerme(true)} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: txt2, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             )}
 
@@ -875,7 +921,10 @@ function LoginCitoyenInner() {
             {error && (
               <div className="error-shake" style={{ background: errBg, border: `1px solid ${errBrd}`, borderLeft: `3px solid ${errBrd}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px", display: "flex", alignItems: "center", gap: "10px" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={errBrd} strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
-                <span style={{ color: errText, fontSize: "13px", fontWeight: "600" }}>{error}</span>
+                <span style={{ color: errText, fontSize: "13px", fontWeight: "600", flex: 1 }}>{error}</span>
+                <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: errText, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             )}
 
@@ -918,7 +967,7 @@ function LoginCitoyenInner() {
 
         {step === "totp" && (
           <div key="totp" className="step-in">
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: isDark ? "rgba(245,166,35,0.05)" : "rgba(245,166,35,0.04)", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "14px", marginBottom: "22px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: "transparent", border: "1px solid rgba(245,166,35,0.18)", borderRadius: "14px", marginBottom: "22px" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
               <span style={{ color: txt1, fontSize: "13px", fontWeight: "600" }}>Ce compte a activé la double authentification.</span>
             </div>
@@ -926,7 +975,10 @@ function LoginCitoyenInner() {
             {error && (
               <div className="error-shake" style={{ background: errBg, border: `1px solid ${errBrd}`, borderLeft: `3px solid ${errBrd}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "16px", display: "flex", alignItems: "center", gap: "10px" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={errBrd} strokeWidth="2.5" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
-                <span style={{ color: errText, fontSize: "13px", fontWeight: "600" }}>{error}</span>
+                <span style={{ color: errText, fontSize: "13px", fontWeight: "600", flex: 1 }}>{error}</span>
+                <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: errText, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             )}
 
@@ -945,6 +997,7 @@ function LoginCitoyenInner() {
                         value={digit}
                         onChange={e => handleTotpChange(i, e.target.value)}
                         onKeyDown={e => handleTotpKeyDown(i, e)}
+                        onPaste={e => handleTotpPaste(i, e)}
                         className="otp-input"
                         style={{
                           width: "46px", height: "56px", textAlign: "center",
@@ -1021,16 +1074,19 @@ function LoginCitoyenInner() {
         )}
 
         {/* Footer */}
-        <div style={{ marginTop: "32px", display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+        <div style={{ marginTop: "auto", paddingTop: "32px", display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
           <div style={{ display: "flex", gap: "0" }}>
             <div style={{ width: "16px", height: "11px", background: "#CE1126", borderRadius: "2px 0 0 2px" }}/>
             <div style={{ width: "16px", height: "11px", background: "#FCD20F" }}/>
             <div style={{ width: "16px", height: "11px", background: "#009A44", borderRadius: "0 2px 2px 0" }}/>
             <span style={{ color: txt2, fontSize: "10px", marginLeft: "8px", fontWeight: "600", alignSelf: "center" }}>République de Guinée</span>
           </div>
-          <a href="https://sempya224.com" target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <span style={{ background: "#FE2C55", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "2px 10px", borderRadius: "6px" }}>SEMPYA224</span>
-          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ color: txt2, fontSize: "10px", fontWeight: "600" }}>©2026 Yelen224 by</span>
+            <a href="https://sempya224.com" target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+              <span style={{ background: "#FE2C55", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "2px 10px", borderRadius: "6px" }}>SEMPYA224</span>
+            </a>
+          </div>
         </div>
       </div>
     </div>

@@ -7,7 +7,8 @@
 // données financières, calculées par lib/financeAggregation.ts.
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens } from "../theme";
+import { Card } from "@/components/ui/Card";
 import type { FinanceAccueil, PeriodeStats } from "@/lib/financeAggregation";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
@@ -55,7 +56,7 @@ export function FinanceAccueilTab() {
 
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Tableau de bord financier</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Tableau de bord financier</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Vue d&apos;ensemble des paiements et revenus de l&apos;établissement.</p>
 
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", backgroundColor: C.bgCard2, borderRadius: "14px", padding: "4px", border: `1px solid ${C.border}` }}>
@@ -74,14 +75,14 @@ export function FinanceAccueilTab() {
           { label: "Remboursé", value: formatPrix(stats.montant_rembourse), color: C.red },
           { label: "Panier moyen", value: formatPrix(stats.panier_moyen), color: C.purple },
         ].map(kpi => (
-          <div key={kpi.label} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+          <Card key={kpi.label} tokens={toCardTokens(C)} padding="16px">
             <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{kpi.label}</div>
-            <div style={{ color: kpi.color, fontSize: "18px", fontWeight: "900" }}>{kpi.value}</div>
-          </div>
+            <div style={{ color: kpi.color, fontSize: "18px", fontWeight: "800" }}>{kpi.value}</div>
+          </Card>
         ))}
       </div>
 
-      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", marginBottom: "18px" }}>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "18px" }}>
         <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", marginBottom: "14px" }}>Entrées financières — ce mois</div>
         {data.graphique_journalier.length === 0 ? (
           <p style={{ color: C.t3, fontSize: "12px" }}>Aucune entrée ce mois-ci.</p>
@@ -92,9 +93,9 @@ export function FinanceAccueilTab() {
             ))}
           </div>
         )}
-      </div>
+      </Card>
 
-      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", overflow: "hidden", marginBottom: "18px" }}>
+      <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "18px" }}>
         <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
           <span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>Top 5 des services les plus rentables</span>
         </div>
@@ -108,10 +109,10 @@ export function FinanceAccueilTab() {
             <div style={{ color: C.green, fontSize: "13px", fontWeight: "800" }}>{formatPrix(s.montant)}</div>
           </div>
         ))}
-      </div>
+      </Card>
 
       {data.alertes.length > 0 && (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", overflow: "hidden" }}>
+        <Card tokens={toCardTokens(C)} noPadding>
           <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
             <span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>Alertes financières</span>
           </div>
@@ -122,7 +123,7 @@ export function FinanceAccueilTab() {
               <span style={{ color: C.orange, fontSize: "12px", fontWeight: "800" }}>{a.count}</span>
             </div>
           ))}
-        </div>
+        </Card>
       )}
     </div>
   );

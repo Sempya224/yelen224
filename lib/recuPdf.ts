@@ -134,8 +134,24 @@ function calculerSignature(d: DonneesRecu): string {
 // échouer la génération du reçu — beaucoup plus critique qu'un simple
 // défaut d'affichage : voir le principe déjà établi ailleurs sur ce projet
 // (insert non-bloquant pour transactions_financieres/journal_activite).
+//
+// SSRF (audit sécurité 14/09/2026) — institutions.logo (EDITABLE_FIELDS,
+// jamais validé comme URL contrairement à website) et users.photo_url
+// (app/profil/actions.ts, aucune validation) peuvent contenir n'importe
+// quelle chaîne écrite par un citoyen/institution authentifié. Sans
+// restriction, cette fonction ferait un fetch() serveur vers une cible
+// arbitraire (métadonnées cloud, réseau interne) au moment de générer un
+// reçu. Toute image légitime provient exclusivement de l'upload applicatif
+// (getPublicUrl() sur un bucket Storage de ce projet) — seule cette origine
+// est autorisée, tout le reste est traité comme absent plutôt que fetché.
+const SUPABASE_STORAGE_PREFIX = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/`;
+
+function estUrlStorageAutorisee(url: string): boolean {
+  return url.startsWith(SUPABASE_STORAGE_PREFIX);
+}
+
 async function chargerImageDistante(url: string | null): Promise<Buffer | null> {
-  if (!url) return null;
+  if (!url || !estUrlStorageAutorisee(url)) return null;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;

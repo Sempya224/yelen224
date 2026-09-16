@@ -15,8 +15,8 @@ export function ResponsableStep({ state, updateState, onNext }: {
 
   function handleNext() {
     setError("");
-    if (!state.responsable.prenom.trim()) { setError("Le prénom est requis."); return; }
-    if (!state.responsable.nom.trim()) { setError("Le nom est requis."); return; }
+    if (!state.responsable.prenom.trim()) { setError("Merci d'indiquer le prénom du responsable."); return; }
+    if (!state.responsable.nom.trim()) { setError("Merci d'indiquer le nom du responsable."); return; }
     onNext();
   }
 
@@ -59,7 +59,7 @@ export function ResponsableStep({ state, updateState, onNext }: {
         </div>
       </div>
 
-      {error && <ErrorBanner msg={error} C={C}/>}
+      {error && <ErrorBanner msg={error} C={C} onClose={() => setError("")}/>}
 
       <PrimaryButton onClick={handleNext} C={C}>Continuer</PrimaryButton>
       </div>

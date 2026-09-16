@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       const etat = await enregistrerTentative(supabaseAdmin, {
         endpointCategory: 'citoyen_register', deviceId, ip, identifiant: phone, outcome: 'code_incorrect', userAgent,
       })
-      return finaliser({ error: 'Code incorrect', code: 'INVALID_CODE', security: etat }, 401)
+      return finaliser({ error: 'Ce code ne semble pas correct.', code: 'INVALID_CODE', security: etat }, 401)
     }
 
     // ⚠️ COQUILLE TECHNIQUE — public.users.id est une FK vers auth.users(id)
@@ -126,6 +126,12 @@ export async function POST(request: NextRequest) {
       console.error('[CITOYEN REGISTER AUTH SHELL RENAME WARNING]', renameError)
     }
 
+    // cgu_acceptee_le/confidentialite_acceptee_le posées à la création —
+    // app/inscription/page.tsx bloque la soumission tant que la case CGU
+    // n'est pas cochée (canSubmit), donc l'acceptation a réellement lieu à
+    // cet instant précis (retour Bryan 12/09/2026, corrige un oubli qui
+    // laissait ces 2 colonnes null pour tous les comptes créés jusqu'ici).
+    const acceptationLe = new Date().toISOString()
     const { error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
@@ -133,12 +139,26 @@ export async function POST(request: NextRequest) {
         phone,
         prenom: prenom.trim(),
         nom: nom.trim(),
+        cgu_acceptee_le: acceptationLe,
+        confidentialite_acceptee_le: acceptationLe,
         ...(typeof ville === 'string' && ville.trim() ? { ville: ville.trim() } : {}),
       })
 
     if (insertError) {
       console.error('[CITOYEN REGISTER INSERT ERROR]', insertError)
       await supabaseAdmin.auth.admin.deleteUser(userId)
+      // Course entre deux soumissions concurrentes du même numéro (double
+      // appel client, cf. app/inscription/page.tsx::verifyingRef) : les deux
+      // passent le SELECT "déjà enregistré" avant que l'une des deux
+      // n'insère. Le code Postgres 23505 (violation de contrainte unique)
+      // signale que l'autre requête a gagné la course entre-temps — renvoyer
+      // ALREADY_REGISTERED plutôt qu'une erreur générique, pour que le
+      // client oriente vers la connexion au lieu d'un "Réessayez" trompeur.
+      // ⚠️ Suppose une contrainte UNIQUE sur users.phone — à vérifier/poser
+      // en base si absente, sans quoi ce garde-fou reste inactif.
+      if (insertError.code === '23505') {
+        return finaliser({ error: 'Ce numéro est déjà enregistré. Connectez-vous à la place.', code: 'ALREADY_REGISTERED' }, 409)
+      }
       return finaliser({ error: 'Erreur lors de la création du compte', code: 'INSERT_ERROR' }, 500)
     }
 

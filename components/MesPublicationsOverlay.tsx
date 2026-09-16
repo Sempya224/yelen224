@@ -4,6 +4,7 @@
 // Bryan) — plein écran, même convention header que les autres popups
 // (X, titre centré). Liste tous les statuts réels (posts_own_read),
 // jamais une donnée inventée.
+import Image from "next/image";
 import { formatDateFr } from "@/components/CommunautePostCard";
 
 type MaPublication = { id: string; statut: string; contenu: string | null; created_at: string; motif_refus: string | null };
@@ -16,10 +17,18 @@ const STATUT_INFO: Record<string, { label: string; couleur: string }> = {
 
 export default function MesPublicationsOverlay({
   publications, bg, card, card2, t1, t2, t3, brd, onClose,
+  identiteVerifiee, onCreerPost, onVerifierIdentite,
 }: {
   publications: MaPublication[];
   bg: string; card: string; card2: string; t1: string; t2: string; t3: string; brd: string;
   onClose: () => void;
+  // État vide (retour Bryan 09/09/2026) — identité vérifiée : CTA direct
+  // vers le composeur ; sinon CTA vers la vérification d'identité (même
+  // exigence que le composeur du fil, voir CommunauteVerificationSheet
+  // dans app/page.tsx). Jamais les deux en même temps.
+  identiteVerifiee: boolean;
+  onCreerPost: () => void;
+  onVerifierIdentite: () => void;
 }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: bg, display: "flex", flexDirection: "column" }}>
@@ -35,7 +44,18 @@ export default function MesPublicationsOverlay({
 
       <main style={{ flex: 1, overflowY: "auto", padding: "16px 20px 40px", width: "100%", maxWidth: "560px", margin: "0 auto", boxSizing: "border-box" }}>
         {publications.length === 0 ? (
-          <div style={{ color: t2, fontSize: "13px", textAlign: "center", padding: "40px 10px" }}>Vous n&apos;avez encore rien publié.</div>
+          <div style={{ textAlign: "center", padding: "24px 10px 40px" }}>
+            <Image src="/illustrations/mes-publications-vide.png" alt="Vous n'avez encore rien publié" width={1536} height={1024} style={{ width: "220px", maxWidth: "100%", height: "auto", margin: "0 auto 20px", display: "block" }}/>
+            <div style={{ color: t1, fontSize: "15px", fontWeight: 800, marginBottom: "8px" }}>Vous n&apos;avez encore rien publié</div>
+            <div style={{ color: t2, fontSize: "13px", lineHeight: 1.55, marginBottom: "24px" }}>
+              {identiteVerifiee
+                ? "Partagez votre première idée avec la communauté Yelen — ça ne prend qu'une minute."
+                : "Vérifiez votre identité pour publier vos propres idées sur Yelen — ça protège la communauté des faux comptes."}
+            </div>
+            <button onClick={identiteVerifiee ? onCreerPost : onVerifierIdentite} className="tap" style={{ background: "#F5A623", color: "#080812", border: "none", borderRadius: 12, padding: "13px 28px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
+              {identiteVerifiee ? "Créer ma première publication" : "Vérifier mon identité"}
+            </button>
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {publications.map(p => {

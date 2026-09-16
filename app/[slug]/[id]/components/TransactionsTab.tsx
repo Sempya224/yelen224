@@ -5,7 +5,9 @@
 // Facturation). Alimenté automatiquement par lib/transactionsFinancieres.ts.
 import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 
@@ -97,9 +99,9 @@ function VariationBadge({ pct, C }: { pct: number | null; C: ThemeTokens }) {
 
 function KpiCard({ label, valeur, variationPct, C }: { label: string; valeur: string; variationPct: number | null; C: ThemeTokens }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+    <Card tokens={toCardTokens(C)} padding="16px">
       <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{label}</div>
-      <div style={{ color: C.t1, fontSize: "18px", fontWeight: "900", letterSpacing: "-0.3px", marginBottom: "6px" }}>{valeur}</div>
+      <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800", letterSpacing: "-0.3px", marginBottom: "6px" }}>{valeur}</div>
       {variationPct !== null ? (
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <VariationBadge pct={variationPct} C={C}/>
@@ -108,7 +110,7 @@ function KpiCard({ label, valeur, variationPct, C }: { label: string; valeur: st
       ) : (
         <span style={{ color: C.t3, fontSize: "10.5px" }}>&nbsp;</span>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -191,14 +193,14 @@ export function TransactionsTab({ instId }: { instId: string }) {
 
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Transactions</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Transactions</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "6px", lineHeight: 1.5 }}>Journal financier officiel de toutes les opérations enregistrées par votre établissement.</p>
       <p style={{ color: C.t3, fontSize: "11.5px", marginBottom: "16px", lineHeight: 1.5 }}>Chaque transaction est horodatée, tracée et conservée dans le journal d&apos;audit.</p>
 
       {/* Executive Summary (Lot 1, refonte "journal financier Enterprise",
           décision CEO 06/08/2026). */}
       {stats && (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px 18px", marginBottom: "14px", display: "flex", flexWrap: "wrap", gap: "20px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px 18px" style={{ marginBottom: "14px", display: "flex", flexWrap: "wrap", gap: "20px" }}>
           <div style={{ color: C.t2, fontSize: "11px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", width: "100%" }}>Aujourd&apos;hui</div>
           {[
             { label: "Opérations", valeur: String(stats.aujourdhui.nbOperations), color: C.t1 },
@@ -207,13 +209,13 @@ export function TransactionsTab({ instId }: { instId: string }) {
           ].map((item, i, arr) => (
             <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "20px" }}>
               <div>
-                <div style={{ color: item.color, fontSize: "20px", fontWeight: "900", letterSpacing: "-0.3px" }}>{item.valeur}</div>
+                <div style={{ color: item.color, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.3px" }}>{item.valeur}</div>
                 <div style={{ color: C.t3, fontSize: "11px", fontWeight: "700", marginTop: "2px" }}>{item.label}</div>
               </div>
               {i < arr.length - 1 && <div style={{ width: "1px", height: "32px", background: C.border }}/>}
             </div>
           ))}
-        </div>
+        </Card>
       )}
 
       {/* 4 cartes KPI — définitions exactes documentées côté route
@@ -258,10 +260,9 @@ export function TransactionsTab({ instId }: { instId: string }) {
           filtres actifs, côté serveur (pas seulement les lignes affichées). */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
         {(["csv", "xlsx", "pdf"] as Format[]).map(f => (
-          <button key={f} onClick={() => exporter(f)} disabled={exportEnCours !== null} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: exportEnCours ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "6px", opacity: exportEnCours && exportEnCours !== f ? 0.5 : 1 }}>
-            {exportEnCours === f ? <YelenLoader size={12} color={C.t2}/> : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
-            Exporter {f.toUpperCase()}
-          </button>
+          <Button key={f} tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" disabled={exportEnCours !== null} loading={exportEnCours === f}
+            icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+            onClick={() => exporter(f)}>Exporter {f.toUpperCase()}</Button>
         ))}
       </div>
 
@@ -292,7 +293,7 @@ export function TransactionsTab({ instId }: { instId: string }) {
             const estReversee = reversees.has(t.id);
             const negatif = t.type_transaction === "remboursement" || t.type_transaction === "annulation";
             return (
-              <div key={t.id} onClick={() => setDetailOuvert(t)} className="transaction-row tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "12px 16px", cursor: "pointer" }}>
+              <Card key={t.id} tokens={toCardTokens(C)} padding="12px 16px" onClick={() => setDetailOuvert(t)} className="transaction-row tap">
                 <div>
                   <div style={{ color: C.t1, fontSize: "12px", fontWeight: "800", fontFamily: "monospace" }}>{t.reference}</div>
                   <span style={{ color: tl.color(C), fontSize: "9.5px", fontWeight: "800", backgroundColor: `${tl.color(C)}15`, padding: "2px 8px", borderRadius: "20px", display: "inline-block", marginTop: "4px" }}>{tl.label}</span>
@@ -318,7 +319,7 @@ export function TransactionsTab({ instId }: { instId: string }) {
                   )}
                 </div>
 
-                <div className="transaction-row-montant" style={{ marginTop: "8px", color: negatif ? C.red : C.t1, fontSize: "14px", fontWeight: "900" }}>
+                <div className="transaction-row-montant" style={{ marginTop: "8px", color: negatif ? C.red : C.t1, fontSize: "14px", fontWeight: "800" }}>
                   {negatif ? "-" : ""}{formatPrix(t.montant)}
                 </div>
 
@@ -329,7 +330,7 @@ export function TransactionsTab({ instId }: { instId: string }) {
                     </a>
                   )}
                 </div>
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -363,14 +364,14 @@ export function TransactionsTab({ instId }: { instId: string }) {
           `}</style>
           <div onClick={e => e.stopPropagation()} className="transaction-fiche-panel" style={{ backgroundColor: C.bgCard, borderRadius: "20px 20px 0 0", padding: "22px", width: "100%", maxWidth: "480px", maxHeight: "88vh", overflowY: "auto" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-              <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", fontFamily: "monospace" }}>{detailOuvert.reference}</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", fontFamily: "monospace" }}>{detailOuvert.reference}</div>
               <span style={{ color: (TYPE_LABEL[detailOuvert.type_transaction]?.color ?? (() => C.t3))(C), fontSize: "10.5px", fontWeight: "800", backgroundColor: `${(TYPE_LABEL[detailOuvert.type_transaction]?.color ?? (() => C.t3))(C)}15`, padding: "4px 10px", borderRadius: "20px" }}>{TYPE_LABEL[detailOuvert.type_transaction]?.label ?? detailOuvert.type_transaction}</span>
             </div>
             <div style={{ color: C.t3, fontSize: "12px", marginBottom: "18px" }}>{formatDateHeure(detailOuvert.created_at)}</div>
 
             <div style={{ background: C.bg3, borderRadius: "14px", padding: "14px 16px", marginBottom: "14px", textAlign: "center" }}>
               <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", marginBottom: "4px" }}>Montant</div>
-              <div style={{ color: (detailOuvert.type_transaction === "remboursement" || detailOuvert.type_transaction === "annulation") ? C.red : C.t1, fontSize: "22px", fontWeight: "900" }}>
+              <div style={{ color: (detailOuvert.type_transaction === "remboursement" || detailOuvert.type_transaction === "annulation") ? C.red : C.t1, fontSize: "22px", fontWeight: "800" }}>
                 {(detailOuvert.type_transaction === "remboursement" || detailOuvert.type_transaction === "annulation") ? "-" : ""}{formatPrix(detailOuvert.montant)}
               </div>
             </div>
@@ -426,11 +427,12 @@ export function TransactionsTab({ instId }: { instId: string }) {
             </div>
 
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => setDetailOuvert(null)} className="tap" style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "10px", cursor: "pointer" }}>Fermer</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setDetailOuvert(null)}>Fermer</Button>
               {detailOuvert.recu_id && (
-                <button onClick={async () => { const res = await fetch(`/api/institution/recus/${detailOuvert.recu_id}/pdf`); const j = await res.json().catch(() => null); if (j?.signedUrl) window.open(j.signedUrl, "_blank"); }} className="tap" style={{ flex: 1, backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}30`, color: C.gold, fontWeight: "800", fontSize: "13px", padding: "13px", borderRadius: "10px", cursor: "pointer" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1, color: C.gold, border: `1px solid ${C.gold}30`, backgroundColor: `${C.gold}12` }}
+                  onClick={async () => { const res = await fetch(`/api/institution/recus/${detailOuvert.recu_id}/pdf`); const j = await res.json().catch(() => null); if (j?.signedUrl) window.open(j.signedUrl, "_blank"); }}>
                   Voir le reçu
-                </button>
+                </Button>
               )}
             </div>
           </div>

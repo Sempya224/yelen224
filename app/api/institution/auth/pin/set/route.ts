@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
-import { getAuthenticatedInstitutionId } from '@/lib/institutionAuth'
+import { getAuthenticatedInstitutionId, getInstitutionSessionSid, revoquerAutresSessionsInstitution } from '@/lib/institutionAuth'
+import { isWeakPin, PIN_TROP_SIMPLE_MESSAGE } from '@/lib/pinSecurity'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,16 +11,6 @@ const supabaseAdmin = createClient(
 )
 
 const PIN_REGEX = /^\d{4,8}$/
-
-// Codes trop faibles pour servir de verrou réel — rejetés même s'ils
-// respectent le format. Répétitions et suites triviales uniquement ;
-// on ne prétend pas couvrir tous les cas, juste les plus évidents.
-function isWeakPin(pin: string): boolean {
-  if (/^(\d)\1+$/.test(pin)) return true // 0000, 1111, 222222...
-  const ascending = pin.split('').every((d, i) => i === 0 || Number(d) === Number(pin[i - 1]) + 1)
-  const descending = pin.split('').every((d, i) => i === 0 || Number(d) === Number(pin[i - 1]) - 1)
-  return ascending || descending // 1234, 4321, 123456...
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
     if (isWeakPin(pin)) {
       return NextResponse.json(
-        { error: 'Ce code est trop simple (chiffres répétés ou suite logique). Choisissez-en un autre.', code: 'WEAK_PIN' },
+        { error: PIN_TROP_SIMPLE_MESSAGE, code: 'WEAK_PIN' },
         { status: 400 }
       )
     }
@@ -58,23 +49,19 @@ export async function POST(request: NextRequest) {
 
     if (updateError) {
       console.error('[INSTITUTION PIN SET ERROR]', updateError.code, updateError.message, updateError.details, updateError.hint)
-      return NextResponse.json({ error: "Erreur lors de l'enregistrement du code", code: 'UPDATE_ERROR' }, { status: 500 })
+      return NextResponse.json({ error: "Le code PIN n'a pas pu être enregistré. Réessayez.", code: 'UPDATE_ERROR' }, { status: 500 })
     }
     if (!updated || updated.length === 0) {
-      return NextResponse.json({ error: 'Institution introuvable', code: 'NOT_FOUND' }, { status: 404 })
+      return NextResponse.json({ error: 'Votre compte est introuvable. Reconnectez-vous et réessayez.', code: 'NOT_FOUND' }, { status: 404 })
     }
 
-    // institution_sessions (dette technique comblée 30/08/2026, remplace
-    // institutions.session_revoked_at de GAP-04-04) — invalide toute session
-    // active, y compris sur cet appareil (même précédent que le chantier MFA
-    // Admin du 13/08/2026 : changer un identifiant de sécurité force une
-    // reconnexion).
-    const { error: revokeError } = await supabaseAdmin
-      .from('institution_sessions')
-      .update({ revoked_at: new Date().toISOString(), revoked_reason: 'pin_change' })
-      .eq('institution_id', institutionId)
-      .is('revoked_at', null)
-    if (revokeError) console.error('[INSTITUTION PIN SET] Erreur révocation session:', revokeError.message)
+    // institution_sessions — invalide les autres sessions actives (pas
+    // celle-ci, voir lib/institutionAuth.ts::revoquerAutresSessionsInstitution :
+    // révoquer aussi l'appelant cassait "Configurer l'accès rapide" juste
+    // après un premier login, qui enchaîne cet appel puis redirige vers le
+    // dashboard avec ce même cookie — bug réel corrigé le 08/09/2026).
+    const currentSid = await getInstitutionSessionSid(request)
+    await revoquerAutresSessionsInstitution(supabaseAdmin, institutionId, currentSid, 'pin_change')
 
     return NextResponse.json({ success: true })
 

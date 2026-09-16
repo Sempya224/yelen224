@@ -9,7 +9,9 @@
 // RDV) — deux systèmes distincts, pas de mélange.
 import { useEffect, useState, useCallback } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -122,7 +124,7 @@ export function QuestionsClientsTab({ readOnly, onToast }: { readOnly: boolean; 
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {filtered.map(q => (
-            <div key={q.id} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
+            <Card key={q.id} tokens={toCardTokens(C)} padding="16px">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", gap: "10px" }}>
                 <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{q.citoyen_nom}</span>
                 <span style={{ color: C.t3, fontSize: "10.5px", flexShrink: 0 }}>{fmt(q.created_at)}</span>
@@ -130,7 +132,7 @@ export function QuestionsClientsTab({ readOnly, onToast }: { readOnly: boolean; 
               <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, margin: "0 0 10px" }}>{q.question}</p>
 
               {q.reponse ? (
-                <div style={{ backgroundColor: `${C.gold}0A`, border: `1px solid ${C.gold}25`, borderRadius: "10px", padding: "10px 12px" }}>
+                <div style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px" }}>
                   <div style={{ color: C.gold, fontSize: "10px", fontWeight: "800", marginBottom: "4px" }}>
                     Votre réponse{q.reponse_le ? ` · ${fmt(q.reponse_le)}` : ""} · publique
                   </div>
@@ -145,19 +147,18 @@ export function QuestionsClientsTab({ readOnly, onToast }: { readOnly: boolean; 
                     placeholder="Votre réponse (publiée sur la fiche)…"
                     style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "9px 12px", color: C.t1, fontSize: "12.5px", fontFamily: "inherit" }}
                   />
-                  <button
+                  <Button
+                    tokens={toUiTokens(C)} className="tap" variant="primary" size="sm"
                     onClick={() => repondre(q.id)}
-                    disabled={envoiId === q.id || !(brouillons[q.id] ?? "").trim()}
-                    className="tap"
-                    style={{ backgroundColor: C.gold, color: "#000", border: "none", borderRadius: "10px", padding: "9px 16px", fontSize: "12.5px", fontWeight: "700", cursor: "pointer", opacity: envoiId === q.id ? 0.6 : 1, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
-                  >
-                    {envoiId === q.id ? <YelenLoader size={12} color="#000"/> : "Répondre"}
-                  </button>
+                    disabled={!(brouillons[q.id] ?? "").trim()}
+                    loading={envoiId === q.id}
+                    style={{ flexShrink: 0 }}
+                  >Répondre</Button>
                 </div>
               ) : (
                 <p style={{ color: C.t3, fontSize: "11.5px", margin: 0 }}>En attente de réponse.</p>
               )}
-            </div>
+            </Card>
           ))}
         </div>
       )}

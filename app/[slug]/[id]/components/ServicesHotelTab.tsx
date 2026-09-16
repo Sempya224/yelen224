@@ -27,8 +27,11 @@
 //   lot (voir note de portée dans le rapport de livraison).
 import { useState, useCallback, useEffect } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { type Horaire, JOURS_SEMAINE, isOuvertNow } from "@/lib/horaires";
 import { EQUIPEMENTS_CHAMBRE } from "@/lib/hotelEquipements";
@@ -263,11 +266,10 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: "10px" }}>
-          <button onClick={onCancel} className="tap" style={{ backgroundColor: C.bg3, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1.5px solid ${C.border2}`, cursor: "pointer" }}>Annuler</button>
-          <button onClick={submit} disabled={saving || uploadingPhoto || uploadingVideo} className="tap" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", opacity: (saving || uploadingPhoto || uploadingVideo) ? 0.7 : 1 }}>
-            {saving ? <YelenLoader size={14} color="#000"/> : null}
-            {saving ? "Enregistrement…" : (isEdit ? "Enregistrer les modifications" : "Créer la chambre")}
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onCancel}>Annuler</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={uploadingPhoto || uploadingVideo} loading={saving} onClick={submit}>
+            {isEdit ? "Enregistrer les modifications" : "Créer la chambre"}
+          </Button>
         </div>
       </div>
     </div>
@@ -322,7 +324,7 @@ function ChambreCard({ chambre, resaCount, onEdit, onToggleActive, onDelete, tog
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", border: `1.5px solid ${chambre.is_active ? C.border2 : C.border}`, overflow: "hidden", opacity: chambre.is_active ? 1 : 0.6 }}>
+    <Card tokens={toCardTokens(C)} noPadding style={{ border: `1.5px solid ${chambre.is_active ? C.border2 : C.border}`, opacity: chambre.is_active ? 1 : 0.6 }}>
       {chambre.photos.length > 0 && (
         <div style={{ position: "relative" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -341,17 +343,17 @@ function ChambreCard({ chambre, resaCount, onEdit, onToggleActive, onDelete, tog
             <div style={{ position: "absolute", top: "3px", left: chambre.is_active ? "20px" : "3px", width: "17px", height: "17px", borderRadius: "50%", backgroundColor: chambre.is_active ? "#000" : C.t3, transition: "left 0.25s ease" }}/>
           </div>
         </div>
-        <div style={{ color: C.gold, fontSize: "13px", fontWeight: "900", marginBottom: "6px" }}>{formatPrix(chambre.prix)} / nuit</div>
+        <div style={{ color: C.gold, fontSize: "13px", fontWeight: "800", marginBottom: "6px" }}>{formatPrix(chambre.prix)} / nuit</div>
         {chambre.description && <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, marginBottom: "8px" }}>{chambre.description}</div>}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
           <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700" }}>{resaCount} réservation{resaCount > 1 ? "s" : ""}</span>
           <div style={{ display: "flex", gap: "6px" }}>
-            <button onClick={onEdit} className="tap" style={{ backgroundColor: C.bg3, border: `1.5px solid ${C.border2}`, color: C.t1, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer" }}>Modifier</button>
-            <button onClick={onDelete} className="tap" style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer" }}>Supprimer</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={onEdit}>Modifier</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" onClick={onDelete}>Supprimer</Button>
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -478,11 +480,10 @@ function PrestationForm({ onSave, onCancel, saving, initial, familles }: {
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: "10px" }}>
-          <button onClick={onCancel} className="tap" style={{ backgroundColor: C.bg3, color: C.t2, fontWeight: "700", fontSize: "14px", padding: "14px", borderRadius: "14px", border: `1.5px solid ${C.border2}`, cursor: "pointer" }}>Annuler</button>
-          <button onClick={submit} disabled={saving} className="tap" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", opacity: saving ? 0.7 : 1 }}>
-            {saving ? <YelenLoader size={14} color="#000"/> : null}
-            {saving ? "Enregistrement…" : (isEdit ? "Enregistrer les modifications" : "Créer la prestation")}
-          </button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onCancel}>Annuler</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" loading={saving} onClick={submit}>
+            {isEdit ? "Enregistrer les modifications" : "Créer la prestation"}
+          </Button>
         </div>
       </div>
     </div>
@@ -510,13 +511,13 @@ function PrestationCard({ service, resaCount, onEdit, onToggleActive, onDelete, 
   const badgeBg = ti ? { blue: C.blueL, green: C.greenL, orange: C.orangeL, purple: C.purpleL }[ti.color] : C.bg3;
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", border: `1.5px solid ${service.is_active ? C.border2 : C.border}`, padding: "14px 16px", opacity: service.is_active ? 1 : 0.6 }}>
+    <Card tokens={toCardTokens(C)} padding="14px 16px" style={{ border: `1.5px solid ${service.is_active ? C.border2 : C.border}`, opacity: service.is_active ? 1 : 0.6 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "8px" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ color: C.t1, fontSize: "14.5px", fontWeight: "800" }}>{service.nom}</div>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
             {ti && <span style={{ backgroundColor: badgeBg, color: badgeColor, fontSize: "10px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{ti.label}</span>}
-            <span style={{ color: C.gold, fontSize: "13px", fontWeight: "900" }}>{formatPrix(service.prix)}{service.unite_prix ? ` / ${service.unite_prix}` : ""}</span>
+            <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>{formatPrix(service.prix)}{service.unite_prix ? ` / ${service.unite_prix}` : ""}</span>
           </div>
         </div>
         <div onClick={onToggleActive} className="tap" style={{ width: "40px", height: "23px", borderRadius: "13px", backgroundColor: service.is_active ? C.gold : C.bg3, position: "relative", cursor: "pointer", flexShrink: 0, opacity: toggling ? 0.5 : 1, transition: "background-color 0.3s" }}>
@@ -544,7 +545,7 @@ function PrestationCard({ service, resaCount, onEdit, onToggleActive, onDelete, 
           <button onClick={onDelete} className="tap" style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer" }}>Supprimer</button>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -562,6 +563,7 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; color: string } | null>(null);
+  const [confirmSupprimer, setConfirmSupprimer] = useState<PaidService | null>(null);
   // "Chambres" en premier : inventaire obligatoire d'un hôtel, avant les
   // prestations facultatives (retour Bryan 20/08/2026).
   const [subTab, setSubTab] = useState<"chambres" | "prestations" | "reservations">("chambres");
@@ -591,7 +593,7 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
       body: JSON.stringify(isEdit ? { id: (prestationFormTarget as PaidService).id, ...d, est_chambre: false } : { ...d, est_chambre: false }),
     });
     const j = await res.json().catch(() => null);
-    if (!res.ok) { showToast("Erreur : " + (j?.error ?? "inconnue"), C.red); setSaving(false); return; }
+    if (!res.ok) { showToast(j?.error || "Cette prestation n'a pas pu être enregistrée.", C.red); setSaving(false); return; }
     showToast(isEdit ? "Prestation mise à jour" : "Prestation créée avec succès", C.green);
     setPrestationFormTarget(null);
     await loadData();
@@ -613,7 +615,7 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
       body: JSON.stringify(isEdit ? { id: (chambreFormTarget as PaidService).id, ...body } : body),
     });
     const j = await res.json().catch(() => null);
-    if (!res.ok) { showToast("Erreur : " + (j?.error ?? "inconnue"), C.red); setSaving(false); return; }
+    if (!res.ok) { showToast(j?.error || "Cette chambre n'a pas pu être enregistrée.", C.red); setSaving(false); return; }
     showToast(isEdit ? "Chambre mise à jour" : "Chambre créée avec succès", C.green);
     setChambreFormTarget(null);
     await loadData();
@@ -632,16 +634,15 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
       const label = service.est_chambre ? "Chambre" : "Prestation";
       showToast(service.is_active ? `${label} suspendue` : `${label} activée`, service.is_active ? C.orange : C.green);
     } else {
-      showToast("Erreur de mise à jour", C.red);
+      showToast(`Le statut de ${service.est_chambre ? "cette chambre" : "cette prestation"} n'a pas pu être mis à jour.`, C.red);
     }
     setToggling(null);
   }
 
   async function handleDelete(service: PaidService) {
-    const label = service.est_chambre ? "cette chambre" : "cette prestation";
-    if (!window.confirm(`Supprimer ${label} définitivement ?`)) return;
     const res = await fetch(`/api/institution/services?id=${service.id}`, { method: "DELETE" });
-    if (!res.ok) { showToast("Erreur suppression", C.red); return; }
+    setConfirmSupprimer(null);
+    if (!res.ok) { showToast(`${service.est_chambre ? "Cette chambre" : "Cette prestation"} n'a pas pu être supprimée.`, C.red); return; }
     setServices(prev => prev.filter(s => s.id !== service.id));
     showToast(service.est_chambre ? "Chambre supprimée" : "Prestation supprimée", C.orange);
   }
@@ -667,19 +668,33 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
         <div>
-          <h1 className="yelen-h1" style={{ color: C.t1, marginBottom: "6px" }}>Chambres & Services</h1>
+          <h1 className="yelen-h1" style={{ color: C.t1, marginBottom: "6px" }}>Chambres et services</h1>
           <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5 }}>Vos chambres (obligatoire) et les prestations facultatives que vous proposez — visible sur votre fiche publique.</p>
         </div>
         {subTab === "prestations" ? (
-          <button onClick={() => setPrestationFormTarget("new")} className="tap" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "900", fontSize: "12.5px", padding: "10px 16px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <Button
+            tokens={toUiTokens(C)}
+            className="tap"
+            variant="primary"
+            size="sm"
+            style={{ whiteSpace: "nowrap" }}
+            icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
+            onClick={() => setPrestationFormTarget("new")}
+          >
             Ajouter une prestation
-          </button>
+          </Button>
         ) : subTab === "chambres" ? (
-          <button onClick={() => setChambreFormTarget("new")} className="tap" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "900", fontSize: "12.5px", padding: "10px 16px", borderRadius: "14px", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <Button
+            tokens={toUiTokens(C)}
+            className="tap"
+            variant="primary"
+            size="sm"
+            style={{ whiteSpace: "nowrap" }}
+            icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
+            onClick={() => setChambreFormTarget("new")}
+          >
             Ajouter une chambre
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -691,26 +706,26 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
         ] as { key: typeof subTab; label: string; count: number }[]).map(t => (
           <button key={t.key} onClick={() => setSubTab(t.key)} className="tap" style={{ flex: 1, backgroundColor: subTab === t.key ? C.bgCard : "transparent", border: subTab === t.key ? `1.5px solid ${C.gold}50` : "1.5px solid transparent", borderRadius: "14px", padding: "10px 8px", color: subTab === t.key ? C.gold : C.t3, fontSize: "12px", fontWeight: subTab === t.key ? "800" : "600", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
             {t.label}
-            {t.count > 0 && <span style={{ backgroundColor: subTab === t.key ? C.gold : C.border2, color: subTab === t.key ? "#000" : C.t2, fontSize: "9px", fontWeight: "900", padding: "2px 7px", borderRadius: "20px" }}>{t.count}</span>}
+            {t.count > 0 && <span style={{ backgroundColor: subTab === t.key ? C.gold : C.border2, color: subTab === t.key ? "#000" : C.t2, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px" }}>{t.count}</span>}
           </button>
         ))}
       </div>
 
       {subTab === "chambres" && (
         chambres.length === 0 ? (
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${C.border}`, padding: "44px 24px", textAlign: "center" }}>
+          <Card tokens={toCardTokens(C)} padding="44px 24px" style={{ textAlign: "center" }}>
             <div style={{ width: "60px", height: "60px", borderRadius: "18px", background: `${C.gold}15`, border: `1.5px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><path d="M3 20v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8"/><path d="M3 18h18"/><path d="M5 10V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"/></svg>
             </div>
-            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "8px" }}>Aucune chambre configurée</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "8px" }}>Aucune chambre configurée</div>
             <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65, marginBottom: "20px" }}>Ajoutez vos chambres avec photo et prix pour qu&apos;elles apparaissent sur votre fiche publique.</div>
-            <button onClick={() => setChambreFormTarget("new")} className="tap" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "14px", border: "none", cursor: "pointer" }}>Ajouter ma première chambre</button>
-          </div>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={() => setChambreFormTarget("new")}>Ajouter ma première chambre</Button>
+          </Card>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "12px" }}>
             {chambres.map(c => (
               <ChambreCard key={c.id} chambre={c} resaCount={bookings.filter(b => b.service_id === c.id).length}
-                onEdit={() => setChambreFormTarget(c)} onToggleActive={() => handleToggle(c)} onDelete={() => handleDelete(c)} toggling={toggling === c.id}/>
+                onEdit={() => setChambreFormTarget(c)} onToggleActive={() => handleToggle(c)} onDelete={() => setConfirmSupprimer(c)} toggling={toggling === c.id}/>
             ))}
           </div>
         )
@@ -718,14 +733,14 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
 
       {subTab === "prestations" && (
         prestations.length === 0 ? (
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${C.border}`, padding: "44px 24px", textAlign: "center" }}>
+          <Card tokens={toCardTokens(C)} padding="44px 24px" style={{ textAlign: "center" }}>
             <div style={{ width: "60px", height: "60px", borderRadius: "18px", background: `${C.gold}15`, border: `1.5px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><path d="M6 2l1.5 5M18 2l-1.5 5M3 7h18l-1.4 13a2 2 0 0 1-2 2H6.4a2 2 0 0 1-2-2z"/></svg>
             </div>
-            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "8px" }}>Aucune prestation configurée</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "8px" }}>Aucune prestation configurée</div>
             <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65, marginBottom: "20px" }}>Room service, spa, transfert aéroport, blanchisserie… Ajoutez vos prestations pour qu&apos;elles apparaissent sur votre fiche.</div>
-            <button onClick={() => setPrestationFormTarget("new")} className="tap" style={{ backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "14px", border: "none", cursor: "pointer" }}>Ajouter ma première prestation</button>
-          </div>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={() => setPrestationFormTarget("new")}>Ajouter ma première prestation</Button>
+          </Card>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
             {groupes.map(g => (
@@ -734,7 +749,7 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "10px" }}>
                   {g.items.map(s => (
                     <PrestationCard key={s.id} service={s} resaCount={bookings.filter(b => b.service_id === s.id).length}
-                      onEdit={() => setPrestationFormTarget(s)} onToggleActive={() => handleToggle(s)} onDelete={() => handleDelete(s)} toggling={toggling === s.id}/>
+                      onEdit={() => setPrestationFormTarget(s)} onToggleActive={() => handleToggle(s)} onDelete={() => setConfirmSupprimer(s)} toggling={toggling === s.id}/>
                   ))}
                 </div>
               </div>
@@ -745,17 +760,17 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
 
       {subTab === "reservations" && (
         allBookingsSorted.length === 0 ? (
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${C.border}`, padding: "44px 24px", textAlign: "center" }}>
-            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "900", marginBottom: "8px" }}>Aucune réservation</div>
+          <Card tokens={toCardTokens(C)} padding="44px 24px" style={{ textAlign: "center" }}>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "8px" }}>Aucune réservation</div>
             <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65 }}>Les réservations de vos prestations apparaîtront ici avec leur code Yelen.</div>
-          </div>
+          </Card>
         ) : (
-          <div style={{ backgroundColor: C.bgCard, borderRadius: "20px", border: `1.5px solid ${C.border2}`, overflow: "hidden" }}>
+          <Card tokens={toCardTokens(C)} noPadding style={{ border: `1.5px solid ${C.border2}` }}>
             {allBookingsSorted.map((b, i) => {
               const svc = services.find(s => s.id === b.service_id);
               return (
                 <div key={b.id} style={{ padding: "14px 16px", borderBottom: i < allBookingsSorted.length - 1 ? `1px solid ${C.border}` : "none", display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{ width: "42px", height: "42px", borderRadius: "13px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "900", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
+                  <div style={{ width: "42px", height: "42px", borderRadius: "13px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "800", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{b.citoyen_nom || "Citoyen"}</div>
                     <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{svc?.nom ?? "Prestation"}{svc ? ` · ${formatPrix(svc.prix)}` : ""}</div>
@@ -765,7 +780,7 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
                 </div>
               );
             })}
-          </div>
+          </Card>
         )
       )}
     </div>

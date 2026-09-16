@@ -326,4 +326,22 @@ export async function notifierDocumentTeleverse(params: { institutionId: string;
   });
 }
 
+// Sas de confiance de première connexion (16/09/2026) — jusqu'ici,
+// l'admin qui invite un membre n'a aucun moyen de savoir si la personne a
+// réellement accédé à son compte, seulement qu'il a créé la ligne
+// institution_membres. Déclenché une seule fois, à la confirmation de
+// l'écran "Confirmez votre accès" (voir app/api/institution/auth/
+// premiere-connexion/route.ts, action "confirmer") — jamais aux
+// reconnexions suivantes.
+export async function notifierMembrePremiereConnexion(params: { institutionId: string; institutionNom: string | null; membrePrenom: string; membreNom: string; roleLabel: string }): Promise<void> {
+  await envoyerNotification({
+    destinataireId: params.institutionId,
+    destinataireType: "institution",
+    rdvId: null,
+    type: "membre_premiere_connexion",
+    titre: salutation(params.institutionNom || "votre équipe"),
+    message: `${params.membrePrenom} ${params.membreNom} (${params.roleLabel}) vient de se connecter pour la première fois à son compte.`,
+  });
+}
+
 export { formatDateLongue, formatHeureCourte, salutation };

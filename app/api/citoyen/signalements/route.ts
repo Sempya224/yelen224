@@ -15,15 +15,69 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 
 const MAX_PREUVE_SIZE = 5 * 1024 * 1024;
 
+// Types d'événements sûrs à exposer au citoyen (V2 "Suivi", 11/09/2026) —
+// jamais assigned/priority_changed/note_added/attachment_added/escalated,
+// qui révèlent de l'organisation interne institution/Yelen (nom d'agent,
+// priorité de traitement, notes internes). Tous les types retenus ici
+// portent nouvelle_valeur.statut (voir lib/signalements.ts::changerStatutInterne),
+// sauf "created" qui n'a pas de statut associé.
+const EVENTS_CITOYEN_SAFE = ["created", "status_changed", "resolved", "closed", "reopened", "marked_duplicate"];
+
 export async function GET(request: NextRequest) {
   const accessToken = request.nextUrl.searchParams.get("accessToken");
+  const id = request.nextUrl.searchParams.get("id");
   if (!accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const user = await verifierCitoyenToken(accessToken);
   if (!user) return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
 
+  // Détail d'un signalement — institution/RDV concerné + timeline de suivi
+  // (V2, 11/09/2026). Passe par ?id= sur cette même route plutôt qu'une
+  // route [id] séparée pour rester à 1 seul fichier API modifié.
+  if (id) {
+    const { data: row, error: rowError } = await sb.from("signalements")
+      .select("id, numero_public, motif, description, preuve_url, statut, created_at, institution_id, rdv_id, citoyen_id, type_signaleur")
+      .eq("id", id).maybeSingle();
+    if (rowError) return NextResponse.json({ error: rowError.message }, { status: 500 });
+    if (!row || row.citoyen_id !== user.id || row.type_signaleur !== "citoyen") {
+      return NextResponse.json({ error: "Signalement introuvable." }, { status: 404 });
+    }
+
+    const { data: inst } = await sb.from("institutions").select("name, logo").eq("id", row.institution_id).maybeSingle();
+
+    let rdvInfo: { date_rdv: string; heure_rdv: string; objet: string | null } | null = null;
+    if (row.rdv_id) {
+      const { data: rdv } = await sb.from("rdv").select("date_rdv, heure_rdv, objet").eq("id", row.rdv_id).maybeSingle();
+      rdvInfo = rdv ?? null;
+    }
+
+    const { data: events } = await sb.from("signalement_events")
+      .select("type, nouvelle_valeur, created_at")
+      .eq("signalement_id", id)
+      .in("type", EVENTS_CITOYEN_SAFE)
+      .order("created_at", { ascending: true });
+
+    const suivi = (events ?? []).map(e => ({
+      type: e.type as string,
+      statut: (e.nouvelle_valeur as { statut?: string } | null)?.statut ?? null,
+      created_at: e.created_at as string,
+    }));
+
+    return NextResponse.json({
+      signalement: {
+        ...row,
+        institution_name: inst?.name || "Institution",
+        institution_logo: inst?.logo || null,
+        rdv_date: rdvInfo?.date_rdv || null,
+        rdv_heure: rdvInfo?.heure_rdv || null,
+        rdv_objet: rdvInfo?.objet || null,
+      },
+      suivi,
+    });
+  }
+
   const { data, error } = await sb.from("signalements")
-    .select("id, numero_public, motif, description, preuve_url, statut, created_at, institution_id")
+    .select("id, numero_public, motif, description, preuve_url, statut, created_at, institution_id, rdv_id")
     .eq("citoyen_id", user.id).eq("type_signaleur", "citoyen")
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -35,11 +89,26 @@ export async function GET(request: NextRequest) {
     (institutions ?? []).forEach(i => instMap.set(i.id, { name: i.name, logo: i.logo }));
   }
 
-  const signalements = (data ?? []).map(s => ({
-    ...s,
-    institution_name: instMap.get(s.institution_id)?.name || "Institution",
-    institution_logo: instMap.get(s.institution_id)?.logo || null,
-  }));
+  // RDV concerné par signalement (V2 liste, 11/09/2026) — la description
+  // sort de la carte, remplacée par la date/heure + objet du rendez-vous.
+  const rdvIds = [...new Set((data ?? []).map(s => s.rdv_id).filter(Boolean))] as string[];
+  const rdvMap = new Map<string, { date_rdv: string; heure_rdv: string; objet: string | null }>();
+  if (rdvIds.length > 0) {
+    const { data: rdvs } = await sb.from("rdv").select("id, date_rdv, heure_rdv, objet").in("id", rdvIds);
+    (rdvs ?? []).forEach(r => rdvMap.set(r.id, { date_rdv: r.date_rdv, heure_rdv: r.heure_rdv, objet: r.objet }));
+  }
+
+  const signalements = (data ?? []).map(s => {
+    const rdv = s.rdv_id ? rdvMap.get(s.rdv_id) : null;
+    return {
+      ...s,
+      institution_name: instMap.get(s.institution_id)?.name || "Institution",
+      institution_logo: instMap.get(s.institution_id)?.logo || null,
+      rdv_date: rdv?.date_rdv || null,
+      rdv_heure: rdv?.heure_rdv || null,
+      rdv_objet: rdv?.objet || null,
+    };
+  });
 
   return NextResponse.json({ signalements });
 }

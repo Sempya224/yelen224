@@ -23,7 +23,7 @@ const MAX_SIZE = 5 * 1024 * 1024;
 export async function POST(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "profil_entreprise.write") && !can(membre.role, "profil_responsable.write")) {
+  if (!can(membre.role, "profil_entreprise.write", membre.accesRestreints) && !can(membre.role, "profil_responsable.write", membre.accesRestreints)) {
     return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
   }
   const authInstId = membre.institutionId;

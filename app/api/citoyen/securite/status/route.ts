@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [{ data: citoyen }, { data: credentials }, { data: rememberTokens }] = await Promise.all([
-      supabaseAdmin.from("users").select("pin_hash, totp_enabled").eq("id", user.id).single(),
+      supabaseAdmin.from("users").select("pin_hash, totp_enabled, phone").eq("id", user.id).single(),
       supabaseAdmin
         .from("citoyen_webauthn_credentials")
         .select("id, device_label, created_at, last_used_at")
@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
       success: true,
       pin_configured: pinConfigure,
       totp_enabled: totpActive,
+      phone: citoyen?.phone ?? null,
       webauthn_credentials: (credentials ?? []).map(c => ({
         id: c.id,
         device_label: c.device_label,

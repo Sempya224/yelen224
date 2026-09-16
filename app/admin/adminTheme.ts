@@ -51,3 +51,22 @@ export const uiTokens: ButtonTokens = {
   danger: D.red, dangerBg: D.redDim, dangerBorder: D.redBrd,
   radius: D.radius, radiusSm: D.radiusSm, font: D.font,
 }
+
+// Adaptateur vers components/ui/Card.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — valeurs identiques au motif répété 62×
+// dans app/admin/** (backgroundColor: D.surface, border: D.border,
+// borderRadius: D.radius), pas une nouvelle couleur.
+import type { CardTokens } from '@/components/ui/Card'
+export const cardTokens: CardTokens = { surface: D.surface, border: D.border, radius: D.radius }
+
+// Adaptateurs vers components/ui/Input.tsx, Select.tsx, Pagination.tsx,
+// EmptyState.tsx (même mission, 02/09/2026) — valeurs identiques aux motifs
+// répétés réels dans app/admin/**, pas une nouvelle couleur.
+import type { InputTokens } from '@/components/ui/Input'
+export const inputTokens: InputTokens = { surface: D.surface2, border: D.border, radiusSm: D.radiusSm, text: D.text }
+
+import type { PaginationTokens } from '@/components/ui/Pagination'
+export const paginationTokens: PaginationTokens = { border: D.border, surface2: D.surface2, textMuted: D.textMuted, textSub: D.textSub, radiusSm: D.radiusSm }
+
+import type { EmptyStateTokens } from '@/components/ui/EmptyState'
+export const emptyStateTokens: EmptyStateTokens = { surface: D.surface, border: D.border, radiusLg: D.radiusLg, textSub: D.textSub }

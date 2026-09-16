@@ -7,7 +7,9 @@
 // (migration 20260712000003), à travers /api/institution/clients.
 import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLogo } from "@/components/YelenLogo";
 import { EmptyState } from "@/components/EmptyState";
 import { YelenLoader } from "@/components/YelenLoader";
@@ -26,7 +28,7 @@ type Signalement = { titre: string; motif: string; statut: string; created_at: s
 type Tache = { id: string; titre: string; statut: string; created_at: string };
 type Client = {
   id: string; nom: string; phone: string; nb_rdv: number;
-  dernier_rdv: string; premiere_visite: string; est_nouveau: boolean;
+  dernier_rdv: string; dernier_statut: string; premiere_visite: string; est_nouveau: boolean;
   note: string; historique: Historique[]; avis: Avis[]; signalements: Signalement[]; taches: Tache[];
 };
 type TimelineItem = { id: string; date: string; label: string; sublabel?: string; color: string; bg: string };
@@ -107,6 +109,7 @@ function stColor(statut: string, C: ThemeTokens): { c: string; bg: string; l: st
     case "nouveau":    return { c: C.gold,   bg: `${C.gold}20`, l: "Nouveau" };
     case "annule":     return { c: C.red,    bg: C.redL,    l: "Annulé" };
     case "absent":     return { c: C.red,    bg: C.redL,    l: "Absent" };
+    case "en_retard":  return { c: C.orange, bg: C.orangeL, l: "Non traité" };
     case "effectue":   return { c: C.blue,   bg: C.blueL,   l: "Effectué" };
     case "termine":    return { c: C.purple, bg: C.purpleL, l: "Terminé" };
     case "honore":     return { c: C.green,  bg: C.greenL,  l: "Honoré" };
@@ -114,7 +117,7 @@ function stColor(statut: string, C: ThemeTokens): { c: string; bg: string; l: st
   }
 }
 
-export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuvrirMessagerie }: { instId: string; onToast: (msg: string, color?: string) => void; isAdmin: boolean; access?: "full" | "read"; onOuvrirMessagerie?: (citoyenId: string) => void }) {
+export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuvrirMessagerie, initialClientId, onInitialClientConsumed }: { instId: string; onToast: (msg: string, color?: string) => void; isAdmin: boolean; access?: "full" | "read"; onOuvrirMessagerie?: (citoyenId: string) => void; initialClientId?: string | null; onInitialClientConsumed?: () => void }) {
   const readOnly = access === "read";
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
@@ -147,6 +150,40 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
       setLoading(false);
     })();
   }, [instId]);
+
+  // Ouverture directe depuis une autre carte (ex: modale RDV "Voir ce
+  // client") — consomme initialClientId une fois trouvé, sans le remettre
+  // dans les deps pour ne pas rouvrir la fiche si le citoyen navigue vers
+  // un autre client ensuite.
+  useEffect(() => {
+    if (!initialClientId || clients.length === 0) return;
+    const match = clients.find(c => c.id === initialClientId);
+    if (match) setSelected(match);
+    onInitialClientConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialClientId, clients]);
+
+  // Hydratation de la fiche détail — la liste ne charge plus que le résumé
+  // (voir app/api/institution/clients/route.ts, correctif 09/09/2026 : "Mes
+  // clients" nettement plus lent que le reste du dashboard car il
+  // rapatriait l'historique/avis/signalements/tâches COMPLETS de TOUS les
+  // clients dès le chargement initial). Historique/avis/signalements/
+  // tâches réels ne sont chargés qu'ici, à l'ouverture d'une fiche —
+  // dépendance sur l'id seul pour ne jamais reboucler quand ce même effet
+  // remplace ensuite selected par la version hydratée.
+  useEffect(() => {
+    if (!selected) return;
+    let annule = false;
+    (async () => {
+      const res = await fetch(`/api/institution/clients?citoyen_id=${selected.id}`);
+      const j = await res.json().catch(() => null);
+      if (annule || !res.ok || !j?.client) return;
+      setSelected(prev => (prev && prev.id === j.client.id) ? { ...prev, ...j.client } : prev);
+      setClients(prev => prev.map(c => c.id === j.client.id ? { ...c, ...j.client } : c));
+    })();
+    return () => { annule = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
 
   useEffect(() => {
     if (!selected) { setMessages([]); return; }
@@ -324,7 +361,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "8px", marginBottom: "14px" }}>
           {[0, 1, 2].map(i => <div key={i} style={{ height: "52px", borderRadius: "12px", backgroundColor: C.bgCard, border: `1px solid ${C.border}` }}/>)}
         </div>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", overflow: "hidden" }}>
+        <Card tokens={toCardTokens(C)} noPadding>
           {[0, 1, 2, 3].map(i => (
             <div key={i} style={{ padding: "13px 16px", borderBottom: i < 3 ? `1px solid ${C.border}` : "none", display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{ width: "40px", height: "40px", borderRadius: "50%", backgroundColor: C.bg3, flexShrink: 0 }}/>
@@ -334,14 +371,14 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
               </div>
             </div>
           ))}
-        </div>
+        </Card>
       </div>
     );
   }
 
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Mes clients</h1>
+      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Mes clients</h1>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px", lineHeight: 1.5 }}>
         Chaque citoyen ayant déjà eu au moins un rendez-vous avec votre établissement, avec son historique complet.
       </p>
@@ -352,17 +389,17 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
           { label: "Fidèles (3+)", value: clients.filter(c => c.nb_rdv >= 3).length, color: C.green },
           { label: "Nouveaux (30j)", value: clients.filter(c => c.est_nouveau).length, color: C.gold },
         ].map(s => (
-          <div key={s.label} style={{ backgroundColor: C.bgCard, borderRadius: "12px", padding: "12px 8px", border: `1px solid ${C.border}`, textAlign: "center" }}>
-            <div style={{ color: s.color, fontSize: "18px", fontWeight: "900" }}>{s.value}</div>
+          <Card key={s.label} tokens={toCardTokens(C)} padding="12px 8px" style={{ textAlign: "center" }}>
+            <div style={{ color: s.color, fontSize: "18px", fontWeight: "800" }}>{s.value}</div>
             <div style={{ color: C.t3, fontSize: "9px", fontWeight: "700" }}>{s.label}</div>
-          </div>
+          </Card>
         ))}
       </div>
 
-      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "0 12px", display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+      <Card tokens={toCardTokens(C)} padding="0 12px" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un client (nom, téléphone)…" style={{ flex: 1, padding: "11px 0", fontSize: "13px" }}/>
-      </div>
+      </Card>
 
       <div style={{ display: "flex", gap: "6px", marginBottom: "14px" }}>
         {([{ key: "recents", label: "Récents" }, { key: "fideles", label: "Fidèles" }, { key: "nouveaux", label: "Nouveaux" }] as const).map(s => (
@@ -371,7 +408,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
       </div>
 
       {filtered.length === 0 ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: clients.length === 0 ? "12px" : "40px 20px", textAlign: "center", border: `1px solid ${C.border}` }}>
+        <Card tokens={toCardTokens(C)} padding={clients.length === 0 ? "12px" : "40px 20px"} style={{ textAlign: "center" }}>
           {clients.length === 0 ? (
             <EmptyState
               variant="clients"
@@ -384,17 +421,14 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
           ) : (
             <p style={{ color: C.t2, fontSize: "13px" }}>Aucun client ne correspond à votre recherche.</p>
           )}
-        </div>
+        </Card>
       ) : (
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", overflow: "hidden" }}>
+        <Card tokens={toCardTokens(C)} noPadding>
           {filtered.map(c => {
-            const dernierH = c.historique.length
-              ? c.historique.slice().sort((a, b) => new Date(b.date_rdv).getTime() - new Date(a.date_rdv).getTime())[0]
-              : null;
-            const sc = dernierH ? stColor(dernierH.statut, C) : null;
+            const sc = c.dernier_statut ? stColor(c.dernier_statut, C) : null;
             return (
               <div key={c.id} onClick={() => setSelected(c)} className="tap" style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "12px", cursor: "pointer", backgroundColor: selected?.id === c.id ? `${C.purple}08` : "transparent" }}>
-                <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "900", color: C.purple, flexShrink: 0, position: "relative" }}>
+                <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "800", color: C.purple, flexShrink: 0, position: "relative" }}>
                   {c.nom.slice(0, 2).toUpperCase()}
                   {c.est_nouveau && <div style={{ position: "absolute", top: "-2px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", backgroundColor: C.gold, border: `1.5px solid ${C.bgCard}` }}/>}
                 </div>
@@ -416,7 +450,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
               </div>
             );
           })}
-        </div>
+        </Card>
       )}
 
       {selected && (
@@ -442,7 +476,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
             <div className="client-fiche-body">
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
-                  <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: C.purple, flexShrink: 0 }}>
+                  <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "800", color: C.purple, flexShrink: 0 }}>
                     {selected.nom.slice(0, 2).toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -470,14 +504,14 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
                     { label: "Statut", value: selected.est_nouveau ? "Nouveau" : "Régulier", color: C.green },
                   ].map(s => (
                     <div key={s.label} style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "9px 10px", textAlign: "center" }}>
-                      <div style={{ color: s.color, fontSize: "13px", fontWeight: "900" }}>{s.value}</div>
+                      <div style={{ color: s.color, fontSize: "13px", fontWeight: "800" }}>{s.value}</div>
                       <div style={{ color: C.t3, fontSize: "9px", marginTop: "2px" }}>{s.label}</div>
                     </div>
                   ))}
                 </div>
 
                 {prochaineEtape && (
-                  <div style={{ marginBottom: "16px", backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}30`, borderRadius: "12px", padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{ marginBottom: "16px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <div style={{ flex: 1 }}>
                       <div style={{ color: C.gold, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px" }}>Prochaine étape</div>
@@ -499,7 +533,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
                           {a.commentaire && <div style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "8px" }}>{a.commentaire}</div>}
 
                           {a.reponse_institution ? (
-                            <div style={{ background: `${C.gold}12`, border: `1px solid ${C.gold}25`, borderRadius: "10px", padding: "8px 10px" }}>
+                            <div style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 10px" }}>
                               <div style={{ color: C.gold, fontSize: "10px", fontWeight: "800", marginBottom: "3px" }}>Votre réponse{a.reponse_le ? ` · ${dayLabel(a.reponse_le)}` : ""}</div>
                               <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.4 }}>{a.reponse_institution}</div>
                             </div>
@@ -510,14 +544,12 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
                                 style={{ width: "100%", background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 10px", fontSize: "12.5px", color: C.t1, resize: "none" }}
                               />
                               <div style={{ display: "flex", gap: "8px" }}>
-                                <button onClick={() => envoyerReponse(a.id)} disabled={!reponseTexte.trim() || savingReponse} className="tap" style={{ flex: 1, background: C.gold, color: "#080812", border: "none", borderRadius: "8px", padding: "7px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                  {savingReponse ? <YelenLoader size={11} color="#080812"/> : "Envoyer"}
-                                </button>
-                                <button onClick={() => { setReponseOuverte(null); setReponseTexte(""); }} className="tap" style={{ background: "none", border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "7px 10px", fontSize: "11.5px", color: C.t2, cursor: "pointer" }}>Annuler</button>
+                                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ flex: 1 }} loading={savingReponse} disabled={!reponseTexte.trim()} onClick={() => envoyerReponse(a.id)}>Envoyer</Button>
+                                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => { setReponseOuverte(null); setReponseTexte(""); }}>Annuler</Button>
                               </div>
                             </div>
                           ) : !readOnly && (
-                            <button onClick={() => { setReponseOuverte(a.id); setReponseTexte(""); }} className="tap" style={{ background: "none", border: `1px solid ${C.gold}40`, color: C.gold, borderRadius: "8px", padding: "6px 10px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}>Répondre</button>
+                            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold, border: `1px solid ${C.gold}40` }} onClick={() => { setReponseOuverte(a.id); setReponseTexte(""); }}>Répondre</Button>
                           )}
                         </div>
                       ))}
@@ -592,9 +624,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
                         placeholder={`Ajouter une note ${NOTE_TYPES.find(t => t.key === noteTypeSelected)?.label.toLowerCase()}…`}
                         style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12px", color: C.t1, outline: "none" }}
                       />
-                      <button onClick={ajouterNote} disabled={savingNote || !newNoteText.trim()} className="tap" style={{ backgroundColor: C.purple, color: "#fff", border: "none", borderRadius: "10px", padding: "0 16px", fontSize: "12px", fontWeight: "800", cursor: "pointer", opacity: savingNote || !newNoteText.trim() ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {savingNote ? <YelenLoader size={12} color="#fff"/> : "Ajouter"}
-                      </button>
+                      <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" loading={savingNote} loadingColor="#fff" disabled={!newNoteText.trim()} style={{ backgroundColor: C.purple, borderColor: C.purple, color: "#fff" }} onClick={ajouterNote}>Ajouter</Button>
                     </div>
                   )}
                 </div>
@@ -642,9 +672,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
             </div>
 
             {!readOnly && (
-              <button onClick={envoyerRappel} disabled={sendingRappel} className="tap" style={{ width: "100%", backgroundColor: C.bgCard, color: C.gold, fontSize: "13px", fontWeight: "800", padding: "13px", borderRadius: "12px", border: `1px solid ${C.gold}40`, cursor: "pointer", opacity: sendingRappel ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {sendingRappel ? <YelenLoader size={13} color={C.gold}/> : "Envoyer un rappel"}
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth loading={sendingRappel} style={{ color: C.gold, border: `1px solid ${C.gold}40` }} onClick={envoyerRappel}>Envoyer un rappel</Button>
             )}
             <button onClick={() => setSelected(null)} style={{ width: "100%", marginTop: "8px", background: "none", border: "none", color: C.t3, fontSize: "12px", cursor: "pointer", padding: "8px" }}>Fermer</button>
           </div>

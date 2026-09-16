@@ -21,3 +21,10 @@ export const YELEN224_COMMUNAUTE_SEEN_KEY = "yelen224_communaute_last_seen";
  * (nouvelles offres publiées) — retour Bryan 09/08/2026. */
 export const YELEN224_RECHERCHE_SEEN_KEY = "yelen224_recherche_last_seen";
 export const YELEN224_OFFRES_SEEN_KEY = "yelen224_offres_last_seen";
+
+/** localStorage : posé à "1" quand le citoyen clique sur le lien CGU ou
+ * Politique de confidentialité pendant l'inscription (`app/inscription/page.tsx`),
+ * ou quand il ferme le rappel plein écran post-bienvenue qui s'affiche sinon
+ * (`app/page.tsx::RappelCguOverlay`) — sert uniquement à ne jamais réafficher
+ * ce rappel une fois vu, pas un suivi de consentement légal. */
+export const YELEN224_CGU_LIEN_OUVERT_KEY = "yelen224_cgu_lien_ouvert";

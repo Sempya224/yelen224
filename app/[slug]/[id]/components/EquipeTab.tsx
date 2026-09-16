@@ -29,11 +29,15 @@
 //   Shift : purement informatif, aucun impact sur les permissions.
 import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens, toUiTokens } from "../theme";
-import { MEMBRE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, TAB_KEYS, canAccessTab, isMembreRole, type MembreRole } from "@/lib/institutionPermissions";
+import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
+import { MEMBRE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, TAB_KEYS, canAccessTab, isMembreRole, DOMAINE_KEYS, permissionsDuRole, type MembreRole, type TabKey, type DomaineKey } from "@/lib/institutionPermissions";
 import { YelenLoader } from "@/components/YelenLoader";
+import { generateBrandedQR } from "@/lib/qrBrand";
 import { FormField } from "./FormField";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { ReauthModal } from "./ReauthModal";
 
 type DerniereActivite = { action: string; created_at: string };
 type Membre = {
@@ -41,11 +45,17 @@ type Membre = {
   actif: boolean; compte_principal: boolean; doit_changer_pin: boolean;
   locked_until: string | null; derniere_connexion: string | null; fonction: string | null;
   derniere_activite: DerniereActivite | null; created_at: string;
+  checkin_qr_generated_at?: string | null; checkin_qr_revoked_at?: string | null;
+  acces_restreints?: string[] | null;
 };
 type StatutMembre = "verrouille" | "suspendu" | "invitation" | "actif";
 
 const ROLES: { value: MembreRole; label: string; description: string }[] =
   MEMBRE_ROLES.map(value => ({ value, label: ROLE_LABELS[value], description: ROLE_DESCRIPTIONS[value] }));
+
+// "Permissions incluses" (Ajouter un membre V2, 16/09/2026) — permissionsDuRole
+// déplacée dans lib/institutionPermissions.ts (16/09/2026, partagée avec
+// l'écran de bienvenue de première connexion).
 
 function roleColor(r: MembreRole, C: ThemeTokens): string {
   if (r === "admin") return C.gold;
@@ -67,7 +77,7 @@ function statutDe(m: Membre): StatutMembre {
   if (estInvitationEnAttente(m)) return "invitation";
   return "actif";
 }
-const STATUT_LABEL: Record<StatutMembre, string> = { actif: "Actif", invitation: "Invitation en attente", suspendu: "Suspendu", verrouille: "Verrouillé" };
+const STATUT_LABEL: Record<StatutMembre, string> = { actif: "Actif", invitation: "En attente", suspendu: "Suspendu", verrouille: "Verrouillé" };
 function statutColor(s: StatutMembre, C: ThemeTokens): string {
   if (s === "actif") return C.green;
   if (s === "invitation") return C.orange;
@@ -101,16 +111,17 @@ function inputStyle(C: ThemeTokens): React.CSSProperties {
   return { width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "9px 11px", fontSize: "13px", color: C.t1 };
 }
 
-function SimpleKpiCard({ label, icon, color, value, sousTexte, C }: { label: string; icon: React.ReactNode; color: string; value: string | number; sousTexte?: string; C: ThemeTokens }) {
+function SimpleKpiCard({ label, icon, color, value, sousTexte, C, onClick }: { label: string; icon: React.ReactNode; color: string; value: string | number; sousTexte?: string; C: ThemeTokens; onClick?: () => void }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "16px", padding: "18px", border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "8px" }}>
+    <Card tokens={toCardTokens(C)} padding="18px" onClick={onClick} className={onClick ? "tap" : undefined} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
         <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ color: C.t1, fontSize: "22px", fontWeight: 900, lineHeight: 1 }}>{value}</div>
+      <div style={{ color: C.t1, fontSize: "22px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
       {sousTexte && <div style={{ color: C.t3, fontSize: "11px" }}>{sousTexte}</div>}
-    </div>
+      {onClick && <div style={{ color, fontSize: "10.5px", fontWeight: 700 }}>Voir les invitations →</div>}
+    </Card>
   );
 }
 
@@ -118,6 +129,7 @@ function IconUsers() { return <svg width="16" height="16" viewBox="0 0 24 24" fi
 function IconMailPlus() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V7l-3 2-8-5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9"/><path d="M22 8l-10 6L2 8"/><line x1="19" y1="16" x2="19" y2="22"/><line x1="16" y1="19" x2="22" y2="19"/></svg>; }
 function IconClockHistory() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>; }
 function IconShieldCheck() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>; }
+function IconQr({ size = 13 }: { size?: number }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="14.01"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="21" x2="21" y2="21"/></svg>; }
 function IconChevron({ C }: { C: ThemeTokens }) { return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>; }
 function IconClose({ C }: { C: ThemeTokens }) { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>; }
 
@@ -148,13 +160,18 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   const [nom, setNom] = useState("");
   const [fonction, setFonction] = useState("");
   const [role, setRole] = useState<MembreRole>("agent");
+  const [accesRestreints, setAccesRestreints] = useState<DomaineKey[]>([]);
   const [pin, setPin] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formStep, setFormStep] = useState<"form" | "recap" | "success">("form");
+  const [identifiantsCopies, setIdentifiantsCopies] = useState(false);
   const [selected, setSelected] = useState<Membre | null>(null);
   const [recherche, setRecherche] = useState("");
   const [filtreRapide, setFiltreRapide] = useState<"tous" | MembreRole | "invitations" | "suspendus">("tous");
   const [lastSync, setLastSync] = useState(new Date());
   const [, setMaintenant] = useState(() => Date.now());
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
   const readOnly = viewerRole === "superviseur" || viewerRole === "dirigeant";
 
@@ -168,7 +185,13 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
     const res = await fetch("/api/institution/membres");
     if (res.status === 403) { setForbidden(true); setLoading(false); return; }
     const j = await res.json().catch(() => null);
-    setMembres(res.ok ? (j?.membres ?? []) : []);
+    const fresh: Membre[] = res.ok ? (j?.membres ?? []) : [];
+    setMembres(fresh);
+    // La fiche ouverte (selected) doit refléter les données fraîches après un
+    // reload (ex. génération de badge QR) — sans ça, membre.checkin_qr_generated_at
+    // reste figé sur la valeur capturée à l'ouverture et le bouton "Générer"
+    // ne bascule jamais en "Régénérer" tant que la fiche n'est pas refermée.
+    setSelected(prev => prev ? (fresh.find(m => m.id === prev.id) ?? prev) : prev);
     setViewerRole(res.ok && isMembreRole(j?.role) ? j.role : null);
     setLastSync(new Date());
     if (!silencieux) setLoading(false);
@@ -185,6 +208,11 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
 
   function resetForm() {
     setIdentifiant(""); setPrenom(""); setNom(""); setFonction(""); setRole("agent"); setPin("");
+    setAccesRestreints([]); setFormStep("form"); setIdentifiantsCopies(false);
+  }
+
+  function toggleDomaine(key: DomaineKey) {
+    setAccesRestreints(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   }
 
   async function creerMembre() {
@@ -193,21 +221,43 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
     const res = await fetch("/api/institution/membres", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifiant, prenom, nom, role, pin, fonction: fonction || undefined }),
+      body: JSON.stringify({ identifiant, prenom, nom, role, pin, fonction: fonction || undefined, acces_restreints: accesRestreints }),
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
     if (!res.ok) { onToast(j?.error || "Erreur de création", C.red); return; }
-    setShowForm(false); resetForm();
-    onToast(`${prenom} a été invité(e) dans l'équipe`, C.green);
+    // Écran de succès (V2, 16/09/2026) — remplace le toast+fermeture
+    // immédiate : l'admin doit encore transmettre identifiant+PIN au
+    // membre, un toast qui disparaît en 3s ne laisse pas le temps de le
+    // noter/copier.
+    setFormStep("success");
     load();
   }
 
+  function copierIdentifiants() {
+    navigator.clipboard.writeText(`Identifiant : ${identifiant}\nPIN : ${pin}`).catch(() => {});
+    setIdentifiantsCopies(true);
+    setTimeout(() => setIdentifiantsCopies(false), 2000);
+  }
+
+  function terminerCreation() {
+    setShowForm(false);
+    resetForm();
+  }
+
+  // Moteur de réauthentification (16/09/2026) — changer un rôle, suspendre
+  // ou supprimer un membre exige une confirmation d'identité fraîche
+  // (PIN [+TOTP]) côté serveur ; sur REAUTH_REQUIRED on ouvre la modale
+  // partagée et on rejoue exactement le même appel après succès.
   async function changerRole(id: string, newRole: MembreRole) {
     const res = await fetch("/api/institution/membres", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, role: newRole }),
     });
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.code === "REAUTH_REQUIRED") { setPendingAction(() => () => changerRole(id, newRole)); setReauthOpen(true); return; }
+      onToast("Le rôle n'a pas pu être mis à jour.", C.red); return;
+    }
     setMembres(prev => prev.map(m => m.id === id ? { ...m, role: newRole } : m));
     setSelected(prev => prev && prev.id === id ? { ...prev, role: newRole } : prev);
     onToast("Rôle mis à jour", C.green);
@@ -217,7 +267,11 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
     const res = await fetch("/api/institution/membres", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id, actif: !m.actif }),
     });
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.code === "REAUTH_REQUIRED") { setPendingAction(() => () => toggleActif(m)); setReauthOpen(true); return; }
+      onToast(m.actif ? "Impossible de suspendre ce membre." : "Impossible de réactiver ce membre.", C.red); return;
+    }
     setMembres(prev => prev.map(x => x.id === m.id ? { ...x, actif: !x.actif } : x));
     setSelected(prev => prev && prev.id === m.id ? { ...prev, actif: !prev.actif } : prev);
     onToast(m.actif ? "Membre suspendu — il ne peut plus se connecter" : "Membre réactivé", C.orange);
@@ -225,7 +279,11 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
 
   async function supprimer(id: string) {
     const res = await fetch(`/api/institution/membres?id=${id}`, { method: "DELETE" });
-    if (!res.ok) { onToast("Erreur de suppression", C.red); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.code === "REAUTH_REQUIRED") { setPendingAction(() => () => supprimer(id)); setReauthOpen(true); return; }
+      onToast("Erreur de suppression", C.red); return;
+    }
     setMembres(prev => prev.filter(m => m.id !== id));
     setSelected(null);
     onToast("Membre supprimé", C.orange);
@@ -243,9 +301,9 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   }
 
   const debutMois = new Date().toISOString().slice(0, 7);
-  const membresActifs = membres.filter(m => m.actif);
-  const nouveauxCeMois = membres.filter(m => m.created_at.slice(0, 7) === debutMois).length;
   const invitations = membres.filter(estInvitationEnAttente);
+  const membresActifs = membres.filter(m => m.actif && !estInvitationEnAttente(m));
+  const nouveauxCeMois = membres.filter(m => m.created_at.slice(0, 7) === debutMois).length;
   const administrateurs = membres.filter(m => m.role === "admin").length;
   const doitChangerPin = membres.filter(m => m.doit_changer_pin).length;
   const derniereConnexionGlobale = membres.reduce<string | null>((acc, m) => {
@@ -255,9 +313,14 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   }, null);
   const securitePct = membres.length > 0 ? Math.round(((membres.length - doitChangerPin) / membres.length) * 100) : 100;
 
-  const kpis: { label: string; value: string | number; sousTexte?: string; color: string; icon: React.ReactNode }[] = [
+  const kpis: { label: string; value: string | number; sousTexte?: string; color: string; icon: React.ReactNode; onClick?: () => void }[] = [
     { label: "Membres actifs", value: membresActifs.length, sousTexte: nouveauxCeMois > 0 ? `+${nouveauxCeMois} ce mois` : undefined, color: C.green, icon: <IconUsers/> },
-    { label: "Invitations", value: invitations.length, sousTexte: invitations.length > 0 ? "En attente d'activation" : undefined, color: C.orange, icon: <IconMailPlus/> },
+    {
+      label: "Invitations", value: invitations.length,
+      sousTexte: invitations.length > 0 ? "En attente" : "Aucune invitation en attente",
+      color: C.orange, icon: <IconMailPlus/>,
+      onClick: invitations.length > 0 ? () => setFiltreRapide("invitations") : undefined,
+    },
     { label: "Dernière connexion", value: derniereConnexionGlobale ? formatRelatif(derniereConnexionGlobale) : "Jamais", color: C.blue, icon: <IconClockHistory/> },
     { label: "Sécurité", value: `${securitePct}%`, sousTexte: doitChangerPin > 0 ? `${doitChangerPin} membre${doitChangerPin > 1 ? "s" : ""} doit changer son PIN` : "PIN conforme", color: securitePct === 100 ? C.green : C.orange, icon: <IconShieldCheck/> },
   ];
@@ -281,7 +344,7 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
       {/* ── Hero header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "10px" }}>
         <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 900, letterSpacing: "-0.5px", marginBottom: "6px" }}>Équipe &amp; Accès</h1>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: "6px" }}>Équipe et accès</h1>
           <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "8px", maxWidth: "480px" }}>
             Gérez les personnes autorisées à accéder à votre espace Yelen, leurs rôles, leurs permissions et la sécurité de leurs accès.
           </p>
@@ -294,7 +357,7 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
           </div>
         </div>
         {!readOnly && (
-          <button onClick={() => setShowForm(v => !v)} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "8px 14px", borderRadius: "10px", border: "none", cursor: "pointer" }}>+ Inviter un membre</button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>+ Inviter un membre</Button>
         )}
       </div>
 
@@ -308,8 +371,34 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
       </div>
 
       <div style={{ color: C.t3, fontSize: "11.5px", marginBottom: "18px" }}>
-        {membres.length} membre{membres.length > 1 ? "s" : ""} · {membresActifs.length} actif{membresActifs.length > 1 ? "s" : ""} · {administrateurs} administrateur{administrateurs > 1 ? "s" : ""} · {invitations.length} invitation{invitations.length > 1 ? "s" : ""} en attente
+        {membresActifs.length} membre{membresActifs.length > 1 ? "s" : ""} actif{membresActifs.length > 1 ? "s" : ""}
+        {invitations.length > 0 && (
+          <> · <button onClick={() => setFiltreRapide("invitations")} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.orange, fontSize: "11.5px", fontWeight: 700, cursor: "pointer" }}>{invitations.length} invitation{invitations.length > 1 ? "s" : ""} en attente</button></>
+        )}
       </div>
+
+      {/* ── INVITATIONS EN ATTENTE — statut réel (doit_changer_pin + jamais
+          connecté), aucune donnée d'email/lien/expiration fabriquée : pas
+          d'infra d'invitation par email construite à ce jour. ── */}
+      {invitations.length > 0 && (
+        <div style={{ marginBottom: "18px" }}>
+          <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px" }}>Invitations en attente</div>
+          <Card tokens={toCardTokens(C)} noPadding>
+            {invitations.map((m, i) => (
+              <div key={m.id} onClick={() => setSelected(m)} className="tap" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", borderBottom: i < invitations.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
+                <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: `linear-gradient(135deg, ${roleColor(m.role, C)}30, ${roleColor(m.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 800, color: roleColor(m.role, C), flexShrink: 0 }}>
+                  {m.prenom.slice(0, 1).toUpperCase()}{m.nom.slice(0, 1).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700 }}>{m.prenom} {m.nom}</div>
+                  <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{ROLE_LABELS[m.role]} · Ajouté {formatRelatif(m.created_at)}</div>
+                </div>
+                <span style={{ color: C.orange, fontSize: "9.5px", fontWeight: 800, backgroundColor: `${C.orange}15`, padding: "3px 9px", borderRadius: "20px", flexShrink: 0 }}>En attente</span>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
 
       {equipeVide && !showForm && !readOnly && (
         <EmptyState C={C} illustration={<IllustrationEquipe C={C}/>}
@@ -324,52 +413,135 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
           @media(min-width:1024px){
             .equipe-fiche-overlay{align-items:center!important}
             .equipe-fiche-panel{max-width:560px!important;border-radius:20px!important;max-height:86svh!important}
+            .equipe-fiche-panel.wide{max-width:960px!important}
             .equipe-fiche-grip{display:none!important}
             .equipe-fiche-close-x{display:flex!important}
+            .equipe-form-grid{display:grid!important;grid-template-columns:1fr 1fr!important;gap:32px!important;align-items:start!important}
           }
         `}</style>
-        <div onClick={e => e.stopPropagation()} className="equipe-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "86svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-          <div className="equipe-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
+        <div onClick={e => e.stopPropagation()} className={`equipe-fiche-panel${formStep === "form" ? " wide" : ""}`} style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 0", width: "100%", maxWidth: "560px", maxHeight: "86svh", display: "flex", flexDirection: "column", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
+          <div className="equipe-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px", flexShrink: 0 }}/>
           <button onClick={() => { setShowForm(false); resetForm(); }} className="equipe-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
 
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 900, marginBottom: "16px" }}>Inviter un membre</div>
-
-          <FormField C={C} label="Identifiant de connexion" value={identifiant} onChange={setIdentifiant} placeholder="ex: dr.diallo" name="identifiant"/>
-          <p style={{ color: C.t3, fontSize: "10.5px", margin: "4px 0 12px" }}>C&apos;est ce que le membre tapera pour se connecter — pas d&apos;espace, unique dans tout Yelen224.</p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-            <FormField C={C} label="Prénom" value={prenom} onChange={setPrenom} placeholder="Prénom" name="prenom" autoComplete="given-name"/>
-            <FormField C={C} label="Nom" value={nom} onChange={setNom} placeholder="Nom" name="nom" autoComplete="family-name"/>
-          </div>
-
-          <div style={{ marginBottom: "12px" }}>
-            <FormField C={C} label="Fonction (optionnel)" value={fonction} onChange={setFonction} placeholder="ex: Directeur, Secrétaire médicale..." name="fonction"/>
-          </div>
-
-          <label style={labelStyle(C)}>Rôle Dashboard</label>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
-            {ROLES.map(r => (
-              <div key={r.value} onClick={() => setRole(r.value)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 11px", borderRadius: "8px", backgroundColor: role === r.value ? `${roleColor(r.value, C)}12` : C.bg3, border: `1px solid ${role === r.value ? roleColor(r.value, C) + "40" : C.border2}`, cursor: "pointer" }}>
-                <div style={{ width: "14px", height: "14px", borderRadius: "50%", border: `2px solid ${role === r.value ? roleColor(r.value, C) : C.t3}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {role === r.value && <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: roleColor(r.value, C) }}/>}
+          {/* Contenu défilant — le footer d'actions ci-dessous reste TOUJOURS
+              visible en bas du popup (flex, jamais position:fixed qui casse
+              dès que la largeur/hauteur du popup change d'une étape à
+              l'autre), même quand le contenu d'une étape dépasse la hauteur
+              disponible. */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: "20px" }}>
+          {formStep === "success" ? (
+            <div style={{ maxWidth: "440px", margin: "0 auto" }}>
+              <div style={{ width: "52px", height: "52px", borderRadius: "16px", background: `linear-gradient(135deg, ${C.green}25, ${C.green}10)`, border: `2px solid ${C.green}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              </div>
+              <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, textAlign: "center", marginBottom: "4px" }}>Membre créé</div>
+              <div style={{ color: C.t3, fontSize: "12.5px", textAlign: "center", marginBottom: "18px" }}>
+                <strong style={{ color: C.t1 }}>{prenom} {nom}</strong> a été ajouté(e) à l&apos;équipe.
+              </div>
+              <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "14px 16px", marginBottom: "10px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ color: C.t3, fontSize: "11px" }}>Identifiant</span>
+                  <span style={{ color: C.t1, fontSize: "12px", fontWeight: 700 }}>{identifiant}</span>
                 </div>
-                <div>
-                  <div style={{ color: C.t1, fontSize: "12px", fontWeight: 700 }}>{r.label}</div>
-                  <div style={{ color: C.t3, fontSize: "10.5px" }}>{r.description}</div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.t3, fontSize: "11px" }}>PIN initial</span>
+                  <span style={{ color: C.t1, fontSize: "12px", fontWeight: 700, letterSpacing: "1px" }}>{pin}</span>
                 </div>
               </div>
-            ))}
+              <p style={{ color: C.t3, fontSize: "10.5px" }}>Communiquez ces identifiants au membre — il devra choisir un nouveau PIN dès sa première connexion.</p>
+            </div>
+          ) : formStep === "recap" ? (
+            <div style={{ maxWidth: "440px", margin: "0 auto" }}>
+              <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "4px" }}>Sécurité & récapitulatif</div>
+              <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Dernière étape avant de créer ce membre.</p>
+
+              <label style={labelStyle(C)}>PIN initial</label>
+              <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={6} placeholder="6 chiffres" style={{ ...inputStyle(C), textAlign: "center", letterSpacing: "3px", marginBottom: "4px" }} autoFocus/>
+              <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "16px" }}>Communiquez ce code au membre — il devra en choisir un nouveau dès sa première connexion.</p>
+
+              <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "6px" }}>Résumé</div>
+              <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "12px 14px", marginBottom: "18px" }}>
+                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700 }}>{prenom} {nom}</div>
+                {fonction && <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>{fonction}</div>}
+                <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>Identifiant : {identifiant}</div>
+                <div style={{ color: roleColor(role, C), fontSize: "12px", fontWeight: 700, marginTop: "8px" }}>{ROLE_LABELS[role]}</div>
+                <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>
+                  {permissionsDuRole(role, accesRestreints).filter(p => p.accorde && !p.retire).length} domaine{permissionsDuRole(role, accesRestreints).filter(p => p.accorde && !p.retire).length > 1 ? "s" : ""} accessible{permissionsDuRole(role, accesRestreints).filter(p => p.accorde && !p.retire).length > 1 ? "s" : ""} sur {DOMAINE_KEYS.length}
+                  {accesRestreints.length > 0 && ` (${accesRestreints.length} retiré${accesRestreints.length > 1 ? "s" : ""} du rôle standard)`}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "18px" }}>Ajouter un membre</div>
+
+              <div className="equipe-form-grid" style={{ display: "flex", flexDirection: "column", gap: "24px", marginBottom: "18px" }}>
+                {/* ── COLONNE GAUCHE : INFORMATIONS ── */}
+                <div>
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "10px" }}>Informations</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+                    <FormField C={C} label="Prénom" value={prenom} onChange={setPrenom} placeholder="Prénom" name="prenom" autoComplete="given-name"/>
+                    <FormField C={C} label="Nom" value={nom} onChange={setNom} placeholder="Nom" name="nom" autoComplete="family-name"/>
+                  </div>
+                  <div style={{ marginBottom: "12px" }}>
+                    <FormField C={C} label="Fonction (optionnel)" value={fonction} onChange={setFonction} placeholder="ex: Directeur, Secrétaire médicale..." name="fonction"/>
+                  </div>
+                  <FormField C={C} label="Identifiant de connexion" value={identifiant} onChange={setIdentifiant} placeholder="ex: dr.diallo" name="identifiant"/>
+                  <p style={{ color: C.t3, fontSize: "10.5px", margin: "4px 0 0" }}>C&apos;est ce que le membre tapera pour se connecter — pas d&apos;espace, unique dans tout Yelen224.</p>
+                </div>
+
+                {/* ── COLONNE DROITE : RÔLE ET PERMISSIONS ── */}
+                <div>
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "10px" }}>Quel rôle correspond à ce membre ?</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
+                    {ROLES.map(r => (
+                      <button key={r.value} onClick={() => { setRole(r.value); setAccesRestreints([]); }} className="tap" style={{ backgroundColor: role === r.value ? `${roleColor(r.value, C)}15` : C.bg3, border: `1px solid ${role === r.value ? roleColor(r.value, C) + "50" : C.border2}`, color: role === r.value ? roleColor(r.value, C) : C.t2, fontSize: "11.5px", fontWeight: 700, padding: "7px 12px", borderRadius: "8px", cursor: "pointer" }}>
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>{ROLE_DESCRIPTIONS[role]}</p>
+
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px" }}>Permissions incluses</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
+                    <p style={{ color: C.t3, fontSize: "10px", margin: "0 0 4px" }}>Décochez un domaine pour le retirer à ce membre — jamais au-delà de ce que son rôle permet déjà.</p>
+                    {permissionsDuRole(role, accesRestreints).map(p => (
+                      <div key={p.key} onClick={() => p.accorde && toggleDomaine(p.key)} className={p.accorde ? "tap" : undefined} style={{ display: "flex", alignItems: "center", gap: "8px", cursor: p.accorde ? "pointer" : "default", padding: "3px 0" }}>
+                        <span style={{ color: p.accorde && !p.retire ? C.green : C.t3, fontSize: "12px", fontWeight: 700, width: "14px" }}>{p.accorde && !p.retire ? "✓" : "✕"}</span>
+                        <span style={{ color: p.accorde && !p.retire ? C.t1 : C.t3, fontSize: "11.5px", textDecoration: p.retire ? "line-through" : "none" }}>{p.label}</span>
+                        {p.retire && <span style={{ color: C.orange, fontSize: "9.5px", fontWeight: 800, marginLeft: "auto" }}>RETIRÉ</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
           </div>
 
-          <label style={labelStyle(C)}>PIN initial</label>
-          <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={6} placeholder="6 chiffres" style={{ ...inputStyle(C), textAlign: "center", letterSpacing: "3px", marginBottom: "4px" }}/>
-          <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Communiquez ce code au membre — il devra en choisir un nouveau dès sa première connexion.</p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <button onClick={() => { setShowForm(false); resetForm(); }} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "13px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Annuler</button>
-            <button onClick={creerMembre} disabled={saving || !identifiant.trim() || !prenom.trim() || !nom.trim() || !/^\d{6}$/.test(pin)} className="tap" style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "13px", padding: "11px", borderRadius: "10px", border: "none", cursor: "pointer", opacity: saving || !identifiant.trim() || !prenom.trim() || !nom.trim() || !/^\d{6}$/.test(pin) ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {saving ? <YelenLoader size={14} color="#000"/> : "Envoyer l'invitation"}
-            </button>
+          {/* Footer d'actions — hors de la zone défilante ci-dessus, toujours
+              visible en bas du popup quel que soit le contenu de l'étape
+              (flex, jamais position:fixed qui se détache du popup dès que sa
+              largeur/hauteur change d'une étape à l'autre). */}
+          <div style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, padding: "14px 0 20px", display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "8px" }}>
+            {formStep === "success" ? (
+              <>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={copierIdentifiants}>{identifiantsCopies ? "Copié" : "Copier"}</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={terminerCreation}>Terminer</Button>
+              </>
+            ) : formStep === "recap" ? (
+              <>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setFormStep("form")}>Retour</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!/^\d{6}$/.test(pin)} loading={saving} onClick={creerMembre}>Créer le membre</Button>
+              </>
+            ) : (
+              <>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => { setShowForm(false); resetForm(); }}>Annuler</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!identifiant.trim() || !prenom.trim() || !nom.trim()} onClick={() => setFormStep("recap")}>
+                  Continuer →
+                </Button>
+              </>
+            )}
           </div>
         </div>
         </div>
@@ -385,7 +557,7 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
               { key: "superviseur", label: "Superviseurs" },
               { key: "comptable", label: "Comptables" },
               { key: "agent", label: "Agents" },
-              { key: "invitations", label: "Invitations" },
+              { key: "invitations", label: "En attente" },
               { key: "suspendus", label: "Suspendus" },
             ] as const).map(f => (
               <button key={f.key} onClick={() => setFiltreRapide(f.key)} className="tap" style={{
@@ -419,7 +591,7 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
                 return (
                   <tr key={m.id} onClick={() => setSelected(m)} className="tap" style={{ borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer", opacity: m.actif ? 1 : 0.6 }}>
                     <td style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px", whiteSpace: "nowrap" }}>
-                      <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: `linear-gradient(135deg, ${roleColor(m.role, C)}30, ${roleColor(m.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 900, color: roleColor(m.role, C), flexShrink: 0 }}>
+                      <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: `linear-gradient(135deg, ${roleColor(m.role, C)}30, ${roleColor(m.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, color: roleColor(m.role, C), flexShrink: 0 }}>
                         {m.prenom.slice(0, 1).toUpperCase()}{m.nom.slice(0, 1).toUpperCase()}
                       </div>
                       <div>
@@ -432,7 +604,9 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
                       <div style={{ color: C.t3, fontSize: "10px", marginTop: "3px" }}>{ROLES.find(r => r.value === m.role)?.description}</div>
                     </td>
                     <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>
-                      {m.derniere_activite ? (<><div>{formatAction(m.derniere_activite.action)}</div><div style={{ color: C.t3, fontSize: "10.5px" }}>{formatRelatif(m.derniere_activite.created_at)}</div></>) : "—"}
+                      {m.derniere_activite
+                        ? (<><div>{formatAction(m.derniere_activite.action)}</div><div style={{ color: C.t3, fontSize: "10.5px" }}>{formatRelatif(m.derniere_activite.created_at)}</div></>)
+                        : (<><div>Compte créé</div><div style={{ color: C.t3, fontSize: "10.5px" }}>{formatRelatif(m.created_at)}</div></>)}
                     </td>
                     <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{formatRelatif(m.derniere_connexion)}</td>
                     <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
@@ -458,6 +632,12 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
           onReload={load}
         />
       )}
+
+      <ReauthModal
+        open={reauthOpen}
+        onClose={() => { setReauthOpen(false); setPendingAction(null); }}
+        onSuccess={() => { const action = pendingAction; setReauthOpen(false); setPendingAction(null); action?.(); }}
+      />
     </div>
   );
 }
@@ -469,7 +649,7 @@ function EmptyState({ C, illustration, titre, texte, cta }: { C: ThemeTokens; il
       <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "6px" }}>{titre}</div>
       <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, maxWidth: "340px", margin: "0 auto" }}>{texte}</div>
       {cta && (
-        <button onClick={cta.onClick} className="tap" style={{ marginTop: "18px", background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12.5px", padding: "10px 18px", borderRadius: "10px", border: "none", cursor: "pointer" }}>{cta.label}</button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ marginTop: "18px" }} onClick={cta.onClick}>{cta.label}</Button>
       )}
     </div>
   );
@@ -491,9 +671,97 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
   const [historique, setHistorique] = useState<{ id: string; action: string; created_at: string }[]>([]);
   const [loadingHistorique, setLoadingHistorique] = useState(true);
   const [confirmSupprimer, setConfirmSupprimer] = useState(false);
+  const [motifSuppression, setMotifSuppression] = useState("");
+  const [confirmSuspendre, setConfirmSuspendre] = useState(false);
+  const [badgeQr, setBadgeQr] = useState<string | null>(null);
+  const [badgeLien, setBadgeLien] = useState<string | null>(null);
+  const [genererBadge, setGenererBadge] = useState(false);
+  const [badgePopupOpen, setBadgePopupOpen] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [accesRestreintsEdit, setAccesRestreintsEdit] = useState<DomaineKey[]>((membre.acces_restreints as DomaineKey[] | null) ?? []);
+  const [savingPermissions, setSavingPermissions] = useState(false);
 
   const statut = statutDe(membre);
   const uiTokens = toUiTokens(C);
+
+  async function genererBadgeQr() {
+    setGenererBadge(true);
+    try {
+      const res = await fetch("/api/institution/equipe/checkin-qr", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membreId: membre.id }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) { onToast(j?.error || "Ce badge n'a pas pu être généré.", C.red); return; }
+      // generateBrandedQR dessine sur un <canvas> côté navigateur (logo
+      // public/icon-512.png chargé via <img>) — sans ce try/catch, un échec
+      // ici (image non chargée, contexte canvas indisponible) laissait le
+      // bouton bloqué en chargement indéfiniment (le serveur avait pourtant
+      // déjà répondu 200, le badge existe bien en base).
+      // onReload() n'est PAS appelé ici — il rafraîchit la liste des
+      // membres et peut remonter cette fiche (perte du state local
+      // badgeQr) avant même que l'image ait pu s'afficher à l'écran.
+      // Reporté à la fermeture explicite du badge (bouton "OK, badge
+      // remis" ci-dessous) : l'affichage n'est jamais interrompu par un
+      // rechargement pendant que l'agent doit encore l'imprimer.
+      const dataUrl = await generateBrandedQR(j.payload, 320);
+      setBadgeQr(dataUrl);
+      setBadgeLien(j.payload);
+    } catch (err) {
+      console.error("[BADGE QR] Erreur de génération de l'image :", err);
+      onToast("Badge généré en base, mais l'image n'a pas pu être dessinée. Réessayez.", C.red);
+    } finally {
+      setGenererBadge(false);
+    }
+  }
+
+  // DOM programmatique (jamais document.write/innerHTML avec du texte
+  // membre interpolé) — prénom/nom viennent d'un champ saisi par
+  // l'institution, pas d'une source de confiance absolue, donc on évite
+  // toute concaténation de chaîne HTML pour rester à l'abri d'une XSS.
+  function imprimerBadge() {
+    if (!badgeQr) return;
+    const fenetre = window.open("", "_blank");
+    if (!fenetre) { onToast("Autorisez les fenêtres popup pour imprimer", C.red); return; }
+    fenetre.document.title = "Badge YELEN Accueil";
+    Object.assign(fenetre.document.body.style, { margin: "0", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" });
+    const img = fenetre.document.createElement("img");
+    img.src = badgeQr;
+    img.style.width = "320px";
+    img.style.height = "320px";
+    img.onload = () => fenetre.print();
+    fenetre.document.body.appendChild(img);
+  }
+
+  function telechargerBadge() {
+    if (!badgeQr) return;
+    const nomFichier = `badge-yelen-accueil-${membre.prenom}-${membre.nom}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-");
+    const a = document.createElement("a");
+    a.href = badgeQr;
+    a.download = `${nomFichier}.png`;
+    a.click();
+  }
+
+  async function copierLienBadge() {
+    if (!badgeLien) return;
+    try {
+      await navigator.clipboard.writeText(badgeLien);
+      onToast("Lien copié", C.green);
+    } catch {
+      onToast("Impossible de copier le lien", C.red);
+    }
+  }
+
+  async function revoquerBadgeQr() {
+    setSaving(true);
+    const res = await fetch("/api/institution/equipe/checkin-qr", {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membreId: membre.id }),
+    });
+    setSaving(false);
+    if (!res.ok) { onToast("Ce badge n'a pas pu être révoqué.", C.red); return; }
+    onToast("Badge QR révoqué", C.green);
+    onReload();
+  }
 
   useEffect(() => {
     let annule = false;
@@ -509,8 +777,13 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
     const res = await fetch("/api/institution/membres", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: membre.id, pin: nouveauPin }),
     });
+    const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) {
+      if (j?.code === "REAUTH_REQUIRED") { setPendingAction(() => reinitialiserPin); setReauthOpen(true); return; }
+      onToast(j?.error || "Le PIN n'a pas pu être réinitialisé.", C.red);
+      return;
+    }
     setShowResetPin(false); setNouveauPin("");
     onToast("PIN réinitialisé — communiquez-le au membre", C.green);
   }
@@ -521,9 +794,29 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: membre.id, fonction: editFonction }),
     });
     setSaving(false);
-    if (!res.ok) { onToast("Erreur", C.red); return; }
+    if (!res.ok) { onToast("Cette fonction n'a pas pu être mise à jour.", C.red); return; }
     setModeEdition(false);
     onToast("Fonction mise à jour", C.green);
+    onReload();
+  }
+
+  function toggleDomaineEdit(key: DomaineKey) {
+    setAccesRestreintsEdit(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  }
+
+  async function enregistrerPermissions() {
+    setSavingPermissions(true);
+    const res = await fetch("/api/institution/membres", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: membre.id, acces_restreints: accesRestreintsEdit }),
+    });
+    const j = await res.json().catch(() => null);
+    setSavingPermissions(false);
+    if (!res.ok) {
+      if (j?.code === "REAUTH_REQUIRED") { setPendingAction(() => enregistrerPermissions); setReauthOpen(true); return; }
+      onToast(j?.error || "Ces permissions n'ont pas pu être mises à jour.", C.red);
+      return;
+    }
+    onToast("Permissions mises à jour — le membre devra se reconnecter", C.green);
     onReload();
   }
 
@@ -533,25 +826,50 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
     <>
     <div className="equipe-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={onClose}>
       <style>{`
+        .equipe-fiche-grid{display:flex;flex-direction:column}
+        .equipe-fiche-header{padding-right:0}
         @media(min-width:1024px){
           .equipe-fiche-overlay{align-items:center!important}
-          .equipe-fiche-panel{max-width:560px!important;border-radius:20px!important;max-height:86svh!important}
+          .equipe-fiche-panel{max-width:860px!important;border-radius:20px!important;max-height:86svh!important}
           .equipe-fiche-grip{display:none!important}
           .equipe-fiche-close-x{display:flex!important}
+          .equipe-fiche-grid{display:grid!important;grid-template-columns:1fr 1fr;column-gap:28px;align-items:start}
+          .equipe-fiche-header{padding-right:44px!important}
         }
       `}</style>
       <div onClick={e => e.stopPropagation()} className="equipe-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "86svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
         <div className="equipe-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
         <button onClick={onClose} className="equipe-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
-          <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `linear-gradient(135deg, ${roleColor(membre.role, C)}30, ${roleColor(membre.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "17px", fontWeight: 900, color: roleColor(membre.role, C), flexShrink: 0 }}>
+        <div className="equipe-fiche-header" style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
+          <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `linear-gradient(135deg, ${roleColor(membre.role, C)}30, ${roleColor(membre.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "17px", fontWeight: 800, color: roleColor(membre.role, C), flexShrink: 0 }}>
             {membre.prenom.slice(0, 1).toUpperCase()}{membre.nom.slice(0, 1).toUpperCase()}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800 }}>{membre.prenom} {membre.nom}</div>
             <div style={{ color: C.t3, fontSize: "11.5px" }}>{membre.compte_principal ? "Compte administrateur principal" : (membre.identifiant || "Connexion par téléphone")}</div>
           </div>
+          {/* Badge Accueil (16/09/2026) — remonté ici depuis le corps de la
+              fiche pour ne plus faire grandir sa hauteur à la génération
+              (affichage désormais en pop, voir plus bas). Réservé au rôle
+              agent d'accueil : seul rôle qui opère réellement le check-in au
+              guichet, contrairement à appointment.check_in qui reste vrai
+              aussi pour admin côté autorisation serveur (logique QR par
+              membre inchangée). Bouton agrandi + .equipe-fiche-header réserve
+              l'espace du bouton fermer (X) en ≥1024px — le bouton se
+              retrouvait peint dessous (X en position:absolute, toujours
+              au-dessus du flux normal), retour Bryan 16/09/2026. */}
+          {!readOnly && !membre.compte_principal && membre.role === "agent" && (
+            <button onClick={() => setBadgePopupOpen(true)} className="tap" title="Badge Accueil" aria-label="Badge Accueil" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: `${C.blue}15`, border: `1px solid ${C.blue}30`, color: C.blue, fontSize: "12px", fontWeight: 800, padding: "9px 13px", borderRadius: "10px", cursor: "pointer", flexShrink: 0 }}>
+              <span style={{ position: "relative", display: "inline-flex" }}>
+                <IconQr size={16}/>
+                {membre.checkin_qr_generated_at && !membre.checkin_qr_revoked_at && (
+                  <span style={{ position: "absolute", top: "-5px", right: "-6px", width: "10px", height: "10px", borderRadius: "50%", backgroundColor: C.green, border: `1.5px solid ${C.bgCard}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "7px", color: "#fff", lineHeight: 1 }}>✓</span>
+                )}
+              </span>
+              Badge
+            </button>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: "6px", marginBottom: "16px", flexWrap: "wrap" }}>
@@ -559,6 +877,9 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
           <span style={{ color: statutColor(statut, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${statutColor(statut, C)}15`, padding: "3px 9px", borderRadius: "20px" }}>{STATUT_LABEL[statut]}</span>
           {membre.doit_changer_pin && <span style={{ color: C.orange, fontSize: "9.5px", fontWeight: 800, backgroundColor: `${C.orange}15`, padding: "3px 9px", borderRadius: "20px" }}>PIN pas encore changé</span>}
         </div>
+
+        <div className="equipe-fiche-grid">
+        <div className="equipe-fiche-col">
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
           <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
@@ -584,8 +905,8 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
         {!readOnly && !membre.compte_principal && (
           modeEdition ? (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "14px" }}>
-              <button onClick={() => { setModeEdition(false); setEditFonction(membre.fonction ?? ""); }} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "9px", borderRadius: "8px", cursor: "pointer" }}>Annuler</button>
-              <button onClick={enregistrerFonction} disabled={saving} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "9px", borderRadius: "8px", border: "none", cursor: "pointer", opacity: saving ? 0.5 : 1 }}>Enregistrer</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setModeEdition(false); setEditFonction(membre.fonction ?? ""); }}>Annuler</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth loading={saving} onClick={enregistrerFonction}>Enregistrer</Button>
             </div>
           ) : (
             <button onClick={() => setModeEdition(true)} style={{ background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "12px", cursor: "pointer", padding: 0, marginBottom: "16px", display: "block" }}>Modifier la fonction</button>
@@ -614,6 +935,9 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
           </div>
         )}
 
+        </div>
+        <div className="equipe-fiche-col">
+
         {!membre.compte_principal && !readOnly && (
           <>
             <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Changer le rôle</div>
@@ -622,6 +946,20 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
                 <button key={r.value} onClick={() => onChangerRole(membre.id, r.value)} disabled={r.value === membre.role} style={{ backgroundColor: r.value === membre.role ? `${roleColor(r.value, C)}15` : C.bg3, border: `1px solid ${r.value === membre.role ? roleColor(r.value, C) + "40" : C.border}`, color: r.value === membre.role ? roleColor(r.value, C) : C.t2, fontSize: "11.5px", fontWeight: 700, padding: "8px 12px", borderRadius: "8px", cursor: r.value === membre.role ? "default" : "pointer" }}>{r.label}</button>
               ))}
             </div>
+
+            <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Permissions</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px", backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px", marginBottom: "10px" }}>
+              {permissionsDuRole(membre.role, accesRestreintsEdit).map(p => (
+                <div key={p.key} onClick={() => p.accorde && toggleDomaineEdit(p.key)} className={p.accorde ? "tap" : undefined} style={{ display: "flex", alignItems: "center", gap: "8px", cursor: p.accorde ? "pointer" : "default", padding: "3px 0" }}>
+                  <span style={{ color: p.accorde && !p.retire ? C.green : C.t3, fontSize: "12px", fontWeight: 700, width: "14px" }}>{p.accorde && !p.retire ? "✓" : "✕"}</span>
+                  <span style={{ color: p.accorde && !p.retire ? C.t1 : C.t3, fontSize: "11.5px", textDecoration: p.retire ? "line-through" : "none" }}>{p.label}</span>
+                  {p.retire && <span style={{ color: C.orange, fontSize: "9.5px", fontWeight: 800, marginLeft: "auto" }}>RETIRÉ</span>}
+                </div>
+              ))}
+            </div>
+            {JSON.stringify([...accesRestreintsEdit].sort()) !== JSON.stringify([...(membre.acces_restreints ?? [])].sort()) && (
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth style={{ marginBottom: "16px" }} loading={savingPermissions} onClick={enregistrerPermissions}>Enregistrer les permissions</Button>
+            )}
           </>
         )}
 
@@ -630,22 +968,25 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
             <div style={{ color: C.t2, fontSize: "11.5px", marginBottom: "8px" }}>Nouveau PIN à 6 chiffres pour {membre.prenom} :</div>
             <input value={nouveauPin} onChange={e => setNouveauPin(e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={6} placeholder="6 chiffres" style={{ width: "100%", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "9px", fontSize: "14px", color: C.t1, textAlign: "center", letterSpacing: "3px", marginBottom: "8px" }}/>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <button onClick={() => { setShowResetPin(false); setNouveauPin(""); }} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12px", padding: "9px", borderRadius: "8px", cursor: "pointer" }}>Annuler</button>
-              <button onClick={reinitialiserPin} disabled={saving || !/^\d{6}$/.test(nouveauPin)} style={{ background: `linear-gradient(135deg, ${C.gold}, ${C.goldD})`, color: "#000", fontWeight: 800, fontSize: "12px", padding: "9px", borderRadius: "8px", border: "none", cursor: "pointer", opacity: saving || !/^\d{6}$/.test(nouveauPin) ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>{saving ? <YelenLoader size={12} color="#000"/> : "Valider"}</button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setShowResetPin(false); setNouveauPin(""); }}>Annuler</Button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!/^\d{6}$/.test(nouveauPin)} loading={saving} onClick={reinitialiserPin}>Valider</Button>
             </div>
           </div>
         ) : (
           !membre.compte_principal && (
-            <button onClick={() => setShowResetPin(true)} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t2, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer", marginBottom: "10px" }}>Réinitialiser le PIN</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ marginBottom: "10px" }} onClick={() => setShowResetPin(true)}>Réinitialiser le PIN</Button>
           )
         ))}
 
         {!membre.compte_principal && !readOnly && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
-            <button onClick={() => onToggleActif(membre)} style={{ backgroundColor: `${C.orange}12`, border: `1px solid ${C.orange}30`, color: C.orange, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>{membre.actif ? "Suspendre" : "Réactiver"}</button>
-            <button onClick={() => setConfirmSupprimer(true)} style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: 700, fontSize: "12.5px", padding: "11px", borderRadius: "10px", cursor: "pointer" }}>Supprimer</button>
+            <button onClick={() => membre.actif ? setConfirmSuspendre(true) : onToggleActif(membre)} style={{ height: "40px", backgroundColor: `${C.orange}12`, border: `1px solid ${C.orange}30`, color: C.orange, fontWeight: 700, fontSize: "13px", padding: "0 16px", borderRadius: "10px", cursor: "pointer" }}>{membre.actif ? "Suspendre" : "Réactiver"}</button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" onClick={() => setConfirmSupprimer(true)}>Supprimer</Button>
           </div>
         )}
+
+        </div>
+        </div>
 
         <button onClick={onClose} style={{ width: "100%", background: "none", border: "none", color: C.t3, fontSize: "12px", cursor: "pointer", padding: "8px" }}>Fermer</button>
       </div>
@@ -653,8 +994,8 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
 
     <ConfirmModal
       open={confirmSupprimer}
-      onClose={() => setConfirmSupprimer(false)}
-      onConfirm={async () => { await onSupprimer(membre.id); setConfirmSupprimer(false); }}
+      onClose={() => { setConfirmSupprimer(false); setMotifSuppression(""); }}
+      onConfirm={async () => { await onSupprimer(membre.id); setConfirmSupprimer(false); setMotifSuppression(""); }}
       tokens={uiTokens}
       level={3}
       danger
@@ -666,9 +1007,76 @@ function MembreDetailModal({ C, membre, readOnly, onClose, onChangerRole, onTogg
         "Retrouver l'accès nécessitera de recréer un nouveau compte.",
       ]}
       reversible={false}
+      motifValue={motifSuppression}
+      onMotifChange={setMotifSuppression}
+      motifPlaceholder="Pourquoi supprimez-vous ce membre ?"
       confirmWord={membre.prenom}
       confirmLabel="Supprimer définitivement"
     />
+
+    <ConfirmModal
+      open={confirmSuspendre}
+      onClose={() => setConfirmSuspendre(false)}
+      onConfirm={async () => { setConfirmSuspendre(false); onToggleActif(membre); }}
+      tokens={uiTokens}
+      level={1}
+      danger
+      title={`Suspendre ${membre.prenom} ${membre.nom} ?`}
+      description="Ce compte perd l'accès au dashboard Yelen immédiatement."
+      consequences={[
+        `${membre.prenom} ne pourra plus se connecter tant que le compte n'est pas réactivé.`,
+        "Le compte reste conservé — vous pourrez le réactiver à tout moment.",
+      ]}
+      reversible={true}
+      confirmLabel="Suspendre"
+    />
+
+    <ReauthModal
+      open={reauthOpen}
+      onClose={() => { setReauthOpen(false); setPendingAction(null); }}
+      onSuccess={() => { const action = pendingAction; setReauthOpen(false); setPendingAction(null); action?.(); }}
+    />
+
+    {badgePopupOpen && (
+      <div
+        onClick={() => { if (!badgeQr) setBadgePopupOpen(false); }}
+        style={{ position: "fixed", inset: 0, zIndex: 1100, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}
+      >
+        <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "20px", padding: "22px 20px", width: "100%", maxWidth: "380px", border: `1px solid ${C.border2}`, textAlign: "center" }}>
+          {badgeQr ? (
+            <>
+              <div style={{ color: C.t2, fontSize: "11.5px", marginBottom: "10px", fontWeight: 700 }}>
+                Badge YELEN Accueil de {membre.prenom} — imprimez-le maintenant, il ne sera plus affichable après fermeture.
+              </div>
+              {/* IMG-EXCEPTION: reason=data URL base64 générée localement (generateBrandedQR), non fetchable par l'optimiseur next/image | reviewed=2026-09-16 */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={badgeQr} alt="Badge QR YELEN Accueil" style={{ width: "220px", height: "220px", margin: "0 auto 12px", borderRadius: "12px" }}/>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginBottom: "8px" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={imprimerBadge}>Imprimer</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={telechargerBadge}>Image PNG</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={copierLienBadge}>Copier le lien</Button>
+              </div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth onClick={() => { setBadgeQr(null); setBadgeLien(null); setBadgePopupOpen(false); onReload(); }}>OK, badge remis</Button>
+            </>
+          ) : (
+            <>
+              <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "6px" }}>Badge Accueil</div>
+              <div style={{ color: C.t3, fontSize: "12px", marginBottom: "16px", lineHeight: 1.5 }}>
+                Ce QR personnel active le poste d&apos;accueil de {membre.prenom}. Imprimez-le et faites-le scanner une seule fois avec un téléphone : c&apos;est cet appareil qui servira ensuite à valider les présences des clients à l&apos;accueil.
+                <br/><strong style={{ color: C.t2 }}>Fonctionne uniquement sur téléphone</strong> — inutile de le scanner ou de l&apos;ouvrir depuis un ordinateur.
+              </div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth loading={genererBadge} style={{ marginBottom: "8px" }} onClick={genererBadgeQr}>
+                {membre.checkin_qr_generated_at && !membre.checkin_qr_revoked_at ? "Régénérer le badge" : "Générer le badge"}
+              </Button>
+              {membre.checkin_qr_generated_at && !membre.checkin_qr_revoked_at && (
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth loading={saving} style={{ color: C.red, borderColor: `${C.red}40`, marginBottom: "8px" }} onClick={revoquerBadgeQr}>Révoquer le badge</Button>
+              )}
+              <button onClick={() => setBadgePopupOpen(false)} style={{ background: "none", border: "none", color: C.t3, fontSize: "12px", cursor: "pointer", padding: "6px" }}>Fermer</button>
+            </>
+          )}
+        </div>
+      </div>
+    )}
     </>
   );
 }

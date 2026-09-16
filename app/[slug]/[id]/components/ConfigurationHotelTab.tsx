@@ -22,7 +22,9 @@
 // chambre demandée par Bryan : un groupe électrogène de l'hôtel ne
 // signifie pas que chaque chambre a la climatisation.
 import { useEffect, useState } from "react";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { useTheme } from "@/components/ThemeProvider";
 import { FieldCard } from "./ConditionsInformationsTab";
@@ -84,7 +86,7 @@ export function ConfigurationHotelTab({ instId, onToast, onNavigate }: { instId:
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Configuration Hôtel</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Configuration Hôtel</h1>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
           Visible publiquement sur votre fiche, section &quot;Équipements&quot;. Un équipement non coché n&apos;apparaît pas côté citoyen.
         </p>
@@ -105,7 +107,7 @@ export function ConfigurationHotelTab({ instId, onToast, onNavigate }: { instId:
         </button>
 
         <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", marginBottom: "10px" }}>Équipements de l&apos;établissement</div>
-        <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", marginBottom: "18px", display: "flex", flexDirection: "column", gap: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "18px", display: "flex", flexDirection: "column", gap: "18px" }}>
           {EQUIPEMENTS_ETABLISSEMENT.map(cat => (
             <div key={cat.id}>
               <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{cat.label}</div>
@@ -124,11 +126,11 @@ export function ConfigurationHotelTab({ instId, onToast, onNavigate }: { instId:
           ))}
 
           <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "4px", borderTop: `1px solid ${C.border}` }}>
-            <button onClick={handleSaveEquipements} disabled={savingEquipements || !dirty} className="tap" style={{ marginTop: "12px", backgroundColor: savingEquipements || !dirty ? C.bg3 : C.gold, color: savingEquipements || !dirty ? C.t3 : "#000", border: "none", borderRadius: "10px", padding: "10px 18px", fontSize: "12.5px", fontWeight: "800", cursor: savingEquipements || !dirty ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-              {savingEquipements ? <><YelenLoader size={12} color={C.t3}/>Sauvegarde…</> : dirty ? "Enregistrer" : "Modifier"}
-            </button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!dirty} loading={savingEquipements} style={{ marginTop: "12px" }} onClick={handleSaveEquipements}>
+              {dirty ? "Enregistrer" : "Modifier"}
+            </Button>
           </div>
-        </div>
+        </Card>
 
         <FieldCard
           C={C} title="Règles complémentaires" hint="Ce qu'une checklist ne peut pas dire : horaires de check-in/check-out, restrictions, conditions particulières"

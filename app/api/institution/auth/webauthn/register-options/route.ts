@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
 import { generateRegistrationOptions } from '@simplewebauthn/server'
-import { getAuthenticatedInstitutionId } from '@/lib/institutionAuth'
+import { getAuthenticatedMembre, estReauthRecente } from '@/lib/institutionAuth'
+import { can } from '@/lib/institutionPermissions'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,10 +27,38 @@ function getWebAuthnRpID(request: NextRequest): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const institutionId = await getAuthenticatedInstitutionId(request)
-    if (!institutionId) {
+    // Révue critique 16/09/2026 — faille réelle trouvée : cette route
+    // n'avait aucun contrôle de rôle, seulement une session valide.
+    // auth-verify authentifie TOUJOURS comme le compte_principal quel que
+    // soit qui a enregistré la clé — un rôle non-admin (membre/login,
+    // identifiant+PIN) pouvait donc s'auto-attribuer un accès équivalent
+    // admin en appelant cette route directement.
+    //
+    // Exige une identité de membre précise (pas seulement
+    // getAuthenticatedInstitutionId) — nécessaire pour vérifier le rôle, et
+    // de toute façon requis par le moteur de réauth juste en dessous
+    // (institution_membres.pin_hash). Si institution_membres n'a pas encore
+    // de ligne compte_principal=true pour cette institution (échec
+    // silencieux de l'insert à l'inscription, voir auth/register/route.ts —
+    // gap de données pré-existant, signalé séparément), le propriétaire ne
+    // peut de toute façon déjà rien faire de reauth-gated ailleurs dans
+    // l'app tant que cette ligne n'existe pas : pas la peine de dupliquer un
+    // chemin d'exception ici qui n'aboutirait pas non plus.
+    const membre = await getAuthenticatedMembre(request)
+    if (!membre) {
       return NextResponse.json({ error: 'Non authentifié', code: 'NO_SESSION' }, { status: 401 })
     }
+    if (!can(membre.role, 'securite_institution.write')) {
+      return NextResponse.json({ error: 'Accès réservé aux administrateurs', code: 'FORBIDDEN' }, { status: 403 })
+    }
+    // Ajouter un nouveau moyen de connexion durable exige une identité
+    // fraîchement reconfirmée (moteur de réauth, 16/09/2026) — sinon une
+    // session volée pourrait planter une passkey qui survit à son
+    // expiration (8h).
+    if (!estReauthRecente(membre)) {
+      return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: 'REAUTH_REQUIRED' }, { status: 403 })
+    }
+    const institutionId = membre.institutionId
 
     const { data: institution } = await supabaseAdmin
       .from('institutions')
@@ -38,7 +67,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (!institution) {
-      return NextResponse.json({ error: 'Institution introuvable', code: 'NOT_FOUND' }, { status: 404 })
+      return NextResponse.json({ error: 'Votre compte est introuvable. Reconnectez-vous et réessayez.', code: 'NOT_FOUND' }, { status: 404 })
     }
 
     const { data: existingCreds } = await supabaseAdmin

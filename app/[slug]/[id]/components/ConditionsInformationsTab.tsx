@@ -12,7 +12,9 @@
 // bouton "Modifier", pas rester un textarea ouvert en permanence) — donc
 // une sauvegarde par champ (PUT partiel), pas un unique bouton global.
 import { useEffect, useState } from "react";
-import { T, type ThemeTokens } from "../theme";
+import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { useTheme } from "@/components/ThemeProvider";
 import { fieldLabel, inputFieldStyle as fieldInput } from "./FormField";
@@ -69,33 +71,30 @@ export function FieldCard({ C, title, hint, placeholder, field, savedValue, save
   return (
     <div>
       <SectionLabel C={C}>{title}</SectionLabel>
-      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px", marginBottom: "18px" }}>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "18px" }}>
         {editing ? (
           <>
             <label style={fieldLabel(C)}>{hint}</label>
             <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={6} placeholder={placeholder} style={{ ...fieldInput(C), resize: "none", lineHeight: 1.6 }}/>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px" }}>
               {savedValue.trim() && (
-                <button onClick={cancelEdit} disabled={saving} className="tap" style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: "10px", padding: "9px 16px", color: C.t2, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>Annuler</button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" disabled={saving} onClick={cancelEdit}>Annuler</Button>
               )}
-              <button onClick={save} disabled={saving} className="tap" style={{ backgroundColor: saving ? C.bg3 : C.gold, color: saving ? C.t3 : "#000", border: "none", borderRadius: "10px", padding: "9px 18px", fontSize: "12.5px", fontWeight: "800", cursor: saving ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                {saving ? <><YelenLoader size={12} color={C.t3}/>Sauvegarde…</> : "Enregistrer"}
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" loading={saving} onClick={save}>Enregistrer</Button>
             </div>
           </>
         ) : (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
               <p style={{ color: C.t1, fontSize: "13px", lineHeight: 1.65, margin: 0, whiteSpace: "pre-wrap" }}>{savedValue}</p>
-              <button onClick={startEdit} className="tap" style={{ display: "flex", alignItems: "center", gap: "5px", background: "none", border: `1px solid ${C.border}`, borderRadius: "9px", padding: "7px 11px", color: C.gold, fontSize: "11.5px", fontWeight: "700", cursor: "pointer", flexShrink: 0 }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                Modifier
-              </button>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold, flexShrink: 0 }}
+                icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
+                onClick={startEdit}>Modifier</Button>
             </div>
             {savedDate && <p style={{ color: C.t3, fontSize: "10.5px", margin: "10px 0 0" }}>Visible publiquement · mis à jour le {fmtDate(savedDate)}</p>}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -139,7 +138,7 @@ export function ConditionsInformationsTab({ instId, onToast }: { instId: string;
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", marginBottom: "6px" }}>Conditions & Informations</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Conditions et informations</h1>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
           Ces 3 textes sont visibles publiquement sur votre fiche, chacun dans son propre panneau. Tant qu&apos;une section n&apos;est pas remplie, les citoyens voient &quot;Cet établissement n&apos;a pas encore renseigné cette section.&quot;
         </p>
