@@ -1,0 +1,46 @@
+# Dependabot version updates — surveillance des dépendances.
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Ne bloque rien automatiquement (pas de "required status check" côté
+# GitHub) — ouvre juste des PRs que Bryan revoit et merge manuellement,
+# dans le même esprit que dependency-audit de ci.yml (informationnel).
+#
+# minor/patch regroupées en une seule PR par écosystème pour réduire le
+# bruit ; major volontairement exclue du groupe (patterns: "*" avec
+# update-types minor/patch seulement) pour rester une PR séparée et
+# visible, un breaking change ne doit jamais se fondre dans un lot.
+# Security updates gérées séparément par GitHub, indépendamment de cette
+# config de version updates.
+
+version: 2
+updates:
+  # Dépendances npm du projet Next.js (racine, seul package.json réel).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Actions utilisées dans .github/workflows/ci.yml (actions/checkout,
+  # actions/setup-node...).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
