@@ -50,7 +50,7 @@ jobs:
       VAPID_SUBJECT: mailto:ci-build@example.com
       QR_SECRET_KEY: placeholder-secret-for-ci-build-only-0000000000000000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -75,7 +75,7 @@ jobs:
     # doit pas faire échouer la CI tant que ce gap n'est pas traité
     # explicitement par Bryan.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
