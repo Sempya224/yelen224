@@ -3,25 +3,13 @@ import { createClient } from '@supabase/supabase-js'
 import { verify } from 'otplib'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
-import { jwtVerify } from 'jose'
+import { verifyAdminSession } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  return payload
-}
 
 function genererCodeSecours(): string {
   const hex = crypto.randomBytes(4).toString('hex').toUpperCase()
@@ -35,8 +23,8 @@ function genererCodeSecours(): string {
 export async function POST(request: NextRequest) {
   let adminId: string
   try {
-    const payload = await verifyToken(request)
-    adminId = payload.adminId as string
+    const payload = await verifyAdminSession(request)
+    adminId = payload.adminId
   } catch {
     return NextResponse.json({ error: 'Session invalide' }, { status: 401 })
   }
@@ -57,7 +45,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Aucune configuration 2FA en attente — recommencez depuis le début.' }, { status: 400 })
     }
 
-    const result = await verify({ secret: admin.totp_secret, token: code })
+    const result = await verify({ secret: admin.totp_secret, token: code, epochTolerance: 30 })
     if (!result.valid) {
       return NextResponse.json({ error: 'Code invalide' }, { status: 401 })
     }

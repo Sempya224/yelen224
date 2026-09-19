@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { canAccessTab } from "@/lib/institutionPermissions";
 
 // Mesure du retour du QR imprimable/lien copié depuis "Mon code QR" (retour
 // Bryan 25/07/2026) — compte les rdv/paid_bookings dont `provenance = 'qr'`
@@ -12,6 +13,9 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (canAccessTab(membre.role, "codeqr", membre.accesRestreints) === "none") {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
 
   // `rdv` seule suffit : toute réservation (gratuite ou payante) y crée une
   // ligne — la payante en crée une seconde dans `paid_bookings` (données de

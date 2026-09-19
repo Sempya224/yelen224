@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { D } from '@/app/admin/adminTheme'
 import { Ic } from '@/app/admin/adminIcons'
 import { DataTable } from '@/app/admin/adminUiKit'
+import { YelenLoader } from '@/components/YelenLoader'
 
 export default function LogsPage() {
   const [data, setData] = useState<{id:string,action:string,created_at:string,admin_id:string,cible_table:string,cible_id:string,details:Record<string,unknown>}[]>([])
@@ -44,7 +45,7 @@ export default function LogsPage() {
       </div>
       <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement...</div>
+          <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={24}/></div>
         ) : (
           <DataTable
             cols={[

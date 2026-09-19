@@ -39,10 +39,10 @@ const FENETRES: { phase: Phase; min: number; max: number }[] = [
 
 function salutation(nom: string): string {
   const h = new Date().getHours();
-  if (h < 6) return `Bonne nuit, ${nom} 🌙`;
-  if (h < 12) return `Bonjour, ${nom} ☀️`;
-  if (h < 18) return `Bon après-midi, ${nom} 👋`;
-  return `Bonsoir, ${nom} 🌆`;
+  if (h < 6) return `Bonne nuit, ${nom}`;
+  if (h < 12) return `Bonjour, ${nom}`;
+  if (h < 18) return `Bon après-midi, ${nom}`;
+  return `Bonsoir, ${nom}`;
 }
 
 function messages(phase: Phase, citoyenPrenom: string, institutionNom: string, heure: string) {

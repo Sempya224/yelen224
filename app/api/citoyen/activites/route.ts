@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +19,7 @@ const supabaseAdmin = createClient(
 export type Activite = {
   id: string;
   type: string;
-  categorie: "rdv" | "qr" | "paiement" | "avis" | "favori" | "document" | "compte";
+  categorie: "rdv" | "qr" | "paiement" | "avis" | "favori" | "document" | "compte" | "demarche" | "depense";
   titre: string;
   description: string | null;
   institution_nom: string | null;
@@ -34,8 +35,8 @@ export async function GET(request: NextRequest) {
     const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
     if (!accessToken) return NextResponse.json({ error: "Non authentifié", code: "NO_SESSION" }, { status: 401 });
 
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
     const citoyenId = user.id;
 
     const [
@@ -47,6 +48,8 @@ export async function GET(request: NextRequest) {
       { data: avisRows },
       { data: credentials },
       { data: documents },
+      { data: demarches },
+      { data: depenses },
     ] = await Promise.all([
       supabaseAdmin.from("users").select("created_at").eq("id", citoyenId).single(),
       supabaseAdmin.from("citoyen_remember_tokens").select("device_label,created_at").eq("citoyen_id", citoyenId),
@@ -56,6 +59,12 @@ export async function GET(request: NextRequest) {
       supabaseAdmin.from("avis").select("id,institution_id,note,titre,commentaire,created_at,reponse_institution,reponse_le").eq("citoyen_id", citoyenId).eq("brouillon", false),
       supabaseAdmin.from("citoyen_webauthn_credentials").select("device_label,created_at").eq("citoyen_id", citoyenId),
       supabaseAdmin.from("citoyen_documents").select("id,institution_id,sens,type,label,statut,created_at,traite_le").eq("citoyen_id", citoyenId),
+      // "Votre activité" (09/08/2026, évolution "Mes réservations") — 2
+      // catégories manquantes à cette agrégation, ajoutées pour alimenter
+      // les cartes "Dernière démarche"/"Dernière dépense" sans dupliquer
+      // de logique (app/page.tsx consomme cette même route).
+      supabaseAdmin.from("citoyen_demarches").select("id,titre,statut,created_at,termine_le,institution_id").eq("citoyen_id", citoyenId),
+      supabaseAdmin.from("citoyen_depenses").select("id,categorie,montant,description,created_at").eq("citoyen_id", citoyenId),
     ]);
 
     const rdvIds = (rdvRows ?? []).map((r) => r.id);
@@ -76,6 +85,7 @@ export async function GET(request: NextRequest) {
     for (const f of favoris ?? []) institutionIds.add(f.institution_id);
     for (const a of avisRows ?? []) institutionIds.add(a.institution_id);
     for (const d of documents ?? []) institutionIds.add(d.institution_id);
+    for (const dem of demarches ?? []) { if (dem.institution_id) institutionIds.add(dem.institution_id); }
     const { data: institutions } = institutionIds.size
       ? await supabaseAdmin.from("institutions").select("id,name").in("id", [...institutionIds])
       : { data: [] };
@@ -189,9 +199,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Corrigé 09/08/2026 : map obsolète depuis /documents-clients-lot1
+    // (4 anciennes valeurs → 7 nouvelles). Sans ça, tout document
+    // valide/disponible/archive retombait sur le statut générique
+    // "attente" avec la valeur DB brute comme libellé.
     const DOC_STATUT: Record<string, { statut: Activite["statut"]; label: string }> = {
-      en_attente: { statut: "attente", label: "En attente" }, televerse: { statut: "succes", label: "Reçu" },
-      envoye: { statut: "succes", label: "Envoyé" }, annule: { statut: "annule", label: "Annulé" },
+      en_attente: { statut: "attente", label: "En attente" },
+      recu: { statut: "attente", label: "Reçu" },
+      a_verifier: { statut: "attente", label: "En vérification" },
+      valide: { statut: "succes", label: "Validé" },
+      refuse: { statut: "echec", label: "Refusé" },
+      archive: { statut: "succes", label: "Archivé" },
+      disponible: { statut: "succes", label: "Disponible" },
     };
     for (const d of documents ?? []) {
       const info = DOC_STATUT[d.statut] ?? { statut: "attente" as const, label: d.statut };
@@ -201,6 +220,36 @@ export async function GET(request: NextRequest) {
         description: d.label, institution_nom: instMap.get(d.institution_id) ?? null, institution_id: d.institution_id,
         date: d.created_at, statut: info.statut, statut_label: info.label,
         meta: { document_id: d.id, sens: d.sens, type: d.type },
+      });
+    }
+
+    // "Votre activité" (09/08/2026) — démarches et dépenses manuelles.
+    // Les dépenses "Yelen" (paid_bookings) sont déjà couvertes par la
+    // catégorie "paiement" ci-dessus, pas de doublon créé ici.
+    for (const dem of demarches ?? []) {
+      activites.push({
+        id: `demarche-${dem.id}`, type: "demarche_creee", categorie: "demarche",
+        titre: "Démarche créée", description: dem.titre,
+        institution_nom: dem.institution_id ? instMap.get(dem.institution_id) ?? null : null, institution_id: dem.institution_id ?? null,
+        date: dem.created_at, statut: "succes", statut_label: "Créée", meta: { demarche_id: dem.id },
+      });
+      if (dem.statut === "terminee" && dem.termine_le) {
+        activites.push({
+          id: `demarche-terminee-${dem.id}`, type: "demarche_terminee", categorie: "demarche",
+          titre: "Démarche terminée", description: dem.titre,
+          institution_nom: dem.institution_id ? instMap.get(dem.institution_id) ?? null : null, institution_id: dem.institution_id ?? null,
+          date: dem.termine_le, statut: "succes", statut_label: "Terminée", meta: { demarche_id: dem.id },
+        });
+      }
+    }
+
+    for (const dep of depenses ?? []) {
+      activites.push({
+        id: `depense-${dep.id}`, type: "depense_manuelle", categorie: "depense",
+        titre: "Dépense enregistrée",
+        description: [dep.description, dep.montant ? `${dep.montant.toLocaleString("fr-FR")} GNF` : null].filter(Boolean).join(" · ") || null,
+        institution_nom: null, institution_id: null,
+        date: dep.created_at, statut: "succes", statut_label: "Enregistrée", meta: { depense_id: dep.id, categorie: dep.categorie },
       });
     }
 

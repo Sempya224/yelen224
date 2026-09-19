@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verify } from "otplib";
 import bcrypt from "bcryptjs";
-import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { getAuthenticatedMembre, getInstitutionSessionSid, revoquerAutresSessionsInstitution } from "@/lib/institutionAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
     const code = body?.code;
     if (typeof code !== "string" || !code.trim()) {
-      return NextResponse.json({ error: "Code requis", code: "MISSING_FIELDS" }, { status: 400 });
+      return NextResponse.json({ error: "Entrez un code de votre application d'authentification, ou un code de secours.", code: "MISSING_FIELDS" }, { status: 400 });
     }
 
     const { data: row } = await supabaseAdmin.from("institution_membres").select("totp_secret, totp_backup_codes").eq("id", membre.membreId).maybeSingle();
@@ -31,14 +31,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "La 2FA n'est pas activée.", code: "NOT_FOUND" }, { status: 400 });
     }
 
-    let codeValide = (await verify({ secret: row.totp_secret, token: code.trim() })).valid;
+    let codeValide = (await verify({ secret: row.totp_secret, token: code.trim(), epochTolerance: 30 })).valid;
     if (!codeValide && Array.isArray(row.totp_backup_codes)) {
       for (const hash of row.totp_backup_codes as string[]) {
         if (await bcrypt.compare(code.trim(), hash)) { codeValide = true; break; }
       }
     }
     if (!codeValide) {
-      return NextResponse.json({ error: "Code invalide", code: "INVALID_CODE" }, { status: 401 });
+      return NextResponse.json({ error: "Ce code est incorrect ou déjà utilisé. Vérifiez l'heure de votre téléphone ou essayez un code de secours.", code: "INVALID_CODE" }, { status: 401 });
     }
 
     const { error } = await supabaseAdmin
@@ -46,6 +46,14 @@ export async function POST(request: NextRequest) {
       .update({ totp_secret: null, totp_enabled: false, totp_backup_codes: null })
       .eq("id", membre.membreId);
     if (error) throw error;
+
+    // institution_sessions — invalide les autres sessions actives de
+    // l'institution (échelle institution entière, pas seulement ce membre —
+    // voir lib/institutionAuth.ts), mais jamais celle-ci : voir
+    // revoquerAutresSessionsInstitution (même correctif que pin/set,
+    // 08/09/2026).
+    const currentSid = await getInstitutionSessionSid(request);
+    await revoquerAutresSessionsInstitution(supabaseAdmin, membre.institutionId, currentSid, "totp_disabled");
 
     return NextResponse.json({ success: true });
 

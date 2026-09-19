@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { verify } from "otplib";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,8 +31,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Code requis", code: "MISSING_FIELDS" }, { status: 400 });
     }
 
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authErr || !user) {
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) {
       return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
     }
 
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Aucune configuration 2FA en attente — recommencez depuis le début.", code: "NOT_FOUND" }, { status: 400 });
     }
 
-    const result = await verify({ secret: citoyen.totp_secret, token: code.trim() });
+    const result = await verify({ secret: citoyen.totp_secret, token: code.trim(), epochTolerance: 30 });
     if (!result.valid) {
       return NextResponse.json({ error: "Code invalide", code: "INVALID_CODE" }, { status: 401 });
     }

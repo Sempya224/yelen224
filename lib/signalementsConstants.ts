@@ -89,3 +89,35 @@ export const SIGNALEMENT_EVENT_TYPES = [
   "attachment_added", "resolved", "reopened", "closed", "escalated", "marked_duplicate",
 ] as const;
 export type SignalementEventType = (typeof SIGNALEMENT_EVENT_TYPES)[number];
+
+// Motifs — liste blanche partagée par les 2 écrans de création
+// (SignalementsTab.tsx côté institution, app/signalement/page.tsx côté
+// citoyen) ET par les 2 routes API de création, qui valident désormais le
+// motif reçu contre cette liste au lieu d'accepter n'importe quelle chaîne
+// (chantier RDV obligatoire + signalements encadrés, 15/08/2026). Chaque
+// liste reste propre à son côté — les motifs ne sont pas symétriques
+// (un citoyen ne signale pas une "absence répétée", une institution ne
+// signale pas une "arnaque/fraude").
+export const SIGNALEMENT_MOTIFS_INSTITUTION = [
+  { value: "absence_repetee",       label: "Absence répétée sans annulation", desc: "Le citoyen ne se présente pas sans prévenir" },
+  { value: "comportement_agressif", label: "Comportement agressif",           desc: "Comportement violent ou menaçant lors du RDV" },
+  { value: "fausses_informations",  label: "Fausses informations",            desc: "Le citoyen a fourni de fausses informations" },
+  { value: "spam_rdv",              label: "Spam de rendez-vous",             desc: "Prise de RDV répétitive sans intention réelle" },
+  { value: "autre",                 label: "Autre",                          desc: "Autre motif non listé ci-dessus" },
+] as const;
+export type SignalementMotifInstitution = (typeof SIGNALEMENT_MOTIFS_INSTITUTION)[number]["value"];
+export function isSignalementMotifInstitution(value: string): value is SignalementMotifInstitution {
+  return SIGNALEMENT_MOTIFS_INSTITUTION.some(m => m.value === value);
+}
+
+export const SIGNALEMENT_MOTIFS_CITOYEN = [
+  { value: "comportement_irrespectueux", label: "Comportement irrespectueux", desc: "Agent ou personnel irrespectueux lors du RDV" },
+  { value: "rdv_non_honore",             label: "RDV non honoré",             desc: "L'institution n'a pas respecté le rendez-vous confirmé" },
+  { value: "informations_fausses",       label: "Informations fausses",       desc: "Les informations publiées ne correspondent pas à la réalité" },
+  { value: "arnaque_fraude",             label: "Arnaque / Fraude",           desc: "Tentative d'escroquerie ou comportement frauduleux" },
+  { value: "autre",                      label: "Autre",                      desc: "Autre motif non listé ci-dessus" },
+] as const;
+export type SignalementMotifCitoyen = (typeof SIGNALEMENT_MOTIFS_CITOYEN)[number]["value"];
+export function isSignalementMotifCitoyen(value: string): value is SignalementMotifCitoyen {
+  return SIGNALEMENT_MOTIFS_CITOYEN.some(m => m.value === value);
+}

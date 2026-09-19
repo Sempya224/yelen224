@@ -1,6 +1,13 @@
 "use server";
 
 import { createAuthedSupabaseClient } from "@/lib/supabase";
+import { accorderPoints } from "@/lib/rewardsEngine";
+
+// Yelen Rewards Phase 2 (22/08/2026, décision CEO) — tous ces champs
+// doivent être renseignés pour déclencher les +150 points "Profil
+// complété". `phone` volontairement absent : identifiant de connexion,
+// toujours renseigné dès l'inscription, jamais un champ à "compléter" ici.
+const CHAMPS_PROFIL_COMPLET = ["prenom", "nom", "ville", "date_naissance", "sexe", "nationalite", "profession", "adresse", "email", "photo_url"] as const;
 
 export type InfosPersoActionResult = { ok: true } | { ok: false; error: string };
 
@@ -57,6 +64,17 @@ export async function updateInfosPersonnelles(
   if (error) {
     console.error("[informations-personnelles] update users:", error.message);
     return { ok: false, error: error.message };
+  }
+
+  // Yelen Rewards Phase 2 — +150 points, une seule fois par citoyen
+  // (idempotence via source_id=userId dans accorderPoints). Relit la ligne
+  // à jour plutôt que `payload` seul : `photoUrl` n'est pas toujours
+  // transmis à cet appel précis (ex. un champ complété via un autre écran),
+  // seule la vraie ligne en base fait foi de la complétude réelle.
+  const { data: row } = await supabase.from("users").select(CHAMPS_PROFIL_COMPLET.join(",")).eq("id", userId).maybeSingle();
+  const profilComplet = !!row && CHAMPS_PROFIL_COMPLET.every((champ) => !!(row as unknown as Record<string, unknown>)[champ]);
+  if (profilComplet) {
+    await accorderPoints({ citoyenId: userId, sourceType: "profil", sourceId: userId, eventType: "profil_complete" });
   }
 
   return { ok: true };

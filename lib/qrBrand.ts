@@ -1,8 +1,13 @@
-// QR Code à l'identité visuelle Yelen (logo incrusté au centre) — généralisé
-// à partir de la génération déjà utilisée pour le QR institution
-// (app/institution/[id]/dashboard/components/CodeQrTab.tsx::makeInstitutionQR),
-// pour être réutilisable par tout écran ayant besoin d'un QR premium Yelen —
-// ici l'écran Yelen ID citoyen. 100% généré côté navigateur via la lib
+// QR Code à l'identité visuelle Yelen (logo incrusté au centre) — source
+// unique pour tout QR brandé Yelen (institution ET citoyen). Auparavant
+// dupliqué en deux versions divergentes : le QR institution
+// (app/[slug]/[id]/components/CodeQrTab.tsx) chargeait le vrai fichier
+// public/icon-512.png (déjà l'icône PWA), tandis que le QR citoyen
+// (components/YelenIdQrModal.tsx) dessinait une approximation SVG à la
+// main — deux rendus visuellement incohérents pour la même marque (retour
+// Bryan 29/08/2026, "on ne veut pas simplement changer l'icône, on veut
+// réutiliser le même composant"). Unifié ici sur le vrai fichier PNG,
+// consommé par les deux écrans. 100% généré côté navigateur via la lib
 // "qrcode" (déjà une dépendance du projet) : aucune donnée transmise à un
 // service externe, contrairement au QR RDV (app/mon-qr) qui passe par
 // api.qrserver.com.
@@ -32,20 +37,9 @@ function fillRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
   ctx.fill();
 }
 
-// Même tracé que components/YelenLogo.tsx (cercle r=3 + 8 rayons courts sur
-// fond orange arrondi), rendu en SVG puis rasterisé.
-function yelenLogoBadgeDataUrl(): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24">
-    <rect x="0" y="0" width="24" height="24" rx="6" fill="#F5A623"/>
-    <g stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" fill="none">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
-    </g>
-  </svg>`;
-  return `data:image/svg+xml;base64,${btoa(svg)}`;
-}
-
-/** Génère un QR Code brandé Yelen (logo central) en data URL PNG. */
+/** Génère un QR Code brandé Yelen (logo central) en data URL PNG. Ne touche
+ * jamais aux 3 marqueurs de coin du QR (hors de la zone centrale logoBox,
+ * réservée par le niveau de correction d'erreur "H"). */
 export async function generateBrandedQR(data: string, size: number, darkColor: string = "#080812"): Promise<string> {
   const qrDataUrl = await QRCode.toDataURL(data, {
     width: size,
@@ -69,7 +63,9 @@ export async function generateBrandedQR(data: string, size: number, darkColor: s
   ctx.fillStyle = "#FFFFFF";
   fillRoundRect(ctx, lx - 4, ly - 4, logoBox + 8, logoBox + 8, 9);
 
-  const badgeImg = await loadImage(yelenLogoBadgeDataUrl());
+  // Vrai logo officiel (public/icon-512.png, déjà l'icône PWA) — jamais une
+  // approximation dessinée à la main.
+  const badgeImg = await loadImage("/icon-512.png");
   ctx.drawImage(badgeImg, lx, ly, logoBox, logoBox);
 
   return canvas.toDataURL("image/png");

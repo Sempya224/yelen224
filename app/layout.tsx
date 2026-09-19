@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthSessionWatcher } from "@/components/AuthSessionWatcher";
+import { ConnexionWatcher } from "@/components/ConnexionWatcher";
 import { SplashScreen } from "@/components/SplashScreen";
 
 // Police de marque — remplace Geist, chargé jusqu'ici mais jamais appliqué
@@ -37,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" style={{ height: "100%" }}>
+    <html lang="fr" data-scroll-behavior="smooth" style={{ height: "100%" }}>
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -51,6 +52,7 @@ export default function RootLayout({
         <SplashScreen/>
         <ThemeProvider>
           <AuthSessionWatcher/>
+          <ConnexionWatcher/>
           {children}
         </ThemeProvider>
       </body>

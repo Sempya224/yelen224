@@ -88,7 +88,7 @@ export function DemandePartenariatOverlay({ instId, onClose, onSubmitted }: {
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px", maxWidth: "620px", width: "100%", margin: "0 auto" }}>
         {loadingProfil ? (
-          <div style={{ color: C.t2, fontSize: "13px", textAlign: "center", padding: "40px 0" }}>Chargement du profil…</div>
+          <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}><YelenLoader size={24} label="Chargement du profil…" labelColor={C.t2}/></div>
         ) : siteWebManquant ? (
           <div style={{ background: `${C.red}12`, border: `1px solid ${C.red}40`, borderRadius: "14px", padding: "18px" }}>
             <div style={{ color: C.red, fontWeight: 800, fontSize: "14px", marginBottom: "6px" }}>Site web requis</div>

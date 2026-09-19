@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
+import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,12 +42,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce code est trop simple (chiffres répétés ou suite logique). Choisissez-en un autre.", code: "WEAK_PIN" }, { status: 400 });
     }
 
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authErr || !user) {
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) {
       return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
     }
 
     const pinHash = await bcrypt.hash(pin, 12);
+
+    const { data: avant } = await supabaseAdmin.from("users").select("pin_hash, prenom").eq("id", user.id).maybeSingle();
+    const dejaConfigure = !!avant?.pin_hash;
 
     const { data: updated, error: updateError } = await supabaseAdmin
       .from("users")
@@ -60,6 +65,17 @@ export async function POST(request: NextRequest) {
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: "Compte introuvable", code: "NOT_FOUND" }, { status: 404 });
     }
+
+    await envoyerNotification({
+      destinataireId: user.id,
+      destinataireType: "citoyen",
+      rdvId: null,
+      type: "securite_pin_modifie",
+      titre: salutation(avant?.prenom || "cher client"),
+      message: dejaConfigure
+        ? "Votre code PIN a été modifié. Si vous n'êtes pas à l'origine de ce changement, sécurisez votre compte immédiatement."
+        : "Votre code PIN a été configuré. Il vous permet un déverrouillage rapide de l'application.",
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

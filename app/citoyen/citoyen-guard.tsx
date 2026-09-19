@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
+import { YelenLoader } from "@/components/YelenLoader";
 
 export function CitoyenGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -20,8 +21,8 @@ export function CitoyenGuard({ children }: { children: React.ReactNode }) {
 
   if (!ok) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#1A1A2E] px-4 text-sm text-zinc-400">
-        Chargement…
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#1A1A2E] px-4">
+        <YelenLoader size={36}/>
       </div>
     );
   }

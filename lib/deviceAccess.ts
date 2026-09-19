@@ -31,13 +31,20 @@ export function estRobotOuApercu(userAgent: string | null): boolean {
 }
 
 // Chemins toujours accessibles depuis un PC, indépendamment du mur mobile :
-// Web professionnel (institution/admin/clock), API, pages légales/support
-// partagées avec le dashboard institution (voir liens réels dans
-// app/institution/connexion/page.tsx et app/institution/[id]/dashboard/page.tsx),
-// outils de vérification publique destinés à être ouverts par n'importe qui
-// sur n'importe quel appareil (reçu de paiement).
+// Web professionnel (institution/admin/clock — le dashboard institution
+// lui-même a déménagé à la racine du site, /{slug}/{id}/{screen}, voir
+// DASHBOARD_INSTITUTION_REGEX plus bas), API, pages légales/support
+// partagées avec le dashboard institution, outils de vérification publique
+// destinés à être ouverts par n'importe qui sur n'importe quel appareil
+// (reçu de paiement).
 export const MOBILE_WALL_EXEMPT_PREFIXES = [
   '/admin',
+  // Admin Entry Security V2 (Lot 3, 30/08/2026) — /entree-admin est un
+  // chemin racine séparé (pas sous /admin), donc pas couvert par le préfixe
+  // '/admin' ci-dessus. Même trouvaille que celle documentée le même jour
+  // pour ADMIN_ENTRY_TOKEN (préfixe non reconnu par ce mur) — corrigée ici
+  // avant qu'elle ne se reproduise en production.
+  '/entree-admin',
   '/institution',
   '/clock',
   '/api',
@@ -53,7 +60,18 @@ export const MOBILE_WALL_EXEMPT_PREFIXES = [
   '/conditions-prestataires',
 ];
 
+// Dashboard institution (chantier "URLs dynamiques institution", 28/08/2026)
+// : /{slug}/{id}/{screen} vit désormais à la racine du site, hors de tout
+// préfixe fixe listé ci-dessus (le slug est propre à chaque institution,
+// impossible à lister à l'avance). Reconnu par sa forme structurelle —
+// exactement 3 segments, le 2e étant l'id institution (uuid) — plutôt que
+// par un appel base de données ici (edge/proxy, coût par requête). Aucune
+// route citoyenne existante n'a cette forme (toutes les routes dynamiques
+// citoyen sont à 2 segments : /rdv/[id], /offres/[id], /institution/[id]...).
+const DASHBOARD_INSTITUTION_REGEX = /^\/[a-z0-9-]+\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[a-z0-9-]+$/i;
+
 export function cheminExempteMurMobile(pathname: string): boolean {
   if (pathname.includes('opengraph-image')) return true;
+  if (DASHBOARD_INSTITUTION_REGEX.test(pathname)) return true;
   return MOBILE_WALL_EXEMPT_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }

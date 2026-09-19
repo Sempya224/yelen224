@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse, verifyRecentReauth, type AdminPermission } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,16 +8,16 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  return payload
+// Un seul endpoint sert 4 exports de sensibilité très différente — décision
+// CEO 08/08/2026 (audit sécurité admin) : scindé en permission par type
+// plutôt qu'un unique export.pii global, pour ne pas casser la page
+// Paiements (nav = super_admin+moderateur+admin) qui appelle ce endpoint
+// avec type=paiements.
+const PERMISSION_PAR_TYPE: Record<string, AdminPermission> = {
+  citoyens: 'export.citoyens',
+  institutions: 'export.institutions',
+  rdv: 'export.rdv',
+  paiements: 'export.paiements',
 }
 
 function toCSV(data: Record<string, unknown>[]): string {
@@ -38,14 +38,22 @@ function toCSV(data: Record<string, unknown>[]): string {
 
 export async function GET(request: NextRequest) {
   try {
-    const admin = await verifyToken(request)
-
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type')
 
     if (!type) {
       return NextResponse.json({ error: 'Type requis' }, { status: 400 })
     }
+    const permission: AdminPermission | undefined = PERMISSION_PAR_TYPE[type]
+    if (!permission) {
+      return NextResponse.json({ error: 'Type invalide' }, { status: 400 })
+    }
+
+    const admin = await authorizeAdmin(request, permission)
+    // Réauthentification récente obligatoire (Mission Hardening Admin,
+    // point 5, 30/08/2026) — "exporter des données sensibles" est
+    // explicitement listé dans le brief, quel que soit le type exporté.
+    await verifyRecentReauth(admin)
 
     let data: Record<string, unknown>[] = []
     let filename = ''
@@ -146,7 +154,7 @@ export async function GET(request: NextRequest) {
       },
     })
 
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }

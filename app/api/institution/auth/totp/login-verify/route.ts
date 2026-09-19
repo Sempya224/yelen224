@@ -6,6 +6,8 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { verifyInstitutionTotpChallengeToken } from "@/lib/auth/institutionSession";
 import { enregistrerAction } from "@/lib/journalActivite";
+import { extraireIpClient } from "@/lib/edgeSecurity";
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from "@/lib/institutionAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,25 +17,32 @@ const supabaseAdmin = createClient(
 
 const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!);
 
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>();
+// Verrouillage persisté sur institution_membres (migration
+// 20260805000016) — remplace le Map en mémoire. challenge.membreId
+// référence toujours une ligne institution_membres, y compris pour les
+// flux OTP téléphone/PIN de déverrouillage/WebAuthn (le compte_principal
+// créé automatiquement à l'inscription, migration 20260714000001) — ce
+// verrouillage couvre donc bien tous les appelants de cette route
+// partagée, pas seulement la connexion membre par identifiant+PIN.
+const MAX_ATTEMPTS = 5;
+const LOCK_MINUTES = 5;
 
-function lockedMsRemaining(membreId: string): number {
-  const entry = failedAttempts.get(membreId);
-  if (!entry) return 0;
-  const remaining = entry.lockedUntil - Date.now();
+async function lockedMsRemaining(membreId: string): Promise<number> {
+  const { data } = await supabaseAdmin.from("institution_membres").select("locked_until").eq("id", membreId).maybeSingle();
+  if (!data?.locked_until) return 0;
+  const remaining = new Date(data.locked_until).getTime() - Date.now();
   return remaining > 0 ? remaining : 0;
 }
 
-function registerFailure(membreId: string) {
-  const now = Date.now();
-  const entry = failedAttempts.get(membreId);
-  const count = entry && entry.lockedUntil === 0 ? entry.count + 1 : 1;
-  const lockedUntil = count >= 5 ? now + 5 * 60 * 1000 : 0;
-  failedAttempts.set(membreId, { count, lockedUntil });
+async function registerFailure(membreId: string) {
+  const { data } = await supabaseAdmin.from("institution_membres").select("failed_attempts").eq("id", membreId).maybeSingle();
+  const failedAttempts = (data?.failed_attempts ?? 0) + 1;
+  const lockedUntil = failedAttempts >= MAX_ATTEMPTS ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000).toISOString() : null;
+  await supabaseAdmin.from("institution_membres").update({ failed_attempts: failedAttempts, locked_until: lockedUntil }).eq("id", membreId);
 }
 
-function clearFailures(membreId: string) {
-  failedAttempts.delete(membreId);
+async function clearFailures(membreId: string) {
+  await supabaseAdmin.from("institution_membres").update({ failed_attempts: 0, locked_until: null, derniere_connexion: new Date().toISOString() }).eq("id", membreId);
 }
 
 // Finalise réellement une connexion institution après que le facteur
@@ -55,20 +64,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Session de vérification expirée. Reconnectez-vous.", code: "INVALID_CHALLENGE" }, { status: 401 });
     }
 
-    if (lockedMsRemaining(challenge.membreId) > 0) {
+    if ((await lockedMsRemaining(challenge.membreId)) > 0) {
       return NextResponse.json({ error: "Trop de tentatives. Réessayez dans quelques minutes.", code: "LOCKED" }, { status: 429 });
     }
 
     const [{ data: membre }, { data: institution }] = await Promise.all([
-      supabaseAdmin.from("institution_membres").select("totp_secret, totp_backup_codes").eq("id", challenge.membreId).maybeSingle(),
-      supabaseAdmin.from("institutions").select("id, name, phone").eq("id", challenge.institutionId).single(),
+      supabaseAdmin.from("institution_membres").select("totp_secret, totp_backup_codes, acces_restreints").eq("id", challenge.membreId).maybeSingle(),
+      supabaseAdmin.from("institutions").select("id, name, phone, statut").eq("id", challenge.institutionId).single(),
     ]);
 
     if (!membre?.totp_secret || !institution) {
       return NextResponse.json({ error: "Configuration 2FA introuvable.", code: "NOT_FOUND" }, { status: 404 });
     }
 
-    let codeValide = (await verifyTotp({ secret: membre.totp_secret, token: code.trim() })).valid;
+    // Institution suspendue — ne bloque plus ce point de finalisation
+    // (révisé le 17/08/2026). Sûr de laisser passer ici : membre/login
+    // bloque désormais AVANT même de minter un jeton de défi pour une
+    // institution suspendue (voir ce fichier), donc un challenge qui arrive
+    // ici pour une institution suspendue ne peut venir que des 3 flux
+    // compte_principal (OTP téléphone, WebAuthn, PIN de déverrouillage) —
+    // jamais d'un membre d'équipe classique. Le flag `suspended` voyage
+    // jusqu'à la réponse finale.
+    const suspended = institution.statut === "suspendue";
+
+    let codeValide = (await verifyTotp({ secret: membre.totp_secret, token: code.trim(), epochTolerance: 30 })).valid;
     if (!codeValide && Array.isArray(membre.totp_backup_codes)) {
       const codes: string[] = membre.totp_backup_codes;
       for (let i = 0; i < codes.length; i++) {
@@ -83,11 +102,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!codeValide) {
-      registerFailure(challenge.membreId);
+      await registerFailure(challenge.membreId);
       return NextResponse.json({ error: "Code invalide", code: "INVALID_CODE" }, { status: 401 });
     }
 
-    clearFailures(challenge.membreId);
+    await clearFailures(challenge.membreId);
 
     if (challenge.membreNom) {
       await enregistrerAction({
@@ -101,27 +120,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const token = await new SignJWT({ institutionId: institution.id, membreId: challenge.membreId, role: challenge.role })
+    // institution_sessions (dette technique comblée 30/08/2026, mirroring
+    // admin_sessions) — voir lib/institutionAuth.ts::creerSessionInstitution.
+    const sid = await creerSessionInstitution(supabaseAdmin, {
+      institutionId: institution.id, membreId: challenge.membreId, phone: institution.phone,
+      userAgent: request.headers.get("user-agent"), ip: extraireIpClient(request),
+    });
+    if (!sid) {
+      return NextResponse.json({ error: "Erreur serveur", code: "SERVER_ERROR" }, { status: 500 });
+    }
+
+    const token = await new SignJWT({ institutionId: institution.id, membreId: challenge.membreId, role: challenge.role, sid, accesRestreints: membre.acces_restreints ?? null })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(institution.id)
       .setIssuedAt()
-      .setExpirationTime("8h")
+      .setExpirationTime(INSTITUTION_SESSION_TTL_JWT)
       .setIssuer("yelen224-institution")
       .setAudience("yelen224-institution-dashboard")
       .sign(JWT_SECRET);
-
-    await supabaseAdmin.from("institution_sessions").insert({
-      institution_id: institution.id,
-      phone: institution.phone,
-      user_agent: request.headers.get("user-agent"),
-      is_active: true,
-    });
 
     const response = NextResponse.json({
       success: true,
       institution: { id: institution.id, name: institution.name },
       membreId: challenge.membreId,
       role: challenge.role,
+      suspended,
     });
 
     response.cookies.set("yelen224_institution_session", token, {

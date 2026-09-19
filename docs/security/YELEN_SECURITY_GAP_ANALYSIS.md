@@ -32,19 +32,42 @@ de ce premier lot.
 
 | ID | Constat | Priorité | Statut |
 |---|---|---|---|
-| GAP-06-01 | 7 tables sans aucune trace d'activation RLS dans les migrations (`institutions`, `users`, `rdv`, `avis`, `messages`, `notifications`, `admin_users`) | **High** | 🟡 NEEDS REVIEW — **NOT VERIFIED, requiert Bryan (SQL Editor)** |
+| GAP-06-01 | 7 tables sans aucune trace d'activation RLS dans les migrations (`institutions`, `users`, `rdv`, `avis`, `messages`, `notifications`, `admin_users`) | **High** | 🟢 VERIFIED — RLS actif confirmé par Bryan (SQL Editor) 14/08/2026, voir clôture finale en fin de document |
 | GAP-04-01 | OTP institution `DEV_OTP='123456'` en dur, sans garde `NODE_ENV`, dans le code de production | **High** | 🟢 VERIFIED — corrigé Lot 1.1, voir journal de remédiation |
-| GAP-06-02 | `institution_otp` a eu des policies `anon` sans restriction (lecture/insertion/suppression libres du code OTP) entre le 09/07 et le 08/08/2026 — corrigé en migration, application en prod non confirmée | **High** | 🟡 NEEDS REVIEW — **NOT VERIFIED, requiert Bryan (SQL Editor)** |
+| GAP-06-02 | `institution_otp` a eu des policies `anon` sans restriction (lecture/insertion/suppression libres du code OTP) entre le 09/07 et le 08/08/2026 — corrigé en migration, application en prod non confirmée | **High** | 🟢 VERIFIED — 0 policy + RLS actif confirmé par Bryan 14/08/2026 (deny-by-default, service_role uniquement), voir clôture finale |
 | GAP-16-01 | Aucun header Content-Security-Policy configuré nulle part (middleware ni netlify.toml) | **Medium-High** | 🟠 IN PROGRESS — CSP Report-Only déployée Lot 1.1, pas encore en mode bloquant |
 | GAP-14-01 | 8 vulnérabilités npm en production (2 moderate, 6 high), dont `next` lui-même | **Medium-High** | 🟠 IN PROGRESS — 5/10 corrigées Lot 1.1 (`ws`/`js-yaml`), reste 5 : analyse détaillée faite 13/08 (`--force` volontairement non exécuté), chantier dédié testable à planifier |
-| GAP-06-03 | Doublon de migration au même horodatage (`20260711000002`, deux fichiers créant `institution_responsables`) | **Medium** | 🟡 NEEDS REVIEW — clarifié Lot 1.1, action de confirmation requise |
-| GAP-06-04 | Fonction `SECURITY DEFINER` `appliquer_recuperations_dues()` sans paramètre, privilèges `EXECUTE` réels non confirmés | **Medium** | 🟡 NEEDS REVIEW — **NOT VERIFIED, requiert Bryan (SQL Editor)** |
-| GAP-10-01 | Rate limiting basé sur des `Map` en mémoire locale à l'instance serverless — efficacité réelle sur Netlify Functions non garantie | **Medium** | ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** (13/08, DEC-2026-08-13-02), 5 conditions de levée définies |
+| GAP-06-03 | Doublon de migration au même horodatage (`20260711000002`, deux fichiers créant `institution_responsables`) | **Medium** | 🟢 VERIFIED — `institutions.langue` confirmée `jsonb` par Bryan 14/08/2026, `institution_responsable_et_fix_langue.sql` est la migration réellement exécutée, l'autre fichier est un brouillon obsolète |
+| GAP-06-04 | Fonction `SECURITY DEFINER` `appliquer_recuperations_dues()` sans paramètre, privilèges `EXECUTE` réels non confirmés | **Medium** | 🟢 VERIFIED & CORRIGÉ — `anon` avait bien `EXECUTE` (confirmé `true` 14/08/2026), `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated` exécuté par Bryan, revérifié `false` |
+| GAP-10-01 | Rate limiting basé sur des `Map` en mémoire locale à l'instance serverless — efficacité réelle sur Netlify Functions non garantie | **Medium** | 🟠 IN PROGRESS — solution `authSecurity.ts` complète pour les 5 flux + 2 bugs réels trouvés et corrigés en la testant (03/09 : succès comptés comme échecs ; 12/09 : contournement du compteur via `trouve`/`code_envoye`), 13 tests vitest verts, `tsc` exit 0. **Toujours non commité, non déployé** — voir section "MISE À JOUR — 12/09/2026" en fin de document |
 | GAP-04-02 | OTP citoyen/institution : code unique partagé (`*_OTP_FALLBACK`) tant qu'aucun fournisseur SMS n'est branché, aucun garde `NODE_ENV` | **Medium** | ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** (13/08, DEC-2026-08-13-04), décision explicite de Bryan de ne pas bloquer |
 | GAP-04-03 | 2FA admin optionnelle par compte, non imposée globalement | **Medium** | ✅ **Chantier MFA Admin clôturé** (validation CEO 13/08) — gate implémenté (`middleware.ts` + `login/route.ts`), `tsc`/`build` propres. Amélioration future notée (régénération de session après activation 2FA), hors périmètre. |
 | GAP-14-02 | Aucun CI/CD (`.github/workflows/` absent) — zéro test/scan automatisé | **Medium** | 🟠 IN PROGRESS — workflow minimal préparé Lot 1.1, activation de la protection de branche restant à Bryan |
 | GAP-14-03 | Branch protection / revue de PR GitHub — état réel non vérifiable en local | **Low-Medium** | 🟡 NEEDS REVIEW |
-| GAP-08-01 | Vérification d'auth citoyen dupliquée localement par route (pas de fonction centrale unique, contrairement à institution/admin/employé) | **Low** | 🟡 NEEDS REVIEW |
+| GAP-08-01 | Vérification d'auth citoyen dupliquée localement par route (pas de fonction centrale unique, contrairement à institution/admin/employé) | **Low** | 🟢 CORRIGÉ 31/08/2026 — centralisé dans `lib/citoyenAuth.ts` (`verifierCitoyenToken`), les 44 routes concernées basculées, zéro changement de comportement externe. `tsc --noEmit` exit 0. **Non commité, non retesté en conditions réelles** — voir section "LOT 4 (suite)" |
+| GAP-06-06 | `documents_institution.examine_par` — fichier de migration périmé (référence `admins` au lieu de `admin_users`), base réelle correcte (trouvé pendant l'audit Trust Model, 16/08/2026) | Low (doc seulement) | 🟢 VERIFIED 16/08/2026 — base saine, ne bloque plus le Lot 2, correction cosmétique du fichier source recommandée |
+| GAP-06-07 | `admin_logs` n'a aucun trigger d'immuabilité, contrairement à `journal_activite`/`signalement_events` — modifiable/supprimable sans trace même par `service_role` (trouvé pendant l'audit Trust Model, 16/08/2026) | **Medium** | 🟢 VERIFIED & CORRIGÉ 30/08/2026 — trigger `admin_logs_immuable` livré (Mission 2 Hardening Admin, point 8), migration `20260830000003` confirmée exécutée en base par Bryan (DEC-2026-08-30-11). Statut mis à jour ici le 31/08, resté à tort 🟡 dans ce tableau depuis le 16/08. |
+| GAP-06-08 | 9 tables testées (dont `admin_logs`, `documents_institution`, `signalements`) ont toutes des grants complets `anon`+`authenticated` — pattern systémique, pas limité aux 14 tables d'origine (trouvé pendant la clôture Lot 1, 16/08/2026) | **Medium** | 🟢 VERIFIED 16/08/2026 — neutralisé par RLS actif sur les 9, aucune exploitation réelle aujourd'hui |
+| GAP-11-01 | 3 buckets Storage contenant des données sensibles (`recus-paiement`, `documents-travail`, `messagerie-images`) jamais mentionnés dans la checklist manuelle de création/vérification de buckets — statut Public/Privé réel jamais confirmé, contrairement aux 4 autres buckets privés déjà sur la checklist (trouvé pendant l'audit Lot 4, 31/08/2026) | **Medium-High** | 🟢 VERIFIED 15/09/2026 — `SELECT id,name,public FROM storage.buckets` exécuté par Bryan : les 7 buckets (4 déjà connus + les 3 ci-dessus) existent tous et sont tous `public=false`. Aucune action requise |
+| GAP-06-09 | `InstitutionPublicClient.tsx` faisait `select("*")` sur `institutions` avec le client **anon** — la policy RLS `institutions_public_read` (lecture publique) filtre par ligne, jamais par colonne, donc `mot_de_passe_hash` (identifiants de connexion institution) était renvoyé dans la réponse JSON de **chaque fiche publique**, pour **chaque institution validée**, sans authentification (trouvé pendant l'audit Phase 0 "Booking externe", 01/09/2026) | **Critical** | 🟢 CORRIGÉ 01/09/2026 — `select()` explicite (colonnes réellement consommées, vérifiées une par une), `mot_de_passe_hash` exclu. `tsc` exit 0. **Non commité, non testé en navigateur réel** |
+| GAP-04-05 | `QR_SECRET_KEY \|\| "yelen224-secret"` — secret de repli codé en dur signant les tokens QR de présence ; si la variable manque sur un environnement, la clé HMAC est publique (trouvé pendant la revue critique express, 01/09/2026) | **High** | 🟢 CORRIGÉ 01/09/2026 — repli supprimé, échec explicite (500) si `QR_SECRET_KEY` absente. `tsc` exit 0. **Non commité.** Reste `NOT VERIFIED` : que la variable soit bien définie sur tous les environnements Netlify actifs |
+| GAP-08-02 | Aucune validation serveur (institution existe/validée, créneau cohérent, capacité non dépassée) à la création d'un RDV (`createRdv`) — RLS n'exige que `auth.uid()=citoyen_id`, tout le reste n'est qu'un filtre UI (trouvé initialement pendant l'audit Phase 0 Booking externe, reporté ici comme gap de sécurité applicative à part entière, 01/09/2026) | **Medium-High** | 🟢 CORRIGÉ 01/09/2026 — `validerCreneauServeur()` ajoutée dans `createRdv` (institution validée + créneau cohérent avec `disponibilites` + capacité non dépassée). `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-05-01 | `app/api/qr/validate/route.ts` (POST+PUT) ne vérifiait aucune autorisation métier — seule l'authentification (`getAuthenticatedMembre`) était contrôlée, la seule barrière contre un rôle non habilité (comptable/superviseur/dirigeant) était le masquage de l'onglet "Scanner" côté client (trouvé pendant la conception du chantier "YELEN Accueil", 13/09/2026) | **High** | 🟢 CORRIGÉ 13/09/2026 — `can(role, "appointment.check_in")` (nouvelle clé RBAC, `admin`+`agent` uniquement, identique à `TAB_MATRIX.scanner`) vérifié en tête des deux handlers. 10 tests vitest, `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-07-01 | `app/api/qr/validate/route.ts` (POST) chargeait le RDV par `id` seul, sans filtre `institution_id` — le seul contrôle de tenant était le champ `i` du payload JSON, fourni par le client et falsifiable avant envoi ; un membre pouvait ainsi obtenir nom/téléphone/heure d'un RDV d'une autre institution en réutilisant un `rdv_id`/`qr_token` réels avec un `i` mensonger (trouvé même session, 13/09/2026 — le PUT de la même route avait déjà ce filtre depuis l'origine) | **High** | 🟢 CORRIGÉ 13/09/2026 — `.eq("institution_id", membre.institutionId)` ajouté à la requête POST, même filtre que le PUT. Test dédié (scénario 4) vérifie l'absence de fuite. `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-06-10 | `app/api/institution/services/route.ts` (GET) faisait `select("*")` sur `paid_services`/`paid_bookings` (spread complet dans la réponse JSON) — toute colonne financière future aurait atteint silencieusement le dashboard institution sans décision explicite (trouvé pendant l'audit `select("*")`+IDOR/BOLA demandé par Bryan, 14/09/2026) | **Medium** | 🟢 CORRIGÉ 14/09/2026 — colonnes énumérées explicitement (22 pour `paid_services`, 16 pour `paid_bookings`, liste tirée de l'historique complet des migrations, aucune colonne actuelle retirée). `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-08-03 | `lib/notifications.ts::fetchNotifications()` — code mort (zéro appelant dans tout le projet), `select("*")` filtré par un `destinataireId` reçu en paramètre, nom trompeur laissant croire à un contrôle applicatif (trouvé même audit, 14/09/2026) | Informationnel — **pas un vrai BOLA** (RLS `notif_destinataire_own` bloque déjà toute lecture croisée quel que soit le paramètre, client anon utilisé) | 🟢 CORRIGÉ 14/09/2026 — fonction supprimée entièrement (code confirmé inutilisé). `tsc` exit 0. **Non commité** |
+| GAP-11-02 | URLs signées `messagerie-images` à 3600s (TTL) contre 60s partout ailleurs (documents/reçus/signalements) — écart repéré comme incohérence de politique (même audit, 14/09/2026) | Low — **exception acceptée**, pas un bug | ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** : `MessagerieTab.tsx` signe chaque image une seule fois et la garde en state sans re-signature ; réduire à 60s casserait l'affichage dans toute conversation ouverte >1min. Amélioration future notée (re-signature périodique), non engagée. Aucune modification de code. **Date** : 14/09/2026 |
+| GAP-05-02 | `search.read` (admin) accordée à `moderateur`/`support` — expose nom/prénom/téléphone de n'importe quel citoyen via la recherche globale, alors que `citoyens.read` (fiche complète) est volontairement restreinte à `super_admin`+`admin`, seule permission liée aux citoyens sans séparation de rôle justifiée dans `lib/adminAuth.ts` (trouvé même audit, 14/09/2026) | **Medium** | 🟢 CORRIGÉ 14/09/2026 — restreinte à `["super_admin", "admin"]`, même périmètre que `citoyens.read`. Vérifié que le seul appelant (`app/admin/page.tsx:88-95`) échoue déjà silencieusement sur `!res.ok`, zéro régression visible. `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-05-03 | `app/api/admin/annonces/[id]/route.ts` (PATCH) faisait `.update(body)` brut sans liste blanche — même classe de bug que le mass-assignment déjà corrigé le 19/07/2026 sur `admin_users`, manquée ici ; `annonces.moderate` accordée au rôle `support` (trouvé même audit, 14/09/2026) | **Medium** | 🟢 CORRIGÉ 14/09/2026 — liste blanche `titre/contenu/type/statut/date_expiration/epingle` (usage réel confirmé dans `app/admin/annonces/page.tsx`), `admin_logs.details` loggue désormais la version filtrée. `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-09-01 | `lib/recuPdf.ts::chargerImageDistante()` fait un `fetch()` serveur brut sur `institutions.logo`/`users.photo_url`, aucun des deux jamais validé comme URL à l'écriture (contrairement à `website`, seul champ protégé depuis le chantier P0 Stored XSS du 17/08/2026) — SSRF possible via un citoyen/institution authentifié déclenchant la génération d'un reçu PDF (trouvé même audit, 14/09/2026) | **High** | 🟢 CORRIGÉ 14/09/2026 — restreint au préfixe Storage public du projet (`${NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/`), seule origine produite par l'upload applicatif réel. `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-04-06 | `lib/auth/otp.ts::genererCode6Chiffres()` utilisait `Math.random()` (non cryptographique) pour l'OTP citoyen, alors que le flux institution équivalent utilise déjà `crypto.randomInt()` depuis le 13/08/2026 — incohérence, chemin de code aujourd'hui dormant (`SMS_PROVIDER` pas encore configuré) mais destiné à s'activer (trouvé même audit, 14/09/2026) | **Medium** (dormant aujourd'hui, deviendrait actif dès le branchement SMS) | 🟢 CORRIGÉ 14/09/2026 — `crypto.randomInt(100000, 1000000)`, même fonction/bornes que le générateur institution. `tsc` exit 0. **Non commité** |
+| GAP-08-04 | Condition de course (TOCTOU) sur la capacité des créneaux RDV — `validerCreneauServeur()` comptait puis `createRdv()` insérait séparément, sans verrou reliant les deux ; aucun trigger/contrainte DB sur `capacite_par_creneau` (trouvé en revue critique élargie, 15/09/2026) | **Medium-High** (surréservation silencieuse, plausible organiquement sous charge normale) | 🟢 VERIFIED 15/09/2026 — `reserver_creneau_rdv()` (comptage+insertion atomiques sous verrou consultatif), `actions.ts` basculé sur `supabase.rpc(...)`. Bug de cast `date`/`time` trouvé en testant et corrigé (migration `000002`). **Testé en conditions réelles, fonctionnel** |
+| GAP-09-02 | Flux de réservation PAYANT — insert direct navigateur dans `paid_bookings`+`rdv`, **aucune validation serveur du tout** (institution/créneau/capacité), pas même racy ; `confirmation_code`/`qr_token` généré et contrôlé côté client (trouvé en continuant l'audit de GAP-08-04, 15/09/2026) | **High** (plus grave que GAP-08-04 — absence totale de contrôle, pas juste une fenêtre de course) | 🟢 VERIFIED 15/09/2026 — `reserver_creneau_rdv_payant()` (même migration que GAP-08-04, + vérification appartenance/activité du service), nouveau Server Action `creerReservationPayante()`. Bonus : `createRdv()` génère aussi désormais son code côté serveur (`crypto.randomInt`). **Testé en conditions réelles, fonctionnel** |
+| GAP-09-03 | `avis` — insert client-direct (`app/mes-rdv/page.tsx:612`), `rdv_id`/`institution_id` non revérifiés côté serveur ; policy `avis_citoyen_own` confirmée `FOR ALL` sans `WITH CHECK` séparé (même piège que `notifications` déjà documenté) — seule vérification réelle : `citoyen_id=auth.uid()`, déjà signalé `[NV]` par `YELEN_TRUST_DATA_AUDIT.md` le 16/08/2026, jamais refermé depuis (trouvé en cherchant d'autres tables au même pattern que GAP-09-02, confirmé par Bryan 15/09/2026) | **Medium-High** (intégrité de la note publique d'institution, `moyenne_avis`/`nb_avis` recalculées par trigger) | 🟢 CORRIGÉ 15/09/2026 — `soumettreAvis()` (`app/mes-rdv/actions.ts`) revérifie appartenance+statut terminé, dérive `institution_id` du rdv réel, empêche les doublons. **Aucune migration requise**, déployable indépendamment de GAP-08-04/GAP-09-02. `tsc` exit 0. Non testé en conditions réelles |
+| GAP-05-04 | Audit "accès direct par URL" (rôles institution) — 3 routes `/api/institution/**` sans aucun `can()`/`canAccessTab()` malgré un `TAB_MATRIX` restrictif : `messages/route.ts` (GET, `messagerie:"none"` pour comptable/dirigeant — lisait l'intégralité des conversations citoyen-institution), `security-status/route.ts` (GET, `parametres-securite` admin-only — exposait recovery email/phone, IP réelles + user-agents des appareils "remember me", labels de passkeys à tout membre authentifié), `qr-provenance/route.ts` (GET, exposition triviale d'un compteur agrégé seulement) (trouvé par sous-agent fork dédié, vérifié manuellement fichier par fichier avant correction, 16/09/2026) | **High** (messages/security-status), Low (qr-provenance) | 🟢 CORRIGÉ 16/09/2026 — `canAccessTab(membre.role, ...)` ajouté en tête des 3 handlers ; `MessagerieTab.tsx`/`SecuriteCompteTab.tsx` gagnent aussi un état `forbidden` côté client (écran "réservé" au lieu d'un vide silencieux sur 403). `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-05-05 | Audit "accès direct par URL" — **incomplet**, budget du fork épuisé avant de couvrir tous les onglets institution. Restent non vérifiés : `disponibilites`, `services`, `analyse/*`, `signalements/*`, `documents-citoyen/*`, `clock-in/*`, `transactions`, `rapports/*`, `offres/*`, `partenariat`, `documents-financiers`, `documents-travail` — même classe de bug potentielle que GAP-05-04 (route API sans `can()`/`canAccessTab()` alors que `TAB_MATRIX` restreint l'onglet correspondant pour certains rôles) (16/09/2026) | **Unknown** — présumé faible (les routes déjà vérifiées cette session et les sessions précédentes suivent majoritairement le bon pattern), mais non confirmé | 🔴 NOT STARTED — deuxième passage à planifier sur la liste ci-dessus avant de considérer l'audit RBAC institution comme clos |
+| GAP-05-06 | Régression introduite par le correctif GAP-05-04 lui-même : `security-status/route.ts` a été bloqué en bloc derrière `canAccessTab(role, "parametres-securite")`, cassant `TotpSection.tsx` (self-scope, utilisé par les 5 rôles depuis `ProfilTab.tsx` pour gérer LEUR PROPRE 2FA) pour les 4 rôles non-admin — trouvé en relisant le fichier avant de le réutiliser dans Yelen Security Activation (16/09/2026) | **High** (régression fonctionnelle immédiate pour 4 rôles sur 5, introduite le jour même) | 🟢 CORRIGÉ 16/09/2026 — split explicite : `totp_enabled`/`totp_backup_codes_remaining` du membre appelant toujours renvoyés quel que soit le rôle ; `recovery_email`/`recovery_phone`/`webauthn_credentials` institution-wide/`remember_devices` (IP réelles) restent admin-only. `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-08-05 | **Yelen Security Activation** (nouvelle fonctionnalité, pas une faille) — MFA (TOTP ou Passkey) obligatoire 24h après la première connexion d'un membre (`institution_membres.relation_confirmee_le` comme ancre, aucune nouvelle colonne), sous peine de blocage du dashboard. Décision explicite (échange 16/09/2026) : uniquement un point de contrôle serveur (`GET /api/institution/auth/security-activation-status`) + un blocage côté client (`SecurityActivationGate`) dans `layout.tsx` — **pas** une garde appliquée sur les ~90 routes `/api/institution/**`. L'utilisateur ayant lui-même cité le principe OWASP "ne pas reposer les contrôles de sécurité uniquement sur le frontend", ce choix de périmètre doit rester une décision assumée, pas un oubli | **Medium** (aujourd'hui contournable en appelant les routes API directement après échéance dépassée, sans passer par le dashboard) | ⚫ EXCEPTION APPROVED (périmètre initial) — 🔴 NOT STARTED pour l'application serveur généralisée. Prochaine étape si prioritaire : gate explicite dans les routes de données les plus sensibles (rdv, mes-clients, paiements, equipe), ou centralisation dans un point d'entrée partagé |
 
 **Aucune vulnérabilité "Critical" confirmée dans ce Lot 1.** Aucun secret
 trouvé dans Git (historique inclus). Zéro IDOR confirmé sur l'échantillon
@@ -72,7 +95,22 @@ SQL Editor Supabase quand disponible :
 SELECT relname, relrowsecurity
 FROM pg_class
 WHERE relname IN ('institutions','users','rdv','avis','messages','notifications','admin_users');
-```
+```  
+
+  executer le 8/28/2026 par  bryan  resulat   :   relname,relrowsecurity
+users,true
+users,true
+notifications,true
+messages,true
+avis,true
+admin_users,true
+messages,true
+rdv,true
+institutions,true :
+
+
+
+
 Résultat attendu : `relrowsecurity = true` pour les 7 lignes. Si une seule
 ligne renvoie `false`, cette table est actuellement lisible/modifiable
 sans aucune restriction RLS par tout rôle ayant les GRANT correspondants
@@ -143,12 +181,7 @@ SELECT policyname, roles, cmd, qual, with_check
 FROM pg_policies
 WHERE tablename = 'institution_otp';
 ```
-Résultat attendu : **zéro ligne** avec `anon` dans `roles` (les policies
-`otp_read_anon`/`otp_insert_anon`/`otp_delete_anon` doivent avoir été
-supprimées par la migration `20260808000002_audit_rls_fixes.sql`). Si une
-ou plusieurs lignes avec `anon` apparaissent encore, cette migration n'a
-jamais été appliquée à la base de production et le trou décrit dans
-GAP-06-02 est toujours ouvert.
+Résultat :Success. No rows returned
 
 ### 4. Classification et traitement des 8 vulnérabilités npm (GAP-14-01)
 
@@ -297,6 +330,9 @@ même session), ce qui corrobore cette hypothèse.
 ```sql
 SELECT data_type FROM information_schema.columns
 WHERE table_name='institutions' AND column_name='langue';
+
+resultat  :    data_type
+jsonb             ,  executer par bryan  le 8/28/2026
 ```
 Si `jsonb` → `_et_fix_langue.sql` a bien été exécutée (hypothèse
 confirmée). Si `integer` ou colonne absente → aucune des deux migrations
@@ -629,11 +665,14 @@ explicite de ce Lot 1.1 par Bryan.**
 
 | ID | Current State | Required Standard | Gap | Risk | Priority | Recommendation | Evidence | Status |
 |---|---|---|---|---|---|---|---|---|
-| GAP-06-01 | 77 tables créées par migration ont toutes une trace `ENABLE ROW LEVEL SECURITY`. 7 tables préexistantes aux migrations (`institutions`, `users`, `rdv`, `avis`, `messages`, `notifications`, `admin_users`) n'ont **aucune** trace de `ENABLE ROW LEVEL SECURITY` dans les migrations | Toute table exposée doit avoir RLS actif, vérifié et tracé | Pour ces 7 tables, l'état réel en base est invérifiable depuis le code seul | Si l'une de ces tables n'a en réalité PAS RLS actif, elle est potentiellement lisible/modifiable en clair par le rôle `anon`/`authenticated` selon les GRANT réels (voir GAP-06-05) | **High** | `SELECT relrowsecurity FROM pg_class WHERE relname IN ('institutions','users','rdv','avis','messages','notifications','admin_users');` — à exécuter par Bryan | Rapport agent RLS, recoupement exhaustif CREATE TABLE ↔ ENABLE RLS sur 133 fichiers | 🟡 NEEDS REVIEW — **UNKNOWN réel, action requise de Bryan** |
-| GAP-06-02 | `institution_otp` a eu 3 policies `TO anon` sans restriction réelle (`otp_read_anon`: lecture illimitée du code+téléphone ; `otp_insert_anon`: `WITH CHECK(true)` ; `otp_delete_anon`: `USING(true)`) créées le 09/07/2026, `DROP`-ées par `20260808000002_audit_rls_fixes.sql` le 08/08/2026 | Aucune policy `anon` ne doit exposer un secret d'authentification sans restriction | Correction présente dans les migrations mais application réelle en base de prod non confirmée | Si le `DROP POLICY` n'a pas été appliqué en prod, n'importe qui (clé `anon` publique) peut lire/manipuler les codes OTP institution de connexion | **High** | `SELECT * FROM pg_policies WHERE tablename='institution_otp';` — confirmer 0 ligne avec `anon` dans `roles` | `supabase/migrations/20260709000013_policies_otp_paid_services.sql`, `20260808000002_audit_rls_fixes.sql` | 🟡 NEEDS REVIEW |
-| GAP-06-03 | Deux fichiers de migration portent le même horodatage `20260711000002` (`institution_responsable.sql` et `institution_responsable_et_fix_langue.sql`), chacun avec un `CREATE TABLE institution_responsables` identique | Historique de migrations cohérent, rejouable, sans ambiguïté | Un des deux fichiers n'a normalement pas pu s'exécuter tel quel (table déjà existante) sauf intervention manuelle | Signal de désordre dans l'historique — risque que l'état réel de la table diverge de ce qu'un rejeu des migrations produirait | Medium | Clarifier avec Bryan quel fichier a réellement été exécuté, corriger/documenter l'autre comme obsolète | Rapport agent RLS | 🟡 NEEDS REVIEW |
-| GAP-06-04 | `appliquer_recuperations_dues()` (`SECURITY DEFINER`, sans paramètre, appelée par `pg_cron` toutes les 15 min) — aucun `REVOKE EXECUTE FROM PUBLIC` trouvé dans les migrations | Une fonction `SECURITY DEFINER` appelable sans contexte trigger doit soit vérifier l'autorisation en interne, soit avoir ses privilèges `EXECUTE` restreints | Pas de vérification d'appelant interne, privilèges `EXECUTE` réels non confirmés | Si exposée en RPC PostgREST à `anon`/`authenticated`, un appel manuel forcerait l'application immédiate de récupérations de compte déjà approuvées par un admin, contournant le délai de sécurité de 48h (mais sans pouvoir créer de fausse approbation ni cibler un compte précis) | Medium | `SELECT has_function_privilege('anon', 'appliquer_recuperations_dues()', 'execute');` — si `true`, ajouter `REVOKE EXECUTE FROM PUBLIC` | `supabase/migrations/20260725000006_citoyen_recuperation_compte.sql`, `20260725000007_recuperation_type_totp.sql` | 🟡 NEEDS REVIEW |
-| GAP-06-05 | "Grants historiques dangereux" (anon+authenticated tous privilèges sur les 14 tables d'origine) documentés dans CLAUDE.md — zéro `GRANT`/`REVOKE` trouvé dans les 133 fichiers de migration (cohérent : ces grants prédateraient les migrations s'ils existent) | Grants minimaux, jamais de privilèges larges à `anon`/`authenticated` sur des tables sensibles | État réel des grants en base non vérifiable depuis les migrations | Si ces grants larges existent toujours, ils court-circuitent RLS pour certaines opérations selon la configuration | High (si confirmé) | `SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants WHERE grantee IN ('anon','authenticated') AND table_schema='public';` | Rapport agent RLS, CLAUDE.md /securite | 🟡 NEEDS REVIEW |
+| GAP-06-01 | 77 tables créées par migration ont toutes une trace `ENABLE ROW LEVEL SECURITY`. 7 tables préexistantes aux migrations (`institutions`, `users`, `rdv`, `avis`, `messages`, `notifications`, `admin_users`) n'ont **aucune** trace de `ENABLE ROW LEVEL SECURITY` dans les migrations | Toute table exposée doit avoir RLS actif, vérifié et tracé | Pour ces 7 tables, l'état réel en base est invérifiable depuis le code seul | Si l'une de ces tables n'a en réalité PAS RLS actif, elle est potentiellement lisible/modifiable en clair par le rôle `anon`/`authenticated` selon les GRANT réels (voir GAP-06-05) | **High** | `SELECT relrowsecurity FROM pg_class WHERE relname IN ('institutions','users','rdv','avis','messages','notifications','admin_users');` — à exécuter par Bryan | Rapport agent RLS, recoupement exhaustif CREATE TABLE ↔ ENABLE RLS sur 133 fichiers | 🟢 VERIFIED 14/08/2026 — `relrowsecurity=true` confirmé sur les 7 tables (requête exécutée par Bryan) |
+| GAP-06-02 | `institution_otp` a eu 3 policies `TO anon` sans restriction réelle (`otp_read_anon`: lecture illimitée du code+téléphone ; `otp_insert_anon`: `WITH CHECK(true)` ; `otp_delete_anon`: `USING(true)`) créées le 09/07/2026, `DROP`-ées par `20260808000002_audit_rls_fixes.sql` le 08/08/2026 | Aucune policy `anon` ne doit exposer un secret d'authentification sans restriction | Correction présente dans les migrations mais application réelle en base de prod non confirmée | Si le `DROP POLICY` n'a pas été appliqué en prod, n'importe qui (clé `anon` publique) peut lire/manipuler les codes OTP institution de connexion | **High** | `SELECT * FROM pg_policies WHERE tablename='institution_otp';` — confirmer 0 ligne avec `anon` dans `roles` | `supabase/migrations/20260709000013_policies_otp_paid_services.sql`, `20260808000002_audit_rls_fixes.sql` | 🟢 VERIFIED 14/08/2026 — 0 ligne renvoyée (0 policy au total, pas seulement 0 `anon`) + `relrowsecurity=true` sur `institution_otp` confirmé séparément → deny-by-default, service_role uniquement, conforme au pattern documenté CLAUDE.md |
+| GAP-06-03 | Deux fichiers de migration portent le même horodatage `20260711000002` (`institution_responsable.sql` et `institution_responsable_et_fix_langue.sql`), chacun avec un `CREATE TABLE institution_responsables` identique | Historique de migrations cohérent, rejouable, sans ambiguïté | Un des deux fichiers n'a normalement pas pu s'exécuter tel quel (table déjà existante) sauf intervention manuelle | Signal de désordre dans l'historique — risque que l'état réel de la table diverge de ce qu'un rejeu des migrations produirait | Medium | Clarifier avec Bryan quel fichier a réellement été exécuté, corriger/documenter l'autre comme obsolète | Rapport agent RLS | 🟢 VERIFIED 14/08/2026 — `institutions.langue` est `jsonb` (confirmé par Bryan), donc `institution_responsable_et_fix_langue.sql` est la migration réellement exécutée ; `institution_responsable.sql` (sans suffixe) est un brouillon jamais appliqué, à documenter comme obsolète |
+| GAP-06-04 | `appliquer_recuperations_dues()` (`SECURITY DEFINER`, sans paramètre, appelée par `pg_cron` toutes les 15 min) — aucun `REVOKE EXECUTE FROM PUBLIC` trouvé dans les migrations | Une fonction `SECURITY DEFINER` appelable sans contexte trigger doit soit vérifier l'autorisation en interne, soit avoir ses privilèges `EXECUTE` restreints | Pas de vérification d'appelant interne, privilèges `EXECUTE` réels non confirmés | Si exposée en RPC PostgREST à `anon`/`authenticated`, un appel manuel forcerait l'application immédiate de récupérations de compte déjà approuvées par un admin, contournant le délai de sécurité de 48h (mais sans pouvoir créer de fausse approbation ni cibler un compte précis) | Medium | `SELECT has_function_privilege('anon', 'appliquer_recuperations_dues()', 'execute');` — si `true`, ajouter `REVOKE EXECUTE FROM PUBLIC` | `supabase/migrations/20260725000006_citoyen_recuperation_compte.sql`, `20260725000007_recuperation_type_totp.sql` | 🟢 VERIFIED & CORRIGÉ 14/08/2026 — `anon` avait bien `EXECUTE` (`true` confirmé), `REVOKE EXECUTE ON FUNCTION appliquer_recuperations_dues() FROM PUBLIC, anon, authenticated` exécuté par Bryan, revérifié `false` |
+| GAP-06-05 | "Grants historiques dangereux" (anon+authenticated tous privilèges sur les 14 tables d'origine) documentés dans CLAUDE.md — zéro `GRANT`/`REVOKE` trouvé dans les 133 fichiers de migration (cohérent : ces grants prédateraient les migrations s'ils existent) | Grants minimaux, jamais de privilèges larges à `anon`/`authenticated` sur des tables sensibles | État réel des grants en base non vérifiable depuis les migrations | Si ces grants larges existent toujours, ils court-circuitent RLS pour certaines opérations selon la configuration | High (si confirmé) | `SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants WHERE grantee IN ('anon','authenticated') AND table_schema='public';` | Rapport agent RLS, CLAUDE.md /securite | 🟢 VERIFIED 14/08/2026 — grants larges confirmés bien présents sur plusieurs tables non listées en GAP-06-01 d'origine (`institution_otp`, `institution_sessions`, `transactions_financieres`, `institution_partenariat_demandes`, `offres`), mais `relrowsecurity=true` confirmé sur les 5 → RLS fait écran, pas de contournement réel malgré les GRANT larges |
+| GAP-06-06 | Trouvé pendant l'audit "Trust Model" (16/08/2026) — `documents_institution.examine_par uuid REFERENCES admins(id)` **tel qu'écrit dans le fichier de migration** `20260711000005` référence `admins`, renommée `admin_users` par une migration antérieure — hypothèse initiale d'échec atomique de l'`ALTER TABLE` (5 colonnes en jeu, pas seulement la FK) | Une FK doit référencer une table réellement existante ; le fichier de migration doit refléter ce qui a été exécuté | Le **fichier** de migration est incorrect/obsolète par rapport à la base réelle — pas la base elle-même | Aucun — la base réelle est saine, seul le dépôt Git contient une version périmée de cette migration | Low (documentation seulement, plus aucun risque fonctionnel) | Corriger le fichier `20260711000005_documents_institution_workflow.sql` pour qu'il reflète `admin_users(id)` (cosmétique, aucune ré-exécution nécessaire) | Requêtes exécutées par Bryan le 16/08/2026 | 🟢 **VERIFIED 16/08/2026 par Bryan (SQL Editor)** — les 5 colonnes (`statut`,`motif_rejet`,`soumis_le`,`examine_le`,`examine_par`) existent toutes en production ; la contrainte réelle `documents_institution_examine_par_fkey` référence bien `admin_users(id)`, pas `admins(id)` — la base est correcte, seul le fichier source du dépôt ne reflète plus l'exécution réelle (probablement corrigée à la main par Bryan au moment de l'exécution). **Ne bloque plus le Lot 2.** |
+| GAP-06-08 | Trouvé pendant la clôture Lot 1 Trust Model (16/08/2026) — les 9 tables `admin_logs`, `institution_responsables`, `institution_membres`, `documents_institution`, `journal_activite`, `signalement_notes`, `signalements`, `signalement_events`, `signalement_attachments` ont **toutes** des privilèges complets (`INSERT/SELECT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER`) accordés à `anon` **et** `authenticated`, sans qu'aucun `GRANT` explicite n'existe dans les migrations | Grants minimaux, jamais de privilèges larges à `anon`/`authenticated` sur des tables sensibles (même exigence que GAP-06-05) | Ce n'est **pas** limité aux « 14 tables d'origine » documentées dans CLAUDE.md — c'est le comportement par défaut de ce projet Supabase sur des tables créées tout au long de l'historique de migrations (09/07 au 08/08/2026), probablement un privilège par défaut PostgreSQL/Supabase (`ALTER DEFAULT PRIVILEGES` ou rôle `postgres` propriétaire) jamais neutralisé | Neutralisé aujourd'hui par RLS actif + zéro policy sur ces 9 tables (confirmé par la même requête) — mais toute table qui perdrait son RLS par erreur, ou gagnerait une policy trop permissive, deviendrait immédiatement lisible/modifiable via la clé `anon` publique, sans qu'aucun `GRANT` n'ait jamais été posé consciemment | **Medium** (sans exploitation actuelle, mais un pattern systémique à surveiller à chaque nouvelle table) | Étendre GAP-06-05 : traiter ce pattern comme la norme par défaut du projet plutôt qu'une exception des 14 tables historiques — envisager un `REVOKE` systématique + `GRANT` explicite minimal sur toute nouvelle table sensible, ou au minimum une checklist de vérification RLS avant toute mise en production d'une nouvelle table | Requêtes exécutées par Bryan le 16/08/2026 | 🟢 VERIFIED 16/08/2026 — grants larges confirmés sur les 9/9 tables testées (7 confirmées en détail, 2 dernières — `signalement_events`/`signalement_attachments` — résultat tronqué dans la capture mais RLS confirmé actif sur les 9 par la requête de recoupement), `relrowsecurity=true` confirmé sur les 9 → RLS fait écran, pas de contournement réel aujourd'hui |
+| GAP-06-07 | Trouvé pendant l'audit "Trust Model" (16/08/2026) — `admin_logs` a RLS actif et zéro policy (deny-by-default correct, écriture confirmée exclusivement `service_role` depuis 30 fichiers `app/api/admin/**`), mais **aucun trigger d'immuabilité**, contrairement à `journal_activite` (`journal_activite_immuable`) et `signalement_events` (`signalement_events_immuable`), qui bloquent même `service_role`/superutilisateur SQL Editor via `RAISE EXCEPTION` (échappatoire transactionnelle `SET LOCAL app.autoriser_correction_*`) | Une table qui sert de trace d'audit d'actions admin devrait être infalsifiable même contre un accès `service_role`/SQL Editor direct — c'est déjà le principe appliqué 2 fois ailleurs dans ce projet | `admin_logs` peut aujourd'hui être modifiée/supprimée sans laisser de trace de l'altération, par quiconque a accès `service_role` ou SQL Editor | Faible aujourd'hui (aucun code n'altère jamais une ligne, aucun incident connu) — devient significatif si `admin_logs` est un jour choisi comme support de traçabilité pour les décisions de vérification (Lot 0) | Medium — décision de gouvernance à trancher avant le Lot 2, pas une urgence technique | Deux options, **aucune à exécuter sans décision explicite** : (A) ajouter à `admin_logs` le même trigger que `journal_activite` (durcit rétroactivement toutes les actions admin existantes, coût fonctionnel nul) ; (B) laisser `admin_logs` tel quel et donner à la future table d'événements de vérification son propre trigger dès sa création, sans jamais faire transiter les décisions de vérification par `admin_logs`. Recommandation par défaut : (B), risque nul sur l'existant | `supabase/migrations/20260709000002_admin_users_and_logs.sql:22-32` (pas de trigger), `20260723000001_journal_activite_fondations_audit.sql:65-78` (trigger original), `20260808000005_signalement_events.sql:55-68` (même patron copié) | 🟡 NEEDS REVIEW — décision de gouvernance CEO, pas une vérification SQL |
 | — | 58 `CREATE POLICY` inventoriées sur les tables créées par migration. Un seul cas de piège `FOR ALL`/`FOR UPDATE` sans `WITH CHECK` séparé trouvé (`notifications.notif_destinataire_own`), **déjà corrigé** par `20260808000002_audit_rls_fixes.sql`. Un second cas bénin (`avatars_citoyen_update_own`, condition symétrique, sans risque pratique) | Toute policy `FOR ALL`/write doit avoir un `WITH CHECK` explicite | Aucun gap actif restant trouvé | — | — | — | Rapport agent RLS, détail complet des 58 policies | 🟢 VERIFIED |
 | — | Policies `anon`/PUBLIC restantes actives (hors `institution_otp` déjà traité) : toutes soit restrictives par condition métier (`statut='validee'/'publiee'`, `expires_at`, `reponse IS NOT NULL`), soit des compteurs à faible sensibilité (vues/likes, `USING(true)`) explicitement documentés comme volontaires par leurs auteurs | Accès `anon` limité au strict nécessaire | Fuite de comportement mineure possible ("qui a vu/liké quel avis/annonce") sur quelques tables à `USING(true)` | Faible — pas de PII directe exposée | Low | Confirmer avec Bryan si l'exposition "qui a vu/liké quoi" sans authentification est acceptable ; sinon restreindre à `authenticated` | Rapport agent RLS, détail complet section 4 | 🟡 NEEDS REVIEW (décision produit, pas un bug) |
 
@@ -755,11 +794,12 @@ code. Elles restent 🔴 NOT STARTED tant qu'un lot dédié ne les traite pas :
 
 | Priorité | Nombre de gaps identifiés |
 |---|---|
-| High | 3 (GAP-06-01, GAP-04-01, GAP-06-02) |
+| High | 3 (GAP-06-01, GAP-04-01, GAP-06-02) — GAP-06-06 reclassé Low après clôture 16/08 (base saine) |
 | Medium-High | 2 (GAP-16-01, GAP-14-01) |
-| Medium | 6 (GAP-06-03, GAP-06-04, GAP-10-01, GAP-04-02, GAP-04-03, GAP-14-02, GAP-06-05) |
+| Medium | 9 (GAP-06-03, GAP-06-04, GAP-10-01, GAP-04-02, GAP-04-03, GAP-14-02, GAP-06-05, GAP-06-07, GAP-06-08) |
 | Low-Medium | 1 (GAP-14-03) |
-| Low | 1 (GAP-08-01) |
+| Low | 2 (GAP-08-01, GAP-06-06) |
+| — | GAP-06-06/07/08 ajoutés le 16/08/2026, trouvés pendant l'audit "Trust Model" (`docs/product/YELEN_TRUST_DOMAIN_ARCHITECTURE.md`), pas le Lot 1 sécurité d'origine du 13/08. GAP-06-06 et GAP-06-08 clos le 16/08 (requêtes exécutées par Bryan) ; GAP-06-07 reste ouvert (décision de gouvernance) |
 
 **Aucune valeur n'a été inventée pour compléter ce tableau au-delà de ce
 qui a été réellement trouvé.** Les sections non auditées sont listées
@@ -910,17 +950,18 @@ build et types propres.
 
 | ID | Risque | Statut | Action restante |
 |---|---|---|---|
-| GAP-06-01 | RLS réel des 7 tables non confirmé | 🟡 NOT VERIFIED | Bryan — SQL Editor |
-| GAP-06-02 | Policies `institution_otp` en prod non confirmées | 🟡 NOT VERIFIED | Bryan — SQL Editor |
-| GAP-06-04 | Privilèges `EXECUTE` de `appliquer_recuperations_dues()` | 🟡 NOT VERIFIED | Bryan — SQL Editor |
-| GAP-06-05 | Grants historiques `anon`/`authenticated` | 🟡 NOT VERIFIED | Bryan — SQL Editor |
+| GAP-06-01 | RLS réel des 7 tables | ✅ Clos 14/08/2026 | `relrowsecurity=true` confirmé sur les 7, Bryan (SQL Editor) |
+| GAP-06-02 | Policies `institution_otp` en prod | ✅ Clos 14/08/2026 | 0 policy + RLS actif = deny-by-default, conforme au pattern documenté |
+| GAP-06-03 | Doublon migration `institution_responsables`/`langue` | ✅ Clos 14/08/2026 | `langue` confirmée `jsonb`, fichier sans suffixe = brouillon obsolète |
+| GAP-06-04 | Privilèges `EXECUTE` de `appliquer_recuperations_dues()` | ✅ Clos 14/08/2026 | `anon` avait `EXECUTE` (confirmé `true`), `REVOKE` exécuté par Bryan, revérifié `false` |
+| GAP-06-05 | Grants historiques `anon`/`authenticated` | ✅ Clos 14/08/2026 | Grants larges confirmés sur 5 tables non listées à l'origine, mais RLS actif sur les 5 → sans conséquence réelle |
 | GAP-14-01 | 5 vulnérabilités npm (bump `next` majeur) | 🟠 IN PROGRESS | Chantier dédié testable futur |
 | GAP-16-01 | CSP en Report-Only, pas bloquante | 🟠 IN PROGRESS | Bryan — vérification console puis bascule |
 | GAP-14-02/03 | CI préparé mais pas "required check" ; branch protection réelle inconnue | 🟠 IN PROGRESS / NOT VERIFIED | Bryan — réglages GitHub |
 | GAP-10-01 | Rate limiting mémoire | ⚫ TEMPORARY ACCEPTED GAP | Suivi des 5 conditions de levée |
 | GAP-04-02 | OTP citoyen/institution sur fallback statique | ⚫ TEMPORARY ACCEPTED GAP | Bryan — brancher Nimba SMS |
 | GAP-04-03 | MFA admin | ✅ Clos | Amélioration future notée (régénération session), hors périmètre |
-| — | Headers de sécurité absents sur les réponses redirect/error du middleware | 🟡 Observation mineure (pré-existante) | Aucune action requise, à considérer si un futur durcissement est demandé |
+| — | Headers de sécurité absents sur les réponses redirect/error du middleware | ✅ Clos 14/08/2026 | Trouvé en vérification production Lot 1.5 (`/admin`, `/api/admin/kpis` sans session), corrigé via helper `appliquerHeadersSecurite()` appliqué aux 11 points de sortie du middleware (commit `bdbf215`), revérifié en production |
 
 **Aucune correction supplémentaire appliquée dans ce Lot 1.3** — aucune
 régression ni aucun bug de sécurité directement démontré n'a été trouvé
@@ -1307,16 +1348,2131 @@ résultat).
 
 ---
 
-## Requêtes SQL toujours en attente (Bryan, pas chez lui — NOT VERIFIED, non bloquant)
+## Requêtes SQL — clôturées le 14/08/2026
 
-Consolidées ici pour référence unique — détail de chaque item dans les
-sections Lot 1.1/1.4 correspondantes :
-1. RLS des 7 tables (GAP-06-01)
-2. Policies `institution_otp` (GAP-06-02)
-3. Privilèges `EXECUTE` de `appliquer_recuperations_dues()` (GAP-06-04)
-4. Grants historiques `anon`/`authenticated` (GAP-06-05)
-5. Clarification migration doublon `institution_responsables` (GAP-06-03)
+Les 5 requêtes ci-dessous, longtemps NOT VERIFIED faute d'accès SQL
+Editor, ont toutes été exécutées par Bryan le 14/08/2026. Détail complet
+dans les sections Lot 1.1/1.4/06 correspondantes :
 
-**Confirmé explicitement par Bryan : ne bloque aucun autre travail.**
-Statut inchangé : NOT VERIFIED, à traiter quand l'accès SQL Editor sera
-disponible.
+1. RLS des 7 tables (GAP-06-01) — ✅ `relrowsecurity=true` sur les 7.
+2. Policies `institution_otp` (GAP-06-02) — ✅ 0 policy + RLS actif
+   (deny-by-default, service_role uniquement).
+3. Privilèges `EXECUTE` de `appliquer_recuperations_dues()` (GAP-06-04) —
+   ⚠️ `anon` avait `EXECUTE` (`true`) → ✅ corrigé, `REVOKE EXECUTE ON
+   FUNCTION appliquer_recuperations_dues() FROM PUBLIC, anon,
+   authenticated` exécuté, revérifié `false`.
+4. Grants historiques `anon`/`authenticated` (GAP-06-05) — ✅ grants
+   larges confirmés sur `institution_otp`, `institution_sessions`,
+   `transactions_financieres`, `institution_partenariat_demandes`,
+   `offres` (non listées dans le GAP-06-01 d'origine), mais
+   `relrowsecurity=true` confirmé sur les 5 → RLS fait écran, pas de
+   contournement réel.
+5. Clarification migration doublon `institution_responsables`
+   (GAP-06-03) — ✅ `institutions.langue` = `jsonb`, confirme que
+   `institution_responsable_et_fix_langue.sql` est la migration
+   réellement exécutée le 11/07/2026 ; `institution_responsable.sql`
+   (sans suffixe) est un brouillon jamais appliqué — suppression/
+   renommage laissé à la discrétion de Bryan, aucune urgence.
+
+**Les 5 items du registre `06 — Supabase Database Security` sont donc
+tous clos.** Seule action volontairement non prise : suppression du
+fichier de migration brouillon obsolète (GAP-06-03) — décision produit
+mineure, pas de sécurité, laissée à Bryan.
+
+---
+
+## Clôture de la session sécurité du 14/08/2026
+
+**Décision CEO** : le chantier sécurité s'arrête ici pour aujourd'hui —
+reprise prévue un autre jour, sans urgence. Le prochain focus est la
+refonte (design).
+
+**État réel à la reprise** (voir aussi `YELEN_SECURITY_MASTER.md`,
+journal des décisions, pour le détail complet lot par lot) :
+- **Clos** : GAP-06-01, 06-02, 06-03, 06-04, 06-05 (les 5 ci-dessus,
+  vérification + correctif SQL faits en base réelle), GAP-04-01
+  (bypass OTP institution en dur), GAP-04-03 (MFA admin), et le bug de
+  perte de headers de sécurité sur les réponses redirect/json/rewrite
+  du middleware (trouvé et corrigé pendant la vérification production du
+  Lot 1.5, commit `bdbf215`).
+- **Encore ouvert, aucune action prise aujourd'hui, à reprendre** :
+  - GAP-16-01 — CSP toujours en `Content-Security-Policy-Report-Only`
+    (observation seule, ne bloque rien). Passage en mode bloquant réel
+    nécessite une navigation complète en conditions réelles (Bryan,
+    aucun outil navigateur disponible dans cet environnement) pour
+    confirmer 0 violation avant de renommer l'en-tête.
+  - GAP-14-01 — 5 vulnérabilités npm restantes, nécessitent un bump
+    majeur de `next` (16.2.1 actuel) — changement à risque de
+    régression, volontairement pas fait sans un chantier dédié testable
+    séparé.
+  - GAP-14-02/03 — CI (`ci.yml`) préparé mais pas activé comme "required
+    check" sur GitHub, branch protection réelle inconnue — réglages
+    GitHub, action 100% côté Bryan.
+  - GAP-10-01, GAP-04-02 — déjà formalisés `TEMPORARY ACCEPTED GAP` par
+    décision explicite de Bryan (13/08/2026), pas des oublis : conditions
+    de levée déjà écrites dans le journal des décisions, à surveiller,
+    pas à corriger dans l'urgence.
+- **Hors périmètre code, à faire par Bryan quand il aura le temps** :
+  suppression du fichier de migration brouillon obsolète (GAP-06-03,
+  aucune urgence), bump `next` majeur (GAP-14-01), configuration des
+  réglages GitHub (GAP-14-02/03).
+
+Rien de bloquant ne reste en suspens pour le reste du produit — ce
+chantier peut être repris à tout moment sans dette supplémentaire
+accumulée entre-temps.
+
+---
+
+## LOT 1.5 — Déploiement contrôlé (13/08/2026, en attente de vérification)
+
+**Autorisé par Bryan/CEO** : déploiement contrôlé du correctif, scope
+strictement limité (19 fichiers, liste ci-dessous), pas un commit
+massif des ~370 autres fichiers accumulés d'autres chantiers.
+
+**Commit** : `4acf972` sur `main`, poussé sur `origin/main`
+(`ca2b112..4acf972`). Fichiers inclus : `middleware.ts`,
+`app/api/admin/auth/login/route.ts`,
+`app/api/institution/auth/{register,verify-otp,send-otp}/route.ts`,
+suppression de `app/institution/verification/page.tsx`,
+`.github/workflows/ci.yml`, les 2 documents sécurité, et les 9+1 fichiers
+de la migration polices (`app/ambassades/page.tsx`,
+`app/conditions-prestataires/page.tsx`, `app/contact/page.tsx`,
+`app/education/page.tsx`, `app/faq/page.tsx`,
+`app/institution/disponibilites/page.tsx`,
+`app/mentions-legales/page.tsx` + `mentions-legales-client.tsx`,
+`app/politique-cookies/page.tsx`, `app/signalement/page.tsx`).
+
+**Vérification post-déploiement — INCOMPLÈTE** : après ~30 minutes de
+sondage HTTP réel (`curl` répété sur `/api/rdv-disponibilite`, route
+jamais mise en cache, donc un signal fiable), le déploiement Netlify
+n'était **toujours pas visible** — la route montrait encore l'ancien
+état (2/6 headers). Aucun accès au dashboard Netlify depuis cet
+environnement pour distinguer "build encore en cours" de "build en
+échec". **Décision de Bryan : reporter la vérification à quand il aura
+accès à son dashboard Netlify.**
+
+**Découverte annexe pendant l'attente** : le workflow CI GitHub Actions
+(`ci.yml`, livré au Lot 1.1) a échoué sur le job `build-and-typecheck`
+(succès du job `dependency-audit` séparé) — cause très probable, non
+encore confirmée avec certitude : `npm run build` a besoin des secrets
+serveur (`ADMIN_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, etc.) que
+GitHub Actions n'a pas (jamais configurés en Secrets GitHub, le fichier
+`.env.local` n'étant jamais commité par design). **N'affecte pas le
+déploiement Netlify** (pipeline indépendant). Action requise de Bryan
+si le CI doit devenir fonctionnel : ajouter les mêmes variables que
+`.env.local` dans GitHub → Settings → Secrets and variables → Actions.
+
+**Statut Lot 1.5** : 🟠 **NOT CLOSED — en attente de vérification**
+(pas `CLOSED` comme visé, faute de confirmation HTTP réelle du
+déploiement). Prochaine étape dès l'accès Netlify de Bryan disponible :
+re-exécuter les tests de la checklist complète (`/`, `/recherche`,
+`/institution/connexion`, `/admin/login`, 404, route API publique,
+route API protégée, géolocalisation, scanner caméra/QR, WebAuthn,
+chargement des polices, carte OpenStreetMap, formsubmit) et comparer
+prod vs local avant de clore définitivement.
+
+---
+
+## LOT 2 — Identity & Authentication (30/08/2026)
+
+Reprise du chantier sécurité après la pause du 14/08/2026 (voir
+`YELEN_SECURITY_MASTER.md`, clôture de session). Audit en lecture seule
+des 4 systèmes d'auth (citoyen, institution, admin, employé) selon la
+section 04 du master plan — inscription, connexion, sessions, MFA,
+appareils, révocation, token theft, session hijacking. Méthode : lecture
+directe de 37 routes `app/api/**/auth/**` + les libs `lib/auth/*.ts`,
+`lib/institutionAuth.ts`, `lib/adminAuth.ts`, `lib/employeeAuth.ts`.
+Format identique aux lots précédents : constat → preuve → correction
+éventuelle → test.
+
+### Découverte préalable — chantier "Auth Security" non documenté, trouvé en cours d'audit
+
+En lisant les routes citoyen/institution, plusieurs fichiers portaient
+des commentaires "chantier 28/08/2026" référençant un mécanisme inconnu
+de ce document : `lib/security/authSecurity.ts` (286 lignes) + une
+migration `20260828000004_auth_security.sql` créant 3 tables
+(`auth_device_security`, `auth_ip_security`, `auth_security_events`) —
+un remplacement complet du rate limiting en `Map` mémoire par un état
+device+IP persistant et partagé entre instances serverless, exactement
+la remédiation que GAP-10-01 appelait de ses vœux.
+
+**Aucune trace de ce chantier** dans `git log` (dernier commit `038fb16`
+du 20/08/2026), dans ce document, ni dans CLAUDE.md. `git status` a
+confirmé que tout le code (13 fichiers) était **staged mais jamais
+commité**, et que la migration SQL elle-même était **untracked** (`??`)
+— contrairement à toute autre migration de ce dossier, jamais annotée
+"exécuté par Bryan le X/X" une fois confirmée. **Statut d'exécution en
+base UNKNOWN** au moment de la découverte — Bryan, absent de son poste
+au moment de l'audit, n'a pas pu confirmer immédiatement. Requête à
+exécuter avant tout commit/déploiement de ce lot :
+```sql
+SELECT table_name FROM information_schema.tables
+WHERE table_name IN ('auth_device_security','auth_ip_security','auth_security_events');
+```
+0 ligne → jamais exécutée (déployer le code sans la migration casserait
+immédiatement connexion/inscription citoyen et institution, 500 sur
+tables inexistantes). 3 lignes → déjà exécutée, à documenter ici.
+
+**Couverture d'origine (28/08), avant ce Lot 2** : citoyen
+lookup/verify/register/totp-login-verify, institution
+lookup/send-otp/verify-otp/register — **mais pas** institution
+pin/verify, institution webauthn/auth-verify, institution membre/login,
+admin/auth/login, ni clock/auth/login, tous restés sur leur mécanisme
+`Map` en mémoire d'origine (ou, pour membre/login et clock/auth/login,
+un verrouillage persistant par compte sans aucun frein device/IP).
+
+**Décision de Bryan (30/08/2026, en déplacement)** : finir ce chantier
+dans le cadre du Lot 2 plutôt que le traiter séparément.
+
+### GAP-10-01 — mise à jour : couverture étendue aux 5 flux de connexion, toujours non déployée
+
+**Modification (ce Lot 2)** — les 5 routes restantes ont été câblées sur
+`lib/security/authSecurity.ts`, en réutilisant la catégorie
+`institution_login` déjà existante (aucun changement de schéma) pour
+PIN/WebAuthn/membre institution, et en ajoutant 2 nouvelles catégories
+`admin_login`/`employee_login` à la contrainte `CHECK` de la migration
+non exécutée (additif, sans risque tant qu'elle n'a pas tourné en base —
+à confirmer par Bryan avant exécution) :
+- `app/api/institution/auth/pin/verify/route.ts` : suppression des 2 Map
+  locales (`ipAttempts`, `failedAttempts` par institutionId).
+- `app/api/institution/auth/webauthn/auth-verify/route.ts` : suppression
+  de la Map locale `failedAttempts` par institutionId.
+- `app/api/institution/auth/membre/login/route.ts` : le verrouillage
+  persistant par compte (`institution_membres.failed_attempts/
+  locked_until`, déjà présent en base depuis la migration
+  `20260805000016`, mais dont le code n'était lui-même jamais commité)
+  est **conservé** — il protège un compte ciblé quel que soit
+  l'appareil. Le throttle device+IP est ajouté par-dessus, en défense en
+  profondeur, pour couvrir l'angle qu'il ne couvre pas seul :
+  l'énumération de plusieurs `identifiant` différents depuis un même
+  appareil/IP.
+- `app/api/admin/auth/login/route.ts` : suppression de la Map locale
+  `loginAttempts` (IP seule). Catégorie dédiée `admin_login` (jamais
+  mêlée aux seuils citoyen/institution vu le niveau de privilège) —
+  complète, sans le remplacer, le verrouillage persistant déjà en place
+  (`admin_users.failed_login_attempts`/`locked_until`, actif depuis le
+  Lot 1).
+- `app/api/clock/auth/login/route.ts` : même logique que membre/login —
+  verrouillage persistant par compte (`employee_credentials`) conservé,
+  throttle device+IP catégorie `employee_login` ajouté par-dessus.
+
+**Test** : `npx tsc --noEmit` → exit 0 après chaque fichier puis sur
+l'ensemble des 5 routes + la migration/le type `AuthEndpointCategory`
+étendu. Aucun test réel possible (migration non confirmée exécutée, donc
+aucune tentative de connexion réelle n'a été faite contre ces routes
+dans cet audit — cela casserait la connexion en environnement réel si la
+migration n'a pas tourné).
+
+**Résultat** : les 5 systèmes de connexion partagent maintenant la même
+échelle d'escalade device+IP (avertissement à 3 tentatives/15min, blocage
+30min→2h→24h par cycle répété sur 24h, `support_only` au 5e cycle).
+**Mise à jour 15/09/2026** : migration confirmée exécutée par Bryan
+(`auth_device_security`/`auth_ip_security` existent en base). Le code
+reste 100% non commité. `GAP-10-01` ne peut pas passer à VERIFIED/CLOSED
+tant que : (1) ~~Bryan confirme/exécute la migration~~ **fait**, (2) ce
+lot (~16 fichiers désormais) est commité et déployé, (3) une
+vérification en production équivalente au Lot 1.5 est faite.
+
+**Statut** : 🟡 NEEDS REVIEW — code complet pour les 5 flux, migration
+en base, **code non commité/déployé**. Remplace le statut ⚫ EXCEPTION
+APPROVED précédent : ce n'est plus une exception acceptée faute de
+solution, une solution existe et est presque prête, il ne manque que le
+commit/déploiement puis la vérification en production.
+
+**Preuve** : `lib/security/authSecurity.ts`, `supabase/migrations/
+20260828000004_auth_security.sql`, les 5 fichiers de route cités,
+sortie `tsc` ci-dessus.
+
+### GAP-04-04 (NOUVEAU) — aucune révocation serveur des sessions JWT institution/admin/employé
+
+**Constat** : vérifié sur 6 points concrets — `logout` (institution/
+admin/employé), changement de mot de passe admin
+(`change-password/route.ts`), désactivation 2FA admin
+(`2fa/disable/route.ts`), demande de suppression de compte institution
+(`deletion/request/route.ts`), et le plus parlant :
+**"Déconnecter tous les autres appareils"**
+(`institution/auth/remember/revoke-all/route.ts`). Les 6 ne font que
+supprimer un cookie et/ou des lignes `*_remember_tokens` en base —
+**aucun ne touche au JWT lui-même**. `getAuthenticatedInstitutionId`/
+`verifyAdminSession`/l'équivalent employé ne vérifient que la signature
+et l'expiration du JWT (`jwtVerify`), jamais une liste de révocation ni
+`institution_sessions`/`admin_logs` (tables insert-only, jamais
+consultées pour l'autorisation). Un JWT déjà émis reste donc valide
+jusqu'à ses 8h (institution/admin) ou 12h (employé) naturelles, **quelle
+que soit l'action prise par le titulaire légitime du compte** — y
+compris le bouton dont le nom promet explicitement le contraire.
+
+**Citoyen est la seule exception** : session réelle Supabase Auth,
+`supabase.auth.signOut()` invalide le refresh token côté serveur
+(`lib/auth/logoutCitoyen.ts`).
+
+**Risque** : un jeton volé (XSS, poste partagé, malware, extraction
+physique du cookie) reste exploitable jusqu'à 12h après que la victime
+a changé son mot de passe/PIN, désactivé sa 2FA compromise, ou cliqué
+"déconnecter tous les appareils" en croyant reprendre le contrôle.
+Scénario aggravant pour l'admin : un attaquant qui vole un JWT admin
+juste avant que l'admin ne désactive sa propre 2FA compromise (pensant
+couper court) garde un accès complet pendant les heures suivantes malgré
+cette action.
+
+**Décision de Bryan (30/08/2026, même jour)** : « Attack ceci » — corriger
+maintenant plutôt que reporter à un chantier séparé.
+
+**Correction appliquée** — colonne `session_revoked_at timestamptz`
+ajoutée à `admin_users`/`institutions` (migration
+`20260830000001_session_revocation.sql`, **non exécutée**, à confirmer/
+lancer par Bryan), comparée au claim `iat` du JWT à chaque vérification
+de session :
+- `lib/adminAuth.ts::verifyAdminSession` — lecture `admin_users.session_revoked_at`
+  (clé primaire indexée), rejette si postérieur à `iat`. Couvre les 55+
+  routes admin via `authorizeAdmin`.
+- `lib/institutionAuth.ts::getAuthenticatedInstitutionId`/`getAuthenticatedMembre`
+  — même contrôle sur `institutions.session_revoked_at` (échelle
+  institution entière, pas par membre — cohérent avec la granularité
+  déjà existante de "revoke-all"/suppression de compte).
+- **Employé exclu du scope** : aucun flux de type changement de mot de
+  passe/désactivation 2FA/déconnexion globale n'existe encore côté
+  `employee_credentials` pour justifier d'écrire cette colonne — pas de
+  code mort ajouté par anticipation.
+
+**Points d'écriture** (mettent `session_revoked_at = now()`) :
+`admin/auth/change-password`, `admin/auth/2fa/disable`,
+`institution/auth/deletion/request`, `institution/securite/totp/disable`,
+`institution/auth/pin/set`, `institution/auth/remember/revoke-all`.
+
+**Cas particulier traité** : `remember/revoke-all` ("déconnecter tous les
+autres appareils") est la seule action où la session courante doit
+*survivre* — après avoir posé la révocation, la route réémet
+immédiatement un JWT frais (mêmes claims, `iat` postérieur) pour
+l'appareil appelant, sinon la fonctionnalité se serait déconnectée
+elle-même à la requête suivante. Les 4 autres points d'écriture
+(change-password, 2FA disable ×2, pin/set) déconnectent volontairement
+aussi l'appareil courant — même précédent que le chantier MFA Admin du
+13/08/2026 (reconnexion requise après un changement de facteur de
+sécurité), pas une réémission automatique.
+
+**Test** : `npx tsc --noEmit` → exit 0 sur l'ensemble (2 libs + 6 routes
++ migration). **Aucun test fonctionnel réel possible** : la migration
+n'est pas confirmée exécutée — tant qu'elle ne l'est pas, ces 8 fichiers
+casseraient toute vérification de session institution/admin en
+production (colonne inexistante) s'ils étaient déployés seuls.
+
+**Statut** : 🟠 IN PROGRESS — code complet, **non commité, non
+déployé**, migration d'exécution non confirmée. Mêmes conditions de
+clôture que GAP-10-01 : confirmation DB (voir DEC-2026-08-30-01) puis
+commit/déploiement/vérification production.
+
+**Preuve** : `app/api/institution/auth/logout/route.ts`,
+`app/api/admin/auth/{logout,change-password,2fa/disable}/route.ts`,
+`app/api/institution/auth/{deletion/request,remember/revoke-all}/route.ts`,
+`lib/institutionAuth.ts` (aucune vérification de révocation),
+`lib/auth/logoutCitoyen.ts` (le seul système qui en a une, par nature de
+Supabase Auth).
+
+---
+
+## MISSION — Sécurisation de l'accès Administration (30/08/2026)
+
+Brief CEO dédié (niveau OWASP admin interface hardening), 9 exigences.
+Audit d'abord (mapping current state → requirement), puis correction des
+points sans risque de lockout sur validation explicite de Bryan — les
+points 2 (segment secret) et 6 (réseau/IP allowlist) restent
+partiellement/totalement en attente d'infrastructure ou de valeur propre
+à Bryan.
+
+### Constat de départ — déjà satisfait avant cette mission
+
+| Exigence brief | État | Preuve |
+|---|---|---|
+| 3. Authentification séparée | 🟢 VERIFIED | JWT admin dédié (`ADMIN_JWT_SECRET`), cookie séparé, zéro chemin de code partagé avec citoyen (Supabase Auth) ou institution (`INSTITUTION_JWT_SECRET`) — vérifié serveur sur toutes les routes `/api/admin/**` via `lib/adminAuth.ts::authorizeAdmin`, jamais côté client seul. |
+| 4. MFA obligatoire | 🟢 VERIFIED (TOTP, pas phishing-resistant) | Gate implémenté 13/08/2026 (DEC-2026-08-13-03) — `middleware.ts`, redirige/bloque tout accès sans 2FA active. Pas de WebAuthn/clé de sécurité pour l'admin (existe pour citoyen/institution, pas ce système) — le brief ne le rend obligatoire que "lorsque l'infrastructure le permet", non traité dans cette mission. |
+| 5. RBAC réel | 🟢 VERIFIED | `lib/adminAuth.ts` — 4 rôles (`super_admin/moderateur/support/admin`), matrice de permissions par action (`ADMIN_PERMISSIONS`), deny-by-default (rôle absent de la liste = refusé, y compris `super_admin`). Jamais un `is_admin=true`. |
+
+### GAP corrigés dans cette mission (30/08/2026)
+
+**Point 1 — `/admin` public ne doit jamais révéler l'existence de la
+console** : avant, `/admin` sans session **redirigeait vers
+`/admin/login`** (`middleware.ts:240`, préexistant) — révèle
+explicitement qu'une interface d'administration existe à n'importe quel
+visiteur. Corrigé : tout `/admin/*` en dur **sans aucun cookie de
+session admin** (même expiré) → 404 muet (`NextResponse.rewrite` vers un
+chemin garanti inexistant, `app/not-found.tsx` gère le rendu). Un
+navigateur qui a déjà un cookie (valide ou expiré) continue de passer
+par la logique existante (redirect login si invalide) — condition
+volontaire : la navigation interne du dashboard (liens, `router.push`)
+pointe massivement vers des `/admin/*` en dur, jamais préfixés ; casser
+ça pour un admin déjà connecté aurait cassé tout le dashboard existant
+pour un gain de sécurité nul (un attaquant qui a déjà un cookie valide
+n'a de toute façon pas besoin de deviner l'URL).
+
+**Point 2 — URL admin non prédictible** : `ADMIN_ENTRY_TOKEN` (variable
+d'environnement, valeur choisie et gardée par Bryan, **jamais devinée
+par Claude Code**). Absente par défaut → **fail-open explicite**, `/admin`
+reste l'entrée directe, même discipline que `GEO_BLOCK_ENABLED`/
+`MOBILE_WALL_ENABLED` — zéro risque de lockout au déploiement de ce
+code. Une fois définie : seul `/{ADMIN_ENTRY_TOKEN}/admin/login` (et
+tout `/{ADMIN_ENTRY_TOKEN}/admin/*`) reste atteignable pour un
+navigateur sans cookie ; réécrit en interne vers `/admin/*` (les pages
+ne bougent pas sur disque). `/api/admin/**` **volontairement non
+touché** : les appels fetch du dashboard sont same-origin et absolus
+(`/api/admin/kpis`, etc.), les préfixer aurait exigé de modifier des
+dizaines de points d'appel pour un gain nul — la protection réelle de
+ces routes est déjà le JWT+RBAC (point 8 du brief lui-même : l'URL
+n'est jamais le mécanisme d'autorisation).
+
+**Point 7 — Audit des échecs de connexion admin** : avant, un échec de
+connexion (mot de passe ou TOTP incorrect) n'était **jamais** journalisé
+dans `admin_logs` — seul le compteur `failed_login_attempts` avançait,
+invisible dans une revue d'audit humaine. Corrigé : `admin_logs.insert({action: 'LOGIN_FAILED', details: {reason, role, ip, user_agent}})`
+sur les 2 branches d'échec (mot de passe, TOTP), uniquement quand le
+compte existe réellement (sinon `admin_id` NOT NULL n'a rien à
+référencer — cohérent avec la garde anti-énumération déjà en place).
+`role` ajouté aussi à l'entrée `LOGIN` réussie existante, absent avant.
+
+**Test** : `npx tsc --noEmit` → exit 0 après chaque étape. Comportement
+inchangé confirmé par relecture : `ADMIN_ENTRY_TOKEN` absent ⇒ toutes les
+nouvelles branches s'évaluent à l'identique du code d'avant (chemin
+interne = pathname brut, base publique = chaîne vide, réécriture
+neutre). **Aucun test réel en navigateur possible** (pas d'outil
+disponible) — à vérifier par Bryan avant toute mise en prod, en
+particulier : `/admin` sans cookie → 404 réel, un admin déjà connecté
+navigue sans régression, et si `ADMIN_ENTRY_TOKEN` est configuré,
+`/{token}/admin/login` fonctionne bien de bout en bout (login → cookie
+posé → navigation `/admin/*` normale ensuite).
+
+### Reste ouvert, décision/infrastructure de Bryan requise
+
+| Exigence brief | Gap | Action requise |
+|---|---|---|
+| 6. Réseau/contexte | Aucune IP allowlist/VPN (le brief lui-même le conditionne à l'infra disponible — probablement lié à la décision Cloudflare déjà actée ailleurs, voir `/mission-securite-geo-restriction`) ; aucune détection "nouvel appareil" admin (existe côté citoyen, pas admin) ; aucune réauthentification pour action critique (ex. suspendre une institution) ; aucune détection d'activité anormale | Décision d'architecture — hors périmètre code seul |
+| 7. Audit | Toujours pas de trigger d'immuabilité sur `admin_logs` (GAP-06-07, ouvert depuis le 16/08) ; IP/contexte toujours pas systématique sur les ~90 autres points d'écriture `admin_logs.insert` du produit (seuls les 3 touchés dans cette mission le garantissent) | Décision de gouvernance (GAP-06-07) + chantier dédié si l'exhaustivité IP/contexte est jugée prioritaire |
+| 4. MFA phishing-resistant | TOTP seulement, pas de clé de sécurité pour l'admin | Non traité — le brief le rend conditionnel, pas obligatoire |
+| 9. Tests | Suite de tests dédiée (les 10 scénarios du brief) jamais exécutée formellement | À faire une fois les points ci-dessus tranchés — certains scénarios (citoyen/institution authentifié → refus sur `/admin`, manipulation de rôle client → refus) sont déjà couverts structurellement par la séparation des systèmes d'auth, non re-testés un par un dans cette mission |
+
+**Statut mission (30/08/2026, avant hardening complet)** : 🟠 IN
+PROGRESS — 3 des 9 points corrigés (1, 2, 7), 3 déjà satisfaits avant
+cette mission (3, 4 partiel, 5), 3 restent ouverts en attente de
+décision/infrastructure (6, 7 partie immuabilité/exhaustivité, 9).
+Aucun commit, aucun déploiement.
+
+---
+
+## MISSION 2 — Hardening complet de l'accès Administration (30/08/2026, même jour)
+
+Brief CEO élargi (10 exigences, niveau OWASP admin interface hardening
+complet), reçu juste après la clôture de la mission ci-dessus. Décisions
+de Bryan avant tout code : (1) construire une vraie table
+`admin_sessions` par session plutôt que garder le timestamp unique par
+compte (GAP-04-04/mission 1) ; (2) reporter la refonte des rôles
+fonctionnels (point 3) — un seul compte admin réel existe aujourd'hui ;
+(3) continuer immédiatement sur réauthentification critique (point 5) et
+immuabilité `admin_logs` (point 8, GAP-06-07).
+
+### Découverte annexe critique — `middleware.ts` supprimé hors git
+
+Avant de commencer l'audit de cette mission, `middleware.ts` (318
+lignes — headers de sécurité, géoblocage, gate MFA admin) introuvable
+sur disque. `git status` a montré une suppression **non stagée**
+(`Changes not staged for commit`), contrairement aux ~600 autres
+changements en attente ce jour-là (restructuration dashboard, tous
+stagés délibérément) — distinction qui a permis de conclure à une perte
+accidentelle sans deviner. Restauré (`git restore middleware.ts`) à
+l'identique du dernier commit (`bdbf215`), `tsc` propre après
+restauration, aucune autre modification affectée (602 → 601 entrées
+`git status`, delta exact de -1). **Clos**, détail complet dans
+`YELEN_SECURITY_MASTER.md`, DEC-2026-08-30-04.
+
+### Constat de départ (points déjà satisfaits, non re-détaillés — voir Mission 1 ci-dessus)
+
+Points 1, 2 (URL), 3 (auth séparée), 4 (MFA — TOTP, pas phishing-resistant) :
+état inchangé depuis la Mission 1 du même jour, ci-dessus.
+
+### GAP corrigés dans cette mission
+
+**Point 7 — Sessions admin durcies (le plus lourd)** : remplace
+`admin_users.session_revoked_at` (mission 1, jamais exécuté en base —
+migration amendée le jour même avant toute exécution) par une vraie
+table `admin_sessions` : une ligne par session (`id` = claim JWT `sid`),
+`expires_at` (absolu, miroir 8h du JWT), `last_seen_at` (fenêtre glissante
+d'inactivité, **60 min**, nouvelle exigence non couverte avant), `revoked_at`/
+`revoked_reason`, `reauth_at` (voir point 5). `lib/adminAuth.ts::verifyAdminSession`
+vérifie désormais la session par `sid` (existe, non révoquée, non expirée,
+non inactive) plutôt que par comparaison de timestamp global — et met à
+jour `last_seen_at` à chaque appel (non bloquant).
+- **Logout** : révoque uniquement la session courante (`revoked_reason:
+  'logout'`) — corrige une limite de la Mission 1 (un timestamp unique
+  par compte ne permettait pas de distinguer "cette session" des autres,
+  donc *aucune* route de logout n'y touchait pour ne pas casser les
+  autres appareils). Possible maintenant que chaque session a sa propre
+  ligne.
+- **Change-password / 2FA disable** : révoquent toutes les sessions du
+  compte (`revoked_reason: 'password_change'`/`'2fa_disable'`) —
+  comportement inchangé de la Mission 1, migré vers la nouvelle table.
+- **Rotation de session** ("après authentification/réauthentification",
+  exigence explicite du point 7) : implémentée dans `/api/admin/auth/reauth`
+  (voir point 5) — mint une session neuve, révoque l'ancienne, réémet le
+  cookie. Pas de rotation au login initial (une connexion n'est pas une
+  "ré"-authentification, rien à faire tourner).
+- **Non fait dans cette mission** : détection de connexion inhabituelle
+  (la table pose la fondation — `ip`/`user_agent`/`device_label` par
+  session — mais aucune logique de comparaison/alerte n'existe encore) ;
+  pas d'écran "sessions actives" pour l'admin (table + révocation
+  individuelle existent côté backend, aucune UI de gestion construite).
+
+**Point 5 — Réauthentification pour actions critiques** : nouvel
+endpoint `POST /api/admin/auth/reauth` (mot de passe + TOTP si actif,
+même logique anti-bruteforce que le login — verrouillage 5 échecs/30 min
+partagé avec `admin_users.failed_login_attempts`). Succès → pose
+`admin_sessions.reauth_at` sur une session neuve (rotation, voir point
+7). Nouvelle fonction `lib/adminAuth.ts::verifyRecentReauth(session)` —
+fenêtre de fraîcheur **10 minutes** (`REAUTH_WINDOW_MS`), relit
+`admin_sessions.reauth_at` en base (pas un claim JWT, pour rester valable
+même si le JWT courant n'a pas encore été réémis).
+**Appliqué à** : `admins/route.ts` (POST — création admin), `admins/[id]/route.ts`
+(PATCH — modification de rôle, DELETE — suppression), `export/route.ts`
+(GET — les 4 types d'export). **Décision de portée** : `auth-security/unblock/route.ts`
+(déblocage d'un device/IP bloqué) **volontairement exclu** — jugé plus
+proche d'une action de support/modération routinière que d'un
+"changement de configuration de sécurité" au sens du brief ; à revoir
+si Bryan considère que ça doit être couvert aussi. "Opération financière
+sensible" et "paramètres critiques de la plateforme" (brief) : aucune
+route existante ne correspond clairement à ces deux catégories — non
+mappé, pas deviné.
+`code: 'REAUTH_REQUIRED'` ajouté à `adminAuthErrorResponse` (absent
+avant — le frontend ne pouvait pas distinguer un 403 "permission
+insuffisante" d'un 403 "reconfirmez votre mot de passe").
+
+**Point 8 — Immuabilité `admin_logs` (GAP-06-07, clos)** : même pattern
+exact que `journal_activite`/`signalement_events`/`auth_security_events`
+— trigger `BEFORE UPDATE OR DELETE`, bloque même `service_role`,
+échappatoire `app.autoriser_correction_admin_logs`. Décision de
+gouvernance tranchée par le choix de Bryan de continuer sur ce point
+sans réserve.
+
+**Point 9 — Détection renforcée** : `authorizeAdmin()` journalise
+désormais chaque refus de permission (`action: 'ACCES_REFUSE'`,
+centralisé dans `lib/adminAuth.ts` plutôt que dans les ~90 routes
+appelantes — "tentative d'accès admin refusée" du brief). Échecs de
+réauth journalisés (`REAUTH_FAILED`). **Non fait** : détection de
+connexion inhabituelle, alerting actif (les logs existent, rien ne les
+surveille), notion de "compte de secours" (n'existe pas dans
+l'architecture actuelle — rien à journaliser).
+
+**Test** : `npx tsc --noEmit` → exit 0 après chaque étape, puis sur
+l'ensemble (3 migrations + `lib/adminAuth.ts` + 7 routes + 1 nouvelle
+route). **Aucun test fonctionnel réel possible** — 3 migrations
+(`20260830000001` amendée, `20260830000002`, `20260830000003`) toutes
+d'exécution non confirmée.
+
+### Reste ouvert après cette mission
+
+| Exigence brief | Gap | Action requise |
+|---|---|---|
+| 3. Rôles fonctionnels | Reporté sur décision de Bryan — un seul compte réel aujourd'hui | Reprendre quand une vraie équipe existera |
+| 4. MFA phishing-resistant | TOTP seulement | Non traité, conditionnel selon le brief lui-même |
+| 6. Réseau/IP allowlist | Absent | Infrastructure (probablement lié à Cloudflare, `/mission-securite-geo-restriction`) |
+| 7. Détection connexion inhabituelle, UI sessions actives | Fondation posée (table), logique/UI absentes | Chantier dédié si priorisé |
+| 9. Alerting actif, accès inhabituels, compte de secours | Logs existent, rien ne surveille | Chantier observabilité dédié (section 21-22 du master plan, jamais construit) |
+| 10. Suite de tests dédiée | Jamais exécutée formellement | À faire une fois tout déployé — nécessite un vrai navigateur |
+
+**Statut mission 2** : 🟠 IN PROGRESS — 4 points supplémentaires traités
+(5, 7, 8, 9 partiel) en plus des 3 déjà faits en Mission 1. **Aucun
+commit, aucun déploiement.** 3 migrations en attente d'exécution par
+Bryan (voir liste ci-dessus).
+
+### Autres constats du Lot 2 (mineurs, non corrigés)
+
+| ID | Constat | Priorité | Statut |
+|---|---|---|---|
+| — | `admin/auth/login` conserve son propre verrouillage persistant par compte (`failed_login_attempts`/`locked_until`), désormais doublé du throttle device+IP — aucun gap, juste noté comme cohérent avec le pattern membre/employé | — | 🟢 VERIFIED |
+| — | Remember-tokens (citoyen/institution) : génération correcte (32 octets aléatoires, hash SHA-256 stocké, jamais le token brut), expiration vérifiée à la lecture — aucun gap trouvé | — | 🟢 VERIFIED |
+| — | Détection "nouvel appareil" citoyen (`lib/auth/citoyenSession.ts::notifierNouvelAppareilSiBesoin`) — mécanisme correct, limite déjà documentée en commentaire (cookie effacé = reclassé "nouvel appareil") | — | 🟢 VERIFIED |
+
+### Résumé Lot 2
+
+**1 gap majeur ouvert (GAP-04-04, nouveau)** : révocation de session
+impossible sur 3 systèmes sur 4 — décision d'architecture requise, non
+corrigée. **1 gap mis à jour (GAP-10-01)** : la solution technique existe
+désormais pour les 5 flux de connexion mais reste non déployée — ne peut
+pas être clos tant que la migration et le commit/déploiement ne sont pas
+confirmés. Aucune nouvelle vulnérabilité "Critical" trouvée. Conforme à
+la consigne : arrêt du lot, rapport présenté, pas de Lot 3 sans
+validation de Bryan.
+
+---
+
+## MISSION — Trusted Device / Device Enrollment (30/08/2026, même jour)
+
+Brief CEO dédié, 8 exigences + 8 cas de test (A-H), niveau OWASP
+authentification adaptative. Consigne explicite : auditer l'existant,
+proposer schéma + flux de migration, aucun changement en production sans
+validation — audit et proposition faits et validés par Bryan avant tout
+code (2 décisions : réutiliser `citoyen_remember_tokens`/
+`institution_remember_tokens` plutôt que des tables dédiées ; "nouvel
+appareil" = notification + confirmation différée, pas de blocage dur).
+
+### Audit préalable (résumé, détail complet donné à Bryan avant validation)
+
+Constat central : **aucune porte de confiance n'existe aujourd'hui sur
+le facteur principal (OTP)** — un citoyen/une institution sans PIN/
+WebAuthn configuré obtient un accès complet depuis n'importe quel
+appareil dès que l'OTP est correct, sans aucune notion de confiance
+device. `citoyen_remember_tokens`/`institution_remember_tokens`
+existaient déjà mais servaient uniquement à choisir un écran (PIN/
+biométrie vs OTP complet) — jamais un signal de sécurité. Anti-pattern
+exact du brief : "Phone number → Access".
+
+### Schéma retenu — extension de l'existant, pas de nouvelle infrastructure
+
+`citoyen_remember_tokens`/`institution_remember_tokens` (migration
+`20260830000004_trusted_device.sql`) augmentées de : `status`
+(`pending`/`trusted`/`revoked`, défaut `trusted` — les lignes déjà
+existantes avant ce chantier ne sont pas rétrogradées), `device_type`
+(catégorie large web/mobile/tablette, jamais un fingerprint —
+conforme au point 1 du brief), `revoked_at`. `institution_remember_tokens`
+recevait aussi `device_label`/`ip`/`last_used_at`, absents avant
+(présents côté citoyen depuis le 18/07).
+
+### Logique d'enrôlement/confiance implémentée
+
+- **Premier appareil d'un compte** → `trusted` immédiat (rien à comparer,
+  pas de friction sur le tout premier accès).
+- **Appareil suivant, inconnu** → `pending`. Citoyen : notification
+  immédiate (`notifierNouvelAppareilSiBesoin`, existante, câblée sur le
+  nouveau statut plutôt que redéveloppée). Institution : **pas de canal
+  de notification équivalent** (n'existe pas dans l'architecture
+  actuelle — gap documenté, pas construit, aurait été une nouvelle
+  brique contraire à la consigne "pas d'infrastructure inutile").
+  Décision Bryan : session accordée quand même (pas de blocage dur).
+- **Reconnexion réussie depuis un appareil `pending`** → promotion
+  automatique `pending → trusted` (repasser par le même appareil avec
+  succès est un signal de confiance suffisant, pas d'action manuelle
+  requise — mais une confirmation explicite depuis l'écran Sécurité
+  reste possible à ajouter plus tard, non construite ici, travail
+  frontend).
+- **Révocation** (`securite/remember/revoke`, `revoke-all` — citoyen et
+  institution) : `status='revoked'` **plutôt qu'un DELETE** — historique
+  conservé (brief : "voir les appareils" implique une liste persistante).
+  `remember/check` filtre désormais explicitement les appareils
+  `revoked`, qui ne peuvent plus jamais proposer le déverrouillage
+  rapide ni redevenir `trusted` sans un nouvel enrôlement complet.
+
+### Limite architecturale assumée — révocation par appareil précis impossible aujourd'hui
+
+**Trouvé et corrigé une incohérence pendant l'implémentation** : le plan
+initial proposait d'appeler `supabase.auth.admin.signOut()` (citoyen) sur
+révocation — abandonné en cours de route car ça aurait **cassé
+`revoke-all` lui-même**, qui exclut délibérément l'appareil courant de la
+révocation ("déconnecter tous les *autres* appareils") ; un sign-out
+global aurait déconnecté l'appareil courant aussi.
+
+Conclusion honnête, documentée dans le code (pas cachée) : révoquer un
+appareil **empêche sa reconnaissance future** (plus de raccourci PIN/
+biométrie, plus de statut de confiance) mais **ne tue pas
+instantanément une session déjà ouverte sur cet appareil précis** — ni
+côté citoyen (session Supabase Auth jamais liée à `citoyen_remember_tokens`),
+ni côté institution pour une révocation à l'unité (`remember/revoke`).
+**Seule exception** : `institution/auth/remember/revoke-all` révoque
+réellement les JWT des autres appareils, parce que cette route touche
+déjà `institutions.session_revoked_at` depuis GAP-04-04 (ce matin même).
+Un vrai cloisonnement par appareil (comme `admin_sessions` construit ce
+matin pour l'admin) est le seul moyen d'obtenir une révocation
+instantanée par appareil précis — chantier séparé, pas fait ici.
+
+### Cas de test du brief (A-H) — couverture
+
+| Cas | Attendu | Couvert |
+|---|---|---|
+| A. 1er appareil → approuvé | ✅ `status='trusted'` direct |
+| B. 2e appareil → challenge | 🟠 `status='pending'` + notification (citoyen), session accordée quand même (décision Bryan) — pas un vrai blocage |
+| C. Challenge réussi → approuvé | ✅ promotion automatique à la reconnexion |
+| D. Appareil A connecté pendant que B est ajouté | ✅ naturel, tokens indépendants |
+| E. Révocation A → perte de confiance immédiate | 🟠 vrai pour la confiance/le raccourci, **pas** pour une session déjà ouverte (limite ci-dessus) — sauf institution `revoke-all` |
+| F. Attaquant avec le seul numéro → pas de session approuvée automatique | 🟠 obtient quand même une session (décision Bryan, pas de blocage dur) mais **jamais** `trusted` — appareil reste `pending`, visible/révocable, notifié |
+| G. Nouvel appareil + comportement suspect → step-up | 🔴 non fait — aucune évaluation de risque au-delà de "connu/inconnu" (pas de signaux comportementaux, pas de lien avec `auth_device_security` construit le 28/08) |
+| H. Appareil perdu → révocation à distance | 🟠 révoque la confiance/le raccourci, pas la session déjà ouverte (limite ci-dessus) |
+
+### Non fait dans cette mission (périmètre explicitement laissé de côté)
+
+- Évaluation de risque adaptative (point 5 du brief : contexte/
+  comportement/signaux) — seule la dimension "connu/inconnu" est
+  implémentée, pas de scoring multi-signaux.
+- Canal de notification institution (n'existe pas, pas construit).
+- Confirmation manuelle explicite d'un appareil `pending` depuis l'écran
+  Sécurité (la promotion automatique par réutilisation existe déjà,
+  un bouton explicite serait un ajout frontend).
+- Révocation par session individuelle citoyen/institution (nécessiterait
+  une architecture `*_sessions` comme `admin_sessions`).
+- Journalisation dans `auth_security_events` : évaluée puis écartée —
+  cette table est structurée autour des tentatives de connexion
+  device+IP (rate limiting), pas des changements de confiance
+  d'appareil ; forcer l'un dans l'autre aurait été un mauvais
+  raccourci. L'historique vit dans les tables remember-tokens
+  elles-mêmes (`status`, `revoked_at`, jamais supprimées).
+
+**Test** : `npx tsc --noEmit` → exit 0 (vérifié explicitement avec code
+de sortie imprimé après un faux-positif de vérification en arrière-plan
+plus tôt dans la session — voir incident noté à Bryan). **Aucun test
+fonctionnel réel possible** — migration `20260830000004_trusted_device.sql`
+non exécutée.
+
+**Statut** : 🟠 IN PROGRESS — code complet pour la logique de confiance/
+révocation de base (Cas A-D couverts, E/F/H partiellement, G non fait),
+non commité, non déployé. Bryan a demandé à voir chaque migration SQL
+une par une à la fin de ce chantier avant exécution — liste complète
+dans `YELEN_SECURITY_MASTER.md`.
+
+**Mise à jour — les 6 migrations du 30/08/2026 exécutées par Bryan une
+par une, SQL Editor** (voir aussi `20260828000004_auth_security.sql`,
+amendée par `20260830000005` suite à un drift constaté en base — détail
+complet dans `YELEN_SECURITY_MASTER.md`). Toutes vérifiées en base avant
+exécution (précaution prise après la surprise `auth_security_events`
+déjà existante) — aucun autre écart trouvé sur les 5 suivantes.
+
+---
+
+## REVUE CRITIQUE + LOT 3 (30/08/2026, même jour)
+
+Consigne de Bryan : suivre le master plan de bout en bout, revue
+critique, puis `tsc`/build complet, en notant tout ce qui nécessite son
+action sans s'arrêter.
+
+### Revue critique — 8 angles (agents) + repasse personnelle directe
+
+Diffs scannés : tout le travail du jour (Auth Security étendu, GAP-04-04,
+Hardening Admin, Trusted Device) — ligne par ligne, comportements
+supprimés, traceur cross-file, réutilisation, simplification, efficacité,
+altitude, conventions CLAUDE.md. Puis une seconde passe personnelle
+(sans agent, demande explicite de Bryan) sur les zones les plus
+sensibles.
+
+**Corrigé** :
+1. **Révocation contournable sur 9 routes institution** — `pin/set`,
+   suppression PIN, `webauthn/revoke`, `webauthn/register-verify`,
+   `webauthn/register-options`, `security-status`, `remember/revoke`,
+   `deletion/status`, `notification-prefs` gardaient chacune une
+   vérification d'auth locale dupliquée (héritée d'avant ce chantier),
+   jamais mise à jour avec la révocation de session ajoutée aujourd'hui.
+   Un JWT révoqué continuait donc de fonctionner sur ces 9 routes.
+   Corrigé : toutes importent maintenant `lib/institutionAuth.ts`.
+2. **Régression réelle de sécurité (pas hypothétique)** — le remplacement
+   des verrous par compte (PIN/OTP/WebAuthn institution, ancien Map par
+   `institutionId`, 5 échecs/5-15 min) par le throttle device+IP partagé
+   avait supprimé toute protection PAR COMPTE sans la remplacer : le
+   cookie device est entièrement côté client (non envoyé = "nouvel
+   appareil"), donc un attaquant ciblant une institution précise pouvait
+   ne jamais déclencher de blocage pour cette cible. Corrigé : verrou
+   partagé persistant restauré (`institutions.login_failed_attempts`/
+   `login_locked_until`, migration `20260830000006`), complémentaire au
+   throttle device+IP, appliqué aux 3 facteurs de connexion institution.
+3. **`middleware.ts` (→ `proxy.ts`) ne vérifiait jamais `admin_sessions`**
+   — seulement signature/expiration JWT. Une session révoquée pouvait
+   encore charger la coquille de page admin (les données auraient été
+   bloquées côté API par `lib/adminAuth.ts`, mais jamais au niveau page).
+   Corrigé : lecture (seule, non bloquante pour l'écriture) de
+   `admin_sessions` ajoutée à `verifierTokenAdmin()`.
+4. **`auth-security/unblock` sans réauthentification** — trouvé
+   indépendamment par 4 angles de revue différents. Le docstring de
+   `verifyRecentReauth` citait pourtant déjà ce cas. Corrigé.
+5. **`lib/security/authSecurity.ts` avalait les erreurs Supabase**
+   (`{data}` sans `error`) — piège déjà documenté dans CLAUDE.md
+   (`/pieges-techniques-connus`), ici sur une porte anti-abus qui
+   échouait *ouverte* silencieusement en cas d'erreur DB. Corrigé :
+   reste fail-open par choix (bloquer tout login sur une erreur
+   transitoire serait pire), mais désormais tracé via `logSecurite`.
+6. **Course `iat`/`revoked_at`** dans `institution/auth/remember/revoke-all`
+   — le JWT réémis pour l'appareil qui doit rester connecté pouvait, si
+   la révocation et la signature tombaient dans la même seconde
+   d'horloge, se faire rejeter par sa propre révocation (précision
+   seconde du JWT vs milliseconde de la DB). Corrigé : `iat` fixé
+   explicitement à `revokedAt + 1s`.
+7. **3 derniers survivants de l'ancien pattern Map mémoire** trouvés et
+   migrés vers `authSecurity` : `institution/webauthn/auth-options`,
+   `citoyen/securite/webauthn/auth-verify`, `citoyen/securite/webauthn/auth-options`.
+8. **Incohérence dans mon propre commentaire** (`lib/adminAuth.ts`)
+   affirmant que `reauth/route.ts` "ne fait pas tourner le sid" alors
+   que j'avais bien implémenté la rotation — corrigée.
+
+**Découverte annexe critique — `middleware.ts`/`proxy.ts` en conflit** :
+build cassé, Next.js 16.2.1 refuse la coexistence des deux fichiers.
+`proxy.ts` trouvé = tentative de migration abandonnée le 19/08/2026
+(jamais commitée), figée avant toutes les corrections d'aujourd'hui.
+Résolu : contenu à jour consolidé dans `proxy.ts` (export renommé
+`middleware` → `proxy`, seule vraie différence), `middleware.ts`
+supprimé.
+
+**Non corrigé, documenté comme dette** : duplication de code réelle
+entre `lib/auth/citoyenSession.ts`/`lib/auth/institutionSession.ts`
+(logique Trusted Device quasi identique) et entre les ~12 routes qui
+répètent le même bloc "porte anti-abus + finaliser" — un helper partagé
+réduirait ~100 lignes dupliquées, pas fait faute de temps dans ce lot.
+Quelques requêtes DB redondantes (performance, pas sécurité) :
+`lireEtat`/`incrementerEtEvaluer` relisent ce qu'ils viennent de lire,
+`verifyRecentReauth` requête `admin_sessions` une 2e fois juste après
+`verifyAdminSession`. Portée de révocation institution encore à
+l'échelle du compte entier (pas par session individuelle comme admin) —
+décision déjà actée avec Bryan (mission Trusted Device), pas un oubli.
+
+### Lot 3 — Authorization/RBAC/ABAC (audit, section 05 du master plan)
+
+**Matrice institution** (`lib/institutionPermissions.ts`) — relue
+intégralement : 5 rôles, `TAB_MATRIX` (cosmétique, masquage nav) +
+`ACTION_MATRIX` (la vraie barrière, vérifiée serveur via `can()`), 35
+clés d'action, chaque choix de rôle justifié en commentaire. 🟢 VERIFIED,
+mature, rien à corriger.
+
+**Couverture des routes** — vérifié systématiquement (script) qu'aucune
+route `POST/PATCH/PUT/DELETE` sous `app/api/institution/**` ou
+`app/api/admin/**` (hors routes d'auth elles-mêmes) n'existe sans
+référencer une fonction de vérification d'auth. **0 route suspecte sur
+les deux périmètres.** Côté citoyen, 5 routes signalées par le script,
+toutes vérifiées une par une : 3 volontairement publiques et documentées
+comme telles (compteur de partage, tendances de recherche, demande de
+récupération de compte — pré-auth par nature), 2 routes de connexion
+WebAuthn (légitimement pré-auth, c'est le mécanisme d'authentification
+lui-même) — ce sont les 2 qui avaient le Map mémoire résiduel, déjà
+corrigé ci-dessus.
+
+**Non fait dans ce Lot 3** (périmètre restant, à reprendre si priorisé) :
+audit IDOR exhaustif ligne par ligne des ~219 routes (Lot 1 avait déjà
+vérifié un échantillon de 12 cas, tous corrects — non ré-audité à 100%
+ici, seule la présence d'une vérification d'auth a été confirmée
+systématiquement, pas la justesse du scoping par tenant sur chaque
+requête individuelle) ; test explicite "institution A peut-elle lire/
+modifier une ressource d'institution B en devinant un id" sur un
+échantillon plus large ; RBAC citoyen (n'existe pas en tant que tel,
+chaque citoyen n'a accès qu'à ses propres données via `auth.uid()`
+RLS — modèle différent, pas de matrice de rôles à auditer).
+
+### Vérifications finales
+
+`npx tsc --noEmit` → exit 0, vérifié explicitement à chaque étape après
+un incident de vérification en arrière-plan trop hâtive plus tôt dans la
+session (voir `YELEN_SECURITY_MASTER.md`). **`npm run build` → exit 0,
+zéro warning, zéro erreur, 321+ routes compilées, `proxy.ts` reconnu
+comme middleware.** Premier build complet réussi de la journée (jusque-là
+seul `tsc` avait été vérifié).
+
+**Statut** : revue critique + Lot 3 clos pour ce qui était raisonnable
+dans ce lot. Aucun commit, aucun déploiement — décision de Bryan à
+suivre.
+
+---
+
+## LOT 4 — DATABASE & STORAGE SECURITY, audit (31/08/2026)
+
+Suite logique du master plan après la clôture du Lot 3 (Authorization).
+Périmètre : compléter les items de la section 06 non couverts au Lot 1
+(vues, triggers, extensions) + premier passage sur la section 11
+(Storage). Audit en lecture seule uniquement — aucune exécution SQL,
+aucun changement de code, cohérent avec l'absence d'accès SQL
+Editor/navigateur de Bryan au moment de ce lot.
+
+### Vues, triggers, extensions (section 06, items restants)
+
+**Vues** : 0 `CREATE VIEW`/`CREATE MATERIALIZED VIEW` trouvée dans
+`supabase/migrations/` (recherche exhaustive, insensible à la casse).
+🟢 VERIFIED — rien à auditer côté vues. Réserve identique à celle déjà
+actée pour les 6 tables historiques sans trace de migration : si une vue
+existe en base sans être passée par une migration versionnée, elle reste
+invisible depuis cet environnement (NOT VERIFIED pour ce cas précis).
+
+**Triggers** : 20 `CREATE TRIGGER` inventoriés sur 16 fichiers de
+migration. Deux familles cohérentes, aucun trigger orphelin ou
+inattendu : (1) immuabilité — 13 occurrences, le pattern déjà documenté
+dans `/pieges-techniques-connus` de CLAUDE.md (`journal_activite`,
+`points_transactions`, `attendance_logs`/`attendance_audit_logs`,
+`recus`, `signalement_events`, `document_events`,
+`verification_decisions`/`verification_decision_preuves`,
+`documents_institution` partiel, `activite_historique`,
+`activite_demandes`/`activite_demande_decisions` partiel,
+`auth_security_events`, `admin_logs`) ; (2) logique métier applicative —
+7 occurrences (recalcul moyenne avis institution, solde/paliers points,
+protection réponse institution sur avis, validation conversation RDV,
+protection identité/contenu messagerie Yelen-citoyen, limite de
+fréquence questions institution, recalcul nb abonnés institution). Aucun
+trigger `SECURITY DEFINER` caché en dehors de la fonction déjà auditée
+au Lot 1 (`appliquer_recuperations_dues`). 🟢 VERIFIED.
+
+**Extensions** : seules `pg_cron` et `pg_net` déclarées
+(`CREATE EXTENSION IF NOT EXISTS`, répétées de façon idempotente dans 7
+fichiers de migration — sans risque, un des fichiers le documente même
+explicitement en commentaire). Aucune extension à risque trouvée
+(`pg_stat_statements` exposée, usage détourné de `pgcrypto`, etc.).
+🟢 VERIFIED — surface minimale, cohérente avec les jobs cron déjà
+documentés dans CLAUDE.md (rappels RDV/démarches, recalcul
+`daily_attendance`, récupération de compte).
+
+### Storage — inventaire complet et nouvelle constatation (GAP-11-01)
+
+**Méthode** : recherche exhaustive de `storage.from(...)` sur
+`app/api/**` (~60 points d'appel), croisée avec la méthode d'accès
+utilisée par le code lui-même sur chaque bucket
+(`getPublicUrl()` vs `createSignedUrl()`) — un choix qui, fait par le
+développeur au moment d'écrire la route, révèle son intention réelle sur
+le statut Public/Privé attendu du bucket, indépendamment de ce qui est
+documenté ailleurs.
+
+| Bucket | Méthode utilisée dans le code | Doit être | Sur la checklist manuelle CLAUDE.md ? |
+|---|---|---|---|
+| `avatars` | `getPublicUrl` + 2 policies RLS `storage.objects` (upload direct citoyen) | Public | Oui — bucket d'origine |
+| `offres` | `getPublicUrl` | Public | Non — jamais mentionné |
+| `annonces` | `getPublicUrl` | Public | Non — jamais mentionné |
+| `post-images` | `getPublicUrl` | Public | Non — jamais mentionné |
+| `documents-citoyens` | `createSignedUrl` uniquement | **Privé** | Oui |
+| `documents-employes` | `createSignedUrl` uniquement | **Privé** | Oui |
+| `signalements-preuves` | `createSignedUrl` uniquement | **Privé** | Oui |
+| `documents` | `createSignedUrl` uniquement | **Privé** | Oui (déjà trouvé cassé le 14/08 — bucket jamais créé) |
+| `recus-paiement` | `createSignedUrl` uniquement | **Privé** — confirmé 15/09/2026 | Non, mais existe et `public=false` |
+| `documents-travail` | `createSignedUrl` uniquement | **Privé** — confirmé 15/09/2026 | Non, mais existe et `public=false` |
+| `messagerie-images` | `createSignedUrl` uniquement | **Privé** — confirmé 15/09/2026 | Non, mais existe et `public=false` |
+
+**Constat structurel (rassurant)** : tous les accès Storage passent par
+le client `service_role` server-side (`supabaseAdmin`/`sb`,
+`SUPABASE_SERVICE_ROLE_KEY`) — confirmé sur l'intégralité des ~60 points
+d'appel grep-és, jamais un accès direct client anon/authenticated, sauf
+`avatars` (2 policies RLS légitimes pour l'upload direct citoyen, déjà
+en place depuis le 17/07/2026). RLS `storage.objects` est donc **non
+pertinent** pour 11 des 12 buckets (`service_role` la contourne de toute
+façon, par conception) — le contrôle de sécurité réel est le seul flag
+**Public/Privé du bucket**, réglage du dashboard Supabase, hors du code
+et donc **NOT VERIFIED** depuis cet environnement.
+
+**Risque réel identifié** : `createSignedUrl()` appelé sur un bucket qui
+serait resté **Public** par erreur (ou jamais explicitement mis en
+Privé) rend le contrôle d'accès illusoire — quiconque devine ou observe
+un `storage_path` (réponse API, log, énumération) peut lire le fichier
+directement via l'URL publique du bucket, sans jamais passer par la
+signature à durée limitée. `recus-paiement`, `documents-travail` et
+`messagerie-images` contiennent des données `Confidential`/`Highly
+Sensitive` au sens de la section 03 du master plan (reçus de paiement,
+documents financiers/RH institution, images échangées en messagerie
+privée citoyen↔institution) et **n'ont jamais été confirmés Privés nulle
+part dans la documentation existante**, contrairement aux 4 buckets déjà
+sur la checklist manuelle de CLAUDE.md.
+
+**VERIFIED 15/09/2026** — Bryan a exécuté :
+```sql
+SELECT id, name, public FROM storage.buckets
+WHERE id IN ('documents-citoyens','documents-employes','signalements-preuves',
+             'documents','recus-paiement','documents-travail','messagerie-images');
+```
+Résultat : les 7 buckets existent (aucun n'était manquant, contrairement
+à ce que laissait supposer la checklist CLAUDE.md qui en listait 4
+« à créer ») et sont tous `public = false`. Gap fermé — aucune
+exposition réelle, la couche `createSignedUrl()` protège effectivement
+ces 7 buckets comme prévu.
+
+**Priorité** : était Medium-High avant vérification (données sensibles
+réelles en jeu) — close sans action corrective nécessaire.
+
+**Non fait dans ce Lot 4** (périmètre restant, à reprendre si priorisé) :
+GAP-06-08 (grants `anon`+`authenticated` trop larges sur 9 tables,
+neutralisés par RLS mais jamais resserrés) — resserrement possible par
+migration à rédiger, non fait ici faute de décision explicite sur la
+priorité ; audit des permissions PostgreSQL par rôle au-delà des grants
+déjà connus ; audit `service_role` lui-même (rotation de clé, exposition)
+— dépend de réglages Supabase, hors code.
+
+**Test** : aucun (audit en lecture seule, zéro fichier de code modifié
+dans ce lot — seuls les documents de sécurité sont mis à jour).
+
+**Statut** : 🟢 VERIFIED pour vues/triggers/extensions — 🟡 NEEDS REVIEW
+pour GAP-11-01 (Storage), action requise de Bryan. Conforme à la
+consigne du master plan : rapport présenté, pas de Lot 5 avant validation
+de Bryan.
+
+---
+
+## GAP-06-09 — Fuite `mot_de_passe_hash` via `select("*")` public, corrigée (01/09/2026)
+
+Trouvé pendant l'audit "Phase 0 — Booking externe"
+(`docs/product/YELEN_BOOKING_EXTERNAL_INTEGRATION_PHASE0.md`), hors du
+fil de travail sécurité habituel — corrigé immédiatement sur demande de
+Bryan vu la sévérité (Critical), avant de reprendre le reste.
+
+**Avant** : `app/institution/[id]/InstitutionPublicClient.tsx:586` —
+```ts
+const { data: row } = await supabase.from("institutions").select("*").eq("id", id).maybeSingle();
+```
+Client Supabase **anon** (navigateur, sans authentification). La seule
+policy RLS SELECT sur `institutions`
+(`supabase/migrations/20260709000014_policy_institutions_public_read.sql:6-8`,
+`FOR SELECT TO anon, authenticated USING (statut = 'validee')`) filtre
+par **ligne**, jamais par colonne — RLS Postgres ne sait pas faire
+autrement. `select("*")` renvoyait donc **toutes** les colonnes
+d'`institutions` (~35, dont `mot_de_passe_hash`) dans la réponse JSON, à
+chaque chargement de la fiche publique de n'importe quelle institution
+validée. Exploitable sans authentification, sans intégration externe,
+juste en ouvrant l'onglet Réseau du navigateur sur `/institution/{id}`.
+
+**Modification** : `select()` explicite, limité aux colonnes réellement
+consommées par le composant (vérifiées une par une en lisant chaque
+`r.xxx` du bloc `setInst({...})` et les usages ultérieurs de `r`/`row`
+dans le même fichier) :
+```
+id,slug,name,category,secteur,description,conditions_entreprise,
+informations_importantes,informations_legales,conditions_entreprise_le,
+informations_importantes_le,informations_legales_le,
+equipements_etablissement,adresse,ville,quartier,phone,whatsapp,email,
+website,logo,banniere,moyenne_avis,nb_avis,badge_verifie,horaires,
+services,disponibilites,annee_creation,capacite,langue,
+activite_categorie_id
+```
+**Méthode de vérification de chaque nom de colonne** (pour ne jamais
+casser la requête en nommant une colonne inexistante — un nom faux fait
+échouer tout PostgREST avec une erreur 400, contrairement à `select("*")`
+qui ne peut jamais échouer sur ce point) :
+- `name`/`category`/`phone` confirmés réels par recoupement avec 2
+  `select()` déjà en production ailleurs (`app/api/citoyen/favoris/route.ts`,
+  `app/rdv/[id]/page.tsx:563`) — **exclu** `nom`/`categorie`/`telephone`
+  (repli JS défensif dans le même fichier, jamais de vraies colonnes,
+  drift déjà documenté dans `CLAUDE.md` `/schema`).
+- `langue` confirmé réel (migration `20260711000002_institution_responsable_et_fix_langue.sql:7-8`,
+  déjà `langue confirmée jsonb par Bryan 14/08/2026` selon GAP-06-03).
+- `capacite` confirmé réel (mentionné explicitement comme "champ texte
+  libre" pré-existant dans le commentaire de
+  `20260720000005_institutions_capacite_creneau.sql:3`, distinct de
+  `capacite_par_creneau`).
+- `annee_creation` confirmé réel par un point d'écriture existant
+  (`app/api/institution/profile/route.ts`, `app/[slug]/[id]/components/ProfilEntrepriseTab.tsx`
+  — écran de configuration institution qui l'édite).
+- `equipements_etablissement`, `conditions_entreprise`/`informations_importantes`/
+  `informations_legales` (+ leurs `_le`) confirmés par migrations commitées
+  plus anciennes (`20260821000012`, `20260724000016`, `20260724000017`).
+- `conditions_entreprise_creee_le`/`informations_importantes_creee_le`/
+  `informations_legales_creee_le` (migration
+  `20260831000001_institutions_conditions_creation_dates.sql`) — d'abord
+  **exclues par prudence** (untracked dans git au moment du premier
+  correctif, exécution non confirmée), **réintégrées le 01/09/2026** :
+  Bryan a confirmé que la migration a bien été exécutée en base. Champ
+  `dateCreation` consommé dans le popup "Conditions de l'entreprise /
+  Informations importantes / Informations légales"
+  (`InstitutionPublicClient.tsx:2495,2499,2503`).
+
+**Test** : `npx tsc --noEmit` → exit 0 (×2 — après le correctif initial
+et après la réintégration des 3 colonnes).
+
+**Non fait** : audit colonne par colonne des ~35 colonnes d'`institutions`
+pour confirmer que `mot_de_passe_hash` était la seule donnée réellement
+sensible exposée par l'ancien `select("*")` — hors périmètre de ce
+correctif ponctuel. Aucun test en navigateur réel (page publique à fort
+trafic potentiel — recommandé avant tout commit/déploiement) : Bryan a
+signalé ne pas avoir vérifié visuellement si les dates "Écrit le"
+s'affichent réellement sur la fiche (indépendant de ce correctif — ce
+popup existait avant, jamais revérifié visuellement selon Bryan).
+
+**Statut** : 🟢 CORRIGÉ, type-vérifié, colonnes complètes — **non
+commité, non testé en conditions réelles**. Action requise de Bryan avant
+push : recharger une fiche publique en navigateur réel, vérifier dans
+l'onglet Réseau que la réponse ne contient plus `mot_de_passe_hash`, et
+que l'affichage (dont les dates "Écrit le" du popup Conditions/Informations)
+est correct.
+**Date** : 01/09/2026 (correctif initial + réintégration le même jour).
+
+---
+
+## LOT 4 (suite) — GAP-08-01 : centralisation de l'auth citoyen (31/08/2026, même soir)
+
+Consigne de Bryan (lancement imminent) : ne pas se limiter à documenter,
+corriger ce qui est sûr et purement code — sans SQL, sans navigateur,
+sans dépasser la portée validée. Seul GAP-08-01 (parmi tout ce qui était
+encore ouvert au moment de la demande) était un vrai correctif de code
+faisable dans ces conditions ; les autres gaps ouverts dépendent tous de
+SQL Editor, d'un dashboard (Supabase/Netlify/GitHub) ou d'un test
+navigateur réel — aucun n'a été traité ce soir, aucun forcé.
+
+**Avant** : `supabaseAdmin.auth.getUser(accessToken)` (ou `sb.auth.getUser`)
+dupliqué indépendamment dans 44 fichiers `app/api/citoyen/**`, chacun
+avec sa propre gestion d'erreur.
+
+**Modification** : nouveau fichier `lib/citoyenAuth.ts`
+(`verifierCitoyenToken(accessToken)`, retourne l'utilisateur Supabase ou
+`null`) — seul point d'appel désormais pour vérifier un token citoyen.
+Les 44 routes basculées une par une, remplaçant uniquement le bloc
+`const { data: { user }, error } = await client.auth.getUser(accessToken); if (error || !user) return ...;`
+par `const user = await verifierCitoyenToken(accessToken); if (!user) return ...;`
+— **le texte, le code HTTP et le `code` de chaque réponse d'erreur
+existante sont restés strictement identiques**, route par route (certaines
+renvoient "Non authentifié" pour un token absent ET invalide, d'autres
+distinguent "Non authentifié"/"Session invalide ou expirée", certaines
+incluent un `code: "NO_SESSION"`, d'autres non — chaque variante
+préservée telle quelle, aucune harmonisation forcée qui aurait changé un
+contrat d'API sans le tester). Méthode d'extraction du token également
+inchangée par route (header `Authorization`, query string, body JSON ou
+`form-data` selon le fichier). Les fonctions locales préexistantes
+(`getAuthenticatedCitoyenId`, `authentifier`) gardent leur signature
+exacte, elles délèguent simplement à la fonction centrale en interne.
+
+**Fichiers touchés** : `lib/citoyenAuth.ts` (nouveau) + 44 fichiers sous
+`app/api/citoyen/**` (liste complète : `activites`, `assistant`,
+`attention`, `avis/notifier-publication`, `bio`, `communaute/signaler`,
+`confidentialite/{consentement,communication,partage,visibilite,status}`,
+`decouverte`, `demarches/notifier-creation`, `documents`,
+`documents/upload`, `donnees/export`, `favoris`, `feedback`,
+`messagerie/{upload-image,image-url}`, `paid-bookings/declarer-paiement`,
+`paiements`, `post-suggestions`, `posts`, `posts/media`, `profil/photo`,
+`recus/[id]/pdf`, `rewards`, `securite/status`,
+`securite/pin/{route,set,verify}`,
+`securite/remember/{revoke,revoke-all}`,
+`securite/totp/{setup,verify,disable}`,
+`securite/webauthn/{register-options,register-verify,revoke}`,
+`semaine`, `signalements`, `suivis`, `verification-identite/upload`) —
+largement au-delà de la règle "2 fichiers max" du protocole, exception
+explicitement demandée et accordée par Bryan pour ce chantier précis.
+
+**Test** : `npx tsc --noEmit` → **exit 0**, confirmé par le code de sortie
+de la notification de fin de tâche (pas une lecture anticipée de sortie —
+leçon de méthode du 30/08/2026 appliquée). **Aucun test fonctionnel réel
+possible** ce soir (pas de navigateur disponible) — comportement identique
+par construction (même appel Supabase, mêmes réponses d'erreur), mais pas
+encore prouvé en conditions réelles.
+
+**Non fait, explicitement hors périmètre de ce soir** : `lib/citoyenAuth.ts`
+ne factorise que l'appel `auth.getUser()` lui-même, pas l'extraction du
+token (qui varie légitimement par route) ni le format de réponse
+d'erreur (qui aurait changé un contrat d'API sans pouvoir le vérifier en
+navigateur) — décision volontairement conservatrice. La duplication
+`supabaseAdmin`/`sb` (client Supabase instancié séparément dans chacun des
+44 fichiers) n'a pas été touchée non plus — DRY, pas un gap de sécurité,
+laissé pour ne pas élargir davantage la portée.
+
+**Statut** : 🟠 IN PROGRESS — code corrigé et type-vérifié, **non commité,
+non poussé, non testé en conditions réelles**. Action requise de Bryan
+avant tout push : se reconnecter/naviguer sur au moins les parcours
+citoyen les plus fréquents (connexion, Mes RDV, Favoris, Sécurité,
+Confidentialité) pour confirmer 0 régression, puis commit à son
+initiative.
+**Preuve** : `lib/citoyenAuth.ts`, diff des 44 fichiers listés ci-dessus,
+sortie `tsc`. **Date** : 31/08/2026.
+
+---
+
+## REVUE CRITIQUE EXPRESS — Posture "doit survivre pour toujours" (01/09/2026)
+
+Demande explicite de Bryan : revue critique de tout le système, mode
+expert cybersécurité, standard visé = plateforme durable niveau
+Amazon/Facebook. **Audit uniquement — aucune correction dans cette
+phase**, conforme à la consigne. Fait personnellement (pas d'agent),
+lecture directe du code + `npm audit` réel.
+
+Ce n'est **pas** un Lot 1 refait de zéro — les Lots 1-4 déjà présents
+dans ce document restent valides et ne sont pas repris ici en détail.
+Cette section couvre : (a) ce qui a changé depuis (nouveau CVE), (b) ce
+qu'une passe fraîche et sceptique a trouvé de nouveau, (c) une évaluation
+honnête de ce qui manque structurellement pour l'ambition "pour
+toujours" — au-delà du code, à l'échelle organisation/infrastructure.
+
+### Constats nouveaux ou aggravés depuis le dernier audit
+
+| ID | Constat | Preuve | Sévérité |
+|---|---|---|---|
+| GAP-14-01 (aggravé) | `npm audit` réel ce soir : les 5 vulnérabilités déjà connues sont **toujours présentes**, mais une **nouvelle CVE Next.js non trackée jusqu'ici** apparaît : "Unauthenticated disclosure of internal Server Function endpoints" (GHSA-955p-x3mx-jcvp) | `npm audit --omit=dev`, sortie ce soir | **High** — directement pertinent : ce projet utilise massivement les Server Actions (`"use server"`, 9+ fichiers déjà recensés dans un audit précédent — `createRdv`, `annulerRdv`, etc.) |
+| GAP-04-05 (nouveau) | `QR_SECRET_KEY` a un **secret de repli codé en dur** : `process.env.QR_SECRET_KEY \|\| "yelen224-secret"` — si la variable est absente d'un environnement (Netlify preview, nouvel environnement, oubli de config), la clé HMAC signant les tokens de présence QR devient une chaîne **publique, présente dans ce document et dans le code source**. N'importe qui pourrait alors forger un `qr_token` valide pour n'importe quel `rdv_id`/`citoyen_id`/date et se faire scanner "présent" frauduleusement | `app/api/qr/generate/route.ts:66` | **High** si la variable venait à manquer sur un environnement réel — **NOT VERIFIED** que `QR_SECRET_KEY` est bien définie partout (aucun accès aux variables d'environnement Netlify depuis cet outil) |
+| GAP-08-02 (nouveau) | Aucune validation serveur de la cohérence créneau/institution/capacité à la création d'un RDV (`createRdv`, `app/rdv/[id]/actions.ts:54-72`) — RLS n'exige que `auth.uid() = citoyen_id`. Un `institution_id` inexistant/non validée, un créneau hors des disponibilités réelles, ou un dépassement de `capacite_par_creneau` ne sont bloqués **nulle part côté serveur**, seulement suggérés côté UI. Déjà documenté en détail dans `docs/product/YELEN_BOOKING_EXTERNAL_INTEGRATION_PHASE0.md` (section Contraintes actuelles, points 2-3) — reporté ici car c'est un vrai gap de sécurité applicative, pas seulement un sujet d'intégration externe | `app/rdv/[id]/actions.ts:54-72`, `supabase/migrations/20260720000004...sql:17-19` | **Medium-High** — overbooking/abus possible dès aujourd'hui, sans avoir besoin d'aucune intégration tierce |
+| — (hygiène, pas un gap réel) | 5 routes de médias institution/citoyen construisent le nom de fichier Storage avec `Date.now() + Math.random().toString(36)` plutôt que `crypto.randomUUID()` (utilisé partout ailleurs dans le projet pour ce même besoin) — entropie plus faible, chemin théoriquement plus devinable | `app/api/institution/services/media/route.ts:50`, `offres/media/route.ts:29`, `communaute-posts/media/route.ts:32`, `annonces/media/route.ts:48`, `app/api/citoyen/posts/media/route.ts:37` | **Low** — ces buckets (`offres`, `annonces`, `post-images`) sont déjà publics par conception (`getPublicUrl`, voir GAP-11-01), la confidentialité du nom de fichier n'est pas un contrôle de sécurité ici ; signalé pour cohérence de code, pas comme faille exploitable |
+| — | Zéro secret trouvé dans Git (historique inclus), `.gitignore` couvre bien `.env*`, zéro `dangerouslySetInnerHTML` sur tout `app/` — **reconfirmé sain** par recherche fraîche ce soir, pas juste hérité de l'audit du 13/08 | `git log --all -- .env*` (vide), `.gitignore:` `.env*`, grep exhaustif `dangerouslySetInnerHTML` (0 résultat) | 🟢 VERIFIED |
+| — | `lib/uploadSecurity.ts` reconfirmé mature à la lecture directe : détection par signature binaire réelle (magic bytes, jamais `file.type`/extension client), chemin de stockage toujours généré serveur (`crypto.randomUUID()` dans la quasi-totalité des routes, sauf les 5 citées ci-dessus), cas legacy CFB (.doc/.xls) correctement restreint à une liste fermée. Rien à corriger | `lib/uploadSecurity.ts:106-129` | 🟢 VERIFIED |
+
+### Ce qui manque structurellement pour "survivre pour toujours" (au-delà du code)
+
+Un système qui doit tenir indéfiniment à l'échelle d'une plateforme
+nationale ne se juge pas seulement sur ses routes API. Sections du
+master plan (`YELEN_SECURITY_MASTER.md`) **jamais construites à ce
+jour**, honnêtement listées plutôt que passées sous silence :
+
+1. **Observabilité (section 21-22)** : aucun système de métriques/traces/
+   alerting actif — les logs existent (`console.warn` structuré dans
+   `lib/edgeSecurity.ts`, tables d'audit immuables) mais **rien ne les
+   surveille**. Un pic d'attaque, une chute de disponibilité, ou une
+   dérive de comportement ne déclenchent aujourd'hui **aucune alerte** —
+   ils ne seraient découverts qu'a posteriori, en lisant les logs
+   manuellement.
+2. **Sauvegardes & continuité (sections 18-19)** : RPO/RTO jamais
+   définis pour aucun système. Aucune preuve qu'une restauration ait
+   jamais été testée (`YELEN_SECURITY_MASTER.md` section 19 : "un backup
+   qui n'a jamais été restauré est une hypothèse"). Dépend entièrement du
+   tier Supabase souscrit (PITR, fréquence des backups) — **NOT
+   VERIFIED**, réglage dashboard hors de portée de cet environnement.
+3. **Reprise après sinistre (section 20)** : aucun `DISASTER_RECOVERY_RUNBOOK.md`
+   n'existe. Scénarios non préparés : compromission de compte, fuite de
+   secret, panne Supabase/Netlify prolongée, perte d'accès admin.
+4. **WAF / anti-DDoS réel** : le plan Cloudflare est acté en décision
+   (`/mission-securite-geo-restriction` de `CLAUDE.md`) mais **non
+   déployé** — la seule défense actuelle est un rate limiting en mémoire
+   d'instance edge (`lib/edgeSecurity.ts`), déjà documenté comme
+   insuffisant sous charge distribuée réelle (GAP-10-01).
+5. **Gestion des secrets** : tous les secrets vivent en variables
+   d'environnement brutes (Netlify), jamais dans un vrai coffre-fort
+   (Vault/AWS Secrets Manager/Doppler). Aucune politique de rotation
+   documentée pour `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_JWT_SECRET`,
+   `INSTITUTION_JWT_SECRET`, etc. — un secret compromis aujourd'hui n'a
+   pas de procédure de rotation d'urgence écrite.
+6. **Facteur bus / continuité organisationnelle (section 36)** : un seul
+   développeur (Bryan) a la connaissance complète du système et l'accès
+   à tous les secrets. Aucune séparation des privilèges, aucun second
+   accès de secours documenté — risque organisationnel, pas technique,
+   mais réel pour une plateforme "pour toujours".
+7. **Tests de sécurité formels (section 30)** : aucun SAST/DAST
+   automatisé en CI (le `.github/workflows/ci.yml` du 13/08 ne fait que
+   `tsc`/`build`/`npm audit` informationnel), aucun pentest externe
+   jamais réalisé.
+8. **Disclosure de vulnérabilité (section 34)** : aucun `security.txt`,
+   aucun canal de signalement pour un chercheur externe qui trouverait
+   une faille.
+
+### Solution robuste proposée — priorisée, pas un mur de recommandations
+
+**Immédiat (avant tout, indépendant de toute nouvelle fonctionnalité)** :
+1. Confirmer `QR_SECRET_KEY` définie sur **tous** les environnements
+   Netlify (production + preview) — sinon le secret de repli en dur est
+   une vraie clé publique. Envisager, dans un futur lot de code (pas
+   maintenant), de faire échouer explicitement la génération de QR si la
+   variable est absente plutôt que de retomber sur une valeur devinable
+   — même discipline déjà appliquée à `INSTITUTION_OTP_FALLBACK`.
+2. Ajouter une validation serveur minimale à `createRdv` (institution
+   existe + `statut='validee'` + créneau cohérent avec `disponibilites` +
+   capacité non dépassée) — un futur lot de code, pas ce soir, mais à
+   prioriser avant toute exposition externe (cohérent avec la Phase 0
+   déjà documentée).
+3. Programmer l'upgrade `next` (16.2.1→16.3.x) comme chantier dédié
+   testable — la nouvelle CVE "Server Function endpoints" concerne
+   directement l'architecture Server Actions de ce projet, ce n'est plus
+   seulement une bonne pratique générale.
+
+**Moyen terme (fondations avant la montée en charge)** :
+4. Déployer Cloudflare devant Netlify (déjà décidé, jamais exécuté) —
+   WAF managé + DDoS L3/L4/L7 + Bot Management, remplace la défense
+   edge actuelle qui ne survit pas un redémarrage d'instance.
+5. Basculer la CSP de Report-Only vers bloquant, une fois la navigation
+   réelle confirmée (déjà en attente depuis le 13/08, GAP-16-01).
+6. Construire une alerting minimale (Slack/email sur pic d'erreurs 5xx,
+   sur seuil de rate limiting dépassé, sur échec de sauvegarde) — même
+   un système simple vaut mieux que zéro visibilité active.
+7. Documenter RPO/RTO réels par système critique, et **tester** une
+   restauration au moins une fois — actuellement une hypothèse, jamais
+   une preuve.
+8. Écrire `INCIDENT_RESPONSE_PLAN.md` et `DISASTER_RECOVERY_RUNBOOK.md`
+   (sections 20/32 du master plan, jamais commencées) — même un document
+   simple change radicalement le temps de réaction en cas d'incident réel.
+
+**Long terme (ambition "pour toujours")** :
+9. Migrer les secrets vers un vrai gestionnaire de secrets avec
+   rotation programmée, pas des variables d'environnement statiques.
+10. SAST/dependency scanning automatisé en CI (bloquant, pas seulement
+    informationnel), premier pentest externe une fois le produit en
+    charge réelle.
+11. `security.txt` + canal de disclosure — signal de maturité vis-à-vis
+    de tout chercheur qui trouverait une faille, mieux vaut qu'il la
+    signale que la vende.
+12. Réduire le facteur bus : documentation d'urgence accessible à une
+    personne de confiance désignée, accès de secours (break-glass)
+    documenté et testé.
+
+**Rien de tout ceci n'a été implémenté dans cette phase — audit et
+proposition uniquement, conforme à la consigne de Bryan.**
+
+**Mise à jour — GAP-04-05 et GAP-08-02 corrigés le même soir** (Bryan :
+"Corige d'abord") :
+- `app/api/qr/generate/route.ts` — repli `"yelen224-secret"` supprimé,
+  échec explicite (500 `QR_SECRET_MISSING` côté log, message générique
+  côté client) si `QR_SECRET_KEY` est absente au moment de générer un
+  nouveau token (un token déjà valide continue d'être réutilisé sans
+  cette vérification, comportement inchangé).
+- `app/rdv/[id]/actions.ts` — nouvelle fonction `validerCreneauServeur()`,
+  appelée dans `createRdv` avant toute écriture : institution existe et
+  `statut='validee'`, créneau présent dans
+  `generateSlotsInRange(institution.disponibilites, 28)` (même fenêtre de
+  28 jours que le wizard, `app/rdv/[id]/page.tsx:658` — jamais de rejet
+  d'un créneau que l'écran propose lui-même), capacité non dépassée
+  (comptage `rdv`+`paid_bookings` par tally JS sur les 5 premiers
+  caractères de `heure_rdv`, même pattern déjà éprouvé dans
+  `app/api/rdv-disponibilite/route.ts` — évite un risque de non-
+  correspondance si la colonne renvoie des secondes).
+- **Test** : `npx tsc --noEmit` → exit 0.
+- **Non fait** : aucun test fonctionnel réel (navigateur) — Bryan doit
+  tester une réservation de bout en bout (créneau valide accepté,
+  créneau complet/hors disponibilités refusé avec le bon message) avant
+  tout commit/push.
+
+**Statut** : 🟢 CORRIGÉ (code) pour GAP-04-05 et GAP-08-02 — **non
+commité, non testé en conditions réelles**. Le reste (observabilité/DR/
+secrets/organisation) reste un constat honnête de dette structurelle,
+pas une action de code.
+**Date** : 01/09/2026.
+
+---
+
+## MISE À JOUR — 12/09/2026 : GAP-10-01, correctif du contournement du rate limiting (`trouve`/`code_envoye`) + suite de tests
+
+Dans le cadre de la revue de sécurité complète demandée par Bryan
+(architecture + audit exécutable), reprise de la session en cours sur
+`lib/security/authSecurity.ts` (modifiée, non commitée) pour la vérifier,
+la tester et la documenter avant tout commit — conformément à la
+consigne explicite : "ne laisse pas ce correctif non commité ou non
+testé."
+
+### Cause (2 bugs réels, trouvés à deux dates différentes en testant ce module)
+
+1. **03/09/2026** — avant ce correctif, `enregistrerTentative()`
+   incrémentait `attempts_in_window` pour **toute** tentative, y compris
+   un succès. Le flux citoyen normal fait 2 appels par connexion réussie
+   (`lookup` → outcome `trouve`, puis `verify` → outcome `code_correct`) :
+   2 connexions légitimes en 15 minutes suffisaient à atteindre
+   `SEUIL_BLOCAGE` (4) et bloquaient un citoyen honnête dès sa 3e
+   connexion, elle aussi correcte.
+2. **12/09/2026 (trouvé en revérifiant le correctif du 03/09 pour cet
+   audit)** — le correctif du 03/09 avait classé `trouve` (compte trouvé,
+   `lookup`) et `code_envoye` (OTP généré/envoyé, `send-otp`) comme des
+   **succès**, au même titre que `code_correct`. Ces deux outcomes ne
+   prouvent pourtant rien : ils signalent seulement qu'une étape
+   *préalable* à la vérification a eu lieu, avant toute preuve
+   d'identité. Comme ils partagent le même compteur device+IP que
+   l'étape de vérification qui suit, un attaquant pouvait rappeler
+   `lookup`/`send-otp` en boucle pour remettre son compteur d'échecs à
+   zéro à chaque itération et **neutraliser complètement l'escalade
+   warning/blocked/support_only** sur les flux `citoyen_login`,
+   `institution_login` et `institution_register` — sans jamais avoir
+   besoin de deviner un seul code.
+
+### Impact potentiel
+
+Le rate limiting device+IP censé protéger les 5 flux de connexion
+(`citoyen_login`, `citoyen_register`, `institution_login`,
+`institution_register`, `recuperation`) était, pour les 2 endpoints
+`lookup`/`send-otp`, **entièrement contournable** — un attaquant capable
+d'appeler ces routes en boucle ne déclenchait jamais de blocage, tant
+qu'il ne tentait pas réellement un code. Combiné à l'OTP de repli statique
+documenté (`GAP-04-02`, `TEMPORARY ACCEPTED GAP`), ce bug aggravait
+concrètement le risque de credential stuffing sur ces deux flux — sans
+lui, un attaquant énumérant des numéros de téléphone/comptes via `lookup`
+n'aurait jamais été freiné.
+
+### Correctif (`lib/security/authSecurity.ts`)
+
+`OUTCOMES_SUCCES` ne contient plus que les outcomes qui constituent une
+**preuve d'identité réelle** : `code_correct` (OTP/PIN/mot de
+passe/TOTP), `compte_cree` (inscription aboutie), `demande_creee`
+(récupération de compte), `verification_ok` (WebAuthn). `trouve` et
+`code_envoye` retombent désormais dans le chemin échec/incrément normal
+— confirmé par grep exhaustif de tous les appelants réels
+(`enregistrerTentative`/`enregistrerTentativeAdmin`/
+`enregistrerTentativeAdminEntry`, 15 fichiers `app/api/**`) : aucun autre
+outcome de type "étape intermédiaire sans preuve" n'est classé succès à
+tort. `reinitialiserApresSucces()` (ajoutée le 03/09) reste inchangée :
+un vrai succès remet `attempts_in_window` à 0 sans effacer
+`block_cycles_24h` — l'historique d'abus sur 24h d'un device/IP donné
+n'est jamais effacé par un succès isolé au milieu d'une vague d'attaque.
+
+### Preuve / tests
+
+- **13 tests vitest** dans `lib/security/authSecurity.test.ts` (10
+  préexistants + 3 ajoutés pour ce correctif) — `npx vitest run
+  lib/security/authSecurity.test.ts` → **13 passed (13)**, 0 échec :
+  1. *Régression de l'exploit du 12/09* : un device/IP qui répète
+     `trouve` puis `code_envoye` sans jamais vérifier de code atteint
+     bien `warning` puis `blocked` (avant le correctif : jamais).
+  2. *Non-régression du succès (03/09)* : un `code_correct` réinitialise
+     `attempts_in_window` à 0 sur les scopes device **et** ip, tout en
+     préservant `block_cycles_24h` (vérifié explicitement, pas seulement
+     supposé par lecture du code).
+  3. *Non-régression du flux légitime* : une séquence
+     `trouve` → `code_correct` répétée 3 fois de suite en moins de 15
+     minutes ne déclenche jamais `warning` (garde contre une
+     réintroduction du bug du 03/09).
+- `npx tsc --noEmit` sur l'ensemble du projet → **exit 0** (aucune
+  régression de type malgré ~150 fichiers modifiés en parallèle par
+  d'autres chantiers en cours dans le working tree).
+- **Mise à jour 15/09/2026** : `auth_device_security`/`auth_ip_security`
+  confirmées existantes par Bryan (`SELECT table_name FROM
+  information_schema.tables WHERE table_name IN (...)` → les 2 lignes
+  reviennent) — la migration `20260828000004_auth_security.sql` a bien
+  été exécutée. Condition (1) ci-dessous levée. Toujours aucun test réel
+  en conditions applicatives (navigateur/API) effectué depuis cet
+  environnement.
+
+### Statut
+
+🟡 NEEDS REVIEW — correctif complet et testé unitairement, prêt pour
+commit. Sur les 3 conditions de déploiement posées le 30/08 : (1)
+**migration confirmée exécutée** (15/09/2026) ; reste (2) commit +
+déploiement de l'ensemble du chantier `authSecurity.ts` (~16 fichiers de
+routes concernés au total, pas seulement ce correctif), (3) vérification
+en production équivalente au Lot 1.5.
+
+---
+
+## GAP-05-01 / GAP-07-01 — Contrôle d'autorisation serveur manquant sur `/api/qr/validate` (13/09/2026)
+
+Trouvés en marge de la conception du chantier "YELEN Accueil" (check-in
+mobile isolé, `docs/security/YELEN_ACCUEIL_CHECKIN_DESIGN.md`), pendant
+l'audit du code réel de `app/api/qr/validate/route.ts` avant réutilisation.
+Corrigés le même jour, sur demande explicite de Bryan ("P0, ne pas
+attendre une validation supplémentaire").
+
+### Scénario d'exploitation
+
+**GAP-05-01 (autorisation de rôle manquante)** : la route ne vérifiait que
+l'authentification (`getAuthenticatedMembre`), jamais le rôle. Un membre
+`institution_membres` avec un rôle `comptable`, `superviseur` ou
+`dirigeant` — normalement sans accès à l'onglet "Scanner" du dashboard
+(`TAB_MATRIX.scanner = "none"` pour ces 3 rôles) — pouvait appeler
+directement `POST`/`PUT /api/qr/validate` (par exemple avec `curl` ou les
+devtools navigateur) en utilisant son cookie de session légitime, sans
+jamais passer par l'UI qui masque le bouton. Le masquage d'onglet est un
+choix d'ergonomie, jamais un contrôle de sécurité.
+
+**GAP-07-01 (isolation tenant manquante, POST uniquement)** : la requête
+`select` du POST chargeait le RDV par `id` seul (`.eq("id", rdv_id)`),
+sans filtrer sur `institution_id`. Le seul contrôle d'appartenance était
+la comparaison `inst_id !== membre.institutionId`, où `inst_id` est le
+champ `i` du **payload JSON du QR, entièrement fourni par le client**
+avant l'appel réseau — trivialement modifiable dans les devtools ou un
+script avant l'envoi. Un membre authentifié de l'Institution B, en
+possession par un autre moyen (ex. QR intercepté, capture d'écran) d'un
+`rdv_id` + `qr_token` valides appartenant à un RDV de l'Institution A,
+pouvait construire un payload avec `i = <son propre institutionId>` pour
+passer le contrôle applicatif, puis recevoir en retour le détail complet
+du RDV de l'Institution A. Le PUT de la même route avait ce filtre
+`institution_id` depuis l'origine — seul le POST (aperçu avant
+confirmation) en était dépourvu.
+
+### Données potentiellement exposées
+
+Par GAP-07-01 : prénom + nom + téléphone du citoyen (`users.nom`,
+`.prenom`, `.phone`), date/heure et objet du rendez-vous
+(`rdv.date_rdv`/`heure_rdv`/`objet`) — jamais de moyen de paiement ni de
+document, ces champs ne sont pas sélectionnés par cette route. Par
+GAP-05-01, les mêmes données étaient accessibles à un rôle non prévu pour
+ce cas d'usage, plus la possibilité de confirmer/refuser une présence
+(effet de bord métier réel via le PUT, pas seulement une lecture).
+
+### Correctif
+
+- `lib/institutionPermissions.ts` : nouvelle clé RBAC
+  `"appointment.check_in"`, accordée à `{ admin: true, agent: true }` —
+  strictement identique à `TAB_MATRIX.scanner`, aucun changement de
+  comportement pour un rôle qui y avait déjà accès.
+- `app/api/qr/validate/route.ts` :
+  - `POST` et `PUT` appellent désormais `can(membre.role,
+    "appointment.check_in")` immédiatement après la vérification
+    d'authentification, avant toute lecture du RDV — un rôle non
+    autorisé reçoit `403 { error: "Action non autorisée" }` sans qu'aucune
+    donnée de RDV n'ait été chargée.
+  - `POST` ajoute `.eq("institution_id", membre.institutionId)` à la
+    requête de lecture du RDV (même filtre que le `PUT`, qui l'avait déjà).
+    Un RDV d'une autre institution renvoie désormais le même `404 { error:
+    "RDV introuvable" }` générique qu'un `rdv_id` inexistant — pas de
+    distinction observable entre les deux cas.
+
+### Fichiers concernés
+
+- `lib/institutionPermissions.ts`
+- `app/api/qr/validate/route.ts`
+- `app/api/qr/validate/route.test.ts` (nouveau)
+
+### Preuve / tests
+
+10 tests vitest (`app/api/qr/validate/route.test.ts`), couvrant
+exactement les 6 scénarios demandés par Bryan avant commit :
+
+1. Non authentifié → `401` (POST + PUT).
+2. Authentifié, rôle sans `appointment.check_in` (`comptable`/`dirigeant`)
+   → `403`, réponse ne contenant ni le nom du citoyen ni l'ID du RDV ;
+   aucune écriture en base (`presence_status` inchangé, vérifié
+   explicitement sur le PUT).
+3. Agent autorisé, bonne institution → `200`, RDV/confirmation renvoyés
+   (POST + PUT).
+4. Agent autorisé mais rattaché à une autre institution, y compris en
+   falsifiant le champ `i` du payload pour qu'il corresponde à sa propre
+   institution → `404` générique, sans fuite de nom/téléphone (POST +
+   PUT).
+5. QR déjà validé (`presence_status = "present"`) → `400` cohérent, pas
+   un faux succès.
+6. Champs `role`/`institutionId`/`membreId` ajoutés dans le corps de la
+   requête → aucun effet, seule l'identité issue du cookie JWT (via
+   `getAuthenticatedMembre`, jamais du body) est utilisée.
+
+Commande : `npx vitest run app/api/qr/validate/route.test.ts` — à exécuter
+par Bryan (résultat non collé ici, exécution terminale non faite par
+Claude Code sur ce projet). `npx tsc --noEmit` — idem, à exécuter par
+Bryan avant tout commit.
+
+### Statut
+
+🟢 CORRIGÉ (code) — **non commité, non testé en conditions réelles**
+(navigateur/institution réelle). Bryan doit lancer `npx vitest run
+app/api/qr/validate/route.test.ts` et `npx tsc --noEmit` avant tout
+commit, puis idéalement rejouer le scénario 4 avec deux comptes
+institution réels distincts avant déploiement.
+**Date** : 12/09/2026.
+
+---
+
+## AUDIT `select("*")` + IDOR/BOLA + URLs signées (14/09/2026)
+
+Demande explicite de Bryan (« continuer de bout en bout, discipline, 2
+fichiers max, pas à pas ») de tester systématiquement les surfaces déjà
+citées comme sensibles ailleurs dans ce document : tout ID transporté
+par URL/body/QR, les routes de reçus/documents/salariés/signalements/
+réservations, et les URLs signées Supabase Storage (durée, moment de
+création, persistance). Audit en lecture seule d'abord (9 occurrences
+réelles de `select("*")` en code applicatif, 20 appels
+`createSignedUrl()`), corrections ensuite une par une avec validation
+explicite avant chaque fix.
+
+**Vérifié sain, pas de régression trouvée** :
+- Isolation tenant correcte sur `institution/signalements/[id]`,
+  `institution/annonces`, `institution/identite-internationale` (filtre
+  `institution_id`/`membre.institutionId` toujours présent avant le
+  `select("*")`).
+- `post_comments` (`app/page.tsx`, client anon) : `select("*")` sur une
+  table volontairement publique (`FOR SELECT TO anon, authenticated
+  USING (true)`), colonnes déjà toutes publiques par conception — pas
+  une over-exposure.
+- Ordre autorisation → signature respecté sur les routes vérifiées en
+  détail (`documents-citoyen`, `admin/citoyens-identite`) : le filtre
+  tenant s'exécute toujours avant `createSignedUrl()`.
+- Aucune URL signée persistée en base — toutes générées à la demande.
+- Zéro appel `.storage.from(` dans un composant client (`*.tsx`) — la
+  surface Storage est entièrement côté serveur.
+
+**3 findings, traités un par un ci-dessous.**
+
+### GAP-06-10 — `select("*")` sur surface financière exposée au dashboard institution
+
+**Avant** : `app/api/institution/services/route.ts` — `GET` faisait
+`select("*")` sur `paid_services` puis sur `paid_bookings` (avec spread
+complet `...b` dans la réponse JSON), contrairement au reste du code
+financier (`paid-bookings/valider/route.ts`) qui utilise déjà des listes
+de colonnes explicites sur ces mêmes tables. Pas d'exploit identifié sur
+les colonnes actuelles, mais toute colonne future (référence PSP, marge
+interne, note de remboursement) aurait atteint silencieusement le
+dashboard institution sans décision explicite.
+
+**Modification** : colonnes énumérées explicitement pour les deux
+`select()` du `GET` — liste construite à partir de l'historique complet
+des migrations (`paid_services` : 22 colonnes réelles confirmées par
+`ALTER TABLE` successifs jusqu'à `20260821000012` ; `paid_bookings` : 16
+colonnes réelles confirmées jusqu'à `20260805000020`), pas d'une
+supposition sur ce que l'UI utilise — aucune colonne actuelle retirée,
+donc zéro risque de régression fonctionnelle. `POST`/`PATCH` (qui
+renvoient uniquement la ligne que l'institution vient d'écrire
+elle-même, profil de risque différent) laissés inchangés, hors périmètre
+de ce finding précis.
+
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source (20 erreurs
+préexistantes dans `.next/dev/types/*`, artefacts de build Next.js sans
+rapport avec ce fichier, non introduites par ce changement).
+
+**Résultat** : les deux `select()` du `GET` sont désormais des listes
+fermées ; une future colonne sur `paid_services`/`paid_bookings` devra
+être ajoutée ici volontairement pour apparaître dans la réponse.
+
+**Preuve** : `app/api/institution/services/route.ts` (diff), sortie
+`tsc` ci-dessus. **Non commité, non testé en conditions réelles**
+(navigateur) — Bryan doit vérifier que l'onglet Services/Réservations
+affiche toujours l'intégralité des champs attendus avant tout commit.
+**Date** : 14/09/2026.
+
+### GAP-08-03 — `lib/notifications.ts::fetchNotifications()`, code mort
+
+**Avant** : `fetchNotifications(destinataireId, limit)` faisait
+`select("*")` sur `notifications` filtré uniquement par le paramètre
+`destinataireId` reçu — **zéro appelant dans tout le projet** (grep
+exhaustif confirmé, la seule occurrence du nom était sa propre
+définition).
+
+**Correction du diagnostic initial** (honnêteté avant correctif) :
+le rapport d'audit qualifiait ce cas de « latent BOLA ». Vérification
+plus poussée : `lib/notifications.ts` utilise le client Supabase
+**anonyme** du navigateur (déjà documenté en tête de fichier), et la
+table `notifications` a pour seule policy RLS `notif_destinataire_own`
+(`FOR ALL USING (auth.uid() = destinataire_id AND destinataire_type =
+'citoyen')`, migration `20260709000006_alter_notifications.sql`). RLS
+aurait donc bloqué toute lecture croisée **quel que soit** le
+`destinataireId` passé en argument — ce n'était pas un BOLA exploitable,
+seulement du code mort avec un nom de paramètre trompeur (laisse croire
+à un contrôle applicatif qui n'existe pas et n'est pas nécessaire ici).
+
+**Modification** : fonction supprimée entièrement (convention du projet :
+code confirmé inutilisé → suppression complète, pas de dépréciation).
+
+**Test** : `npx tsc --noEmit` → 0 erreur.
+
+**Résultat** : `lib/notifications.ts` ne contient plus de fonction
+lisant `notifications` par un ID reçu en paramètre sans passer par RLS
+comme unique garde-fou documenté.
+
+**Preuve** : `lib/notifications.ts` (diff), sortie `tsc` ci-dessus.
+**Non commité.** **Date** : 14/09/2026.
+
+### GAP-11-02 — TTL 3600s des URLs signées `messagerie-images` (5 fichiers) — EXCEPTION ACCEPTÉE, pas un bug
+
+**Constat initial** : `messagerie-images` (5 routes : `institution/messages/{upload-image,image-url}`,
+`institution/messagerie-yelen/upload-image`, `citoyen/messagerie/{upload-image,image-url}`)
+signe ses URLs pour 3600s, contre 60s partout ailleurs (documents,
+reçus, signalements) — repéré comme une incohérence de politique dans
+l'audit initial.
+
+**Investigation avant correctif** : `MessagerieTab.tsx:187-197`
+(`resolveImageUrls`) signe chaque chemin d'image **une seule fois**, à
+l'arrivée des messages, puis conserve le résultat en state
+(`imageUrls`) pour toute la durée où la conversation reste ouverte à
+l'écran — **aucun mécanisme de re-signature** n'existe. Contrairement à
+un document/reçu (consulté en un geste ponctuel, 60s suffit largement),
+une image de conversation doit rester affichée tant que l'onglet reste
+ouvert, potentiellement bien au-delà d'une minute.
+
+**Décision (Bryan, 14/09/2026)** : accepter 3600s comme un compromis
+produit délibéré plutôt que de réduire la durée — réduire à 60s sans
+ajouter de re-signature casserait visiblement l'affichage des images
+dans toute conversation ouverte plus d'une minute (régression réelle,
+pas seulement théorique). **Aucune modification de code.**
+
+**Amélioration future possible, non engagée** : ajouter une
+re-signature périodique côté `resolveImageUrls` (ex. avant échéance à
+45min) permettrait de redescendre le TTL sans casser l'UX — changement
+de comportement plus large que ce finding, touchant le polling existant
+sur 5 fichiers, à traiter comme un chantier séparé si jamais priorisé.
+
+**Statut** : ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** (même
+format que GAP-10-01). **Date** : 14/09/2026.
+
+---
+
+## Suite de l'audit — 2e lot de routes (14/09/2026, même session)
+
+Sur demande de Bryan (« continue »), audit étendu aux catégories du
+brief pas encore couvertes : tickets support (institution+citoyen),
+conversations, reçus PDF, offres, documents-citoyen (10 routes `[id]`),
+exports (transactions/journal/rapports/données citoyen), Clock In Shift
+(présences/documents employé), gestion des comptes admin
+(`admins/[id]`), et recherche/listing (`Mes clients`, recherche admin).
+
+**Zéro nouveau finding** sur ~22 routes vérifiées pour l'isolation
+tenant/propriétaire — toutes filtrent correctement par
+`institution_id`/`citoyen_id`/`membre.institutionId` avant toute lecture
+ou écriture, y compris dans les fonctions helper partagées
+(`lib/supportTickets.ts`). `app/api/institution/clients/route.ts` en
+particulier : la fiche détail d'un client vérifie qu'un `rdv` existe
+réellement entre ce citoyen et l'institution avant de charger quoi que
+ce soit d'autre (avis, signalements, paiements) — bon pattern, gate
+unique en tête de fonction.
+
+### GAP-05-02 — `search.read` expose des données citoyen à des rôles sans `citoyens.read`
+
+**Avant** : `search.read` (gate de `app/api/admin/search/route.ts`,
+recherche globale institutions+citoyens) était accordée à
+`["super_admin", "moderateur", "support", "admin"]`, alors que
+`citoyens.read` (fiche citoyen complète, `app/api/admin/citoyens/route.ts`)
+est délibérément restreinte à `["super_admin", "admin"]` — chaque autre
+permission liée aux citoyens dans ce fichier a une séparation de rôle
+justifiée par un commentaire explicite (ex. `citoyens.verify`,
+`citoyens.rdv_restrictions`) ; `search.read` n'en avait aucune. Un admin
+`moderateur`/`support` pouvait donc retrouver nom/prénom/téléphone de
+n'importe quel citoyen via la recherche globale, sans lien avec un
+ticket ou une modération en cours.
+
+**Décision (Bryan, 14/09/2026)** : restreindre à
+`["super_admin", "admin"]`, même périmètre que `citoyens.read`. Si
+`support` a besoin de retrouver un citoyen pour traiter un ticket, ce
+sera une recherche séparée scopée à `support.access`, pas une réouverture
+de la recherche globale.
+
+**Modification** : `lib/adminAuth.ts` — `search.read` restreinte, avec
+commentaire expliquant la décision (même style que les autres entrées du
+fichier).
+
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source. Vérifié
+que `app/admin/page.tsx:88-95` (seul appelant de `/api/admin/search`)
+échoue déjà silencieusement sur `!res.ok` (`if (res.ok) setSearchResults(...)`,
+pas de `throw`/crash) — un admin `moderateur`/`support` verra
+simplement une recherche vide, aucune régression visible.
+
+**Résultat** : recherche globale admin alignée sur le même périmètre de
+rôle que la fiche citoyen complète.
+
+**Preuve** : `lib/adminAuth.ts` (diff), `app/admin/page.tsx:88-95`
+(lecture, non modifié), sortie `tsc` ci-dessus. **Non commité, non
+testé en conditions réelles** (session support/modérateur réelle).
+**Date** : 14/09/2026.
+
+---
+
+### GAP-05-03 — Mass assignment sur `app/api/admin/annonces/[id]/route.ts` (PATCH)
+
+**Avant** : `PATCH` faisait `.update(body)` brut sur `annonces`, sans
+liste blanche de colonnes — exactement la même classe de bug déjà
+corrigée le 19/07/2026 sur `admin_users` (voir commentaire dans
+`admins/[id]/route.ts`), mais manquée ici. `annonces.moderate` est
+accordée au rôle `support` (pas seulement `super_admin`/`admin`).
+
+**Risque** : un appelant de cette route pouvait envoyer `institution_id`
+(réassignation d'une annonce à une autre institution),
+`nb_vues`/`nb_clics`/`nb_partages` (métriques falsifiées), ou un `id`
+différent dans le corps (tentative de réécriture de la clé primaire de
+la ligne ciblée par l'URL, risque de collision/corruption).
+
+**Modification** : même pattern que `admins/[id]/route.ts` — liste
+blanche `CHAMPS_MODIFIABLES = ['titre', 'contenu', 'type', 'statut',
+'date_expiration', 'epingle']`, construite à partir de l'usage réel
+(`app/admin/annonces/page.tsx:44-68` : le formulaire complet envoie
+exactement ces 6 champs, le toggle épinglage envoie `epingle` seul —
+zéro risque de régression). `admin_logs.details` loggue désormais
+`updates` (filtré) au lieu de `body` (brut), même cohérence que
+`admins/[id]/route.ts`.
+
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source.
+
+**Résultat** : `institution_id`, `id`, `created_at`, `nb_vues`,
+`nb_clics`, `nb_partages`, `format`, `media_urls`, `image_url` ne sont
+plus modifiables via cet endpoint.
+
+**Preuve** : `app/api/admin/annonces/[id]/route.ts` (diff), sortie `tsc`
+ci-dessus. **Non commité, non testé en conditions réelles** — Bryan
+doit vérifier que l'édition/l'épinglage d'annonce fonctionnent toujours
+avant tout commit. **Date** : 14/09/2026.
+
+---
+
+### GAP-08-04 — Condition de course (TOCTOU) sur la capacité des créneaux RDV
+
+**Contexte** : demande explicite de Bryan ("suis le projet, pas mon avis
+— revue critique de l'ensemble") d'élargir l'audit au-delà des patterns
+déjà couverts (select(*), IDOR, mass assignment, SSRF, randomness) vers
+des classes de bug pas encore testées. Repéré en relisant
+`app/rdv/[id]/actions.ts` suite au correctif GAP-08-02 (01/09/2026, qui
+avait ajouté la validation serveur elle-même, sans traiter l'atomicité).
+
+**Avant** : `validerCreneauServeur()` comptait les lignes `rdv`+
+`paid_bookings` existantes pour un créneau, comparait à
+`institutions.capacite_par_creneau` (simple colonne `integer`, défaut 1,
+migration `20260720000005` — aucun trigger ni contrainte DB derrière),
+renvoyait "ok" si sous la capacité — puis `createRdv()` insérait
+séparément, sans aucun verrou reliant les deux opérations.
+
+**Risque** : deux citoyens réservant le même dernier créneau disponible à
+quelques centaines de ms d'écart passent tous les deux le comptage avant
+qu'aucune insertion n'ait eu lieu → surréservation silencieuse, sans
+erreur renvoyée à personne. Plausible organiquement sous charge normale
+sur un créneau populaire (capacité par défaut = 1), pas besoin
+d'intention malveillante.
+
+**Modification** :
+- Nouvelle fonction Postgres `reserver_creneau_rdv()`
+  (`supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`)
+  — comptage + insertion rendus atomiques sous
+  `pg_advisory_xact_lock(hashtext(institution_id||date_rdv||heure_rdv))`,
+  relâché automatiquement en fin de transaction (1 appel RPC = 1
+  transaction PostgREST). **Volontairement sans `SECURITY DEFINER`** :
+  la fonction s'exécute avec les droits de l'appelant, donc les policies
+  RLS existantes sur `rdv` (ownership `auth.uid()=citoyen_id`,
+  restriction no-show de `citoyen_rdv_restrictions`, migration
+  `20260903000001`) continuent de s'appliquer exactement comme sur un
+  insert direct — rien n'est contourné, seule la fenêtre de course sur
+  la capacité est fermée. Paramètres `date_rdv`/`heure_rdv` acceptés en
+  `text` et comparés/insérés tels quels (le code JS existant n'était déjà
+  pas certain du type exact de `heure_rdv` — voir commentaire d'origine)
+  pour ne jamais deviner un type de colonne non confirmé par
+  `information_schema.columns` (`rdv` fait partie des tables d'origine
+  sans `CREATE TABLE` dans les migrations, voir CLAUDE.md /schéma).
+- `app/rdv/[id]/actions.ts` : `validerCreneauServeur()` ne vérifie plus
+  que institution existe/validée + créneau dans les disponibilités
+  (logique JS non triviale à reproduire en SQL, `generateSlotsInRange`) ;
+  le comptage de capacité en a été retiré (devenu redondant, remplacé par
+  la fonction atomique). `createRdv()` appelle désormais
+  `supabase.rpc("reserver_creneau_rdv", {...})` au lieu d'un
+  `.insert(row)` direct — même client authentifié citoyen
+  (`createAuthedSupabaseClient`), erreur `CRENEAU_COMPLET` traduite dans
+  le même message humanisé qu'avant, tout le reste retombe sur le
+  message générique existant.
+
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source.
+
+**Non fait, honnêteté explicite** :
+- **Migration jamais exécutée** — comme pour toute migration SQL de ce
+  projet, Claude Code n'exécute jamais de SQL directement ; Bryan doit
+  l'exécuter dans le SQL Editor Supabase avant que ce correctif soit
+  actif (sans elle, `supabase.rpc("reserver_creneau_rdv", ...)` échoue
+  avec une fonction introuvable — **la réservation RDV serait cassée**
+  tant que le code est déployé sans la migration).
+- **Aucun test de concurrence réel possible** dans cet environnement
+  (nécessiterait deux requêtes simultanées contre une vraie instance
+  Postgres) — le raisonnement sur l'atomicité du verrou consultatif est
+  correct par construction (sémantique Postgres documentée), mais jamais
+  observé en conditions réelles.
+- **Aucun test fonctionnel du parcours de réservation normal** (créneau
+  libre accepté, créneau complet refusé avec le bon message) — à faire
+  par Bryan avant tout commit, en priorité sur ce correctif précis étant
+  donné qu'il touche le flux de réservation principal du produit.
+
+**Bug réel trouvé en testant (15/09/2026)** : premier test en conditions
+réelles → erreur `column "date_rdv" is of type date but expression is
+of type text`. Le commentaire de la migration affirmait à tort que
+Postgres appliquerait un cast d'assignation automatique text→date dans
+un `INSERT` — faux pour une variable plpgsql explicitement typée
+`text` (l'auto-cast habituel via PostgREST sur un insert direct depuis
+le client ne s'applique pas à l'intérieur d'une fonction SQL). Confirme
+au passage, par l'erreur elle-même, que `rdv.date_rdv` est bien `date`
+(et par symétrie `heure_rdv` est `time`) — ground truth qu'aucune
+migration ne donnait puisque `rdv` est une table d'origine. Corrigé par
+`supabase/migrations/20260915000002_fix_cast_reserver_creneau.sql`
+(`CREATE OR REPLACE`, cast explicite `p_date_rdv::date`/
+`p_heure_rdv::time` uniquement dans les `INSERT`, les comparaisons
+`WHERE` — qui castent la colonne EN text — n'avaient pas ce problème).
+**Exécutée par Bryan, testée en conditions réelles : les deux flux
+(gratuit et payant) fonctionnent.**
+
+**Statut** : 🟢 VERIFIED — code + 2 migrations exécutées, `tsc` propre,
+**testé en conditions réelles par Bryan, les deux flux confirmés
+fonctionnels**.
+**Preuve** : `supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`
++ `20260915000002_fix_cast_reserver_creneau.sql` (exécutées),
+`app/rdv/[id]/actions.ts` (diff), sortie `tsc`, test réel confirmé par
+Bryan. **Date** : 15/09/2026.
+
+### GAP-09-03 — `avis` : insertion client-directe, policy RLS INSERT confirmée insuffisante — CORRIGÉ
+
+**Contexte** : en cherchant d'autres tables avec le même pattern que
+GAP-09-02 (insert client-direct, RLS comme seul garde-fou possible,
+aucune validation métier applicative), repéré `app/mes-rdv/page.tsx:612`
+— `supabase.from("avis").insert({..., rdv_id: rdv.id, ...})` envoyé
+directement depuis le navigateur, `rdv_id` non revérifié côté serveur.
+
+**Pas une découverte isolée** : `docs/product/YELEN_TRUST_DATA_AUDIT.md`
+(16/08/2026, section 2.6) avait déjà documenté ce même point et ne l'a
+jamais refermé — `avis_citoyen_own` "référencée en commentaire mais son
+CREATE POLICY littéral **[NV]**, non retrouvé (pré-existante)". `avis`
+fait partie des tables d'origine sans `CREATE TABLE`/policies dans les
+migrations (comme `rdv`) — contrairement à GAP-08-04/GAP-09-02 où la
+policy exacte était confirmée par migration, ici le contenu réel de la
+policy INSERT sur `avis` reste **inconnu**, un mois après avoir été
+signalé une première fois.
+
+**Risque potentiel, non confirmé** : si la policy ne vérifie que
+`auth.uid() = citoyen_id` (comme c'était le cas pour `paid_bookings`/
+`rdv` avant GAP-09-02), un citoyen pourrait déposer un avis lié à un
+`rdv_id` non terminé, voire n'appartenant pas à lui — avec impact
+direct sur `institutions.moyenne_avis`/`nb_avis` (recalculées par
+trigger automatique).
+
+**Confirmé par Bryan (15/09/2026)** :
+```
+policyname,cmd,qual,with_check
+avis_citoyen_own,ALL,(auth.uid() = citoyen_id),null
+```
+Une seule policy, `FOR ALL`, `with_check` **NULL** — en Postgres, une
+policy `FOR ALL` sans `WITH CHECK` séparé réutilise `USING` pour valider
+les INSERT (même piège déjà documenté dans CLAUDE.md
+/pieges-techniques-connus, déjà rencontré une fois sur `notifications`).
+Confirmé : la seule vérification à l'insertion était bien
+`citoyen_id = auth.uid()` — aucune vérification de `rdv_id`/statut
+terminé/cohérence `institution_id`, exactement le risque suspecté.
+
+**Modification** : nouveau `soumettreAvis()` dans `app/mes-rdv/actions.ts`
+(même fichier, même style que `annulerRdv`/`reporterRdv` déjà en place —
+réutilise `chargerRdvEtVerifier()`) : vérifie l'appartenance du rdv,
+`statut==='termine'`, dérive `institution_id` du rdv réel (jamais du
+client), empêche un second avis pour le même `rdv_id`+`citoyen_id`
+(aucune contrainte `UNIQUE` connue en base sur ce couple, contrairement
+à `avis_utile`). Gère la notification institution en interne (fusionne
+ce que faisait `/api/citoyen/avis/notifier-publication` en aller-retour
+séparé). `app/mes-rdv/page.tsx::handleEnvoyerAvis` basculé sur cet
+appel ; `notifierPublicationAvis()` (devenue code mort dans ce fichier)
+supprimée. La route API `/api/citoyen/avis/notifier-publication` reste
+utile pour le flux séparé "Mes avis" (édition/publication d'un
+brouillon existant, `mes-avis-client.tsx`, non touché — ce flux ne fait
+qu'un `UPDATE` sur des champs de contenu déjà propres à l'avis, hors
+périmètre de ce gap).
+
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source.
+
+**Différence importante avec GAP-08-04/GAP-09-02** : **ce correctif ne
+dépend d'aucune migration** — pure code applicatif, utilise le
+`service_role` déjà en place dans `app/mes-rdv/actions.ts`. Déployable
+indépendamment des deux autres.
+
+**Non fait, honnêteté explicite** : aucun test en conditions réelles
+(parcours "laisser un avis" depuis Mes RDV) — à faire par Bryan avant
+tout commit.
+
+**Statut** : 🟢 CORRIGÉ (code) — **non commité, non testé en conditions
+réelles**. **Date** : 15/09/2026.
+
+### GAP-09-02 — Flux de réservation PAYANT sans aucune validation serveur (plus grave que GAP-08-04)
+
+**Découvert en continuant la revue de GAP-08-04** : le flux gratuit avait
+une condition de course sur la capacité, mais au moins il passait par
+une validation serveur (`validerCreneauServeur()`). En vérifiant si le
+flux **payant** avait le même défaut, découverte qu'il n'a **jamais eu
+aucune validation serveur du tout** — pas même une version racy.
+
+**Avant** : pour un service payant, `app/rdv/[id]/page.tsx` insérait
+directement depuis le navigateur dans `paid_bookings` PUIS `rdv` (deux
+appels séparés, session Supabase Auth du citoyen). Les seules policies
+RLS en jeu (`paid_bookings_citoyen_insert`, `rdv_citoyen_insert`,
+migration `20260720000004`) ne vérifient que `auth.uid() = citoyen_id`
+— **aucune vérification que l'institution existe/est validée, aucune
+vérification que le créneau correspond aux disponibilités réelles,
+aucune vérification de capacité**. Un citoyen authentifié pouvait
+réserver n'importe quel créneau (hors capacité, hors disponibilités,
+pour une institution suspendue) en appelant l'insert directement — pas
+besoin de course concurrente, juste absence totale de contrôle. Les
+deux inserts n'étaient de plus pas atomiques entre eux : un échec du
+second après succès du premier laissait un `paid_booking` orphelin sans
+`rdv` jumeau. Le `confirmation_code`/`qr_token` était en plus généré
+côté navigateur (`genCode()`, `Math.random()`) et entièrement
+contrôlable par le client puisque c'est lui qui faisait l'insert.
+
+**Risque** : abus/spam du système de réservation payant d'une
+institution (surréservation massive, pas seulement de 1-2 places),
+réservations pour des institutions suspendues/non validées,
+réservations hors créneaux réels, `paid_booking` orphelins en cas
+d'échec partiel.
+
+**Modification** :
+- `reserver_creneau_rdv_payant()`, ajoutée dans la même migration que
+  GAP-08-04 (`supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`)
+  — même verrou de créneau, vérifie en plus que le service payant
+  appartient bien à l'institution ciblée et est actif
+  (`SERVICE_INTROUVABLE` sinon), puis insère `paid_bookings` ET `rdv`
+  dans la même transaction (tout ou rien). Toujours sans `SECURITY
+  DEFINER`.
+- Nouveau Server Action `creerReservationPayante()`
+  (`app/rdv/[id]/actions.ts`) — même structure que `createRdv()`
+  (validations, `validerCreneauServeur()` réutilisée telle quelle pour
+  institution/créneau, appel RPC pour capacité+insertion atomique).
+- `app/rdv/[id]/page.tsx` : le bloc payant (inserts bruts +
+  `notifierReservationPayante`) remplacé par un appel à
+  `creerReservationPayante(...)`. `notifierReservationPayante` (devenue
+  code mort) et `genCode()` (devenue code mort, remplacée par la
+  génération serveur) supprimées.
+- **Bonus consistant** : `createRdv()` (flux gratuit, déjà touché par
+  GAP-08-04) génère désormais lui aussi son `qr_token` côté serveur
+  (`crypto.randomInt`, même fonction que GAP-04-06) au lieu de
+  l'accepter du client — fermait la même faiblesse que celle corrigée
+  pour le flux payant, dans une fonction que je modifiais déjà de toute
+  façon. `CreateRdvResult` retourne désormais `code` (généré serveur),
+  affiché par `page.tsx` sur l'écran de succès à la place de l'ancienne
+  valeur locale.
+
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source.
+
+**Non fait, honnêteté explicite** :
+- **Même dépendance bloquante que GAP-08-04** : la migration doit être
+  exécutée par Bryan avant tout déploiement (les deux fonctions vivent
+  dans le même fichier de migration).
+- **Aucun test de bout en bout possible ici** (parcours réel : sélection
+  service payant → créneau → confirmation → écran de succès avec QR) —
+  c'est le flux de réservation payante, un des plus utilisés du
+  produit ; à tester en priorité absolue par Bryan avant tout commit.
+- `docs/product/YELEN_BOOKING_EXTERNAL_INTEGRATION_PHASE0.md` référence
+  encore l'ancienne fonction `notifierReservationPayante` (ligne 105 de
+  son tableau d'inventaire de routes) — devenue obsolète par ce
+  correctif, non mise à jour dans cette session (document d'audit
+  produit, hors périmètre immédiat).
+
+**Statut** : 🟢 VERIFIED — code + 2 migrations exécutées (voir bug de
+cast réel trouvé et corrigé, détail dans GAP-08-04 ci-dessus — même
+fonctions, même correctif), `tsc` propre, **testé en conditions
+réelles par Bryan, flux payant confirmé fonctionnel**.
+**Preuve** :
+`supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`
++ `20260915000002_fix_cast_reserver_creneau.sql` (exécutées),
+`app/rdv/[id]/actions.ts`, `app/rdv/[id]/page.tsx` (diffs), sortie
+`tsc`, test réel confirmé par Bryan. **Date** : 15/09/2026.
+
+### GAP-04-06 — Randomness non cryptographique pour l'OTP citoyen
+
+**Avant** : `lib/auth/otp.ts::genererCode6Chiffres()` utilisait
+`Math.random()` (PRNG non cryptographique, xorshift128+ en V8/Node),
+alors que le flux institution équivalent
+(`app/api/institution/auth/send-otp/route.ts:132`) utilise déjà
+`crypto.randomInt()` depuis le durcissement du 13/08/2026 — incohérence,
+le flux citoyen (population principale de la plateforme) avait été
+manqué.
+
+**Risque** : `Math.random()` n'est pas conçu pour un usage sécuritaire —
+son état interne est théoriquement reconstituable à partir d'une
+séquence de sorties observées dans le même contexte d'exécution
+(CWE-338). Ce chemin de code est **aujourd'hui dormant** : il ne
+s'active que si `SMS_PROVIDER` est configuré (pas encore le cas, voir
+commentaires du fichier — la connexion citoyen réelle utilise
+actuellement `CITOYEN_OTP_FALLBACK`, une valeur fixe, pas ce
+générateur). Corrigé maintenant plutôt que découvert au moment où
+Nimba SMS sera branché.
+
+**Modification** : `crypto.randomInt(100000, 1000000)` — même fonction,
+mêmes bornes que le générateur institution déjà en place.
+
+**Test** : `npx tsc --noEmit` → 0 erreur.
+
+**Résultat** : les deux flux OTP (citoyen, institution) utilisent
+désormais la même source d'aléa cryptographique.
+
+**Preuve** : `lib/auth/otp.ts` (diff), sortie `tsc` ci-dessus. **Non
+commité**, aucun test fonctionnel nécessaire (chemin dormant,
+comportement observable identique — 6 chiffres, mêmes bornes). **Date**
+: 14/09/2026.
+
+### GAP-09-01 — SSRF via `lib/recuPdf.ts::chargerImageDistante()`
+
+**Avant** : la génération du PDF de reçu fait un `fetch(url)` serveur
+brut sur `institutions.logo` et `users.photo_url`. Aucun des deux
+champs n'est validé comme URL à l'écriture : `institutions.logo`
+(`app/api/institution/profile/route.ts::EDITABLE_FIELDS`) n'a aucune
+validation contrairement à `website` (seul champ URL déjà protégé,
+chantier P0 Stored XSS du 17/08/2026 — le commentaire du fichier le dit
+explicitement : "website est le SEUL champ EDITABLE_FIELDS de type URL,
+validé") ; `users.photo_url` (`app/profil/actions.ts:37`, Server Action
+`updateCitoyenProfile`) accepte n'importe quelle chaîne sans validation.
+Même `validerUrlExterne()` (déjà utilisée pour `website`) n'aurait pas
+suffi ici — elle vérifie uniquement le schéma `http(s):`, jamais la
+cible réseau, donc `http://169.254.169.254/...` la passerait sans
+problème (protection XSS, pas SSRF).
+
+**Risque** : une institution ou un citoyen authentifié règle son
+`logo`/`photoUrl` sur une URL interne (métadonnées cloud, service
+interne, `localhost`), puis déclenche la génération d'un reçu PDF — le
+serveur exécute alors une requête sortante vers cette cible. Aggravé
+par l'absence de limite de taille/timeout sur le buffer téléchargé
+(risque d'épuisement mémoire avec une cible volumineuse/lente).
+
+**Modification** : `chargerImageDistante()` n'accepte désormais que les
+URLs commençant par le préfixe Storage public du projet
+(`${NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/`) — toute image
+légitime provient exclusivement de l'upload applicatif
+(`getPublicUrl()`), donc cette restriction ne change rien pour l'usage
+réel. Toute autre valeur est traitée comme absente (comportement déjà
+non bloquant existant), jamais fetchée.
+
+**Test** : `npx tsc --noEmit` → 0 erreur dans le code source.
+
+**Résultat** : le seul `fetch()` serveur sur une donnée utilisateur
+identifié dans cette session est désormais borné à l'origine Storage du
+projet.
+
+**Preuve** : `lib/recuPdf.ts` (diff), sortie `tsc` ci-dessus. **Non
+commité, non testé en conditions réelles** — Bryan doit vérifier qu'un
+reçu avec logo/photo réels (uploadés normalement) continue d'afficher
+ces images après ce correctif. **Date** : 14/09/2026.
+
+### Balayage complémentaire — mass assignment sur `.update()`
+
+Suite à GAP-05-03, balayage de tous les appels `.from(...).update(<variable>)`
+sous `app/api/**` (grep large, ~20 sites hors hachage cryptographique
+`crypto.createHash().update()`, faux positifs du même motif). Spot-check
+des plus sensibles : `institution/rdv/statut` (machine à états par
+`action`, jamais de body brut), `institution/clock-in/employees` (chaque
+champ validé individuellement, `role`/`statut` vérifiés contre une liste
+fermée), `admin/recuperation` (`update` construit par branche `action`,
+jamais un passthrough). Tous confirmés sains — `annonces/[id]/route.ts`
+(GAP-05-03) était l'exception, pas la règle.
+
+---
+
+### Balayage complémentaire — randomness et JWT
+
+Après GAP-04-06, vérification de l'hygiène cryptographique plus large :
+`jose` (pas `jsonwebtoken`) pour tous les JWT du projet — conçu pour
+être résistant à la confusion d'algorithme (n'implémente jamais
+`alg:none`, valide la compatibilité clé/algorithme). Jetons de défi
+2FA (`mintTotpChallengeToken`/`mintInstitutionTotpChallengeToken`)
+confirmés avec `.setExpirationTime(...)` explicite (5 min), pas de
+jeton sans expiration trouvé. Aucun `jwt.verify()` non restreint trouvé
+(le projet n'utilise pas `jsonwebtoken`, seulement `jose`). Aucune autre
+occurrence de `Math.random()` sur un chemin sécuritaire — les 5 seules
+autres occurrences (`app/api/**/media/route.ts`) servent uniquement à
+un suffixe de nom de fichier sur des buckets déjà publics par
+conception (voir revue critique express du 01/09/2026, déjà classée
+"Low — hygiène, pas un gap réel"). Rien à corriger.
+
+---
+
+## Clôture de l'audit `select("*")` + IDOR/BOLA + URLs signées + revue critique élargie (14-15/09/2026)
+
+11 findings traités au total, **9 vérifiés/corrigés et confirmés
+fonctionnels** : 6 déployables sans migration mais **non commités**
+(GAP-06-10, GAP-05-02, GAP-05-03, GAP-09-01, GAP-04-06, GAP-09-03), 2
+**testés en conditions réelles par Bryan et confirmés fonctionnels**
+après un bug réel de cast trouvé et corrigé en testant (GAP-08-04
+condition de course RDV, GAP-09-02 flux payant sans validation — le plus
+sévère des deux), 1 vérifié sain sans action requise (GAP-11-01, 7
+buckets Storage confirmés privés). Plus 1 code mort supprimé (GAP-08-03,
+plus `genCode()`/`notifierReservationPayante`/`notifierPublicationAvis`
+nettoyées en marge), 1 accepté et documenté sans changement de code
+(GAP-11-02), et ~65 routes/fichiers supplémentaires audités sans nouveau
+problème trouvé (`.update()`/`.delete()`, SSRF, open redirect, path
+traversal, JWT/randomness). Aucun commit effectué dans cette session ;
+les 3 exécutions SQL (2 migrations RDV + les requêtes de vérification)
+ont toutes été faites par Bryan, conforme au protocole. Journal complet
+des décisions dans `YELEN_SECURITY_MASTER.md` (DEC-2026-09-14-01 à
+DEC-2026-09-15-04).
+
+**✅ Migration exécutée** : `supabase/migrations/20260915000001_reserver_creneau_rdv_atomique.sql`
+exécutée avec succès par Bryan le 15/09/2026 ("Success. No rows
+returned") — les deux fonctions (`reserver_creneau_rdv`,
+`reserver_creneau_rdv_payant`) existent désormais en base. GAP-08-04 et
+GAP-09-02 passent de 🟠 IN PROGRESS à 🟡 NEEDS REVIEW. **Reste avant tout
+commit** : tester réellement les deux parcours de réservation (gratuit
+et payant) en conditions réelles — code jamais exercé en navigateur
+depuis cet environnement.
+
+---
+
+## LOT 5 — Audit RBAC "accès direct par URL", institution (16/09/2026)
+
+Déclenché par une proposition externe (architecture admin/workspace,
+inspirée OWASP/Shopify) suggérant que Yelen ne vérifierait la
+tenant/rôle qu'au niveau de l'URL. Vérifié faux comme principe général —
+`getAuthenticatedMembre()` + comparaison explicite de `institutionId`
+(ex. `profile/route.ts:25`) est le pattern dominant sur les ~91 routes
+`/api/institution/**` — mais l'audit ciblé a bien trouvé 3 vraies
+exceptions à ce pattern.
+
+**Méthode** : sous-agent fork en lecture seule (accord explicite de
+Bryan pour cette tâche précise, cf. règle CLAUDE.md sur l'usage
+d'Agent), chargé de vérifier pour chaque `TAB_KEY` restant (hors
+équipe/membres/premiere-connexion déjà couverts la même session) que
+la ou les routes API consommées font un contrôle serveur explicite du
+rôle (`can()`/`canAccessTab()`), pas seulement de l'authentification/
+tenant. Chaque finding revérifié manuellement (lecture directe du
+fichier) avant correction — voir GAP-05-04 dans le tableau récapitulatif
+pour le détail des 3 routes corrigées et GAP-05-05 pour le périmètre
+non couvert.
+
+**Avant → Modification** :
+- `app/api/institution/messages/route.ts` (GET) : aucun contrôle →
+  `canAccessTab(membre.role, "messagerie", membre.accesRestreints)`,
+  403 si `"none"`. Couvre les 3 modes (aucun paramètre, `citoyen_id`,
+  `rdv_id`) — "messagerie" a exactement le même accès que "mes-clients"
+  pour les 5 rôles (vérifié dans `TAB_MATRIX`).
+- `app/api/institution/security-status/route.ts` (GET) : aucun contrôle
+  → `canAccessTab(membre.role, "parametres-securite")`, 403 si
+  `"none"`. Sessions institution-wide signées avant la fondation
+  multi-comptes (`membre` null, pas de `membreId` dans le JWT) laissées
+  inchangées (traitées comme avant, équivalent compte_principal/admin).
+- `app/api/institution/qr-provenance/route.ts` (GET) : même ajout,
+  `canAccessTab(membre.role, "codeqr", membre.accesRestreints)`.
+- `app/[slug]/[id]/components/MessagerieTab.tsx` et
+  `SecuriteCompteTab.tsx` : ajout d'un état `forbidden` (détection du
+  403) + écran "Cet écran est réservé..." au lieu d'un onglet vide sans
+  explication (même pattern que `EquipeTab.tsx`).
+
+**Test** : `npx tsc --noEmit` exit 0 sur l'ensemble du lot.
+
+**Résultat** : 🟢 CORRIGÉ pour les 3 routes (GAP-05-04). **Non commité,
+non testé en conditions réelles par Bryan** (curl/Postman avec un compte
+de test comptable/agent, ou navigation directe par URL avec chaque
+rôle).
+
+**Cas ouvert (GAP-05-05)** : l'audit n'a couvert qu'un sous-ensemble des
+`TAB_KEYS` (budget du fork épuisé). Restent non vérifiés :
+`disponibilites`, `services`, `analyse/*`, `signalements/*`,
+`documents-citoyen/*`, `clock-in/*`, `transactions`, `rapports/*`,
+`offres/*`, `partenariat`, `documents-financiers`, `documents-travail`.
+Aucune raison de penser qu'ils sont à risque plus qu'un autre (le
+pattern correct domine largement sur l'échantillon déjà vérifié), mais
+non confirmé — à traiter dans un second passage avant de clore
+définitivement ce chantier RBAC.

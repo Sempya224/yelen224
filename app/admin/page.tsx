@@ -16,6 +16,8 @@ import { D } from './adminTheme'
 import { Ic } from './adminIcons'
 import { Badge, KPICard, LineChart, BarChart, PieChart, SlidePanel, ToastContainer, fmtMoney, fmtNum, timeAgo } from './adminUiKit'
 import type { KPIs, Institution, Signalement, ActivityItem, ToastItem } from './adminTypes'
+import { YelenLoader } from '@/components/YelenLoader'
+import { SIGNALEMENT_STATUTS_OUVERTS } from '@/lib/signalementsConstants'
 
 export default function AdminOverview() {
   const router = useRouter()
@@ -179,12 +181,12 @@ export default function AdminOverview() {
   const SECT_COLORS = [D.yellow, D.blue, D.green, D.orange, D.purple, D.red, '#06b6d4', '#ec4899']
 
   if (loading) {
-    return <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Initialisation du Command Center...</div>
+    return <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={28} label="Initialisation du Command Center…" labelColor={D.textMuted}/></div>
   }
 
   return (
     <div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }`}</style>
+      <style>{`@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }`}</style>
 
       <ToastContainer toasts={toasts} remove={id => setToasts(t => t.filter(x => x.id !== id))}/>
 
@@ -220,7 +222,7 @@ export default function AdminOverview() {
           )}
         </div>
         <button onClick={() => fetchAll(true)} disabled={refreshing} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 14px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '12px', color: D.textSub, cursor: 'pointer', opacity: refreshing ? 0.5 : 1 }}>
-          <span style={{ display: 'inline-flex', animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }}>{Ic.Refresh(D.textSub)}</span>
+          {refreshing ? <YelenLoader size={14} color={D.textSub}/> : <span style={{ display: 'inline-flex' }}>{Ic.Refresh(D.textSub)}</span>}
           Actualiser
         </button>
       </div>
@@ -333,8 +335,8 @@ export default function AdminOverview() {
                       <p style={{ margin: '0 0 2px', fontSize: '12px', fontWeight: '600', color: D.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inst.name}</p>
                       <p style={{ margin: '0 0 8px', fontSize: '10px', color: D.textMuted }}>{inst.category || '—'} · {inst.ville || '—'} · {timeAgo(inst.created_at)}</p>
                       <div style={{ display: 'flex', gap: '5px' }}>
-                        <button onClick={() => validerInst(inst.id)} disabled={actionLoading === inst.id + 'v'} style={{ flex: 1, padding: '5px 0', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', fontSize: '11px', fontWeight: '600', color: D.green, cursor: 'pointer' }}>
-                          {actionLoading === inst.id + 'v' ? '...' : 'Valider'}
+                        <button onClick={() => validerInst(inst.id)} disabled={actionLoading === inst.id + 'v'} style={{ flex: 1, padding: '5px 0', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', fontSize: '11px', fontWeight: '600', color: D.green, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {actionLoading === inst.id + 'v' ? <YelenLoader size={10} color={D.green}/> : 'Valider'}
                         </button>
                         <button onClick={() => { setSelectedInst(inst); setActivePanel('refus') }} style={{ flex: 1, padding: '5px 0', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: '5px', fontSize: '11px', fontWeight: '600', color: D.red, cursor: 'pointer' }}>
                           Refuser
@@ -399,8 +401,8 @@ export default function AdminOverview() {
                       </div>
                       <p style={{ margin: '0 0 8px', fontSize: '11px', color: D.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sig.description || '—'} · {timeAgo(sig.created_at)}</p>
                       <div style={{ display: 'flex', gap: '5px' }}>
-                        <button onClick={() => resoudreSig(sig.id)} disabled={actionLoading === sig.id + 'rs'} style={{ flex: 1, padding: '5px 0', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', fontSize: '11px', fontWeight: '600', color: D.green, cursor: 'pointer' }}>
-                          {actionLoading === sig.id + 'rs' ? '...' : 'Résoudre'}
+                        <button onClick={() => resoudreSig(sig.id)} disabled={actionLoading === sig.id + 'rs'} style={{ flex: 1, padding: '5px 0', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', fontSize: '11px', fontWeight: '600', color: D.green, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {actionLoading === sig.id + 'rs' ? <YelenLoader size={10} color={D.green}/> : 'Résoudre'}
                         </button>
                         <button onClick={() => { setSelectedSig(sig); setActivePanel('sig_detail') }} style={{ flex: 1, padding: '5px 0', backgroundColor: D.blueDim, border: `1px solid ${D.blueBrd}`, borderRadius: '5px', fontSize: '11px', fontWeight: '600', color: D.blue, cursor: 'pointer' }}>
                           Détail
@@ -463,8 +465,8 @@ export default function AdminOverview() {
           style={{ width: '100%', padding: '10px 12px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, fontSize: '13px', color: D.text, resize: 'vertical', outline: 'none', fontFamily: D.font, boxSizing: 'border-box', marginBottom: '12px' }}
         />
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => selectedInst && refuserInst(selectedInst.id)} disabled={!refusMotif.trim() || !!actionLoading} style={{ flex: 1, padding: '11px', backgroundColor: D.red, border: 'none', borderRadius: D.radiusSm, color: '#fff', fontSize: '13px', fontWeight: '600', cursor: 'pointer', opacity: !refusMotif.trim() ? 0.5 : 1 }}>
-            {actionLoading ? 'En cours...' : 'Confirmer le refus'}
+          <button onClick={() => selectedInst && refuserInst(selectedInst.id)} disabled={!refusMotif.trim() || !!actionLoading} style={{ flex: 1, padding: '11px', backgroundColor: D.red, border: 'none', borderRadius: D.radiusSm, color: '#fff', fontSize: '13px', fontWeight: '600', cursor: 'pointer', opacity: !refusMotif.trim() ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            {actionLoading ? <><YelenLoader size={12} color="#fff"/>En cours…</> : 'Confirmer le refus'}
           </button>
           <button onClick={() => setActivePanel(null)} style={{ padding: '11px 16px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, fontSize: '13px', cursor: 'pointer' }}>Annuler</button>
         </div>
@@ -523,7 +525,7 @@ export default function AdminOverview() {
               <p style={{ margin: '0 0 6px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px', color: D.textMuted }}>Description</p>
               <p style={{ margin: 0, fontSize: '13px', color: D.text, lineHeight: 1.6 }}>{selectedSig.description || 'Aucune description'}</p>
             </div>
-            {selectedSig.statut === 'nouveau' && (
+            {(SIGNALEMENT_STATUTS_OUVERTS as readonly string[]).includes(selectedSig.statut) && (
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={() => resoudreSig(selectedSig.id)} style={{ flex: 1, padding: '11px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: D.radiusSm, color: D.green, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Marquer résolu</button>
                 <button onClick={() => ignorerSig(selectedSig.id)} style={{ flex: 1, padding: '11px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Ignorer</button>

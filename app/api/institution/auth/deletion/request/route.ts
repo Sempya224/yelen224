@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getAuthenticatedMembre } from '@/lib/institutionAuth'
+import { getAuthenticatedMembre, estReauthRecente } from '@/lib/institutionAuth'
 import { can } from '@/lib/institutionPermissions'
 import { enregistrerAction, getMembreNomPourJournal } from '@/lib/journalActivite'
 
@@ -35,6 +35,13 @@ export async function POST(request: NextRequest) {
       })
       return NextResponse.json({ error: 'Accès réservé aux administrateurs', code: 'FORBIDDEN' }, { status: 403 })
     }
+    // Moteur de réauthentification (16/09/2026) — déclencher le délai de
+    // grâce de suppression du compte est l'action la plus critique de ce
+    // fichier, jusqu'ici protégée uniquement par le rôle. Le PIN (+ TOTP si
+    // activé) doit être reconfirmé dans les 10 dernières minutes.
+    if (!estReauthRecente(membre)) {
+      return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: 'REAUTH_REQUIRED' }, { status: 403 })
+    }
     const institutionId = membre.institutionId
 
     const body = await request.json().catch(() => ({}))
@@ -46,6 +53,17 @@ export async function POST(request: NextRequest) {
 
     const now = new Date()
     const scheduledPurgeAt = new Date(now.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+
+    // institution_sessions (dette technique comblée 30/08/2026, remplace
+    // institutions.session_revoked_at de GAP-04-04) — invalide toute session
+    // active, y compris celle-ci, en plus des cookies déjà effacés
+    // ci-dessous et des remember-tokens/credentials WebAuthn déjà purgés.
+    const { error: revokeError } = await supabaseAdmin
+      .from('institution_sessions')
+      .update({ revoked_at: now.toISOString(), revoked_reason: 'deletion_request' })
+      .eq('institution_id', institutionId)
+      .is('revoked_at', null)
+    if (revokeError) console.error('[INSTITUTION DELETION REQUEST] Erreur révocation session:', revokeError.message)
 
     const { error: upsertError } = await supabaseAdmin
       .from('institution_deletion_requests')

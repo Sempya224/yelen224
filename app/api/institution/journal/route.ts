@@ -15,10 +15,18 @@ const COLONNES = "id,audit_id,membre_id,membre_nom,action,categorie,niveau,cible
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "journal.read")) return NextResponse.json({ error: "Accès réservé aux administrateurs" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const filtres = lireFiltresJournal(searchParams);
+
+  // Onglet "Administration & accès" (profil) — un membre sans journal.read
+  // (agent, comptable) peut quand même lire SON PROPRE historique : ce
+  // n'est pas la vue Journal d'équipe, juste son propre compte. On ignore
+  // tout membre_id fourni par le client et on force le sien — aucune fuite
+  // possible vers l'historique d'un collègue.
+  if (!can(membre.role, "journal.read")) {
+    filtres.membreId = membre.membreId;
+  }
   const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 500);
   const offset = Math.max(parseInt(searchParams.get("offset") || "0"), 0);
 

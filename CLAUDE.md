@@ -4,14 +4,17 @@ Plateforme civique de prise de rendez-vous — République de Guinée
 Niveau : Google / Meta / Uber / DoorDash — Zéro amateurisme
 ═══════════════════════════════════════════════════════════════
 
-⚠️ Ce fichier a été compressé le 21/07/2026 puis à nouveau le 26/07/2026
-(le pivot rétention v2 était devenu un historique lot par lot de ~250
-lignes pour un chantier déjà clos) : les chantiers **terminés** sont
-réduits à leur état final + pièges à ne pas reproduire (l'historique lot
-par lot n'est plus détaillé ici — le code fait foi). Les chantiers
-**ouverts** gardent tout leur détail. Raison : un CLAUDE.md trop long
-dégrade le contexte utile (signalé par Anthropic). Si un détail manque
-pour un chantier fermé, lire le code directement plutôt que de supposer.
+⚠️ Ce fichier a été compressé une 3e fois le 12/08/2026 (après 21/07 et
+26/07/2026) : ~35 chantiers accumulés depuis la dernière compression
+avaient fait grossir le fichier à ~2940 lignes, dont une grande partie
+d'historique lot-par-lot pour des chantiers déjà **clos**. Règle
+appliquée : chantiers **clos** → état final + pièges à ne pas reproduire
+uniquement (le code fait foi pour le détail, l'historique complet reste
+dans `git log`) ; chantiers **ouverts** → tout le détail nécessaire pour
+reprendre le travail. Les pièges techniques récurrents ont été regroupés
+dans `/pieges-techniques-connus` plutôt que répétés à chaque chantier. Si
+un détail manque pour un chantier fermé, lire le code directement plutôt
+que de supposer.
 
 ## IDENTITÉ
 Projet    : Yelen224 — prise de RDV en ligne (hôpitaux, mairies, banques, ambassades)
@@ -27,15 +30,25 @@ Bryan       : product owner, seul développeur, exécute tout SQL et
 Claude/CC   : propose, diagnostique, écrit le code — n'exécute JAMAIS
               de SQL ou commande terminal directement sans validation explicite
 
-⚠️ **Règle explicite (24/07/2026) : JAMAIS de `git commit`/`git push` sans
-ordre explicite de Bryan pour CE commit précis.** `main` est en CI/CD Netlify
-(voir /stack) : un commit non demandé part immédiatement en production. Une
-validation donnée pour une tâche (ex. "corrige X") ne vaut pas autorisation
-de commit — Bryan commit lui-même quand il est prêt. Ne jamais committer
-"pour rendre service" après une modification, même petite.
+⚠️ **Règle explicite : JAMAIS de `git commit`/`git push` sans ordre
+explicite de Bryan pour CE commit précis.** `main` est en CI/CD Netlify
+(voir /stack) : un commit non demandé part immédiatement en production.
+Une validation donnée pour une tâche (ex. "corrige X") ne vaut pas
+autorisation de commit — Bryan commit lui-même quand il est prêt. Ne
+jamais committer "pour rendre service" après une modification, même
+petite.
+
+⚠️ **Règle explicite : JAMAIS d'outil Agent (sous-agent, y compris ceux
+lancés automatiquement par un skill comme `/code-review`) sans demander
+et justifier pourquoi le travail ne peut pas être fait directement.**
+Chaque sous-agent consomme des tokens de façon significative — Bryan veut
+garder le contrôle explicite de ce coût. Le fait qu'un skill lance des
+agents par défaut (ex. les 8 angles de `/code-review`) n'est pas en
+soi une autorisation : demander avant, ou faire la revue directement
+avec Read/Grep/Bash. Violé 2 fois le 30/08/2026 avant d'être formalisé ici.
 
 ## /stack — STACK TECHNIQUE
-Frontend    : Next.js 15 (App Router) + TypeScript strict
+Frontend    : Next.js 16.2.1 (App Router) + TypeScript strict
 Backend     : Supabase (PostgreSQL + Auth + Realtime + Storage)
 Styling     : Tailwind CSS
 Déploiement : Netlify (CI/CD via GitHub)
@@ -49,14 +62,18 @@ Project ID actuel : pgcabxgrgjgukuagpuhc
 URL              : pgcabxgrgjgukuagpuhc.supabase.co
 Organisation     : Sempya224
 supabase/config.toml : présent
-supabase/migrations/ : peuplée progressivement depuis le 07/07/2026
+supabase/migrations/ : peuplée progressivement depuis le 07/07/2026,
+dernière migration réelle : `20260809000003_document_events.sql`
 
 ⚠️ HISTORIQUE RÉEL : Yelen224 n'a JAMAIS fait partie de Sempya224 à l'origine.
 Le projet existait sous un compte séparé yelen224@gmail.com, accès perdu
 définitivement. Le projet actuel a été recréé par Bryan, tables reconstruites
-manuellement — AUCUNE continuité de migrations avec l'ancien compte.
+manuellement — AUCUNE continuité de migrations avec l'ancien compte. Une
+conséquence directe : plusieurs éléments (RLS sur 6 tables historiques,
+index sur `rdv`) existent réellement en base sans trace dans les
+migrations — toujours vérifier en base plutôt que de supposer une absence.
 
-## /auth — DEUX SYSTÈMES D'AUTHENTIFICATION COHABITENT
+## /auth — DEUX SYSTÈMES D'AUTHENTIFICATION COHABITENT (+ 1 nouveau)
 Ne jamais les confondre. Chaque route/fonctionnalité doit clarifier
 explicitement lequel elle utilise.
 
@@ -66,97 +83,100 @@ explicitement lequel elle utilise.
    demande explicite).
 2. INSTITUTIONS : email + mot de passe + JWT custom (institutions.mot_de_passe_hash).
 3. ADMINS : email + mot de passe bcrypt + JWT signé (ADMIN_JWT_SECRET,
-   jamais exposé côté client).
+   jamais exposé côté client), source unique `lib/adminAuth.ts` (voir
+   /modules-livres).
+4. EMPLOYÉS (Clock In Shift, nouveau) : Identifiant + PIN 4 chiffres,
+   `employee_credentials` + `lib/employeeAuth.ts`, cookie
+   `yelen224_employee_session` (JWT 12h, secret/issuer/audience distincts).
 
 ## /schema — SCHÉMA RÉEL (vérifié par SELECT direct, drift documenté au fil de l'eau)
 
-14 TABLES d'origine dans public : admins (⚠️ en réalité **admin_users**,
-drift confirmé 19/07/2026, `admins` n'existe pas), annonces, avis,
-disponibilites (⚠️ en réalité colonne jsonb sur `institutions`, pas une
-table séparée), institutions, logs_admin, messages, notifications, rdv,
+Tables d'origine dans public : admins (⚠️ en réalité **admin_users**),
+annonces, avis, disponibilites (⚠️ en réalité colonne jsonb sur
+`institutions`), institutions, logs_admin, messages, notifications, rdv,
 rdv_alertes, services_payants (⚠️ en réalité **paid_services** +
-**paid_bookings**), signalements, users. Nombreuses tables ajoutées depuis
-(citoyen_*, institution_*, rdv_events, push_subscriptions, etc.).
+**paid_bookings**), signalements, users. Nombreuses tables ajoutées
+depuis (citoyen_*, institution_*, rdv_events, push_subscriptions, clock-in
+Enterprise, signalement_*, document_events, recus, etc.).
 
 ### public.users (liée à auth.users, PAS une table autonome d'auth)
 id (uuid, FK → auth.users.id ON DELETE CASCADE), nom, prenom, email,
-date_naissance, adresse, ville, photo_url, biometrie_activee (bool,
-⚠️ colonne existe mais n'était lue/écrite nulle part avant le chantier
-Sécurité citoyen du 18/07/2026), onboarding_complete, created_at,
-mis_a_jour_le, phone, sexe, nationalite, profession, pin_hash,
-cgu_acceptee_le, confidentialite_acceptee_le.
-⚠️ Colonne "cree_le" renommée en "created_at" entre le 07/07 et le
-18/07/2026 (drift non documenté sur le moment, a cassé silencieusement
-`app/page.tsx` — `ft()` avalait l'erreur 400 sans la logger). Toujours
-vérifier `information_schema.columns` avant de faire confiance à une note
-ancienne de ce fichier si un comportement semble anormal (ex. précédent
-réel : `avis.brouillon` documenté "terminé" alors que la migration n'avait
-jamais été exécutée par Bryan — cassait "Répondre à un avis" en prod).
+date_naissance, adresse, ville, photo_url, biometrie_activee, onboarding_complete,
+created_at, mis_a_jour_le, phone, sexe, nationalite, profession, pin_hash,
+cgu_acceptee_le, confidentialite_acceptee_le, centres_interet (text[],
+ajouté 25/07/2026).
+⚠️ Colonne "cree_le" renommée en "created_at" (drift non documenté sur le
+moment, a cassé silencieusement `app/page.tsx`). Toujours vérifier
+`information_schema.columns` avant de faire confiance à une note ancienne
+de ce fichier si un comportement semble anormal.
 
-### Drift confirmé sur `institutions` (18/07/2026, vérifié par grep sur du
-code fonctionnel, pas l'audit du 07/07 qui est faux sur ces colonnes) :
+### Drift confirmé sur `institutions` (vérifié par grep sur du code
+fonctionnel, pas l'audit d'origine qui est faux sur ces colonnes) :
 colonne **`name`** (pas `nom`), **`logo`** (pas `logo_url`), **`category`**
 (pas `type`), **`phone`** (pas `telephone`). `type (enum)` largement
 supplanté par **`secteur`** (CHECK, 8 valeurs : santé, administratif,
 financier, juridique, beauté_bien_etre, commerce, artisanat,
 services_divers). Autres colonnes : email, mot_de_passe_hash, adresse,
 ville, pays, description, statut (enum), plan (enum), badge_verifie,
-latitude, longitude (⚠️ jamais écrites par aucun écran produit — aucune
-institution ne peut renseigner sa position, voir /backlog-carte-institutions),
-horaires (jsonb), services (jsonb), disponibilites (jsonb).
+latitude, longitude (⚠️ toujours jamais écrites par aucun écran produit —
+voir /backlog-produit), horaires (jsonb), services (jsonb),
+disponibilites (jsonb), slug (URL-friendly, ajouté pour `/clock/{slug}`),
+disponibilites_modifie_le/par (traçabilité, ajouté 05/08/2026).
 
 ### Autres tables clés
-- annonces : institution_id, titre, contenu, **statut** (text, pas booléen
-  `publiee`), **date_expiration** (pas date_debut/date_fin), type, format,
-  media_urls, epingle, image_url, created_at.
+- annonces : institution_id, titre, contenu, **statut** (text), **date_expiration**,
+  type, format, media_urls, epingle, image_url, created_at.
 - avis : citoyen_id, institution_id, rdv_id, note, commentaire, created_at,
   titre, reponse_institution, reponse_le, masque, brouillon (trigger DB
   bloque toute écriture de reponse_institution hors service_role).
+  `institutions.moyenne_avis`/`nb_avis` recalculées automatiquement par
+  trigger depuis le 06/08/2026 (voir /modules-livres, avant ça figées à 0).
 - rdv : citoyen_id, institution_id, service, date_rdv, heure_rdv, statut
-  (enum), motif_refus, qr_code, qr_valide, qr_scanne_le, notes,
-  presence, presence_status, presence_confirmed_at, duree_minutes,
-  termine_par (⚠️ 2e FK vers institutions en plus de institution_id —
-  toujours qualifier les joins Supabase : `institutions!rdv_institution_id_fkey(...)`,
-  jamais `institutions(...)` non qualifié, sinon erreur PGRST201 à
-  l'exécution, invisible à `tsc`).
+  (enum **incluant `nouveau`**, valeur réelle très utilisée bien que
+  absente de `/enums` ci-dessous — jamais revérifié par
+  `enum_range(NULL::statut_rdv)`, à faire un jour), motif_refus, qr_code,
+  qr_valide, qr_scanne_le, notes, presence, presence_status,
+  presence_confirmed_at, duree_minutes, termine_par (⚠️ 2e FK vers
+  institutions en plus de institution_id — toujours qualifier les joins
+  Supabase : `institutions!rdv_institution_id_fkey(...)`, jamais
+  `institutions(...)` non qualifié, sinon erreur PGRST201 invisible à `tsc`).
 - messages : expediteur/destinataire citoyen/institution (FKs), contenu,
   lu, **cree_le** (pas created_at — seule `notifications.created_at` a été
-  renommée, `messages` jamais touchée).
-- signalements : citoyen_id, institution_id, rdv_id, titre, **motif**
-  (pas `description`), statut (enum), traite_par, traite_le, priorite,
-  type_signaleur, type_cible.
-- notifications : destinataire_id/destinataire_type (pas `user_id` —
-  drift qui cassait silencieusement la cloche citoyen avant le 20/07/2026),
+  renommée).
+- signalements : refondu en case management complet (voir
+  /modules-livres) — `numero_public`, `statut` (8 valeurs), `priorite`,
+  assignation, résolution structurée, `signalement_events`/`_notes`/`_attachments`.
+- notifications : destinataire_id/destinataire_type (pas `user_id`),
   titre, message, type, lu, lien.
 - paid_services / paid_bookings : institution_id, nom, prix, is_active
-  (services), + réservations liées.
+  (services) ; réservations avec statut_paid_booking (dont `rembourse`
+  depuis 05/08/2026), montant_paye, methode_paiement, traite_le.
+- citoyen_documents : refondu en système documentaire complet (voir
+  /modules-livres) — 7 statuts, `document_events` (audit immuable).
 
 ## /enums — TYPES ÉNUMÉRÉS CONFIRMÉS
-type_admin : super_admin, moderateur
+type_admin : super_admin, moderateur, support, admin (⚠️ un seul compte
+réel existe en base aujourd'hui : super_admin — les 3 autres sont
+possibles mais inutilisés)
 type_institution : hopital, mairie, banque, ambassade, autre
 statut_institution : en_attente, validee, suspendue, refusee
 plan_abonnement : essentiel, pro, entreprise
-statut_rdv : en_attente, confirme, refuse, annule, termine
-statut_signalement : ouvert, en_cours, resolu, ignore
-⚠️ **'nouveau' n'existe PAS dans statut_signalement** malgré un bug
-historique où plusieurs routes admin filtraient dessus par défaut
-(comptaient/affichaient toujours zéro) — corrigé le 18/07/2026, seul
-`'en_cours'` est utilisé en pratique à la création.
+statut_rdv : en_attente, confirme, refuse, annule, termine, **+ `nouveau`**
+  (utilisé en pratique, absent de la dernière vérification SQL connue)
+statut_signalement (legacy, remplacé par le nouveau modèle case
+  management) : ouvert, en_cours, resolu, ignore — 'nouveau' n'existait
+  PAS dans cette version legacy.
 
-## /securite — ÉTAT SÉCURITÉ (baseline 07/07/2026, largement fait évoluer depuis)
-RLS activé sur toutes les tables. Convention désormais systématique pour
-toute nouvelle table sensible (sécurité citoyen, documents, webauthn,
-remember tokens) : RLS activé, **aucune policy**, accès exclusivement
-service_role — jamais de policy RLS pour un rôle qui n'a pas de session
-Supabase Auth (institutions, admins). Pour les tables où le citoyen est
-propriétaire direct (avis, favoris, rdv lecture), policy `auth.uid() =
-citoyen_id` classique.
+## /securite — ÉTAT SÉCURITÉ (baseline, largement fait évoluer depuis)
+RLS activé sur toutes les tables. Convention systématique pour toute
+nouvelle table sensible : RLS activé, **aucune policy**, accès
+exclusivement service_role — jamais de policy RLS pour un rôle qui n'a
+pas de session Supabase Auth (institutions, admins, employés). Pour les
+tables où le citoyen est propriétaire direct (avis, favoris, rdv
+lecture), policy `auth.uid() = citoyen_id` classique.
 ⚠️ Piège déjà rencontré : une policy `FOR ALL` sans `WITH CHECK` séparé
-réutilise le `USING` pour valider les INSERT — un insert avec un rôle
-destinataire différent (ex. notification vers une institution) est donc
-rejeté silencieusement si la policy ne visait que `destinataire_type =
-'citoyen'`. Toujours passer par une route service_role pour toute écriture
-cross-partie plutôt que d'élargir une policy RLS.
+réutilise le `USING` pour valider les INSERT — corrigé une fois sur
+`notifications` (audit 08/08/2026), voir /pieges-techniques-connus.
 Grants historiques dangereux (anon+authenticated avec tous privilèges sur
 les 14 tables d'origine) — à affiner à chaque nouvelle policy ajoutée,
 jamais l'un sans l'autre.
@@ -182,7 +202,7 @@ jamais l'un sans l'autre.
 - Avant modification de table → SELECT colonnes réelles
 - Avant nouvelle policy RLS → lire les policies existantes
 - Avant nouvelle route API → lire les routes similaires existantes
-- Avant dépendance ajoutée → vérifier compatibilité Next.js 15/stack
+- Avant dépendance ajoutée → vérifier compatibilité Next.js 16/stack
 - Avant déploiement → build Netlify réussi + tsc --noEmit à 0 erreur
 
 ### /securite-institutionnelle
@@ -205,6 +225,9 @@ la même discipline.
 Le briefing peut être partiellement périmé — revérifier en base avant
 d'agir dessus. Chaque bug reproduit, compris, corrigé, puis vérifié.
 Chaque livraison testée réellement avant d'être considérée terminée.
+Quand un outil (navigateur, lecteur d'écran, Lighthouse) n'est pas
+disponible dans l'environnement, le dire explicitement plutôt que de
+cocher une case sans preuve.
 
 ### /separation-projets
 Yelen224 et Youngouser (project ID uaikztzfhregzsnagznw, repo
@@ -217,258 +240,190 @@ Yelen224 traite des rendez-vous réels de citoyens avec des institutions
 réelles. Une erreur ici n'est pas cosmétique — la rigueur n'est pas
 optionnelle.
 
-## /regles-ux-ui — règles système, non négociables (établies 24/07/2026)
-Applicables à tout le dashboard institution. Public cible : dirigeants
-d'institutions, pas un public grand public — police délibérément plus
-grande/foncée/affirmée (référence : DoorDash).
-1. Zéro emoji, nulle part. Icônes SVG inline style trait (stroke,
-   viewBox 24x24, strokeWidth 2), convention Feather-icons.
-2. Taille de texte minimale fonctionnelle ~12-13px, poids 700-800. KPI
-   gros et gras (20-22px, 900).
-3. Un état "sélectionné" change bordure + texte + fond, jamais le fond seul.
-4. Toute action cliquable doit avoir une affordance visible au repos
-   (fond + bordure), jamais une icône nue révélée au survol seul.
-5. Toute fiche détail/modal s'adapte au desktop : bottom sheet mobile-first,
-   dialogue centré ≥1024px (convention `.client-fiche-overlay/panel/grip/
-   close-x` de `MesClientsTab.tsx`, à réutiliser renommée par écran).
+## /regles-ux-ui — voir docs/ui/YELEN_UX_RULES.md
+Toutes les règles UX/UI (règles non négociables, audit boutons/
+confirmations, propositions de composants partagés) ont été déplacées
+dans `docs/ui/YELEN_UX_RULES.md` (16/08/2026) pour garder ce fichier
+concentré sur le contexte projet — lire ce doc avant tout travail visuel,
+institution ou admin. Voir aussi `docs/ui/YELEN_UI_REFERENCE.md`
+(dimensions de composants) et `docs/ui/YELEN_UI_DENSITY_AUDIT.md`
+(historique des Lots UI).
+
+## /pieges-techniques-connus — gotchas récurrents à ne pas reproduire
+Regroupe les leçons techniques transversales trouvées pendant les
+chantiers 05/07-09/08/2026, pour éviter de les répéter dans chaque
+section de chantier.
+
+- **Embed PostgREST implicite sur une route centrale** : `table_liee(colonnes)`
+  dans un `.select()` a cassé tout le chargement du dashboard institution
+  une fois (`institution_membres(prenom,nom)` embedé dans
+  `/api/institution/profile`, route consommée par tout `page.tsx` au
+  chargement → `inst` reste `null` → tous les onglets s'affichent en
+  blanc). Toujours préférer une requête séparée explicite sur une route
+  centrale, même légèrement moins efficiente.
+- **Composant défini à l'intérieur d'un composant parent** perd le focus
+  de ses inputs à chaque frappe (React démonte/remonte le sous-arbre) —
+  toujours sortir ce genre de composant au niveau module (React Compiler
+  `static-components`, capturé au Lot 19 de l'audit consolidation).
+- **Polling "Live" et spinner plein écran** : tout `setInterval` de
+  rafraîchissement silencieux doit passer un paramètre explicite
+  (`silencieux`/`avecSpinner`) pour ne jamais remettre tout l'écran en
+  loading toutes les X secondes — bug trouvé 3 fois (Équipe, Clock In
+  Shift Employés/Départements/Horaires) avant d'être généralisé.
+  `PresencesView`/`SignalementsTab.tsx` ont le pattern correct dès le
+  départ, à copier.
+- **Triggers d'immuabilité** (pattern partagé par `journal_activite`,
+  `attendance_logs`/`attendance_audit_logs`, `signalement_events`,
+  `document_events`) : bloquent UPDATE/DELETE même pour service_role/
+  superuser SQL Editor. Échappatoire dédiée par table (ex. `SET LOCAL
+  app.autoriser_correction_journal = 'on'`) — jamais une correction en
+  place, toujours une nouvelle ligne insert-only + trace.
+- **Migration qui élargit un `CHECK` ET backfill des lignes** vers les
+  nouvelles valeurs : toujours retirer la contrainte avant le backfill,
+  jamais l'inverse — `ADD CONSTRAINT` valide toute la table immédiatement,
+  y compris les lignes pas encore migrées (`ERROR 23514` rencontré 2 fois
+  sur `citoyen_documents.statut` avant correction).
+- **`next/image` et URL Storage signée** : `next.config.ts::remotePatterns`
+  ne couvre que `/storage/v1/object/public/**` — une URL signée
+  (bucket privé, `/storage/v1/object/sign/**`) doit rester en `<img>`
+  classique avec commentaire `// IMG-EXCEPTION: reason=... | reviewed=DATE`.
+  3 catégories d'exception actées : blob local (`URL.createObjectURL`),
+  data URL base64 (QR codes), URL Storage signée courte-vécue.
+- **`page.tsx` App Router n'autorise aucun export nommé** au-delà de
+  `default`/`metadata`/`generateStaticParams` (`TS2344` sinon) — extraire
+  le contenu réel dans un fichier séparé (`XxxInner.tsx`) et garder
+  `page.tsx` en simple wrapper.
+- **`useSearchParams()` sans `<Suspense>`** casse le build Netlify en
+  prerendering (invisible à `tsc --noEmit`, seul un vrai `npm run build`
+  le détecte) — toujours wrapper tout écran l'utilisant.
+- **`localStorage.getItem/setItem`** peut lever une exception sur mobile
+  (Safari navigation privée) — toujours `try { ... } catch {}`.
+- **Règle ESLint `no-img-element` sur Windows** : bug connu de la règle
+  (comparaison de chemin non cross-platform) compte parfois des faux
+  positifs sur des fichiers `next/og` — sans impact réel, ces fichiers
+  sont de toute façon exclus par nature (génération serveur).
+- **Toute route qui lit une erreur Supabase** doit destructurer `error`
+  explicitement avant de tester `!data` — sinon une vraie erreur serveur
+  (colonne, connexion) se fait passer pour un 404 générique, invisible au
+  diagnostic (rencontré sur `paid-bookings/valider/route.ts`).
+- **RLS `FOR ALL` sans `WITH CHECK` séparé** réutilise le `USING` pour
+  valider les INSERT — un insert avec un rôle destinataire différent de
+  celui visé par la policy est rejeté silencieusement (corrigé sur
+  `notifications`).
 
 ## /backlog-produit — reste à faire, pas commencé
-**Écran "Mes clients" Lot C** (messagerie directe dans la fiche client,
-dossier documentaire par client, export/purge RGPD côté citoyen) et
-**Lot D** (saisie manuelle d'un client sans RDV préalable — casse la règle
-actuelle "client = a eu ≥1 RDV") : PAS à construire sans validation
-explicite de Bryan.
-**Point ouvert** : `presence`/`presence_status`/`presence_confirmed_at`
-(migration `20260709000003`) vs enum `statut_rdv` — lequel pilote
-réellement les valeurs absent/effectue/honore/nouveau de
-`MesClientsTab.tsx::stColor()` reste à vérifier par SQL avant tout travail
-sur le taux de présence.
+- **Écran "Mes clients" Lot C** (messagerie directe dans la fiche client,
+  dossier documentaire par client, export/purge RGPD côté citoyen) et
+  **Lot D** (saisie manuelle d'un client sans RDV préalable) : PAS à
+  construire sans validation explicite de Bryan.
+- **Point ouvert** : `presence`/`presence_status`/`presence_confirmed_at`
+  vs enum `statut_rdv` — lequel pilote réellement les valeurs de
+  `MesClientsTab.tsx::stColor()` reste à vérifier par SQL.
+- **Carte citoyenne "Aucun établissement localisé"** : aucun écran ne
+  permet à une institution de renseigner latitude/longitude (grep
+  exhaustif confirmé) — décision produit requise avant tout code : champ
+  manuel, géocodage automatique, ou sélecteur sur mini-carte
+  (react-leaflet déjà dépendance).
+- **`app/avis/page.tsx`** : écran legacy orphelin (aucun lien nulle part
+  dans le produit) déjà corrigé côté sécurité (Lot 7 audit consolidation)
+  mais **décision en attente de Bryan** : le supprimer plutôt que le
+  garder en doublon du flux "Mes avis".
+- **`CarteMapHome.tsx::getStatus()`** : le format horaires attendu ne
+  correspond pas au format réellement écrit par
+  `lib/disponibilites.ts::generateSlots()` — le statut Ouvert/Fermé de
+  cette carte ne peut jamais être juste, signalé en commentaire dans le
+  code, non corrigé.
+- **`notifications.user_id` vs `destinataire_id`/`destinataire_type`** et
+  **`plan/route.ts` validant `['gratuit','premium']`** alors que le
+  schéma réel utilise `essentiel/pro/entreprise` — drift signalé, non
+  corrigé (hors périmètre des chantiers qui les ont trouvés).
+- **97 → 0 `<img>` migrées** mais vérification visuelle réelle (desktop/
+  mobile, CLS, distorsion) jamais faite — aucun outil navigateur
+  disponible dans cet environnement.
 
-## /historique-deploiement — premier commit général + build Netlify (22/07/2026)
-Après 4+ semaines sans commit, commit général de tous les chantiers
-accumulés (330 fichiers) effectué et poussé sur `origin/main` à la demande
-de Bryan/CEO, pour permettre une revue du rendu réel déployé plutôt que de
-continuer à accumuler du code non testé en conditions réelles.
-⚠️ **Bug réel détecté au premier build Netlify depuis longtemps** :
-`app/institution/connexion/page.tsx` et `app/login/page.tsx` utilisaient
-`useSearchParams()` directement dans le composant par défaut, sans
-frontière `<Suspense>` — Next.js App Router exige ce wrapping pour le
-prerendering statique, sinon le build échoue entièrement (`Error occurred
-prerendering page`). Corrigé en renommant chaque composant en
-`XxxInner()` et en ajoutant un wrapper `export default` avec `<Suspense
-fallback=...>`. Les 5 autres pages du projet utilisant `useSearchParams`
-(recherche, signalement, institution/signalements, avis,
-messagerie/citoyen) suivaient déjà correctement ce pattern — vérifié une
-à une avant de repousser.
-**Leçon à retenir** : toute nouvelle page utilisant `useSearchParams()`
-doit être vérifiée avec un `npm run build` local avant de considérer un
-chantier "terminé" — `tsc --noEmit` ne détecte pas ce genre d'erreur de
-prerendering, seul un vrai build Next.js le fait. Un ancien commentaire
-affirmant que `app/login/page.tsx` "fonctionnait déjà ainsi en
-production" était faux (jamais vérifié par un build réel) — encore un
-exemple de note non revérifiée à ne pas prendre pour argent comptant.
-
-## /backlog-technique — localStorage non protégé
-`localStorage.getItem(...)` peut lever une exception sur mobile (Safari
-navigation privée, etc.) — pattern de protection déjà établi :
-`try { id = localStorage.getItem(...); } catch {}`. Corrigé dans 4
-fichiers le 13/07/2026. **Reste à corriger** (pas urgent) :
-`app/messagerie/citoyen/page.tsx`, `app/mes-rdv/page.tsx`,
-`app/rdv/[id]/page.tsx` (3 occurrences).
-
-## /backlog-carte-institutions — la carte citoyenne ne peut jamais afficher d'établissement
-Aucun écran du produit ne permet à une institution de renseigner
-latitude/longitude (vérifié par grep exhaustif) — le filtre carte est donc
-structurellement toujours vide. Correctif appliqué : état "Aucun
-établissement localisé" au lieu de "Chargement..." infini.
-**Vraie solution non commencée** — décision produit de Bryan requise avant
-tout code : (1) champ manuel lat/long, (2) géocodage automatique depuis
-l'adresse déjà saisie, ou (3) sélecteur de position sur mini-carte
-(react-leaflet déjà une dépendance) à l'inscription/profil.
-
-## /chantier-design — refonte visuelle dashboard institution (en cours depuis 13/07/2026)
+## /chantier-design — refonte visuelle dashboard institution (en cours)
 Contraintes strictes : jamais toucher `C.gold` (#F5A623, source unique
 `theme.ts`) ni `--font-jakarta`. Phase 1 (`.yelen-page`, largeur max
-1280px) et Phase 2 (hiérarchie Vue d'ensemble, Communication, Services)
-terminées.
+1280px) et Phase 2 (Vue d'ensemble, Communication, Services) terminées.
 **Reste à faire** : suite de `CommunicationTab.tsx`/`ServicesTab.tsx`
-(respiration/espacement), puis Phase 3 (déployer la même logique sur Mes
-clients, Équipe, Journal, Espace de travail — chantier séparé à planifier).
+(respiration/espacement), puis Phase 3 (même logique sur Mes clients,
+Équipe, Journal, Espace de travail — chantier séparé à planifier). Note :
+Disponibilités, Équipe, Clock In Shift, Valider RDV ont depuis reçu leur
+propre refonte "US" sous Mission 01 (voir /modules-livres) — Phase 3 ne
+concerne donc plus que les onglets non encore traités par Mission 01.
 
-## /chantier-journal-activite — "Boîte noire" institution (Lots A-G terminés, H-I ouverts)
+## /chantier-journal-activite — "Boîte noire" institution (Lots A-G clos, H-I ouverts)
 Système d'audit officiel de Yelen (Compte → Journal d'activité) :
-`audit_id` séquentiel, immuabilité en base (trigger bloque DELETE/UPDATE
-même pour postgres superuser — échappatoire :
-`SET LOCAL app.autoriser_correction_journal = 'on';`), capture IP/user-agent,
-recherche universelle + filtres serveur + pagination, timeline en cartes
-avec score de risque déterministe (`lib/reputationScore.ts`-like,
-`scoreRisque()` dans `journalTaxonomie.ts`), résumé "IA Yelen" (règles
-déterministes, zéro LLM), export enrichi 5 formats (CSV/Excel/JSON/PDF/
-Rapport signé avec empreinte SHA-256, `pdfkit` à installer par Bryan :
-`npm install pdfkit @types/pdfkit`).
-⚠️ Gotcha à retenir : un composant défini À L'INTÉRIEUR d'un composant
-parent perd le focus de ses inputs à chaque frappe (React démonte/remonte
-le sous-arbre) — toujours sortir ce genre de composant (`Section`, etc.)
-au niveau module.
+`audit_id` séquentiel, immuabilité en base (voir
+/pieges-techniques-connus), capture IP/user-agent, recherche universelle
++ filtres serveur + pagination, timeline en cartes avec score de risque
+déterministe (`scoreRisque()` dans `journalTaxonomie.ts`), résumé "IA
+Yelen" (règles déterministes, zéro LLM), export enrichi 5 formats
+(CSV/Excel/JSON/PDF/Rapport signé SHA-256, `pdfkit` à installer par
+Bryan : `npm install pdfkit @types/pdfkit`).
 **Lots H (géoloc IP→ville, réseau interne, appareil connu) et I
 (responsive final) — pas commencés.**
 
-## /chantier-mon-compte — refonte "Mon Compte" citoyen (Lots A-D terminés)
-5 sections (Profil, Paramètres, Mon Activité, Aide et support, Mentions
-légales) + bloc "Actions rapides" toujours visible, sections repliées par
-défaut. Écran `/compte/parametres` dédié (mirroring Apple/Android
-Settings). `/profil` (ancien) coexiste volontairement avec
-`/compte/informations-personnelles` (nouveau canonique) car
-`app/dashboard/dashboard-client.tsx` (2e accueil citoyen, doublon connu)
-utilise encore l'ancien — réconciliation reportée.
-**Reste à faire** : contenu réel des stubs restants (Langue,
-Accessibilité, Données mobiles, Stockage, Sons), un lot à la fois.
-
-## /chantier-securite-citoyen — Centre de sécurité (Lots A-E terminés)
-Mirroring exact du système institution déjà fonctionnel : PIN
-(`users.pin_hash`), WebAuthn réel côté serveur
-(`CITOYEN_WEBAUTHN_JWT_SECRET` — ⚠️ **action requise de Bryan avant prod** :
-volontairement gardé dans `.env.local` uniquement, pas Netlify pour
-l'instant — la biométrie ne fonctionnera donc PAS en prod tant que ce
-secret n'est pas ajouté), remember-token avec vrai bypass (cookie
-`yelen224_citoyen_remember`, 60 jours). Écran `/compte/securite` réel :
-score de sécurité (règles déterministes, `lib/citoyenSecurite.ts`),
-verrouillage rapide, appareils mémorisés, guide de sécurité.
+## /chantier-securite-citoyen — Centre de sécurité (Lots A-E clos)
+Mirroring du système institution : PIN (`users.pin_hash`), WebAuthn réel
+côté serveur (`CITOYEN_WEBAUTHN_JWT_SECRET` — ⚠️ **action requise de
+Bryan** : volontairement gardé dans `.env.local` uniquement, pas
+Netlify — la biométrie ne fonctionne donc PAS en prod tant que ce secret
+n'est pas ajouté), remember-token (cookie `yelen224_citoyen_remember`, 60
+jours). Écran `/compte/securite` réel : score de sécurité (règles
+déterministes, `lib/citoyenSecurite.ts`), verrouillage rapide, appareils
+mémorisés, guide de sécurité.
 **Reste à faire (Lot F, pas commencé)** : historique sécurité immuable,
 alertes, géolocalisation.
 
-## /chantier-confidentialite-citoyen — écran Confidentialité (terminé)
-Centre de contrôle vie privée : visibilité du profil, partage de données
-(gating réel de l'historique visible par une institution dans
-`api/institution/clients/route.ts` via `citoyen_prefs_partage`),
-consentements avec date, export JSON complet (`api/citoyen/donnees/
-export`), autorisations navigateur en lecture seule (limite plateforme
-web, pas du code). Suppression de compte via overlay plein écran (mot
-"SUPPRIMER" + PIN si configuré).
+## /chantiers-citoyen-clos — résumé des écrans citoyens terminés
+- **Mon Compte** (Lots A-D) : 5 sections + "Actions rapides".
+  `/compte/parametres` dédié. `/profil` (ancien) coexiste volontairement
+  avec `/compte/informations-personnelles` (nouveau canonique) car
+  `app/dashboard/dashboard-client.tsx` (doublon connu) utilise encore
+  l'ancien. **Reste à faire** : contenu réel des stubs (Langue,
+  Accessibilité, Données mobiles, Stockage, Sons).
+- **Confidentialité** : visibilité profil, partage de données (gating
+  réel via `citoyen_prefs_partage`), consentements, export JSON, overlay
+  suppression compte ("SUPPRIMER" + PIN).
+- **Mes avis + Favoris** (Lots A-H) : favoris avec prochain créneau
+  (`lib/disponibilites.ts` partagé), délai moyen observé (≥3 mesures
+  seulement, jamais un chiffre inventé) ; avis brouillons/vues/utile,
+  réponse d'établissement réelle. Masqués/brouillons exclus partout.
+- **Activités passées** : agrège compte créé, connexions, cycle de vie
+  RDV (`rdv_events`), présence QR, RDV manqué (dérivé), paiements,
+  favoris, avis, biométrie, documents en un seul appel
+  (`api/citoyen/activites`). Depuis étendu (voir /modules-livres,
+  `/votre-activite-reservations`) avec démarches/dépenses.
+- **Santé du compte institution** (`lib/reputationScore.ts`) : score
+  0-100 sur 30 derniers RDV (note 60%, réponse avis négatifs 15%,
+  annulation institution 15% dérivée par élimination via `rdv_events`,
+  réclamations résolues 10%). Zéro fermeture automatique — signalement
+  système + garde-fou anti-spam 7 jours. Coexiste volontairement avec
+  `score_sante` (Accueil, calcul client-side jamais persisté).
+- **Connexion institution** : `/institution/connexion` façon Mailchimp,
+  palette dérivée du thème (`T[theme]`).
+- **Déconnexion** (citoyen + institution) : `LogoutFlow` par côté,
+  `AuthSessionWatcher` redirige vers `/login?session_expired=1` sur
+  `SIGNED_OUT` (ignoré sur `/institution`/`/admin`, JWT custom).
+- **Mon Assistant** (`components/MonAssistant.tsx`) : bandeau tirable
+  Accueil, alimenté par `GET /api/citoyen/assistant`, messages
+  déterministes (`lib/assistantMessages.ts`, zéro LLM). S'affiche
+  toujours (même vide) — design différent du principe "jamais de digest
+  forcé" (barre permanente, pas une notification), décision assumée.
 
-## /chantier-avis-favoris-citoyen — "Mes avis" + "Favoris" (Lots A-H complets)
-Favoris : ouvert/fermé, annonce active, services actifs, dernière visite,
-**prochain créneau disponible** (moteur `lib/disponibilites.ts` partagé
-avec le wizard de réservation) et **délai moyen observé** (basé sur
-`presence_confirmed_at` réel, affiché seulement si ≥3 mesures — jamais un
-chiffre inventé). Mes avis : brouillons, vues, "utile", réponse
-d'établissement réelle (`api/institution/avis/repondre`, rôles
-admin/agent/superviseur). Avis masqués/brouillons systématiquement
-exclus des vues institution et de la fiche publique.
-Lancement prévu ~1 semaine après le 18/07/2026 — rien commité (commit
-général prévu 2 jours avant).
-
-## /chantier-activites-passees-citoyen — écran "Activités passées" (COMPLET)
-Remplace "Historique des scans QR". Agrège en un seul appel
-(`api/citoyen/activites`) : compte créé, connexions nouvel appareil,
-cycle de vie RDV (table `rdv_events`, RLS sans policy → service_role
-uniquement), présence QR, **RDV manqué** (dérivé : passé + pas de présence
-+ pas annulé, aucun second scan nécessaire), paiements/remboursements,
-favoris, avis, biométrie, documents. "Documents clients" : nouvelle brique
-institution↔citoyen (`citoyen_documents`, RLS sans policy, bucket Storage
-**privé** "documents-citoyens" — ⚠️ **action requise de Bryan** : créer ce
-bucket manuellement, Public décoché). Rattaché à n'importe quel RDV
-(passé inclus, pas seulement en cours).
-
-## /chantier-avis-reputation-institution — écran "Santé du compte" (Lots A-F complets)
-`lib/reputationScore.ts` : score 0-100 + niveau (Platinum/Gold/Silver/
-Danger) sur les 30 derniers RDV évaluables, combinant note (60%), réponse
-aux avis négatifs (15%), annulation institution (15%, dérivée par
-élimination via `rdv_events` — aucune colonne `annule_par` n'existe),
-réclamations résolues (10%). Zéro fermeture automatique — sous le seuil
-critique, insertion d'un `signalements` (`type_signaleur: "system"`) pour
-qu'un admin examine, garde-fou anti-spam 7 jours.
-⚠️ Coexiste volontairement avec `score_sante` (onglet Accueil, calcul
-client-side jamais persisté) — deux scores différents, assumé.
-
-## /historique-session — 07/07/2026
-supabase init + link faits. Docker abandonné (RAM insuffisante) — tout
-audit DB via SQL Editor manuel. Intégration GitHub connectée au projet
-Supabase.
-
-## /chantier-notifications-assistant — "Yelen Assistant" (Lots A-D terminés côté code)
-Refonte notifications RDV : messages personnalisés (salutation
-Bonjour/Bon après-midi/Bonsoir + prénom, `lib/salutation.ts`), moteur
-`lib/notificationEngine.ts` (service_role uniquement, jamais importé
-côté client) couvrant réservation, arrivée QR + prise en charge (même
-événement : le scan QR), fin de prestation. Rappels planifiés (24h/2h/
-45min/15min) via Edge Function Deno + pg_cron (`supabase/functions/
-rappels-rdv`) — **vérifié fonctionnel en prod le 20/07/2026**. Push web
-complet (VAPID, service worker `public/sw.js`, table
-`push_subscriptions`). Centre de notifications institution construit
-(n'existait pas avant). Bug critique corrigé au passage : `annuler`/
-`reporter` côté citoyen ne touchaient jamais réellement `rdv` en base
-(policy RLS manquante) — déplacé vers Server Actions service_role
-(`app/mes-rdv/actions.ts`).
-⚠️ **Actions manuelles encore dues par Bryan** :
-1. Exécuter les migrations `..._cron_rappels_rdv.sql` et
-   `..._push_subscriptions.sql` si pas déjà fait.
-2. Ajouter les 3 variables VAPID aux variables d'environnement Netlify
-   (déjà dans `.env.local` pour le local).
-3. `npm install` sur toute machine/CI autre que celle de la session.
-⚠️ L'Edge Function Deno (Lot C) n'envoie PAS encore de push — seul le
-moteur Node le fait.
-
-## /chantier-connexion-institution — écran connexion façon Mailchimp (clos)
-`/institution/connexion` : formulaire direct sans pop-up marketing,
-palette dérivée de `T[theme]` (plus de couleurs codées en dur), largeur
-cohérente (`.yelen-login-card.wide`, 820px) entre les étapes
-téléphone/preview/otp. `<img>` du logo volontairement pas migré vers
-`next/image` (utilisé nulle part dans les 61 usages du projet — chantier
-séparé si un jour prioritaire).
-
-## /chantier-deconnexion — flux de déconnexion citoyen + institution (clos)
-Un composant `LogoutFlow` par côté (`confirm → transitioning → success →
-error-network`), montés en rendu conditionnel (pas de prop `open`
-booléenne, évite le lint `set-state-in-effect`). `logoutCitoyenStrict()`
-ne doit jamais avaler un échec réseau. Écouteur `AuthSessionWatcher`
-(monté dans `app/layout.tsx`) redirige vers `/login?session_expired=1` sur
-l'événement Supabase `SIGNED_OUT`, ignoré sur `/institution` et `/admin`
-(JWT custom, pas de session Supabase Auth). Hors périmètre explicite :
-déconnexion forcée par un admin (aucun mécanisme backend n'existe).
-
-## /chantier-mon-assistant — bandeau tirable "Mon Assistant" (découvert le 22/07/2026, déjà construit avant cette session — documentation rétroactive)
-En travaillant sur l'item 5 du plan rétention (`/chantier-strategie-retention-v2`
-ci-dessous), découverte d'un widget déjà construit et fonctionnel dont
-l'entrée CLAUDE.md manquait (probablement perdue lors d'une compression
-antérieure de ce fichier, ou jamais documentée) : `components/MonAssistant.tsx`,
-un bandeau tirable (bottom sheet, glissement par pointer events, aucune
-librairie de gestes) sur l'écran Accueil citoyen, sous les 4 onglets, entre
-le contenu et la nav du bas. Alimenté par `GET /api/citoyen/assistant`
-(agrège RDV à venir, RDV terminés en attente d'avis, annonces des
-établissements avec historique+favoris), messages contextuels dans
-`lib/assistantMessages.ts` (règles déterministes par seuil de temps, zéro
-LLM, isomorphe client/serveur). Position réduite = un message unique
-prioritaire ; dépliée = sections par catégorie. S'affiche toujours (même
-état vide "Mon Assistant est prêt"), contrairement au principe "jamais de
-digest forcé" du plan rétention — décision déjà prise avant cette session,
-pas remise en cause ici (design différent : barre permanente, pas une
-notification).
-**Étendu le 22/07/2026** (voir item 5 du plan rétention juste en dessous)
-avec démarches en retard/à échéance proche et documents en attente.
-
-## /vision-long-terme-yelenid — architecture identité/confiance/réputation (décision CEO 26/07/2026 — VISION LONG TERME UNIQUEMENT, aucune action immédiate, "on fera ça pas à pas")
+## /vision-long-terme-yelenid — architecture identité/confiance/réputation (VISION LONG TERME UNIQUEMENT, aucune action immédiate)
 
 **Positionnement produit à long terme** : Yelen = l'endroit où un citoyen
-guinéen construit sa preuve de confiance — preuve qui peut progressivement
-ouvrir l'accès au crédit, au travail, aux services et aux opportunités.
-"Yelen, la lumière" = rendre visible ce que quelqu'un a réellement fait,
-pas ce qu'il prétend être ou qui il connaît.
+guinéen construit sa preuve de confiance, ouvrant progressivement l'accès
+au crédit, au travail, aux opportunités. "Yelen, la lumière" = rendre
+visible ce que quelqu'un a réellement fait.
 
-**Architecture à 4 briques, à séparer complètement l'une de l'autre** :
-1. **YelenID** — qui es-tu ? (identité)
-2. **Yelen Trust** — peut-on te faire confiance dans tes interactions avec
-   Yelen ? (historique comportemental)
-3. **Yelen Points** — quelle valeur as-tu créée dans l'écosystème ?
-   (récompenses)
-4. **Yelen Skills** (plus tard, pas priorisé) — qu'est-ce que tu sais
-   faire et as prouvé ? (réputation professionnelle)
-
+**Architecture à 4 briques, à séparer complètement** :
+1. **YelenID** (identité) 2. **Yelen Trust** (historique comportemental)
+3. **Yelen Points** (valeur créée, récompenses) 4. **Yelen Skills** (plus
+tard, non priorisé — réputation professionnelle).
 Chaîne visée : Identité → Confiance → Réputation → Opportunités → Revenu.
-Exemple produit du CEO : un jeune de 22 ans sans patrimoine ni relations,
-mais avec 2 ans de YelenID actif (RDV honorés, démarches réussies,
-missions pro, 0 fraude), devient lisible et vérifiable par un employeur
-qui ne le connaît pas.
 
 ⚠️ **Tension à lever avant toute construction** : `/chantier-strategie-
 retention-v2` a explicitement décidé "jamais de score numérique visible
@@ -476,116 +431,432 @@ attribué à un citoyen" (risque crédit social, plateforme adossée à
 l'État). "Yelen Trust"/"Yelen Points" chiffrés semblent aller à
 l'encontre de ce principe si affichés publiquement — à clarifier
 explicitement avec Bryan (piste probable : visible au citoyen lui-même et
-à qui il choisit de le montrer, jamais un classement public/comparatif)
-avant d'écrire la moindre ligne de code sur ces briques.
+à qui il choisit de le montrer, jamais un classement public) avant
+d'écrire la moindre ligne de code sur ces briques.
 
-**Lien avec le travail actuel** : les chantiers récents (`/chantier-mes-
-demarches`, `/chantier-menu-engagement` ci-dessous) construisent déjà,
-sans le nommer ainsi, la matière première de "Yelen Trust" (comportement
-réel : RDV honorés, démarches suivies, activité financière). À garder en
-tête pour la cohérence des choix futurs, sans sur-construire par
-anticipation.
+**Lien avec le travail actuel** : les chantiers récents (Mes démarches,
+menu Engagement) construisent déjà, sans le nommer ainsi, la matière
+première de "Yelen Trust" — à garder en tête pour la cohérence des choix
+futurs, sans sur-construire par anticipation.
 
-## /chantier-strategie-retention-v2 — pivot stratégique rétention citoyenne (décisions actées le 21/07/2026)
+## /chantier-strategie-retention-v2 — pivot stratégique rétention citoyenne (décisions de fond toujours valables)
 
-**Constat** : Yelen perçu comme une appli de rendez-vous seule — un
-citoyen peut ne plus l'ouvrir pendant des semaines entre deux RDV.
+**Constat** : Yelen perçu comme une appli de rendez-vous seule.
+**Décisions actées** : Yelen = espace personnel de confiance, pas une
+super app. Jamais de score numérique visible attribué à un citoyen
+(badges factuels seulement — ne concerne pas le score réputation
+**institution**, métrique business normale, voir tension ci-dessus avec
+`/vision-long-terme-yelenid`). Compte famille : reporté, scope non
+tranché. Digest proactif : jamais sans contenu réel, silence plutôt que
+bruit forcé. Constat central ayant motivé "Mes démarches" : Yelen était
+100% consultation, rien ne permettait au citoyen de **créer** quelque
+chose qui vit sur plusieurs sessions.
 
-**Décisions de fond toujours valables** :
-- Yelen = espace personnel de confiance du citoyen, pas une super app.
-- Jamais de score numérique visible attribué à un citoyen (badges
-  factuels seulement) — ne concerne pas le score réputation
-  **institution** (`/chantier-avis-reputation-institution`, métrique
-  business normale). Voir tension avec `/vision-long-terme-yelenid`.
-- Compte famille : reporté, scope non tranché.
-- Digest proactif : jamais sans contenu réel, silence plutôt que bruit forcé.
-- Constat central : Yelen était 100% consultation, rien ne permettait au
-  citoyen de **créer** quelque chose qui vit sur plusieurs sessions — d'où
-  "Mes démarches" (voir `/chantier-mes-demarches`).
-
-**Réalisé depuis (détail dans le code, pas ici)** : bilan périodique
-(`app/compte/activites`) + notifications documents/favoris intégrés à
-`components/MonAssistant.tsx`/`GET /api/citoyen/assistant`.
-
-## /chantier-mes-demarches — checklist personnelle + "Suivis" (créé 22/07, refondu 26/07/2026)
+## /chantier-mes-demarches — checklist personnelle + "Suivis" (refondu 26/07/2026)
 
 `app/compte/mes-demarches/` : `citoyen_demarches` + `citoyen_demarche_etapes`
-(migrations `20260724000011`/`...012`, RLS `auth.uid()=citoyen_id`,
-écriture directe client, pas de route API). V1 = **zéro modèle Yelen
-pré-rempli** (décision explicite, engagerait la responsabilité éditoriale
-de Yelen sur une procédure potentiellement fausse) — juste des intitulés
-d'exemple cliquables, séparés Personnel/Professionnel (élargi aux
-entrepreneurs/chefs d'entreprise le 22/07). Auto-complétion à la dernière
-étape cochée ; badge **"Clôturée"** (pas "Terminée") si fermeture manuelle
-avec étapes non cochées — distinction qui pilote aussi le déclenchement de
-la popup de célébration. Toutes les confirmations passent par une modale
-stylée maison, aucun `window.confirm`. FAQ + guide "Comment ça marche ?"
-intégrés à l'écran.
+(RLS `auth.uid()=citoyen_id`, écriture directe client). V1 = **zéro
+modèle Yelen pré-rempli** (décision explicite, engagerait la
+responsabilité éditoriale de Yelen) — juste des intitulés d'exemple
+cliquables, séparés Personnel/Professionnel. Auto-complétion à la
+dernière étape cochée ; badge **"Clôturée"** (pas "Terminée") si
+fermeture manuelle avec étapes non cochées. Toutes les confirmations
+passent par une modale stylée maison, aucun `window.confirm`.
 
-**Refonte "Suivis" (26/07/2026, décision CEO — écran majeur d'engagement,
-doit devenir la source qui alimentera l'Accueil avec de vraies actions,
-chantier séparé pas commencé)** : nouvelle section "Votre activité" en
-tête d'écran (au-dessus de "Vos démarches"), alimentée par
-`GET /api/citoyen/suivis` (nouvelle route, même discipline zéro-LLM que
-`/api/citoyen/assistant`, logique dupliquée volontairement). Analyse : RDV
-à venir, avis en attente, documents demandés, démarches en retard/
-échéance, **dépense la plus élevée du mois** (`citoyen_depenses` +
-`paid_bookings`), et **un centre d'intérêt sans aucune démarche**
-(`users.centres_interet`, affiché **seulement si le citoyen n'a encore
-aucune démarche** — jamais un "manque" affirmé sans preuve). Chaque suivi
-de type "créer une démarche" réutilise `ouvrirCreationDepuisExemple()`
-existant (titre pré-rempli, jamais un modèle avec étapes imposées).
-Animation de chargement façon radar (pas le spinner générique). Pop-up de
-création converti en plein écran (header X + titre), même pattern que
-`/chantier-menu-engagement` → Mes dépenses.
+**Section "Votre activité"** (en tête d'écran, `GET
+/api/citoyen/suivis`, même discipline zéro-LLM que `/api/citoyen/assistant`) :
+RDV à venir, avis en attente, documents demandés, démarches en retard/
+échéance, dépense la plus élevée du mois (`citoyen_depenses` +
+`paid_bookings`), un centre d'intérêt sans aucune démarche (affiché
+seulement si le citoyen n'a encore aucune démarche — jamais un "manque"
+affirmé sans preuve). Chaque suivi "créer une démarche" réutilise
+`ouvrirCreationDepuisExemple()` existant. Pop-up de création en plein
+écran (header X + titre).
+⚠️ **Reste à faire, décision CEO, chantier séparé pas commencé** : cette
+section doit devenir la source qui alimentera l'Accueil avec de vraies
+actions.
 
-## /chantier-menu-engagement — menu "conçu pour vous" + écrans finance (25-26/07/2026, décision CEO, inspiré Cash App/MoneyLion)
+## /chantier-menu-engagement — menu "conçu pour vous" + écrans finance (inspiré Cash App/MoneyLion)
 
-Logo Yelen de l'onglet Accueil remplacé par un bouton menu (icône 3
-lignes) ouvrant `components/CitoyenMenu.tsx` — overlay plein écran,
-bandeau identité (nom + Yelen ID) en dégradé doré Yelen, 7 entrées à
-badges illustrés sur mesure : Vos centres d'intérêt, Mes dépenses,
-Calculatrice, Leçons d'argent, Vos tendances, Parrainage (stub),
-Nouveautés Yelen (stub). Header général (`CompteHeader` partagé +
-`app/page.tsx`) : icône casque (support) remplace le "?" partout, visible
-sur tous les onglets sauf Accueil.
+Logo Yelen de l'onglet Accueil remplacé par un bouton menu ouvrant
+`components/CitoyenMenu.tsx` — overlay plein écran, 7 entrées (Vos
+centres d'intérêt, Mes dépenses, Calculatrice, Leçons d'argent, Vos
+tendances, Parrainage stub, Nouveautés Yelen stub). Header général : icône
+casque (support) remplace le "?" partout sauf Accueil.
 
-Tous les écrans de contenu financier utilisent uniquement des données
-réelles sourcées (recherches Perplexity commandées par Bryan le
-25/07/2026 : Banque mondiale, BCRG, Crédit Rural de Guinée, BSIC Guinée,
-Guinéenews, RFI) — jamais un chiffre inventé, chaque fait cite sa source
-cliquable. Catégories/secteurs adaptés à la réalité guinéenne (mobile
-money, tontines, microfinance) plutôt que copiés du modèle américain de
-référence (ex. "score de crédit public" n'existe pas en Guinée — devenu
-une question de quiz plutôt qu'ignoré).
+Tous les écrans financiers utilisent uniquement des données réelles
+sourcées (Banque mondiale, BCRG, Crédit Rural de Guinée, BSIC Guinée,
+Guinéenews, RFI) — jamais un chiffre inventé, chaque fait cite sa source.
+Catégories adaptées à la réalité guinéenne (mobile money, tontines,
+microfinance) plutôt que copiées d'un modèle américain.
 
-- **`app/menu/lecons-argent/`** (`lib/leconsArgent.ts`) : 6 leçons (une
-  par catégorie : épargne/tontines, mobile money, microfinance/crédit,
-  revenus, budget, fraudes), quiz 2-3 questions chacune, réponses en
-  pilules pleines colorées, feedback vert/rouge sourcé, célébration
-  confettis CSS en fin de leçon.
-- **`app/menu/calculatrice/`** (`lib/calculateurs.ts`) : "Vos outils
-  financiers", 2 outils actifs (microcrédit — amortissement dégressif
-  2-3,5%/mois façon Crédit Rural de Guinée ; épargne — 3 scénarios réels :
-  tontine 0%, OMIG Tik Tak 3%/an, IMF type BSIC 4-4,5%/an), 4 outils
-  "Bientôt disponible" plutôt qu'inventés.
-- **`app/menu/interets/`** (`lib/centresInteret.ts`, migration
-  `users.centres_interet text[]`) : 14 centres d'intérêt réutilisant 1:1
-  les 8 `secteur` d'institutions + les 6 catégories Leçons d'argent (pas
-  une taxonomie inventée, exploitable plus tard pour de vraies
-  recommandations). Bouton "Enregistrer"/"Modifier" actif seulement si la
-  sélection diffère de ce qui est déjà enregistré ; retour bloqué (modale)
-  tant qu'il y a des changements non enregistrés — prop `onBackIntercept`
-  ajoutée à `CompteHeader` (optionnelle, rétrocompatible avec les ~29
-  autres écrans qui ne la passent pas).
-- **`app/menu/depenses/`** (migration `citoyen_depenses`, RLS
-  `auth.uid()=citoyen_id`) : dépenses manuelles + RDV payés
-  (`paid_bookings`, jamais dupliqués en base) combinés. Catégories du mois
-  en cartes horizontales scrollables. Détail au clic (plein écran) :
-  date/heure réelles (`created_at`), établissement/service pour les RDV
-  Yelen. CTA "Organiser un suivi" vers Mes démarches sur la catégorie la
-  plus dépensière.
+- `app/menu/lecons-argent/` : 6 leçons + quiz, feedback sourcé.
+- `app/menu/calculatrice/` : microcrédit (amortissement dégressif Crédit
+  Rural) + épargne (tontine/OMIG Tik Tak/IMF type BSIC), 4 outils "Bientôt
+  disponible" plutôt qu'inventés.
+- `app/menu/interets/` (`users.centres_interet`) : 14 centres réutilisant
+  les 8 `secteur` + 6 catégories Leçons d'argent. Retour bloqué (modale)
+  tant qu'il y a des changements non enregistrés.
+- `app/menu/depenses/` (`citoyen_depenses`) : dépenses manuelles +
+  `paid_bookings` combinés, catégories du mois, détail au clic, CTA
+  "Organiser un suivi" vers Mes démarches.
 
-⚠️ **Migrations pas encore exécutées par Bryan** :
-`20260725000008_users_centres_interet.sql`,
-`20260725000009_citoyen_depenses.sql`.
+## /modules-livres — grands chantiers livrés récemment (résumé état final)
+
+### Clock In Shift — module Enterprise de pointage employé
+Population distincte des citoyens/membres dashboard. `employees` (profil
+RH) ≠ `institution_membres` (accès dashboard), reliés par
+`employee_id` nullable. Multi-tenant, RLS zéro policy (accès
+service_role uniquement, comme partout où l'appelant n'a pas de session
+Supabase Auth). URL V1 `yelen224.com/clock/{institution}` (pas de
+sous-domaine). Pointage V1 libre (pas de géofencing/QR/biométrie — schéma
+conçu pour ne jamais nécessiter de refonte à leur ajout,
+lat/long/device_id déjà présents nullables). `attendance_logs`/
+`attendance_audit_logs` immuables (voir /pieges-techniques-connus),
+corrections 100% insert-only. `daily_attendance` recalculée par job Deno
++ pg_cron toutes les 15 min (`supabase/functions/clock-in-daily-attendance`),
+Guinée = UTC+0 toute l'année (hypothèse documentée en tête de fichier).
+
+**Livré et vérifié en conditions réelles (login employé → pointage →
+visible dashboard)** : auth employé, CRUD employees/departments/
+work_schedules/schedule-assignments, endpoint pointage (direction déduite
+serveur, anti-double-tap 5s), corrections tracées, job nocturne, UI
+dashboard (`ClockInShiftTab.tsx`, 4 sous-vues Présences/Employés/
+Départements/Horaires), portail employé (`/clock/[slug]`).
+
+**Refonte visuelle "Enterprise" (05/08/2026, clos)** : hero header + Live
+polling, KPI exécutifs avec sparkline/delta (SVG manuel, aucune
+librairie de charts), recherche + filtres avancés, IA Insights
+déterministes (zéro LLM). Documents employé ajoutés
+(`employee_documents`, bucket privé `documents-employes`). PIN jamais
+affiché nulle part (non négociable). Rotation multi-semaines, heures
+min/max, fenêtre Clock In/Out autorisée : reportés (nécessiteraient un
+nouveau modèle de données + refonte du job nocturne).
+**Reste à faire** : self-service changement de PIN employé au premier
+accès (`doitChangerPin` déjà renvoyé par l'API, jamais consommé côté
+portail), écran historique employé (route déjà prête).
+**Vérification visuelle restant à faire par Bryan** : mode sombre,
+Départements/Horaires jamais vus en navigateur.
+
+### Mission 01 — UX & UI Hardening (écrans traités à ce jour)
+Premier volet du programme Product Hardening (voir /programme-hardening).
+Écrans refondus niveau Enterprise, logique métier inchangée à chaque
+fois : **Disponibilités** (KPI exécutifs, mini-timeline, traçabilité
+`disponibilites_modifie_le/par`, bouton "Aperçu citoyen" réutilisant
+`generateSlotsInRange`, layout 2 colonnes ≥1024px) ; **Équipe & Accès**
+(distinct de Clock In Shift par design — accès *Dashboard Yelen* vs
+employés pointés ; verrouillage/dernière connexion persistés,
+`fonction` informative) ; **Centre de validation** (`ValiderRdvTab.tsx`,
+Front Desk check-in 5-10s, `paid_bookings.traite_le`, fiche citoyen 5
+zones, "Annuler la validation" avec motif obligatoire + reversal complet
+transactions/rdv, Timeline de la journée).
+
+⚠️ **2 vrais bugs trouvés en testant** : (a) réservation payante partait
+en statut `"en_attente"` au lieu de `"nouveau"` comme un RDV gratuit,
+sautant l'étape accepter/refuser — corrigé, même valeur initiale pour les
+deux flux (`paid_bookings.statut` reste une colonne séparée, non
+affectée). (b) connexion principale téléphone+OTP ne journalisait jamais
+"connexion" ni ne mettait à jour `derniere_connexion` (même en 2FA, le
+nom membre n'était pas transporté dans le jeton de défi) — corrigé, non
+rétroactif sur les sessions déjà ouvertes.
+
+**Reste à faire sous Mission 01** : tous les autres écrans du produit non
+encore audités (le programme prévoit un audit exhaustif, voir
+/programme-hardening).
+
+### Audit technique & consolidation (19 lots, quasi clos)
+Développement de features suspendu le temps de l'audit (zéro commit/push/
+SQL/terminal direct, sous-agents lecture seule). Baseline : `tsc`
+propre, eslint 595→0 erreurs / 179→0 warnings, npm audit 9 vulnérabilités
+corrigeables par bump mineur (à charge de Bryan).
+
+**5 failles de sécurité réelles trouvées et corrigées** : IDOR génération
+QR (citoyen_id accepté du corps de requête), policies RLS `institution_otp`
+quasi ouvertes, policy `notifications` `FOR ALL` sans `WITH CHECK`,
+`app/avis/page.tsx` orphelin sans scope citoyen (écran maintenu en
+attente de décision, voir /backlog-produit), fuite de message d'exception
+brut sur les routes QR. RLS des 6 tables historiques vérifié actif en
+base (`relrowsecurity=true`) malgré absence des migrations — point clos.
+
+**1 bug fonctionnel réel** : bouton "Marquer comme absent" du Centre de
+validation contournait sa modale de confirmation (état créé, jamais
+câblé) — corrigé, non testé visuellement par Bryan.
+
+**Autres résultats** : 207 routes API cartographiées par système d'auth
+(91 institution, 47 admin, 35 citoyen Supabase Auth, 31 sans auth
+documentées comme publiques, 2 employee). Zéro `dangerouslySetInnerHTML`,
+zéro SQL brut concaténé. 2 requêtes non bornées corrigées par `.limit()`
+(`rdv-historique`, `messages` mode conversations) ; 3 documentées non
+corrigées volontairement (voir /modules-livres → Dette requêtes non
+bornées ci-dessous). localStorage : plus aucune occurrence non protégée.
+97 `<img>` non migrées documentées (traité depuis, voir Migration
+next/image ci-dessous).
+
+### Durcissement autorisation admin
+`lib/adminAuth.ts` créé — source unique (`authorizeAdmin`,
+`verifyAdminSession`, deny-by-default même pour super_admin sur une
+permission absente de la matrice), remplace 3 fonctions dupliquées sur 55
+endpoints/47 fichiers. Matrice alignée sur `app/admin/layout.tsx::NAV_GROUPS`
+déjà existant. `recuperation.manage`/`broadcast.create` restreints à
+super_admin seul (durcissement volontaire). `export` scindé en 4
+permissions par type. `logs/route.ts` : vrai contrôle BOLA (super_admin
+voit tout, autres rôles forcés sur leur propre `admin_id`).
+Vérifié par JWT forgés sur 10 endpoints × 4 rôles + cas limites, 0 échec.
+**Reste ouvert** : BOLA générale au-delà de `logs`, tests automatisés
+permanents (aucun framework de test dans le projet — décision de stack à
+prendre avec Bryan).
+
+### Dette requêtes non bornées (documentation uniquement, décision CEO)
+`clients/route.ts` et `agenda/route.ts` : fermés, analysés, acceptés
+(agrégats en mémoire / récurrence calculée côté client, un `.limit()`
+casserait la correction fonctionnelle). `documents-citoyen/route.ts` :
+pagination implémentée (`page`/`limit`, `hasMore` heuristique). Index
+ajoutés sur `citoyen_documents`/`evenements_agenda`. Volumes réels
+vérifiés triviaux (rdv 21 lignes, citoyen_documents 1, evenements_agenda 4).
+
+### Migration next/image (97 warnings → 0, clos)
+Chaque occurrence auditée et catégorisée (migration obligatoire /
+exception documentée `IMG-EXCEPTION`, voir /pieges-techniques-connus) —
+jamais de `unoptimized` en faux correctif. ~90 occurrences migrées sur 47
+fichiers, `next.config.ts::remotePatterns` étendu (Supabase Storage,
+Pexels, YouTube). 2 vrais bugs corrigés en migrant (collision `Image`
+Canvas natif/`next/image`, replis d'erreur par mutation DOM directe
+incompatibles avec `src` contrôlé). **Hors de portée de cet
+environnement** : vérification visuelle réelle (aucun outil navigateur).
+
+### Migration i18n (Phase 1 — architecture + preuve de concept)
+Brief CEO : `fr`/`en`/`ar`, `fr` référence + `en` traduit maintenant, `ar`
+structurellement préparé mais non traduit/non exposé. Mode `next-intl`
+"Without i18n routing" : locale résolue via **cookie**
+(`yelen224_locale`), pas de segment d'URL — décision validée après audit
+ayant révélé ~235-245 chemins codés en dur non centralisés. Root layout
+**non touché** (garde `<html lang="fr">` en dur) pour ne pas faire
+basculer 107 routes statiques en dynamique — seuls les écrans migrés
+individuellement deviennent dynamiques (3 routes basculées `○`→`ƒ`
+vérifiées au build).
+**4 écrans POC réels** : `/compte/langue` (+ `LanguageSwitcher`, `ar` non
+exposé), `/mentions-legales` (traduction **partielle délibérée**, prouve
+le fallback français en conditions réelles), `/recuperation-compte`
+(formulaire complet), `/verify/recu/[id]` (pattern `useFormatter()` pour
+date/devise).
+**Hors périmètre explicite** : extraction du reste de l'app (~150+
+fichiers), traduction arabe/RTL réel, root layout dynamique, blocage
+build sur complétude des traductions, dashboard institution (dont Clock
+In Shift/Documents clients — jamais dans le périmètre i18n).
+**Vérification visuelle restant à faire par Bryan.**
+
+### Signalements — case management (Lots 1-2, clos)
+Refonte NIST SP 800-61/OWASP : création → triage → traitement →
+résolution → clôture → audit. `signalements` (altérée, 8 statuts,
+priorité, assignation, résolution structurée), `signalement_events`
+(audit immuable), `signalement_notes` (internes), `signalement_attachments`
+(bucket privé `signalements-preuves`). Légalité des *transitions* en code
+(`lib/signalementsConstants.ts`), pas en trigger DB. Communauté Yelen
+(forme de données différente) reste hors périmètre fonctionnel — seul son
+point d'écriture a migré vers une route service_role dédiée pour ne pas
+casser sous RLS.
+UI (`SignalementsTab.tsx`) : boîte de réception complète, KPI/sparkline,
+fiche 2 colonnes avec actions contextuelles dérivées des transitions
+légales, formulaire avec étape de vérification.
+⚠️ **2 bugs réels trouvés en testant** : sélecteur de citoyen interrogeait
+`rdv` directement côté client (bloqué par RLS, aucune ligne jamais
+renvoyée) — corrigé via `GET /api/institution/clients`. Colonne legacy
+`titre` `NOT NULL` sans défaut, invisible dans les migrations, bloquait
+toute création — corrigée (rendue nullable).
+**Hors périmètre** : refonte admin `/admin/moderation`, SLA/délais,
+anti-abus automatique.
+
+### Documents clients — gestion documentaire (Lots 1-5, clos)
+Brief NIST SP 800-171r3/OWASP Unrestricted File Upload : demande →
+réception → vérification → validation/refus → archivage.
+`citoyen_documents` élargi à 7 statuts, `document_events` (audit immuable,
+séquence `YL-DOC-{année}-{8 chiffres}`). "Expiré" dérivé à la lecture
+(non stocké, pas de job cron dédié). Refus → nouvelle demande via
+`remplace_document_id` (optionnel).
+`lib/citoyenDocuments.ts` : seul point d'écriture. UI
+(`DocumentsClientsTab.tsx`) : boîte de réception + fiche consultation +
+boutons de workflow contextuels (Commencer la vérification/Valider/
+Refuser motif obligatoire/Archiver) + aperçu sécurisé intégré (images
+seulement, PDF non prévisualisé — aucune librairie PDF dans le projet).
+Flux création converti en plein écran avec étape de vérification.
+
+**Audit final (Lot 5)** : 1 faille medium corrigée (`select("*")` sur
+`document_events` exposait IP/user-agent sans besoin UI), 1 bug
+fonctionnel découvert en corrigeant (nom citoyen jamais joint, vide
+depuis le Lot 2), 1 point low (gate `canAccessTab` manquante sur une
+route), 6 correctifs accessibilité (aria-label, navigation clavier).
+**Non fait, honnêteté explicite** : WCAG 2.2 AA réel (aucun outil
+disponible), i18n (hors périmètre acté), tests de charge (volume
+trivial).
+
+### Onglet Recherche accueil + aplatissement doré
+Icône Recherche ajoutée à la barre du bas (2e position, après Accueil),
+`RechercheInner` extraite de `page.tsx` vers un fichier séparé (piège
+export nommé, voir /pieges-techniques-connus), props `embedded`/`onBack`.
+`/recherche` standalone inchangée, vérifiée au build.
+**Aplatissement dégradé→doré plat `#F5A623`** appliqué en série sur
+Offres, RDV, login/inscription citoyen+institution, `CompteHeader` (source
+unique des ~29 écrans `/compte/*`), icône "Offres" de la barre du bas
+remise au même niveau que les autres (CTA flottant retiré). Bouton
+"étincelle" animé de la barre de recherche Offres retiré entièrement
+(redondant avec le clic sur la barre elle-même).
+
+### Votre activité — évolution "Mes réservations"
+Onglet RDV enrichi d'une section "Votre activité" (5 cartes : dernière
+réservation/favori/avis/démarche/dépense), alimentée par extension de
+`GET /api/citoyen/activites` (2 catégories ajoutées :
+`demarche`/`depense`) plutôt que des requêtes ad hoc. Bug corrigé en
+marge : `DOC_STATUT` de cette route utilisait encore les 4 anciennes
+valeurs `citoyen_documents.statut` (documents valides/disponibles/
+archivés affichés à tort "en attente" dans Activités passées).
+
+### Module financier — reçus, transactions, avis (découvert via
+migrations 05-06/08/2026, non documenté auparavant dans ce fichier —
+trou comblé le 12/08/2026, détail complet dans les migrations elles-mêmes)
+- **Rattrapage `module_financier`** : la migration d'origine
+  (`20260722000001`) était documentée exécutée mais ne l'était en réalité
+  jamais complètement (`paid_bookings.montant_paye` manquante, erreur
+  réelle rencontrée en prod le 05/08/2026) — version idempotente rejouée.
+- **Reçus Yelen** (`recus`, Lot A) : Reçu ≠ Facture (décision explicite),
+  tri-partite citoyen/institution/Yelen, obligatoire dès confirmation de
+  paiement. Bug réel trouvé le 06/08/2026 (reçus bloqués au statut
+  `cree`, PDF jamais généré) — colonne `erreur_generation` ajoutée pour
+  rendre l'échec consultable par SQL sans dépendre du terminal.
+- **Transactions — refonte "journal financier Enterprise"** : référence
+  lisible `TRX-{année}-{compteur6}` (même mécanisme de séquence que
+  `journal_activite`/`recus`), contexte de requête ajouté.
+- **Bug avis→moyenne institution** (06/08/2026, signalé par Bryan) :
+  `institutions.moyenne_avis`/`nb_avis` n'étaient jamais recalculées
+  (aucun trigger ni code applicatif) — figées à 0 depuis toujours malgré
+  de vrais avis. Corrigé par trigger DB (recalcul systématique, exclut
+  masqués/brouillons).
+⚠️ **Ces briques n'ont pas été auditées avec la même rigueur que les
+autres chantiers de ce fichier** (découvertes a posteriori via les
+en-têtes de migration, pas une session dédiée) — à vérifier en base par
+Bryan et à documenter plus en détail si un chantier y revient.
+
+### Recherches populaires (découvert via migration 08/08/2026)
+Chantier "Search Overlay" (décision CEO) : section "Recherches
+populaires" de l'overlay plein écran. Aucun suivi de fréquence
+n'existait — nouvelle table, compteur agrégé (pas un journal ligne par
+ligne), `terme_normalise` comme clé d'upsert. Démarre vide, aucune valeur
+de départ fabriquée (même principe que moyenne_avis avant son trigger).
+⚠️ Même remarque que ci-dessus : détail complet uniquement dans la
+migration, pas revérifié en session dédiée.
+
+## /mission-securite-geo-restriction — restriction géographique de pré-lancement + anti-abus edge (code écrit, NON DÉPLOYÉ)
+
+Brief CEO (format proche OWASP/NIST) : avant lancement public, réduire la
+surface d'exposition avec un géoblocage temporaire (Afrique de l'Ouest +
+New York), **au niveau Edge/middleware, jamais une décision JavaScript
+côté client** — deny-by-default. Mise en garde explicite du brief : "pays
+bloqué ≠ bot bloqué", ne pas s'arrêter au géoblocage seul.
+
+**Livré (AUCUN commit/push, AUCUN build lancé — accumulation en attente
+d'un signal explicite de Bryan)** :
+- `lib/geoAccess.ts` : liste CEDEAO + Mauritanie, parsing `x-nf-geo`
+  (Netlify), `estRegionAutorisee()` (CEDEAO OU US+NY), comparaison de
+  cookie en temps constant (implémentation manuelle, Edge Runtime n'a pas
+  `crypto.timingSafeEqual`). **Fail-open explicite** si l'en-tête est
+  absent/invalide (dev local, runtime non Netlify).
+- `lib/edgeSecurity.ts` : détection VPN/proxy via IPQualityScore
+  (**désactivée tant que `IPQS_API_KEY` n'est pas définie**, fail-open),
+  signatures d'outils de scan connus (sqlmap/nikto/nmap, toujours actif),
+  rate limiting 2 niveaux (240 req/min/IP générique + seuil dédié 10-20
+  req/min sur endpoints sensibles, état en mémoire d'instance edge — ne
+  survit pas un redémarrage, défense en profondeur qui ne remplace pas
+  les rate limits déjà posés route par route), log structuré JSON.
+- `middleware.ts` : matcher élargi de `/admin`+`/api/admin` à **tout le
+  site**. Ordre : headers sécurité → géo+VPN (off par défaut) → anti-abus
+  → protection JWT admin (logique préexistante inchangée). `/api/**` et
+  `/region-non-disponible` exemptés du géoblocage.
+- `app/region-non-disponible/page.tsx` : écran dédié, atteint uniquement
+  via `NextResponse.rewrite()` (jamais un redirect visible).
+- `app/api/internal/geo-bypass/route.ts` : accès équipe technique sans IP
+  codée en dur, token comparé en temps constant, cookie httpOnly 30 jours,
+  404 générique si absent/faux.
+
+**Décision d'architecture actée avec Bryan (en cours)** : passage à
+**Cloudflare devant Netlify** (WAF managé, DDoS L3/L4/L7, Bot Management,
+géoblocage natif, rate limiting edge) — remplacera à terme IPQualityScore,
+sans migration d'hébergement (Netlify reste l'origine). Le code ci-dessus
+reste en filet de sécurité supplémentaire (coût nul tant que les
+variables d'environnement restent désactivées), pas de suppression prévue.
+
+⚠️ **Hors de portée du code, actions 100% côté Bryan (dashboard/DNS)** :
+1. Compte Cloudflare + domaine + nameservers + proxy activé.
+2. Bot Fight Mode, règles WAF managées, géoblocage, rate limiting dans
+   Cloudflare.
+3. Variables Netlify (désactivées par défaut, à n'activer qu'après tests
+   réels multi-régions) : `GEO_BLOCK_ENABLED`, `GEO_BYPASS_TOKEN`,
+   `IPQS_API_KEY` (probablement superflu une fois Cloudflare actif),
+   `EDGE_RATE_LIMIT_ENABLED`.
+4. Alerting réel (email/Slack) — aucun webhook branché à ce jour.
+
+## /programme-hardening — 20 missions Product Hardening (VISION/ROADMAP, mission par mission, validée par le CEO avant la suivante)
+
+Après le MVP, phase "Product Hardening" : zéro nouvelle fonctionnalité,
+élever l'existant au niveau Stripe/Notion/Shopify/Google Workspace.
+**MISSION 01 — UX & UI Hardening** (en cours, voir /modules-livres pour
+les écrans déjà traités) : audit et mise à niveau de tous les écrans —
+layout, typographie, cartes, boutons (un seul système), tableaux,
+formulaires, drawer/dialogs, les 7 états de chaque écran (loading/empty/
+error/offline/no permission/no data/success), responsive, animations,
+accessibilité. Critère de validation CEO : ouvrir n'importe quel écran
+sans connaître le produit doit donner immédiatement une impression de
+plateforme Enterprise premium, de façon constante.
+
+**Missions 02-20 (titres seulement, aucun détail défini)** : 02 Design
+System officiel · 03 Performance · 04 Sécurité · 05 QA · 06
+Accessibilité · 07 Responsive · 08 Observabilité · 09 Base de données ·
+10 API · 11 Fichiers & documents · 12 Notifications · 13 RBAC &
+permissions · 14 Multi-tenant · 15 Journal d'audit (déjà largement
+construit, à compléter) · 16 Sauvegarde & continuité · 17 Scalabilité ·
+18 Documentation Enterprise · 19 Déploiement · 20 Audit final.
+
+**Quand une mission est lancée par Bryan** : lire le protocole habituel
+avant tout code (audit avant modification, 2 fichiers max à la fois,
+zéro donnée inventée) — ce programme ne change pas les règles déjà en
+place dans ce fichier, il leur donne juste un ordre de bataille explicite.
+
+## /actions-manuelles-en-attente — checklist consolidée pour Bryan
+
+**Migrations SQL non confirmées exécutées** (ordre chronologique, à
+vérifier une à une — plusieurs chantiers ont été livrés en accumulation
+sans confirmation systématique) :
+`20260805000010` (slug institutions) → `000012` (statut employés) →
+`000013` (documents employé) → `000014` (responsable département) →
+`000015` (traçabilité disponibilités) → `000016`/`000017` (sécurité +
+fonction équipe) → `000018` (paid_bookings.traite_le) →
+`20260808000003` (index documents/agenda) → `000004`-`000007`
+(signalements lifecycle/events/notes/attachments — 000004 doit être
+déployée **en même temps que** le code du Lot 1, pas avant seule) →
+`20260809000001` (titre signalements nullable) → `000002`/`000003`
+(documents lifecycle + events). `20260805000011` (cron daily_attendance)
+requiert aussi `supabase functions deploy clock-in-daily-attendance`.
+
+**Buckets Storage privés — vérifiés 15/09/2026** (`SELECT id,name,public
+FROM storage.buckets`, GAP-11-01 clos) : les 7 buckets attendus
+(`documents-citoyens`, `documents-employes`, `signalements-preuves`,
+`documents`, `recus-paiement`, `documents-travail`, `messagerie-images`)
+existent tous et sont tous `public=false` — y compris `documents`,
+trouvé cassé le 14/08/2026 (bucket manquant à l'époque,
+`app/api/institution/documents/route.ts:108`), recréé depuis. Plus
+d'action requise sur ce point.
+
+**Variables d'environnement à ajouter (Netlify, déjà en local sauf
+mention contraire)** :
+- `CITOYEN_WEBAUTHN_JWT_SECRET` (volontairement absent de Netlify pour
+  l'instant — biométrie citoyen non fonctionnelle en prod tant que ce
+  n'est pas fait).
+- `EMPLOYEE_JWT_SECRET` (requis même en local, sans quoi
+  `app/api/clock/auth/login` échoue au démarrage).
+- 3 variables VAPID (push notifications), déjà en `.env.local`.
+- Geo-restriction (voir /mission-securite-geo-restriction) : tout
+  désactivé par défaut, à activer volontairement plus tard.
+
+**Autres actions ponctuelles** : `npm install pdfkit @types/pdfkit`
+(export Journal d'activité), `npm install` sur toute machine/CI hors
+session courante, bump mineur `next` 16.2.1→16.3.0 (corrige 9
+vulnérabilités npm audit), déploiement Cloudflare (voir
+/mission-securite-geo-restriction).

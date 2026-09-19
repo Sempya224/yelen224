@@ -1,20 +1,19 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "@/components/ThemeProvider";
+import { T } from "@/lib/theme";
 
 // ═══════════════════════════════════════════════════════════
 // ROUTES — adapter selon l'arborescence réelle du projet
 // ═══════════════════════════════════════════════════════════
+// Mobile réservé aux citoyens (mission séparation Citizen/Web, 11/08/2026)
+// — les institutions/prestataires/professionnels restent exclusivement sur
+// leur portail Web (/institution/inscription, /institution/connexion),
+// jamais promu ni même mentionné depuis l'onboarding mobile.
 const ROUTES = {
-  // Citoyen
   citoyenInscription: "/inscription",   // ← app/inscription/citoyen/page.tsx
   citoyenConnexion:   "/login",      // ← app/connexion/citoyen/page.tsx (ou /login si différent)
-
-  // Institution
-  institutionInscription: "/institution/inscription",  // ✅ existe déjà
-  institutionConnexion:   "/institution/connexion",    // ✅ existe déjà
-
-  // Accueil sans compte
   home: "/",
 };
 
@@ -24,7 +23,7 @@ const slides = [
     title: "Bienvenue sur Yelen224",
     subtitle: "La plateforme officielle de la République de Guinée pour vos démarches en ligne",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
         <circle cx="160" cy="120" r="100" fill="#FFF3CD" opacity="0.6"/>
         <circle cx="160" cy="100" r="38" fill="#F5A623"/>
         <circle cx="160" cy="100" r="28" fill="#FFD166"/>
@@ -61,7 +60,7 @@ const slides = [
     title: "Prenez vos RDV facilement",
     subtitle: "Hôpitaux, mairies, ambassades, banques… Réservez en quelques secondes",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
         <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
         <rect x="70" y="70" width="180" height="160" rx="16" fill="white" stroke="#F5A623" strokeWidth="3"/>
         <rect x="70" y="70" width="180" height="45" rx="16" fill="#F5A623"/>
@@ -85,10 +84,10 @@ const slides = [
   },
   {
     id: 3,
-    title: "Connecté aux institutions",
-    subtitle: "Accédez aux services de l'État et aux entreprises privées depuis votre téléphone",
+    title: "Toutes vos institutions, en un seul endroit",
+    subtitle: "Services publics et entreprises privées, accessibles directement depuis votre téléphone",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
         <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
         <circle cx="160" cy="130" r="32" fill="#F5A623"/>
         <circle cx="160" cy="130" r="22" fill="#FFD166"/>
@@ -122,10 +121,10 @@ const slides = [
   },
   {
     id: 4,
-    title: "Sécurisé & Fiable",
-    subtitle: "Vos données sont protégées. Rejoignez des milliers de Guinéens qui font confiance à Yelen224",
+    title: "Sécurisé et fiable",
+    subtitle: "Vos données restent privées et protégées par un chiffrement de niveau bancaire, à chaque étape",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
         <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
         <path d="M160 50 L220 75 L220 145 C220 185 160 215 160 215 C160 215 100 185 100 145 L100 75 Z"
           fill="#F5A623" opacity="0.2" stroke="#F5A623" strokeWidth="3"/>
@@ -142,13 +141,18 @@ const slides = [
           </g>
         ))}
         <rect x="100" y="235" width="120" height="28" rx="14" fill="#F5A623" opacity="0.15"/>
-        <text x="160" y="254" textAnchor="middle" fill="#C97A0E" fontSize="11" fontFamily="sans-serif" fontWeight="bold">+10 000 utilisateurs</text>
+        <text x="160" y="254" textAnchor="middle" fill="#C97A0E" fontSize="11" fontFamily="sans-serif" fontWeight="bold">Chiffrement AES-256</text>
       </svg>
     ),
   },
 ];
 
 // ─── Permission popup ──────────────────────────────────────────────────────────
+// Même famille visuelle que les bottom sheets du reste de l'app (mes-rdv,
+// rdv/[id]) : fond C.cardBg, coin arrondi haut, poignée centrée, bouton
+// principal or canonique #F5A623→#C8940A + texte #080812 (retour Bryan
+// 29/08/2026 — l'onboarding utilisait jusqu'ici une nuance/texte différents
+// de tout le reste de l'app).
 function PermissionPopup({
   icon, title, description, buttonLabel, onAllow, onSkip
 }: {
@@ -159,6 +163,9 @@ function PermissionPopup({
   onAllow: () => void;
   onSkip: () => void;
 }) {
+  const { theme } = useTheme();
+  const C = T[theme];
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
@@ -168,45 +175,44 @@ function PermissionPopup({
     }}>
       <div style={{
         width: "100%", maxWidth: "480px",
-        backgroundColor: "#fff",
-        borderRadius: "28px 28px 0 0",
-        padding: "12px 0 0",
+        backgroundColor: C.cardBg,
+        borderRadius: "24px 24px 0 0",
+        padding: "8px 0 0",
         boxShadow: "0 -8px 40px rgba(0,0,0,0.2)",
-        animation: "slideUp 0.35s cubic-bezier(0.4,0,0.2,1)",
+        animation: "slideUp 0.3s ease",
       }}>
         <style>{`@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-        <div style={{ width: "40px", height: "4px", borderRadius: "2px", backgroundColor: "rgba(0,0,0,0.12)", margin: "0 auto 24px" }}/>
-        <div style={{ padding: "0 28px 36px" }}>
+        <div style={{ width: "40px", height: "4px", borderRadius: "2px", backgroundColor: C.borderCard, margin: "0 auto 20px" }}/>
+        <div style={{ padding: "0 24px 32px" }}>
           <div style={{
-            width: "72px", height: "72px", borderRadius: "22px",
-            background: "linear-gradient(135deg,#F5A623,#FFB300)",
+            width: "64px", height: "64px", borderRadius: "18px",
+            background: "linear-gradient(135deg,#F5A623,#C8940A)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 20px",
-            boxShadow: "0 8px 28px rgba(245,166,35,0.4)",
+            margin: "0 auto 18px",
+            boxShadow: "0 6px 20px rgba(245,166,35,0.35)",
           }}>
             {icon}
           </div>
-          <h2 style={{ textAlign: "center", fontSize: "20px", fontWeight: "900", color: "#1a1a1a", marginBottom: "10px", lineHeight: 1.2 }}>
+          <h2 style={{ textAlign: "center", fontSize: "18px", fontWeight: "900", color: C.text, margin: "0 0 8px" }}>
             {title}
           </h2>
-          <p style={{ textAlign: "center", fontSize: "14px", color: "#666", lineHeight: 1.6, marginBottom: "28px" }}>
+          <p style={{ textAlign: "center", fontSize: "13px", color: C.textSubtle, lineHeight: 1.6, margin: "0 0 24px" }}>
             {description}
           </p>
-          <button onClick={onAllow} style={{
-            width: "100%", padding: "16px",
-            background: "linear-gradient(135deg,#F5A623,#FFB300)",
-            color: "#33271A", fontWeight: "800", fontSize: "16px",
-            border: "none", borderRadius: "16px", cursor: "pointer",
-            marginBottom: "10px",
-            boxShadow: "0 6px 24px rgba(245,166,35,0.45)",
+          <button onClick={onAllow} className="tap" style={{
+            width: "100%", padding: "15px",
+            background: "linear-gradient(135deg,#F5A623,#C8940A)",
+            color: "#080812", fontWeight: "800", fontSize: "15px",
+            border: "none", borderRadius: "14px", cursor: "pointer",
+            marginBottom: "8px",
           }}>
             {buttonLabel}
           </button>
-          <button onClick={onSkip} style={{
-            width: "100%", padding: "14px",
-            background: "transparent", color: "#999",
-            fontWeight: "600", fontSize: "14px",
-            border: "none", borderRadius: "16px", cursor: "pointer",
+          <button onClick={onSkip} className="tap" style={{
+            width: "100%", padding: "13px",
+            background: "transparent", color: C.textSubtle,
+            fontWeight: "700", fontSize: "13px",
+            border: "none", borderRadius: "14px", cursor: "pointer",
           }}>
             Pas maintenant
           </button>
@@ -219,6 +225,9 @@ function PermissionPopup({
 // ─── Main ──────────────────────────────────────────────────────────────────────
 export default function OnboardingPage() {
   const router = useRouter();
+  const { theme } = useTheme();
+  const C = T[theme];
+  const isDark = theme === "dark";
   const [current, setCurrent]       = useState(0);
   const [showChoice, setShowChoice] = useState(false);
   const [animating, setAnimating]   = useState(false);
@@ -228,10 +237,9 @@ export default function OnboardingPage() {
     try { localStorage.setItem("yelen224_onboarding_done", "1"); } catch {}
   };
 
-  // ── Navigation profil ── chaque type → sa propre route ──────────────────────
-  const handleChoice = (type: "citoyen" | "institution") => {
+  const handleCreerCompte = () => {
     finishOnboarding();
-    router.push(type === "citoyen" ? ROUTES.citoyenInscription : ROUTES.institutionInscription);
+    router.push(ROUTES.citoyenInscription);
   };
 
   const handleSkipAccount = () => {
@@ -275,104 +283,85 @@ export default function OnboardingPage() {
     setShowChoice(true);
   };
 
+  const iconBg = isDark ? "rgba(245,166,35,0.12)" : "rgba(245,166,35,0.08)";
+
   // ─── Écran de choix du profil ────────────────────────────────────────────────
   if (showChoice) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-10"
-        style={{ background: "linear-gradient(160deg, #FFF8E7 0%, #FFF0C0 50%, #FFE082 100%)" }}>
+      <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif" }}>
+        <style>{`
+          *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+          html,body{overflow-x:hidden;background:${C.pageBg}}
+          .tap{transition:opacity .1s,transform .1s;cursor:pointer;touch-action:manipulation}
+          .tap:active{opacity:.7;transform:scale(.97)}
+        `}</style>
 
         {/* Logo */}
-        <div className="flex items-center gap-3 mb-10">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg"
-            style={{ background: "linear-gradient(135deg, #F5A623, #FFD166)" }}>
-            <svg viewBox="0 0 24 24" fill="none" className="w-7 h-7">
-              <circle cx="12" cy="12" r="4" fill="#33271A"/>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "40px" }}>
+          <div style={{ width: "44px", height: "44px", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#F5A623,#C8940A)" }}>
+            <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
+              <circle cx="12" cy="12" r="4" fill="#080812"/>
               {[0,45,90,135,180,225,270,315].map((a,i)=>(
                 <line key={i}
                   x1={12+5.5*Math.cos(a*Math.PI/180)} y1={12+5.5*Math.sin(a*Math.PI/180)}
                   x2={12+8*Math.cos(a*Math.PI/180)} y2={12+8*Math.sin(a*Math.PI/180)}
-                  stroke="#33271A" strokeWidth="1.8" strokeLinecap="round"/>
+                  stroke="#080812" strokeWidth="1.8" strokeLinecap="round"/>
               ))}
             </svg>
           </div>
-          <span className="text-2xl font-black tracking-tight" style={{ color: "#33271A", fontFamily: "Georgia, serif" }}>
+          <span style={{ fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", color: C.text }}>
             YELEN<span style={{ color: "#F5A623" }}>224</span>
           </span>
         </div>
 
-        <h1 className="text-2xl font-black text-center mb-2" style={{ color: "#33271A", fontFamily: "Georgia, serif" }}>
-          Qui êtes-vous ?
+        <h1 style={{ fontSize: "22px", fontWeight: "900", textAlign: "center", margin: "0 0 8px", color: C.text }}>
+          Créez votre compte
         </h1>
-        <p className="text-center text-sm mb-10" style={{ color: "#8B6914" }}>
-          Choisissez votre profil pour personnaliser votre expérience
+        <p style={{ textAlign: "center", fontSize: "13px", margin: "0 0 36px", color: C.textSubtle }}>
+          Prenez rendez-vous avec des institutions et services en quelques secondes
         </p>
 
-        {/* Citoyen */}
+        {/* Créer un compte — mobile réservé aux citoyens */}
         <button
-          onClick={() => handleChoice("citoyen")}
-          className="w-full max-w-sm mb-4 p-6 rounded-3xl text-left transition-all duration-200 active:scale-95"
-          style={{ background: "white", boxShadow: "0 8px 32px rgba(245,166,35,0.25)", border: "2px solid transparent" }}>
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0"
-              style={{ background: "linear-gradient(135deg, #FFF3CD, #FFD166)" }}>
+          onClick={handleCreerCompte}
+          className="tap"
+          style={{ width: "100%", maxWidth: "400px", padding: "20px", borderRadius: "20px", border: "none", cursor: "pointer", textAlign: "left", background: "linear-gradient(135deg,#F5A623,#C8940A)", boxShadow: "0 8px 28px rgba(245,166,35,0.35)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <div style={{ width: "52px", height: "52px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "26px", flexShrink: 0, background: "rgba(8,8,18,0.12)" }}>
               🧑🏾
             </div>
-            <div>
-              <div className="font-black text-lg mb-1" style={{ color: "#33271A", fontFamily: "Georgia, serif" }}>Citoyen</div>
-              <div className="text-sm" style={{ color: "#8B6914" }}>Je veux prendre des rendez-vous avec des institutions et services</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "16px", fontWeight: "900", marginBottom: "2px", color: "#080812" }}>Créer mon compte</div>
+              <div style={{ fontSize: "12.5px", color: "rgba(8,8,18,0.65)" }}>Rendez-vous, démarches et suivi en un seul endroit</div>
             </div>
-            <div className="ml-auto text-2xl" style={{ color: "#F5A623" }}>→</div>
-          </div>
-        </button>
-
-        {/* Institution */}
-        <button
-          onClick={() => handleChoice("institution")}
-          className="w-full max-w-sm p-6 rounded-3xl text-left transition-all duration-200 active:scale-95"
-          style={{ background: "linear-gradient(135deg, #F5A623, #FFB300)", boxShadow: "0 8px 32px rgba(245,166,35,0.4)" }}>
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0"
-              style={{ background: "rgba(255,255,255,0.3)" }}>
-              🏢
-            </div>
-            <div>
-              <div className="font-black text-lg mb-1" style={{ color: "#33271A", fontFamily: "Georgia, serif" }}>Institution</div>
-              <div className="text-sm" style={{ color: "#6B4A00" }}>Je représente une institution ou entreprise et je gère des rendez-vous</div>
-            </div>
-            <div className="ml-auto text-2xl" style={{ color: "white" }}>→</div>
+            <div style={{ fontSize: "20px", color: "#080812", flexShrink: 0 }}>→</div>
           </div>
         </button>
 
         {/* Séparateur */}
-        <div className="flex items-center gap-3 w-full max-w-sm mt-6 mb-4">
-          <div className="flex-1 h-px" style={{ background: "rgba(139,105,20,0.3)" }}/>
-          <span style={{ color: "#8B6914", fontSize: "12px" }}>ou</span>
-          <div className="flex-1 h-px" style={{ background: "rgba(139,105,20,0.3)" }}/>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", maxWidth: "400px", margin: "20px 0 16px" }}>
+          <div style={{ flex: 1, height: "1px", background: C.borderCard }}/>
+          <span style={{ color: C.textSubtle, fontSize: "12px" }}>ou</span>
+          <div style={{ flex: 1, height: "1px", background: C.borderCard }}/>
         </div>
 
         {/* Continuer sans compte */}
         <button
           onClick={handleSkipAccount}
-          className="w-full max-w-sm py-4 rounded-2xl font-bold text-sm transition-all duration-200 active:scale-95"
-          style={{
-            background: "transparent",
-            border: "2px dashed rgba(245,166,35,0.6)",
-            color: "#8B6914",
-            fontFamily: "Georgia, serif",
-            fontSize: "15px",
-          }}>
+          className="tap"
+          style={{ width: "100%", maxWidth: "400px", padding: "15px", borderRadius: "16px", cursor: "pointer", background: "transparent", border: `1.5px dashed ${C.borderCard}`, color: C.textSubtle, fontWeight: "700", fontSize: "14px" }}>
           Continuer sans compte →
         </button>
-        <p className="text-center mt-2" style={{ fontSize: "11px", color: "#B8941A" }}>
+        <p style={{ textAlign: "center", marginTop: "8px", fontSize: "11px", color: C.textFaint }}>
           Vous pourrez créer un compte plus tard
         </p>
 
         {/* Déjà un compte */}
-        <div className="mt-6 text-center">
-          <span style={{ color: "#8B6914", fontSize: "14px" }}>Déjà un compte ? </span>
+        <div style={{ marginTop: "24px", textAlign: "center" }}>
+          <span style={{ color: C.textSubtle, fontSize: "13px" }}>Déjà un compte ? </span>
           <button
             onClick={handleAlreadyAccount}
-            style={{ color: "#C97A0E", fontSize: "14px", fontWeight: "700", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            style={{ color: "#F5A623", fontSize: "13px", fontWeight: "700", background: "none", border: "none", cursor: "pointer", textDecoration: "none" }}>
             Se connecter
           </button>
         </div>
@@ -380,38 +369,30 @@ export default function OnboardingPage() {
     );
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
   // ─── Slides ────────────────────────────────────────────────────────────────
   const slide = slides[current];
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden"
-      style={{ background: "linear-gradient(160deg, #FFF8E7 0%, #FFF0C0 50%, #FFE082 100%)" }}>
+    <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif" }}>
+      <style>{`
+        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+        html,body{overflow-x:hidden;background:${C.pageBg}}
+        .tap{transition:opacity .1s,transform .1s;cursor:pointer;touch-action:manipulation}
+        .tap:active{opacity:.7;transform:scale(.97)}
+      `}</style>
 
       {/* Permission popups */}
       {permStep === "location" && (
         <PermissionPopup
           icon={
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#33271A" strokeWidth="2.5" strokeLinecap="round">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
               <circle cx="12" cy="10" r="3"/>
             </svg>
           }
-          title="Activer la localisation"
+          title="Trouvez les services près de chez vous"
           description="Yelen224 utilise votre position pour vous montrer les institutions et services disponibles près de chez vous, et calculer les distances en temps réel."
-          buttonLabel="📍 Activer la localisation"
+          buttonLabel="Activer la localisation"
           onAllow={requestLocation}
           onSkip={() => setPermStep("notif")}
         />
@@ -420,100 +401,84 @@ export default function OnboardingPage() {
       {permStep === "notif" && (
         <PermissionPopup
           icon={
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#33271A" strokeWidth="2.5" strokeLinecap="round">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round">
               <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
               <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
           }
-          title="Activer les notifications"
+          title="Ne manquez aucun rendez-vous"
           description="Recevez des rappels pour vos rendez-vous, des confirmations de réservation et des alertes importantes de vos institutions directement sur votre téléphone."
-          buttonLabel="🔔 Activer les notifications"
+          buttonLabel="Activer les notifications"
           onAllow={requestNotifications}
           onSkip={() => { setPermStep("done"); setShowChoice(true); }}
         />
       )}
 
-      {/* Blobs décoratifs */}
-      <div className="absolute top-[-60px] right-[-60px] w-56 h-56 rounded-full opacity-30"
-        style={{ background: "radial-gradient(circle, #FFD166, transparent)" }}/>
-      <div className="absolute bottom-[120px] left-[-40px] w-40 h-40 rounded-full opacity-20"
-        style={{ background: "radial-gradient(circle, #F5A623, transparent)" }}/>
-
       {/* Header */}
-      <div className="flex items-center justify-between px-6 pt-8 pb-2 z-10">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #F5A623, #FFD166)" }}>
-            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
-              <circle cx="12" cy="12" r="4" fill="#33271A"/>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "calc(env(safe-area-inset-top) + 20px) 20px 8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ width: "32px", height: "32px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#F5A623,#C8940A)" }}>
+            <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
+              <circle cx="12" cy="12" r="4" fill="#080812"/>
               {[0,60,120,180,240,300].map((a,i)=>(
                 <line key={i}
                   x1={12+5.5*Math.cos(a*Math.PI/180)} y1={12+5.5*Math.sin(a*Math.PI/180)}
                   x2={12+8*Math.cos(a*Math.PI/180)} y2={12+8*Math.sin(a*Math.PI/180)}
-                  stroke="#33271A" strokeWidth="1.8" strokeLinecap="round"/>
+                  stroke="#080812" strokeWidth="1.8" strokeLinecap="round"/>
               ))}
             </svg>
           </div>
-          <span className="font-black text-base tracking-tight" style={{ color: "#33271A", fontFamily: "Georgia, serif" }}>
+          <span style={{ fontSize: "15px", fontWeight: "900", letterSpacing: "-0.3px", color: C.text }}>
             YELEN<span style={{ color: "#F5A623" }}>224</span>
           </span>
         </div>
         <button
           onClick={() => setPermStep("location")}
-          className="text-sm font-semibold px-4 py-1.5 rounded-full"
-          style={{ color: "#8B6914", background: "rgba(245,166,35,0.15)" }}>
+          className="tap"
+          style={{ padding: "7px 14px", borderRadius: "20px", border: "none", cursor: "pointer", color: "#F5A623", background: iconBg, fontSize: "13px", fontWeight: "700" }}>
           Passer
         </button>
       </div>
 
       {/* Indicateurs de progression */}
-      <div className="flex justify-center gap-2 py-3 z-10">
+      <div style={{ display: "flex", justifyContent: "center", gap: "6px", padding: "10px 0" }}>
         {slides.map((_, i) => (
-          <button key={i} onClick={() => setCurrent(i)}
-            className="rounded-full transition-all duration-300"
+          <div key={i}
             style={{
-              width: i === current ? "28px" : "8px",
-              height: "8px",
-              background: i === current ? "#F5A623" : "rgba(245,166,35,0.35)",
+              width: i === current ? "22px" : "6px",
+              height: "6px",
+              borderRadius: "3px",
+              background: i === current ? "#F5A623" : C.borderCard,
+              transition: "width 0.25s ease",
             }}/>
         ))}
       </div>
 
       {/* Illustration */}
-      <div
-        className="flex-1 flex items-center justify-center px-8 transition-all duration-300"
-        style={{ opacity: animating ? 0 : 1, transform: animating ? "translateX(30px)" : "translateX(0)" }}>
-        <div className="w-full max-w-xs h-64">{slide.illustration}</div>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 32px", transition: "all 0.3s ease", opacity: animating ? 0 : 1, transform: animating ? "translateX(30px)" : "translateX(0)" }}>
+        <div style={{ width: "100%", maxWidth: "280px", height: "256px" }}>{slide.illustration}</div>
       </div>
 
       {/* Texte */}
-      <div className="px-8 pb-4 z-10 transition-all duration-300" style={{ opacity: animating ? 0 : 1 }}>
-        <h1 className="text-3xl font-black text-center leading-tight mb-3"
-          style={{ color: "#33271A", fontFamily: "Georgia, serif" }}>
+      <div style={{ padding: "0 28px 16px", transition: "opacity 0.3s ease", opacity: animating ? 0 : 1 }}>
+        <h1 style={{ fontSize: "22px", fontWeight: "900", textAlign: "center", lineHeight: 1.25, margin: "0 0 10px", color: C.text }}>
           {slide.title}
         </h1>
-        <p className="text-center text-base leading-relaxed" style={{ color: "#8B6914" }}>
+        <p style={{ textAlign: "center", fontSize: "14px", lineHeight: 1.6, margin: 0, color: C.textSubtle }}>
           {slide.subtitle}
         </p>
       </div>
 
       {/* Navigation */}
-      <div className="px-6 pb-10 pt-4 flex items-center gap-3 z-10">
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "16px 20px calc(env(safe-area-inset-bottom) + 24px)" }}>
         {current > 0 && (
-          <button onClick={goPrev}
-            className="w-14 h-14 rounded-2xl flex items-center justify-center transition-all active:scale-95"
-            style={{ background: "rgba(245,166,35,0.2)", border: "2px solid rgba(245,166,35,0.4)" }}>
-            <span style={{ color: "#F5A623", fontSize: "20px" }}>←</span>
+          <button onClick={goPrev} className="tap" aria-label="Précédent"
+            style={{ width: "52px", height: "52px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, background: iconBg, border: "none" }}>
+            <span style={{ color: "#F5A623", fontSize: "18px" }}>←</span>
           </button>
         )}
-        <button onClick={goNext}
-          className="flex-1 h-14 rounded-2xl font-bold text-base transition-all active:scale-95 shadow-lg"
-          style={{
-            background: "linear-gradient(135deg, #F5A623, #FFB300)",
-            color: "#33271A",
-            boxShadow: "0 6px 24px rgba(245,166,35,0.5)",
-            fontFamily: "Georgia, serif",
-          }}>
+        <button onClick={goNext} className="tap"
+          style={{ flex: 1, height: "52px", borderRadius: "16px", border: "none", cursor: "pointer", fontWeight: "800", fontSize: "15px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812" }}>
           {current === slides.length - 1 ? "Commencer →" : "Suivant →"}
         </button>
       </div>

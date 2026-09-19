@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type SectionType = "text" | "warn" | "tip" | "info" | "list" | "checklist" | "steps" | "plans";
@@ -128,11 +130,11 @@ const CHAPITRES: Chapitre[] = [
     ],
   },
   {
-    id: "qrcode", numero: "09", titre: "QR Code et partage", icon: "📲", duree: "5 min", niveau: "Débutant", couleur: "#14b8a6",
-    resume: "Votre QR Code permet à tout citoyen d'accéder à votre profil en 1 seconde.",
+    id: "qrcode", numero: "09", titre: "QR code et partage", icon: "📲", duree: "5 min", niveau: "Débutant", couleur: "#14b8a6",
+    resume: "Votre QR code permet à tout citoyen d'accéder à votre profil en 1 seconde.",
     sections: [
-      { titre: "Caractéristiques du QR Code", type: "list", items: ["✅ Unique — lié exclusivement à votre établissement", "✅ Permanent — ne change jamais", "✅ Gratuit — inclus dans tous les plans", "✅ Haute résolution — qualité d'impression professionnelle", "✅ Personnalisé — logo Yelen224 intégré au centre"] },
-      { titre: "Téléchargement", contenu: "Tableau de bord → Mon QR Code\n\nFormats : PNG (fond blanc), SVG (grand format), PDF (impression directe)\nTailles : 500×500 px (digital) ou 2000×2000 px (impression)", type: "text" },
+      { titre: "Caractéristiques du QR code", type: "list", items: ["✅ Unique — lié exclusivement à votre établissement", "✅ Permanent — ne change jamais", "✅ Gratuit — inclus dans tous les plans", "✅ Haute résolution — qualité d'impression professionnelle", "✅ Personnalisé — logo Yelen224 intégré au centre"] },
+      { titre: "Téléchargement", contenu: "Tableau de bord → Mon QR code\n\nFormats : PNG (fond blanc), SVG (grand format), PDF (impression directe)\nTailles : 500×500 px (digital) ou 2000×2000 px (impression)", type: "text" },
       { titre: "Dans votre établissement", type: "list", items: ["À l'entrée : panneau d'accueil \"Scannez pour prendre RDV\"", "En salle d'attente : affiche A4 ou A3", "À l'accueil / réception : support de comptoir", "Sur les portes des consultations et bureaux"] },
       { titre: "Sur vos supports", type: "list", items: ["Cartes de visite et ordonnances", "Flyers et brochures", "Site web et page Facebook officielle", "Signature email et WhatsApp Business"] },
       { titre: "Statistiques QR (Premium)", contenu: "Suivez : nombre de scans par période, appareils utilisés, taux de conversion scan → RDV, localisation géographique.", type: "info" },
@@ -262,9 +264,22 @@ function SectionBlock({ section, chapCouleur }: { section: Section; chapCouleur:
 }
 
 // ── Main Page ────────────────────────────────────────────────────────────────
-export default function GuidePrestatairePage() {
+// useSearchParams() exige un <Suspense> parent (piège build Netlify déjà
+// rencontré ailleurs, voir CLAUDE.md) — export par défaut wrapper tout en
+// bas du fichier, le vrai composant est GuidePrestataireInner.
+function GuidePrestataireInner() {
+  const searchParams = useSearchParams();
   const [activeChap, setActiveChap] = useState("inscription");
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Lien direct depuis le popover "Aide Yelen" (chantier "Refonte Aide &
+  // ressources", 06/09/2026, ?chapitre=<id>) — ignoré silencieusement si
+  // l'id ne correspond à aucun chapitre réel.
+  useEffect(() => {
+    const c = searchParams.get("chapitre");
+    if (c && CHAPITRES.some(ch => ch.id === c)) setActiveChap(c);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const chap = CHAPITRES.find(c => c.id === activeChap) ?? CHAPITRES[0];
   const idx = CHAPITRES.findIndex(c => c.id === activeChap);
@@ -377,7 +392,7 @@ export default function GuidePrestatairePage() {
             <h3 style={{ color: "#1a1200", fontSize: "18px", fontWeight: "900", margin: "0 0 6px" }}>Guide terminé !</h3>
             <p style={{ color: "#6b5000", fontSize: "13px", margin: "0 0 16px", lineHeight: 1.6 }}>Vous êtes prêt à lancer votre présence professionnelle sur Yelen224.</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <a href="/institution/inscription" style={{ background: "linear-gradient(135deg,#F5A623,#e8950f)", color: "#1a1200", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", textDecoration: "none", textAlign: "center", boxShadow: "0 4px 16px rgba(245,166,35,0.4)" }}>Inscrire mon institution →</a>
+              <Link href="/institution/inscription" style={{ background: "linear-gradient(135deg,#F5A623,#e8950f)", color: "#1a1200", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", textDecoration: "none", textAlign: "center", boxShadow: "0 4px 16px rgba(245,166,35,0.4)" }}>Inscrire mon institution →</Link>
               <a href="/contact" style={{ background: "rgba(255,255,255,0.7)", border: "1.5px solid rgba(200,140,0,0.25)", color: "#1a1200", fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", textAlign: "center" }}>Parler à l&apos;équipe</a>
             </div>
           </div>
@@ -424,7 +439,7 @@ export default function GuidePrestatairePage() {
               })}
             </div>
             <div style={{ padding: "16px", borderTop: "1px solid rgba(200,140,0,0.15)" }}>
-              <a href="/institution/inscription" style={{ display: "block", textAlign: "center", background: "#F5A623", color: "#1a1200", fontWeight: "900", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 4px 14px rgba(245,166,35,0.35)" }}>S&apos;inscrire gratuitement →</a>
+              <Link href="/institution/inscription" style={{ display: "block", textAlign: "center", background: "#F5A623", color: "#1a1200", fontWeight: "900", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 4px 14px rgba(245,166,35,0.35)" }}>S&apos;inscrire gratuitement →</Link>
             </div>
           </div>
         </>
@@ -432,5 +447,13 @@ export default function GuidePrestatairePage() {
 
       <div style={{ height: "env(safe-area-inset-bottom, 0px)" }} />
     </div>
+  );
+}
+
+export default function GuidePrestatairePage() {
+  return (
+    <Suspense fallback={null}>
+      <GuidePrestataireInner/>
+    </Suspense>
   );
 }

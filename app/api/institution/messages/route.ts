@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
-import { can } from "@/lib/institutionPermissions";
+import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 import { envoyerNotification } from "@/lib/notifications";
 import { conversationFermee } from "@/lib/messagerie";
@@ -41,6 +41,16 @@ export async function GET(req: NextRequest) {
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   const authInstId = membre.institutionId;
 
+  // "messagerie" suit exactement le même accès que "mes-clients" pour les 5
+  // rôles (voir lib/institutionPermissions.ts, TAB_MATRIX) — un seul contrôle
+  // couvre donc les 3 modes de cette route (aucun paramètre, citoyen_id,
+  // rdv_id). Absent jusqu'ici : un membre comptable/dirigeant authentifié
+  // pouvait lire l'intégralité des conversations citoyen-institution en
+  // appelant directement cette route, malgré messagerie="none" pour ces rôles.
+  if (canAccessTab(membre.role, "messagerie", membre.accesRestreints) === "none") {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(req.url);
   const citoyenId = searchParams.get("citoyen_id");
   const rdvId = searchParams.get("rdv_id");
@@ -68,19 +78,27 @@ export async function GET(req: NextRequest) {
 
   if (!citoyenId) {
     // Mode agrégat par rdv — écran dédié Lot 2, onglet Citoyen.
+    // Audit Lot 12 (07/08/2026) : aucune des deux requêtes n'était bornée
+    // avant ce correctif — une institution mature accumulant des années de
+    // rdv/messages rechargeait tout en mémoire à chaque ouverture de l'écran
+    // conversations. Plafond aligné sur rdv/route.ts (.limit(300)) : les
+    // rdv les plus récents (déjà triés desc) suffisent pour une liste de
+    // conversations, les messages ne sont ensuite lus que pour ce sous-
+    // ensemble borné de rdv_id.
     const { data: rdvs, error: rdvErr } = await sb
       .from("rdv")
       .select("id,citoyen_id,statut,service,date_rdv")
       .eq("institution_id", authInstId)
-      .order("date_rdv", { ascending: false });
+      .order("date_rdv", { ascending: false })
+      .limit(300);
     if (rdvErr) return NextResponse.json({ error: rdvErr.message }, { status: 500 });
     if (!rdvs || rdvs.length === 0) return NextResponse.json({ conversations: [], total_non_lus: 0 });
 
+    const rdvIdsScope = rdvs.map((r) => r.id);
     const { data: msgs, error: msgsErr } = await sb
       .from("messages")
       .select("rdv_id,contenu,image_url,type,lu,cree_le,destinataire_institution_id")
-      .or(`expediteur_institution_id.eq.${authInstId},destinataire_institution_id.eq.${authInstId}`)
-      .not("rdv_id", "is", null)
+      .in("rdv_id", rdvIdsScope)
       .order("cree_le", { ascending: true });
     if (msgsErr) return NextResponse.json({ error: msgsErr.message }, { status: 500 });
 
@@ -178,6 +196,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ce rendez-vous est terminé — la conversation est fermée." }, { status: 409 });
   }
 
+  // Restriction messagerie institution → citoyen pendant une suspension
+  // (retour Bryan 17/08/2026 : "côté institutions le plus important, car
+  // c'est lui qui est bloqué") — barrière serveur réelle, symétrique à la
+  // restriction citoyen (lib/messagerie.ts::sendMessageRdv). L'institution
+  // garde la lecture de ses conversations (onglet Messagerie reste
+  // accessible pendant la suspension, voir page.tsx::ALLOWED_TABS_SUSPENDU)
+  // mais ne peut plus initier de nouvel envoi vers un citoyen tant qu'elle
+  // est suspendue — le support Yelen (messagerie-yelen/route.ts, canal
+  // séparé) n'est volontairement PAS concerné par cette restriction.
+  const { data: inst } = await sb.from("institutions").select("name,statut").eq("id", authInstId).maybeSingle();
+  if (inst?.statut === "suspendue") {
+    return NextResponse.json({ error: "Votre établissement est suspendu — vous ne pouvez pas envoyer de nouveaux messages aux citoyens pour le moment. Besoin de parler à un agent ? Contactez le support Yelen ou demandez une révision depuis l'écran d'accueil." }, { status: 403 });
+  }
+
   const { error } = await sb.from("messages").insert({
     expediteur_institution_id: authInstId,
     destinataire_citoyen_id: rdv.citoyen_id,
@@ -188,7 +220,6 @@ export async function POST(req: NextRequest) {
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const { data: inst } = await sb.from("institutions").select("name").eq("id", authInstId).maybeSingle();
   await envoyerNotification({
     destinataire_id: rdv.citoyen_id,
     destinataire_type: "citoyen",

@@ -10,9 +10,11 @@
 // scission desktop puisque le côté citoyen n'existe qu'en mobile.
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
 import { logoutCitoyenStrict } from "@/lib/auth/logoutCitoyen";
+import { YelenLoader } from "@/components/YelenLoader";
 import type { LogoutFlowCopy } from "@/lib/logoutFlowTypes";
 
 export const CITOYEN_LOGOUT_COPY: LogoutFlowCopy = {
@@ -67,22 +69,18 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
   const brd = t.border;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9600, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-      <style>{`@keyframes logoutSpin{to{transform:rotate(360deg)}} @keyframes logoutProgress{from{width:8%}to{width:92%}} @keyframes logoutPop{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}`}</style>
-      <div style={{ backgroundColor: card, borderRadius: "28px", padding: "36px 28px", maxWidth: "360px", width: "100%", textAlign: "center", border: `1px solid ${brd}`, boxShadow: "0 40px 80px rgba(0,0,0,0.5)", animation: "logoutPop 0.2s ease" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 9600, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0" }}>
+      <style>{`@keyframes logoutProgress{from{width:8%}to{width:92%}} @keyframes logoutSheetUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      <div style={{ backgroundColor: card, borderRadius: "28px 28px 0 0", padding: "16px 28px calc(28px + env(safe-area-inset-bottom))", maxWidth: "480px", width: "100%", textAlign: "center", border: `1px solid ${brd}`, borderBottom: "none", animation: "logoutSheetUp 0.22s ease" }}>
+        <div style={{ width: "40px", height: "4px", background: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)", borderRadius: "2px", margin: "0 auto 20px" }}/>
 
         {step === "confirm" && (
           <>
-            <div style={{ width: "64px", height: "64px", borderRadius: "20px", background: isDark ? "rgba(245,166,35,0.12)" : "rgba(245,166,35,0.1)", border: "2px solid rgba(245,166,35,0.35)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                <path d="M9.5 12.5l1.8 1.8 3.2-3.6"/>
-              </svg>
-            </div>
+            <Image src="/illustrations/logout-citoyen.png" alt="" width={1102} height={1019} style={{ width: "168px", maxWidth: "100%", height: "auto", margin: "0 auto 16px", display: "block" }}/>
             <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "10px" }}>{copy.confirmTitle}</div>
             <div style={{ color: t2, fontSize: "13.5px", lineHeight: 1.6, marginBottom: "28px" }}>{copy.confirmBody}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <button onClick={runLogout} style={{ width: "100%", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "15.5px", padding: "15px", borderRadius: "16px", border: "none", cursor: "pointer", boxShadow: "0 8px 24px rgba(245,166,35,0.35)" }}>
+              <button onClick={runLogout} style={{ width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15.5px", padding: "15px", borderRadius: "16px", border: "none", cursor: "pointer" }}>
                 {copy.confirmConfirmLabel}
               </button>
               <button onClick={onClose} style={{ width: "100%", background: "none", border: `1px solid ${brd}`, color: t2, fontWeight: "700", fontSize: "14.5px", padding: "14px", borderRadius: "16px", cursor: "pointer" }}>
@@ -94,7 +92,7 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
 
         {step === "transitioning" && (
           <>
-            <div style={{ width: "56px", height: "56px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "logoutSpin 0.8s linear infinite", margin: "0 auto 22px" }}/>
+            <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 22px" }}><YelenLoader size={56}/></div>
             <div style={{ color: t1, fontSize: "18px", fontWeight: "800", marginBottom: "8px" }}>{copy.transitioningTitle}</div>
             <div style={{ color: t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "22px" }}>{copy.transitioningSubtitle}</div>
             <div style={{ height: "4px", borderRadius: "2px", backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", overflow: "hidden" }}>
@@ -121,7 +119,7 @@ export function LogoutFlow({ onClose, redirectTo, copy }: {
             <div style={{ color: t1, fontSize: "18px", fontWeight: "900", marginBottom: "10px" }}>{copy.networkErrorTitle}</div>
             <div style={{ color: t2, fontSize: "13.5px", lineHeight: 1.6, marginBottom: "24px" }}>{copy.networkErrorBody}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <button onClick={runLogout} style={{ width: "100%", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "16px", border: "none", cursor: "pointer" }}>
+              <button onClick={runLogout} style={{ width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "16px", border: "none", cursor: "pointer" }}>
                 Réessayer
               </button>
               <button onClick={onClose} style={{ width: "100%", background: "none", border: `1px solid ${brd}`, color: t2, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "16px", cursor: "pointer" }}>

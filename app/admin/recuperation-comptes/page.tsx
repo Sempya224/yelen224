@@ -8,7 +8,10 @@
 // 20260725000006_citoyen_recuperation_compte.sql) ; "Forcer" reste
 // disponible à tout moment — jamais un citoyen bloqué sans recours admin.
 import { useEffect, useState, useCallback } from 'react'
-import { D } from '@/app/admin/adminTheme'
+import { D, uiTokens } from '@/app/admin/adminTheme'
+import { YelenLoader } from '@/components/YelenLoader'
+import { Button } from '@/components/ui/Button'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 type Demande = {
   id: string; type: 'numero' | 'totp'; ancien_phone: string; nouveau_phone: string; prenom: string; nom: string;
@@ -48,6 +51,8 @@ export default function RecuperationComptesPage() {
   const [items, setItems] = useState<Demande[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [confirmForcer, setConfirmForcer] = useState<Demande | null>(null)
+  const [motifForcer, setMotifForcer] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -60,7 +65,7 @@ export default function RecuperationComptesPage() {
   useEffect(() => { load() }, [load])
 
   async function agir(id: string, action: string, notes?: string) {
-    setBusyId(id)
+    setBusyId(id + action)
     const res = await fetch('/api/admin/recuperation', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -75,7 +80,7 @@ export default function RecuperationComptesPage() {
     <div>
       <h1 style={{ color: D.text, fontSize: '22px', fontWeight: '800', marginBottom: '4px' }}>Récupération de comptes</h1>
       <p style={{ color: D.textSub, fontSize: '13px', marginBottom: '20px' }}>
-        Demandes soumises par des citoyens ayant perdu l'accès à leur numéro. Approuver démarre un délai de sécurité de 48h avant l'activation automatique du nouveau numéro — "Forcer" applique immédiatement, à utiliser si l'ancien numéro est définitivement inaccessible.
+        Demandes soumises par des citoyens ayant perdu l&apos;accès à leur numéro. Approuver démarre un délai de sécurité de 48h avant l&apos;activation automatique du nouveau numéro — &quot;Forcer&quot; applique immédiatement, à utiliser si l&apos;ancien numéro est définitivement inaccessible.
       </p>
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
@@ -100,7 +105,7 @@ export default function RecuperationComptesPage() {
       </div>
 
       {loading ? (
-        <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+        <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
       ) : items.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px' }}>
           <p style={{ color: D.textSub, fontSize: '13px' }}>Aucune demande pour ce filtre.</p>
@@ -109,7 +114,11 @@ export default function RecuperationComptesPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {items.map(d => {
             const si = STATUT_INFO[d.statut] ?? { label: d.statut, color: D.textSub, bg: D.surface2 }
-            const busy = busyId === d.id
+            const busyApprouver = busyId === d.id + 'approuver'
+            const busyRejeter = busyId === d.id + 'rejeter'
+            const busyForcer = busyId === d.id + 'forcer'
+            const busyAnnuler = busyId === d.id + 'annuler'
+            const busy = busyId !== null && busyId.startsWith(d.id)
             return (
               <div key={d.id} style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px', padding: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', gap: '10px', flexWrap: 'wrap' }}>
@@ -150,29 +159,37 @@ export default function RecuperationComptesPage() {
 
                 {d.document_url && (
                   <a href={d.document_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: D.blue, fontSize: '12px', fontWeight: '700', textDecoration: 'none', marginBottom: '12px' }}>
-                    📄 Voir la pièce d'identité
+                    📄 Voir la pièce d&apos;identité
                   </a>
                 )}
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {d.statut === 'en_attente' && (
                     <>
-                      <button onClick={() => agir(d.id, 'approuver')} disabled={busy} style={{ background: D.greenDim, border: `1px solid ${D.green}30`, color: D.green, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
-                        {busy ? '…' : 'Approuver (délai 48h)'}
+                      <button onClick={() => agir(d.id, 'approuver')} disabled={busy} style={{ background: D.greenDim, border: `1px solid ${D.green}30`, color: D.green, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busy ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                        {busyApprouver ? <YelenLoader size={11} color={D.green}/> : 'Approuver (délai 48h)'}
                       </button>
-                      <button onClick={() => agir(d.id, 'rejeter')} disabled={busy} style={{ background: D.redDim, border: `1px solid ${D.red}30`, color: D.red, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
-                        Rejeter
+                      <button onClick={() => agir(d.id, 'rejeter')} disabled={busy} style={{ background: D.redDim, border: `1px solid ${D.red}30`, color: D.red, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busy ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {busyRejeter ? <YelenLoader size={11} color={D.red}/> : 'Rejeter'}
                       </button>
                     </>
                   )}
                   {(d.statut === 'en_attente' || d.statut === 'approuve') && (
-                    <button onClick={() => agir(d.id, 'forcer')} disabled={busy || !d.compte_trouve} title={!d.compte_trouve ? "Aucun compte rapproché — associer manuellement d'abord" : "Applique le nouveau numéro immédiatement"} style={{ background: D.yellowDim, border: `1px solid ${D.yellow}30`, color: D.yellow, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: !d.compte_trouve ? 'not-allowed' : 'pointer', opacity: busy || !d.compte_trouve ? 0.6 : 1 }}>
+                    <Button
+                      tokens={uiTokens}
+                      variant="danger"
+                      size="sm"
+                      disabled={busy || !d.compte_trouve}
+                      loading={busyForcer}
+                      title={!d.compte_trouve ? "Aucun compte rapproché — associer manuellement d'abord" : "Applique le nouveau numéro immédiatement, sans attendre le délai de 48h"}
+                      onClick={() => setConfirmForcer(d)}
+                    >
                       Forcer maintenant
-                    </button>
+                    </Button>
                   )}
                   {d.statut === 'approuve' && (
-                    <button onClick={() => agir(d.id, 'annuler')} disabled={busy} style={{ background: D.surface2, border: `1px solid ${D.border2}`, color: D.textSub, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
-                      Annuler (citoyen contacté sur l'ancien numéro)
+                    <button onClick={() => agir(d.id, 'annuler')} disabled={busy} style={{ background: D.surface2, border: `1px solid ${D.border2}`, color: D.textSub, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', opacity: busy ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {busyAnnuler ? <YelenLoader size={11} color={D.textSub}/> : "Annuler (citoyen contacté sur l'ancien numéro)"}
                     </button>
                   )}
                 </div>
@@ -181,6 +198,31 @@ export default function RecuperationComptesPage() {
           })}
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmForcer}
+        onClose={() => { setConfirmForcer(null); setMotifForcer('') }}
+        onConfirm={async () => { if (confirmForcer) { await agir(confirmForcer.id, 'forcer', motifForcer); setConfirmForcer(null); setMotifForcer('') } }}
+        tokens={uiTokens}
+        level={3}
+        danger
+        title="Forcer l'application immédiate ?"
+        description={confirmForcer ? `Pour ${confirmForcer.prenom} ${confirmForcer.nom} — ${confirmForcer.type === 'totp' ? 'réinitialisation de la 2FA' : `changement vers ${confirmForcer.nouveau_phone}`}.` : undefined}
+        consequences={[
+          "Contourne volontairement le délai de sécurité de 48h conçu pour détecter une usurpation avant qu'elle prenne effet.",
+          confirmForcer?.type === 'totp'
+            ? "La double authentification du compte est désactivée immédiatement."
+            : "L'accès au compte bascule immédiatement vers le nouveau numéro indiqué.",
+          "L'ancien titulaire du compte, s'il n'est pas à l'origine de cette demande, perd l'accès sans délai.",
+        ]}
+        reversible={false}
+        irreversibleNote="Non annulable automatiquement — seule une nouvelle action manuelle inverse peut revenir en arrière."
+        motifValue={motifForcer}
+        onMotifChange={setMotifForcer}
+        motifPlaceholder="Raison du passage en force — conservée dans les notes admin..."
+        confirmWord="FORCER"
+        confirmLabel="Forcer maintenant"
+      />
     </div>
   )
 }

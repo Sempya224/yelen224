@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -25,8 +26,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 
+// crypto.randomInt (CSPRNG), pas Math.random() — audit sécurité 14/09/2026,
+// même correctif déjà appliqué côté institution (send-otp/route.ts) lors du
+// durcissement du 13/08/2026, manqué ici côté citoyen.
 function genererCode6Chiffres(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 /**

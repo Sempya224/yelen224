@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { D } from '@/app/admin/adminTheme'
 import { Ic } from '@/app/admin/adminIcons'
 import { Badge, DataTable, exportCSV } from '@/app/admin/adminUiKit'
+import { YelenLoader } from '@/components/YelenLoader'
 
 export default function PaiementsPage() {
   const [data, setData] = useState<{id:string,statut:string,created_at:string,date_rdv:string,heure_rdv:string,institution_id:string}[]>([])
@@ -59,7 +60,7 @@ export default function PaiementsPage() {
 
       <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Chargement...</div>
+          <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={24}/></div>
         ) : error ? (
           <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>{error}</div>
         ) : data.length === 0 ? (

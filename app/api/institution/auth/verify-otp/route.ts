@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
-import crypto from 'crypto'
-import { mintInstitutionTotpChallengeToken } from '@/lib/auth/institutionSession'
+import {
+  mintInstitutionTotpChallengeToken, evaluerAppareilInstitution, enregistrerConnexionInstitution,
+  verifierVerrouInstitution, enregistrerEchecConnexionInstitution, reinitialiserEchecsConnexionInstitution,
+} from '@/lib/auth/institutionSession'
 import { enregistrerAction } from '@/lib/journalActivite'
+import { extraireIpClient } from '@/lib/edgeSecurity'
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from '@/lib/institutionAuth'
+import {
+  resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
+  enregistrerTentative, messageSecurite,
+} from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,74 +21,71 @@ const supabaseAdmin = createClient(
 
 const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
 
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
-
-function lockedMsRemaining(identifier: string): number {
-  const entry = failedAttempts.get(identifier)
-  if (!entry) return 0
-  const remaining = entry.lockedUntil - Date.now()
-  return remaining > 0 ? remaining : 0
-}
-
-function registerFailure(identifier: string) {
-  const now = Date.now()
-  const entry = failedAttempts.get(identifier)
-  // Un lockedUntil dépassé signifie que le lockout précédent est terminé : on repart à zéro.
-  const count = entry && entry.lockedUntil === 0 ? entry.count + 1 : 1
-  const lockedUntil = count >= 5 ? now + 5 * 60 * 1000 : 0
-  failedAttempts.set(identifier, { count, lockedUntil })
-}
-
-function clearFailures(identifier: string) {
-  failedAttempts.delete(identifier)
-}
-
 export async function POST(request: NextRequest) {
+  // Auth Security (chantier 28/08/2026) — remplace la Map failedAttempts
+  // locale, voir lib/security/authSecurity.ts.
+  const { deviceId, estNouveau } = resoudreDeviceId(request)
+  const ip = extraireIpClient(request)
+  const userAgent = request.headers.get('user-agent')
+
+  const finaliser = (body: Record<string, unknown>, status: number) => {
+    const response = NextResponse.json(body, { status })
+    poserCookieDeviceSiNecessaire(response, deviceId, estNouveau)
+    return response
+  }
+
   try {
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
+      )
+    }
+
     const body = await request.json()
     const { institutionId, phone: rawPhone, code, rememberMe } = body
 
     const hasInstitutionId = typeof institutionId === 'string' && institutionId.length > 0
     const hasPhone = typeof rawPhone === 'string' && rawPhone.length > 0
+    const endpointCategory = hasInstitutionId ? 'institution_login' as const : 'institution_register' as const
 
     if (hasInstitutionId === hasPhone) {
-      return NextResponse.json(
-        { error: 'Fournir institutionId (connexion) ou phone (inscription), pas les deux', code: 'MISSING_FIELDS' },
-        { status: 400 }
-      )
+      return finaliser({ error: 'Fournir institutionId (connexion) ou phone (inscription), pas les deux', code: 'MISSING_FIELDS' }, 400)
     }
 
     if (!code || typeof code !== 'string') {
-      return NextResponse.json(
-        { error: 'code requis', code: 'MISSING_FIELDS' },
-        { status: 400 }
-      )
+      return finaliser({ error: 'code requis', code: 'MISSING_FIELDS' }, 400)
     }
 
-    const identifier: string = hasInstitutionId ? institutionId : rawPhone
-
-    if (lockedMsRemaining(identifier) > 0) {
-      return NextResponse.json(
-        { error: 'Trop de tentatives. Réessayez dans quelques minutes.', code: 'LOCKED' },
-        { status: 429 }
-      )
+    // Verrouillage par compte (revue critique 30/08/2026, même jour) —
+    // uniquement en flux connexion (institutionId connu) : en inscription,
+    // aucun compte n'existe encore à verrouiller. Complète le throttle
+    // device+IP ci-dessus. Voir lib/auth/institutionSession.ts.
+    if (hasInstitutionId) {
+      const verrou = await verifierVerrouInstitution(supabaseAdmin, institutionId)
+      if (verrou.verrouille) {
+        return finaliser({ error: `Trop de tentatives. Réessayez dans ${verrou.minutesRestantes} minute(s).`, code: 'LOCKED' }, 429)
+      }
     }
+
+    const identifiant: string = hasInstitutionId ? institutionId : rawPhone
 
     let phone: string
-    let institution: { id: string; phone: string; name: string } | null = null
+    let institution: { id: string; phone: string; name: string; statut: string } | null = null
 
     if (hasInstitutionId) {
       const { data, error: dbError } = await supabaseAdmin
         .from('institutions')
-        .select('id, phone, name')
+        .select('id, phone, name, statut')
         .eq('id', institutionId)
         .single()
 
       if (dbError || !data) {
-        return NextResponse.json(
-          { error: 'Institution introuvable', code: 'NOT_FOUND' },
-          { status: 404 }
-        )
+        const etat = await enregistrerTentative(supabaseAdmin, {
+          endpointCategory, deviceId, ip, identifiant, outcome: 'not_found', userAgent,
+        })
+        return finaliser({ error: 'Institution introuvable', code: 'NOT_FOUND', security: etat }, 404)
       }
       institution = data
       phone = data.phone
@@ -104,26 +109,44 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (otpRow) {
-      await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
       verified = true
+      // Fix 14/08/2026 (diagnostic Lot 02) : en flux inscription (institution
+      // encore null ici), ne pas supprimer la ligne — /register refait
+      // exactement la même vérification (phone+code+expires_at) avant de
+      // créer le compte, potentiellement plusieurs écrans plus tard. La
+      // supprimer ici cassait systématiquement register.ts:167-189 avec
+      // INVALID_CODE, bloquant toute inscription sur le chemin nominal.
+      // En flux connexion, institution est déjà résolue et cette route est
+      // le seul point de vérification : le code doit être consommé ici.
+      if (institution) {
+        await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
+      }
     }
 
     if (!verified) {
-      registerFailure(identifier)
-      return NextResponse.json(
-        { error: 'Code incorrect', code: 'INVALID_CODE' },
-        { status: 401 }
-      )
+      if (institution) await enregistrerEchecConnexionInstitution(supabaseAdmin, institution.id)
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory, deviceId, ip, identifiant, outcome: 'code_incorrect', userAgent,
+      })
+      return finaliser({ error: 'Code incorrect', code: 'INVALID_CODE', security: etat }, 401)
     }
 
-    clearFailures(identifier)
+    if (institution) await reinitialiserEchecsConnexionInstitution(supabaseAdmin, institution.id)
+    const etatVerifie = await enregistrerTentative(supabaseAdmin, {
+      endpointCategory, deviceId, ip, identifiant, outcome: 'code_correct', userAgent,
+    })
 
     // Flux inscription : téléphone confirmé, aucune institution à connecter pour l'instant.
     if (!institution) {
-      return NextResponse.json({ success: true, phoneVerified: true })
+      return finaliser({ success: true, phoneVerified: true, security: etatVerifie }, 200)
     }
 
     // Flux connexion : session complète
+
+    // Institution suspendue — ne bloque plus la connexion (révisé le
+    // 17/08/2026, voir membre/login/route.ts pour le raisonnement complet).
+    // Le flag `suspended` voyage jusqu'à la réponse finale.
+    const suspended = institution.statut === 'suspendue'
 
     // Fondation multi-comptes (migration 20260714000001) — inclut membreId/
     // role dans le même JWT si le membre Admin principal existe déjà.
@@ -150,7 +173,7 @@ export async function POST(request: NextRequest) {
         rememberMe: rememberMe === true,
         membreNom: `${membrePrincipal.prenom} ${membrePrincipal.nom}`,
       })
-      return NextResponse.json({ requiresTotp: true, totpToken })
+      return finaliser({ requiresTotp: true, totpToken }, 200)
     }
 
     // Traçabilité de connexion (bug corrigé 05/08/2026) — ce flux
@@ -178,29 +201,33 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // institution_sessions (dette technique comblée 30/08/2026, mirroring
+    // admin_sessions) — voir lib/institutionAuth.ts::creerSessionInstitution.
+    const sid = await creerSessionInstitution(supabaseAdmin, {
+      institutionId: institution.id, membreId: membrePrincipal?.id ?? null, phone: institution.phone, userAgent: request.headers.get('user-agent'), ip,
+    })
+    if (!sid) {
+      return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
+    }
+
     const token = await new SignJWT({
       institutionId: institution.id,
       ...(membrePrincipal ? { membreId: membrePrincipal.id, role: membrePrincipal.role } : {}),
+      sid,
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(institution.id)
       .setIssuedAt()
-      .setExpirationTime('8h')
+      .setExpirationTime(INSTITUTION_SESSION_TTL_JWT)
       .setIssuer('yelen224-institution')
       .setAudience('yelen224-institution-dashboard')
       .sign(JWT_SECRET)
 
-    await supabaseAdmin.from('institution_sessions').insert({
-      institution_id: institution.id,
-      phone: institution.phone,
-      user_agent: request.headers.get('user-agent'),
-      is_active: true,
-    })
-
-    const response = NextResponse.json({
+    const response = finaliser({
       success: true,
       institution: { id: institution.id, name: institution.name },
-    })
+      suspended,
+    }, 200)
 
     response.cookies.set('yelen224_institution_session', token, {
       httpOnly: true,
@@ -215,35 +242,30 @@ export async function POST(request: NextRequest) {
     // sur des secrets faibles comme un PIN ou un mot de passe ; ici le
     // token est déjà impossible à deviner, un hash rapide suffit et évite
     // un coût CPU inutile). Seul le hash est stocké, révocable par ligne.
+    //
+    // Trusted Device (30/08/2026) — evaluerAppareilInstitution décide du
+    // statut (premier appareil du compte = 'trusted' direct, appareil
+    // suivant = 'pending') ; voir lib/auth/institutionSession.ts.
     if (rememberMe === true) {
-      const rawToken = crypto.randomBytes(32).toString('base64url')
-      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
-      const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString()
+      const evaluation = await evaluerAppareilInstitution(supabaseAdmin, institution.id, request)
+      const remember = await enregistrerConnexionInstitution(supabaseAdmin, institution.id, request, evaluation)
 
-      await supabaseAdmin.from('institution_remember_tokens').insert({
-        institution_id: institution.id,
-        token_hash: tokenHash,
-        user_agent: request.headers.get('user-agent'),
-        expires_at: expiresAt,
-      })
-
-      response.cookies.set('yelen224_institution_remember', rawToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 60 * 24 * 60 * 60,
-        path: '/',
-      })
+      if (remember) {
+        response.cookies.set('yelen224_institution_remember', remember.rawToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+          maxAge: 60 * 24 * 60 * 60,
+          path: '/',
+        })
+      }
     }
 
     return response
 
   } catch (error) {
     console.error('[INSTITUTION AUTH ERROR]', error)
-    return NextResponse.json(
-      { error: 'Erreur serveur', code: 'SERVER_ERROR' },
-      { status: 500 }
-    )
+    return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
   }
 }
 

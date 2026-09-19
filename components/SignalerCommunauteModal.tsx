@@ -5,11 +5,13 @@
 // (cible_type/cible_id/type/auteur_id/description, déjà lue telle quelle
 // par app/api/admin/signalements/route.ts et affichée dans
 // app/admin/moderation/page.tsx — aucune nouvelle UI admin nécessaire).
-// Écriture directe côté client (RLS déjà permissive sur cette table
-// d'origine, même flux que app/signalement/page.tsx).
+// Écriture via app/api/citoyen/communaute/signaler/route.ts (Lot 1
+// signalements, 08/08/2026) — `signalements` est passée en RLS activé
+// zéro policy, l'ancien insert direct anon-client aurait cassé. Même
+// payload exact, zéro changement de forme/comportement.
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { YelenLoader } from "@/components/YelenLoader";
+import { supabase } from "@/lib/supabase";
 
 const MOTIFS = [
   "Spam ou publicité",
@@ -37,21 +39,25 @@ export default function SignalerCommunauteModal({
     if (!motif || !citoyenId) return;
     setEnvoi(true);
     setErreur(false);
-    const { error } = await supabase.from("signalements").insert({
-      type: cible.type === "post" ? "Publication Communauté" : "Auteur Communauté",
-      description: note.trim() ? `${motif} — ${note.trim()}` : motif,
-      statut: "en_cours",
-      cible_type: cible.type === "post" ? "communaute_post" : "communaute_auteur",
-      cible_id: cible.id,
-      auteur_id: citoyenId,
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) { setEnvoi(false); setErreur(true); return; }
+    const res = await fetch("/api/citoyen/communaute/signaler", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({
+        type: cible.type === "post" ? "Publication Communauté" : "Auteur Communauté",
+        description: note.trim() ? `${motif} — ${note.trim()}` : motif,
+        cibleType: cible.type === "post" ? "communaute_post" : "communaute_auteur",
+        cibleId: cible.id,
+      }),
     });
     setEnvoi(false);
-    if (error) { setErreur(true); return; }
+    if (!res.ok) { setErreur(true); return; }
     onEnvoye();
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(2px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 1500, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(2px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
       <style>{`@keyframes signalerUp{from{transform:translateY(24px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
       <div
         onClick={e => e.stopPropagation()}

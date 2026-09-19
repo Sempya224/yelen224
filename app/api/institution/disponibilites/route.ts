@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 // Contourne RLS via service role — aucune policy UPDATE n'existe sur
 // institutions (confirmé via pg_policies), donc l'ancien .update() client
@@ -20,7 +21,23 @@ export async function PUT(req: NextRequest) {
   const disponibilites = body?.disponibilites;
   if (!Array.isArray(disponibilites)) return NextResponse.json({ error: "disponibilites (tableau) requis" }, { status: 400 });
 
-  const { error } = await sb.from("institutions").update({ disponibilites }).eq("id", membre.institutionId);
+  const modifieLe = new Date().toISOString();
+  const { error } = await sb
+    .from("institutions")
+    .update({ disponibilites, disponibilites_modifie_le: modifieLe, disponibilites_modifie_par: membre.membreId })
+    .eq("id", membre.institutionId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+
+  await enregistrerAction({
+    institutionId: membre.institutionId,
+    membreId: membre.membreId,
+    membreNom: await getMembreNomPourJournal(membre.membreId),
+    action: "disponibilites_modifiees",
+    cibleTable: "institutions",
+    cibleId: membre.institutionId,
+    details: { nombreCreneaux: disponibilites.length },
+    req,
+  });
+
+  return NextResponse.json({ ok: true, modifieLe });
 }

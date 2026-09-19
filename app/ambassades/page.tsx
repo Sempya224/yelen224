@@ -332,7 +332,7 @@ export default function AmbassadesPage() {
               <h3 style={{ color: txt1, fontSize: "16px", fontWeight: "800", margin: "0 0 8px" }}>Votre pays n&apos;est pas encore listé ?</h3>
               <p style={{ color: txt2, fontSize: "13px", margin: "0 0 16px", lineHeight: 1.6 }}>Le réseau diplomatique guinéen est en expansion. Contactez-nous pour signaler un consulat manquant ou demander l&apos;ouverture d&apos;un service dans votre pays.</p>
               <Link href="/contact" style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "#CE1126", color: "#fff", borderRadius: "10px", padding: "11px 20px", fontWeight: "700", fontSize: "13px", textDecoration: "none" }}>
-                Contacter le ministère →
+                Contacter Yelen →
               </Link>
             </div>
           </div>

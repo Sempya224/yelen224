@@ -3,8 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
-import { notifierFinPrestation } from "@/lib/notificationEngine";
+import { notifierFinPrestation, logRdvEvent } from "@/lib/notificationEngine";
 import { accorderPoints } from "@/lib/rewardsEngine";
+import { chargerRestrictionActive, notifierSiEscalade } from "@/lib/rdvRestrictions";
+import { absenceDeclarable, RDV_ABSENT_TROP_TOT_MESSAGE } from "@/lib/rdvGating";
 
 // Sécurise les 4 actions RDV (accepter/refuser/terminer/absent) —
 // auparavant un supabase.from("rdv").update(...) direct depuis le
@@ -25,10 +27,29 @@ const LABEL_PAR_ACTION: Record<Action, string> = {
   absent: "rdv_absent",
 };
 
+// Message humanisé (jamais une erreur Postgres/générique brute) — trouvé en
+// testant en conditions réelles le 15/09/2026 (Bryan) : une institution
+// suspendue (dont via la nouvelle suspension automatique "RDV non
+// traités", voir docs/product/YELEN_RDV_NOSHOW_RESTRICTIONS.md §7)
+// pouvait toujours accepter/refuser/terminer/marquer absent un RDV déjà
+// existant — rien ne vérifiait institutions.statut ici, seul le
+// tab-gating de app/[slug]/[id]/layout.tsx (ALLOWED_TABS_SUSPENDU)
+// limitait l'UI principale, contournable via un raccourci (widget
+// calendrier notamment). "Compte bloqué" doit être un vrai verrou
+// serveur, jamais seulement une restriction de navigation — même
+// principe déjà appliqué partout ailleurs dans ce projet.
+const INSTITUTION_SUSPENDUE_MESSAGE =
+  "Votre établissement est actuellement suspendu — vous ne pouvez plus traiter de rendez-vous tant que cette mesure n'est pas levée. Consultez l'écran « Espace suspendu » pour comprendre pourquoi et, si besoin, demander une révision.";
+
 export async function PATCH(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "rdv.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!can(membre.role, "rdv.write", membre.accesRestreints)) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+
+  const { data: institution } = await sb.from("institutions").select("statut").eq("id", membre.institutionId).maybeSingle();
+  if (institution?.statut === "suspendue") {
+    return NextResponse.json({ error: INSTITUTION_SUSPENDUE_MESSAGE }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   const rdvId = body?.rdv_id;
@@ -58,6 +79,23 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
+  // Une absence ne peut jamais être déclarée avant l'ouverture de la fenêtre
+  // de confirmation de présence — sinon rien n'empêchait de constater une
+  // absence avant même que le citoyen ait eu la moindre chance de se
+  // présenter (trou trouvé 08/09/2026, voir lib/rdvGating.ts).
+  if (action === "absent" && !absenceDeclarable(rdvAvant.date_rdv, rdvAvant.heure_rdv)) {
+    return NextResponse.json({ error: RDV_ABSENT_TROP_TOT_MESSAGE }, { status: 403 });
+  }
+
+  // Motif obligatoire pour "absent" (décision CEO 08/09/2026, revenant sur
+  // le choix initial du 05/08/2026 qui l'excluait volontairement — un
+  // no-show déclenche désormais une mécanique de restriction citoyen
+  // potentiellement lourde jusqu'à la clôture de compte, l'accountability
+  // l'exige, même règle que "annule" ci-dessous).
+  if (action === "absent" && (!motif || motif.trim().length < 5)) {
+    return NextResponse.json({ error: "Un motif (au moins 5 caractères) est requis pour marquer ce RDV absent." }, { status: 400 });
+  }
+
   // "absent" est un constat de présence, pas un état du cycle de vie du RDV
   // → va dans presence_status (même colonne que le scan QR), pas dans statut.
   const updates: Record<string, unknown> =
@@ -65,12 +103,38 @@ export async function PATCH(req: NextRequest) {
       ? { presence_status: "absent", presence_confirmed_at: new Date().toISOString() }
       : {
           statut: action,
+          ...(action === "en_attente" ? { accepte_le: new Date().toISOString() } : {}),
           ...(action === "annule" ? { motif_annulation: motif } : {}),
           ...(action === "termine" ? { termine_at: new Date().toISOString(), termine_par: membre.membreId, avis_demande: true } : {}),
         };
 
+  // Restriction automatique des rendez-vous (no-show, décision CEO
+  // 03/09/2026) — capturé AVANT l'update pour pouvoir détecter, juste après,
+  // si le trigger citoyen_rdv_evaluer_restriction vient d'escalader.
+  const restrictionAvant = action === "absent" ? await chargerRestrictionActive(sb, rdvAvant.citoyen_id) : null;
+
   const { error } = await sb.from("rdv").update(updates).eq("id", rdvId).eq("institution_id", membre.institutionId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // rdv_events (chantier "Détail du rendez-vous" citoyen, 03/09/2026) —
+  // avant ce correctif, seules les actions citoyen (annulation/report,
+  // app/mes-rdv/actions.ts) écrivaient réellement dans cette table ; les 4
+  // actions institution ci-dessus n'y laissaient aucune trace malgré
+  // l'enum action_rdv_event qui les prévoit toutes. Comble le trou qui
+  // empêchait /api/citoyen/activites (et la future timeline citoyen) de
+  // jamais trouver ces événements.
+  const RDV_EVENT_ACTION: Record<Action, "confirmation" | "annulation" | "termine" | "absent"> = {
+    en_attente: "confirmation", annule: "annulation", termine: "termine", absent: "absent",
+  };
+  await logRdvEvent({
+    rdvId, auteurId: membre.membreId, auteurType: "institution", action: RDV_EVENT_ACTION[action],
+    ancienStatut: rdvAvant.statut, nouveauStatut: action === "absent" ? rdvAvant.statut : action,
+    motif: (action === "annule" || action === "absent") ? motif ?? undefined : undefined,
+  });
+
+  if (action === "absent") {
+    await notifierSiEscalade(sb, rdvAvant.citoyen_id, restrictionAvant?.id ?? null);
+  }
 
   // Yelen Rewards Phase 1 (26/07/2026) — seul point d'intégration de la
   // Phase 1 : rdv_complete (+15) et rdv_no_show (-10), les deux seules
@@ -123,7 +187,7 @@ export async function PATCH(req: NextRequest) {
     cibleId: rdvId,
     details:
       action === "absent"
-        ? { statut_avant: rdvAvant.statut, presence_status_apres: "absent" }
+        ? { statut_avant: rdvAvant.statut, presence_status_apres: "absent", motif }
         : { statut_avant: rdvAvant.statut, statut_apres: action, ...(motif ? { motif } : {}) },
     ancienneValeur: action === "absent" ? { presence_status: rdvAvant.presence_status } : { statut: rdvAvant.statut },
     nouvelleValeur: action === "absent" ? { presence_status: "absent" } : { statut: action },

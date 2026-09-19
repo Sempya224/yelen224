@@ -10,7 +10,8 @@ export type DocumentTypeSlug =
   | "rccm"
   | "piece_identite"
   | "diplome_ordre"
-  | "preuve_domicile";
+  | "preuve_domicile"
+  | "immatriculation_etrangere";
 
 export interface DocumentRequirement {
   type: DocumentTypeSlug;
@@ -86,4 +87,71 @@ export const DOCUMENT_ACCEPTED_MIME = ["application/pdf", "image/jpeg", "image/p
 export function getRequiredDocuments(statutJuridique: string | null | undefined): DocumentRequirement[] {
   if (!statutJuridique) return [];
   return DOCUMENTS_PAR_STATUT_JURIDIQUE[statutJuridique] || [];
+}
+
+// Chantier Taxonomie des activités (Phase 4, 20/08/2026) — documents requis
+// EN PLUS de ceux dérivés de statut_juridique ci-dessus, uniquement pour une
+// institution origine_type='etrangere'. Décision CEO du 20/08/2026 (spec
+// §3ter.1) : aucune exigence administrative uniforme pour toute organisation
+// étrangère — seul le justificatif d'immatriculation à l'étranger est
+// formalisé ici comme document à déposer. Les preuves "d'activité réelle
+// vers le marché guinéen" / "de mandat de représentation" citées par la
+// spec pour certains statuts de présence restent un examen manuel au cas
+// par cas côté admin (dossier de vérification), jamais un nouveau type de
+// document inventé sans base réelle. `filiale` reçoit en plus son RCCM
+// guinéen via le mécanisme existant (statut_juridique=prive_formel,
+// DOCUMENTS_PAR_STATUT_JURIDIQUE ci-dessus, inchangé) — pas dupliqué ici.
+export const DOCUMENTS_INTERNATIONAUX_PAR_STATUT_PRESENCE: Record<string, DocumentRequirement[]> = {
+  societe_guineenne_groupe_etranger: [],
+  filiale: [
+    {
+      type: "immatriculation_etrangere",
+      label: "Immatriculation de la société mère à l'étranger",
+      description: "Extrait du registre du commerce (ou équivalent) de la société mère dans son pays d'origine.",
+      formats: "PDF, JPG, PNG",
+      obligatoire: true,
+    },
+  ],
+  succursale: [
+    {
+      type: "immatriculation_etrangere",
+      label: "Immatriculation de la maison mère à l'étranger",
+      description: "Extrait du registre du commerce (ou équivalent) de la maison mère dans son pays d'origine.",
+      formats: "PDF, JPG, PNG",
+      obligatoire: true,
+    },
+  ],
+  bureau_representation: [
+    {
+      type: "immatriculation_etrangere",
+      label: "Immatriculation de l'organisation à l'étranger",
+      description: "Extrait du registre du commerce (ou équivalent) dans le pays d'origine. La preuve d'existence du bureau en Guinée (bail, autorisation d'ouverture) est examinée manuellement par l'équipe de vérification, hors dépôt de fichier standard.",
+      formats: "PDF, JPG, PNG",
+      obligatoire: true,
+    },
+  ],
+  prestataire_depuis_etranger: [
+    {
+      type: "immatriculation_etrangere",
+      label: "Immatriculation de l'organisation à l'étranger",
+      description: "Extrait du registre du commerce (ou équivalent) dans le pays d'origine. La preuve d'activité réelle vers le marché guinéen (contrat, client, partenaire local) est examinée manuellement par l'équipe de vérification, hors dépôt de fichier standard.",
+      formats: "PDF, JPG, PNG",
+      obligatoire: true,
+    },
+  ],
+  partenariat_representation_locale: [
+    {
+      type: "immatriculation_etrangere",
+      label: "Immatriculation du mandant à l'étranger",
+      description: "Extrait du registre du commerce (ou équivalent) du mandant dans son pays d'origine. La preuve du mandat de représentation est examinée manuellement par l'équipe de vérification, hors dépôt de fichier standard.",
+      formats: "PDF, JPG, PNG",
+      obligatoire: true,
+    },
+  ],
+  autre_a_verifier: [],
+};
+
+export function getRequiredDocumentsInternational(statutPresenceGuinee: string | null | undefined): DocumentRequirement[] {
+  if (!statutPresenceGuinee) return [];
+  return DOCUMENTS_INTERNATIONAUX_PAR_STATUT_PRESENCE[statutPresenceGuinee] || [];
 }

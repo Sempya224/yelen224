@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect, type ReactNode, type MouseEvent as ReactMouseEvent } from "react";
 import { institutionsRecentes, retirerInstitutionRecente, type InstitutionRecente } from "@/lib/institutionsRecentes";
+import Image from "next/image";
 
 // Cartes-événement optionnelles affichées à la suite de la grille des
 // établissements récemment consultés (retour Bryan 29/07/2026 — dépenses à
@@ -34,6 +35,9 @@ export function InstitutionsRecentesSection({ isDark, t1, t2, card, brd, extraTi
   const [items, setItems] = useState<InstitutionRecente[]>([]);
   const tuiles = extraTiles ?? [];
 
+  // Lecture d'un système externe (localStorage, via institutionsRecentes())
+  // au montage — même pattern justifié qu'app/recherche/shared.tsx.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setItems(institutionsRecentes()); }, []);
 
   if (items.length === 0 && tuiles.length === 0) return null;
@@ -54,9 +58,9 @@ export function InstitutionsRecentesSection({ isDark, t1, t2, card, brd, extraTi
             <button onClick={e => handleRemove(e, inst.id)} aria-label="Retirer" style={{ position: "absolute", top: "-4px", right: "2px", zIndex: 1, width: "18px", height: "18px", borderRadius: "50%", background: isDark ? "#2C2C2E" : "#fff", border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, boxShadow: "0 1px 4px rgba(0,0,0,0.15)" }}>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={t2} strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
-            <div style={{ width: "50px", height: "50px", borderRadius: "16px", overflow: "hidden", background: card, border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "5px" }}>
+            <div style={{ width: "50px", height: "50px", position: "relative", borderRadius: "16px", overflow: "hidden", background: card, border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "5px" }}>
               {inst.logo ? (
-                <img src={inst.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+                <Image src={inst.logo} alt="" fill sizes="50px" style={{ objectFit: "cover" }}/>
               ) : (
                 <span style={{ color: t2, fontSize: "15px", fontWeight: "900" }}>{inst.name.slice(0, 2).toUpperCase()}</span>
               )}
@@ -66,7 +70,7 @@ export function InstitutionsRecentesSection({ isDark, t1, t2, card, brd, extraTi
         ))}
         {tuiles.map(t => (
           <Link key={t.key} href={t.href} className="tap" style={{ textDecoration: "none", flexShrink: 0, width: "168px" }}>
-            <div style={{ position: "relative", backgroundColor: card, borderRadius: "14px", padding: "12px 14px", border: `1px solid ${brd}`, borderLeftWidth: "3px", borderLeftColor: t.accentColor }}>
+            <div style={{ position: "relative", backgroundColor: card, borderRadius: "0px", padding: "12px 14px", border: `1px solid ${brd}` }}>
               <button
                 onClick={e => { e.preventDefault(); e.stopPropagation(); t.onDismiss(); }}
                 aria-label="Retirer"
@@ -75,8 +79,11 @@ export function InstitutionsRecentesSection({ isDark, t1, t2, card, brd, extraTi
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={t2} strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
               <div style={{ marginBottom: "8px" }}>{t.icon}</div>
-              <div style={{ color: t1, fontSize: "13.5px", fontWeight: "900", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: "18px" }}>{t.titre}</div>
-              <div style={{ color: t2, fontSize: "10.5px", fontWeight: "700", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.sousTexte}</div>
+              <div style={{ color: t1, fontSize: "15px", fontWeight: "900", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: "18px" }}>{t.titre}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px", marginTop: "3px" }}>
+                <div style={{ color: t2, fontSize: "10.5px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.sousTexte}</div>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={t2} strokeWidth="3" strokeLinecap="round" style={{ flexShrink: 0 }}><path d="m9 18 6-6-6-6"/></svg>
+              </div>
             </div>
           </Link>
         ))}

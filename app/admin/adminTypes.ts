@@ -89,6 +89,30 @@ export interface Signalement {
   cible_type?: string
 }
 
+// Signalements de case management institution <-> citoyen (Lot 1,
+// 08/08/2026) — forme distincte du type Signalement ci-dessus (celui-ci
+// couvre les signalements Communauté Yelen, colonnes type/cible_type/
+// cible_id/auteur_id). Chantier arbitrage Yelen, 15/08/2026 : Yelen devient
+// seul juge de ces dossiers (voir app/api/admin/signalements-cas/).
+export interface SignalementCas {
+  id: string
+  numero_public: string
+  motif: string
+  description: string | null
+  statut: string
+  priorite: string
+  escalade_niveau: string
+  type_signaleur: 'institution' | 'citoyen'
+  citoyen_id: string
+  citoyen_name: string
+  institution_id: string
+  institution_name: string
+  rdv_id: string | null
+  resolution_action: string | null
+  resolution_explication: string | null
+  created_at: string
+}
+
 export interface ActivityItem {
   id: string
   type: string

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
   const { data: inst, error: instErr } = await sb
     .from("institutions")
-    .select("partenaire_statut")
+    .select("partenaire_statut,secteur")
     .eq("id", membre.institutionId)
     .maybeSingle();
   if (instErr) return NextResponse.json({ error: instErr.message }, { status: 500 });
@@ -26,7 +26,61 @@ export async function GET(req: NextRequest) {
     .limit(1)
     .maybeSingle();
 
-  return NextResponse.json({ partenaire_statut: inst?.partenaire_statut ?? "aucun", derniere_demande: demande ?? null });
+  const partenaire_statut = inst?.partenaire_statut ?? "aucun";
+  const stats = await getStatsPartenariat(
+    partenaire_statut === "approuve" ? membre.institutionId : null,
+    inst?.secteur ?? null
+  );
+
+  return NextResponse.json({ partenaire_statut, derniere_demande: demande ?? null, stats });
+}
+
+// Preuve sociale réelle pour la vitrine du programme (PartenariatTab) — zéro
+// chiffre inventé : agrégats calculés à la volée, jamais persistés/mis en cache.
+// `institutionsSimilaires` n'est calculé que pour une institution déjà
+// partenaire (ownId non nul) — alimente MonPartenariatTab.
+async function getStatsPartenariat(ownId: string | null, ownSecteur: string | null) {
+  const { data: partenaires } = await sb
+    .from("institutions")
+    .select("id,name,logo,secteur")
+    .eq("partenaire_statut", "approuve");
+
+  const partenaires_actifs = partenaires?.length ?? 0;
+  const secteurs_actifs = new Set((partenaires ?? []).map(p => p.secteur).filter(Boolean)).size;
+  const logos = (partenaires ?? [])
+    .filter(p => p.logo)
+    .slice(0, 6)
+    .map(p => ({ name: p.name, logo: p.logo as string }));
+
+  const { data: demandesTranchees } = await sb
+    .from("institution_partenariat_demandes")
+    .select("created_at,date_decision")
+    .not("date_decision", "is", null);
+
+  let delai_moyen_jours: number | null = null;
+  const delais = (demandesTranchees ?? [])
+    .map(d => (new Date(d.date_decision as string).getTime() - new Date(d.created_at).getTime()) / (1000 * 60 * 60 * 24))
+    .filter(v => Number.isFinite(v) && v >= 0);
+  if (delais.length >= 3) {
+    delai_moyen_jours = Math.round((delais.reduce((a, b) => a + b, 0) / delais.length) * 10) / 10;
+  }
+
+  let institutions_similaires: { id: string; name: string; logo: string | null; secteur: string | null; offres_actives: number }[] = [];
+  if (ownId && ownSecteur) {
+    const candidats = (partenaires ?? []).filter(p => p.id !== ownId && p.secteur === ownSecteur).slice(0, 4);
+    if (candidats.length > 0) {
+      const { data: offresCandidats } = await sb
+        .from("offres")
+        .select("institution_id")
+        .eq("statut", "publiee")
+        .in("institution_id", candidats.map(c => c.id));
+      const compte: Record<string, number> = {};
+      for (const o of offresCandidats ?? []) compte[o.institution_id] = (compte[o.institution_id] ?? 0) + 1;
+      institutions_similaires = candidats.map(c => ({ id: c.id, name: c.name, logo: c.logo, secteur: c.secteur, offres_actives: compte[c.id] ?? 0 }));
+    }
+  }
+
+  return { partenaires_actifs, secteurs_actifs, delai_moyen_jours, logos, institutions_similaires };
 }
 
 // Soumission d'une demande de partenariat. Gatée par profil_entreprise.write
@@ -35,7 +89,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "profil_entreprise.write")) {
+  if (!can(membre.role, "profil_entreprise.write", membre.accesRestreints)) {
     return NextResponse.json({ error: "Action non autorisée pour votre rôle" }, { status: 403 });
   }
 

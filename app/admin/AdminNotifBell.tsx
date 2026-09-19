@@ -1,33 +1,21 @@
 'use client'
 
 // Cloche de notifications admin (chantier refonte admin 26/07/2026, Lot G).
-// Agrégat live des 8 files d'attente (app/api/admin/notifications/count) —
-// aucune ligne persistée par notification, le compteur descend dès que
-// l'admin traite l'élément sous-jacent. Rafraîchi toutes les 30s, même
-// cadence que le polling KPI de l'ancienne Vue d'ensemble.
+// `categories` vient désormais du layout parent (app/admin/layout.tsx) —
+// remonté là-bas pour être partagé avec les badges rouges de la sidebar
+// (retour Bryan 17/08/2026, "sur tous les écrans où on reçoit des
+// demandes"), un seul fetch/polling au lieu de deux composants qui
+// interrogeaient chacun /api/admin/notifications/count indépendamment.
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Ic } from './adminIcons'
 
-type Categorie = { key: string; label: string; count: number; href: string }
+export type Categorie = { key: string; label: string; count: number; href: string }
 
-export function AdminNotifBell() {
+export function AdminNotifBell({ categories }: { categories: Categorie[] }) {
   const router = useRouter()
-  const [categories, setCategories] = useState<Categorie[]>([])
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function load() {
-      fetch('/api/admin/notifications/count')
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d?.categories) setCategories(d.categories) })
-        .catch(() => {})
-    }
-    load()
-    const iv = setInterval(load, 30000)
-    return () => clearInterval(iv)
-  }, [])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {

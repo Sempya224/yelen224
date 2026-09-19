@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-const SELECT_FIELDS = "id,titre,description_courte,description_longue,categorie,genre,partenaire_nom,partenaire_logo,cta_label,cta_url,statut,date_expiration,date_publication_prevue,motif_refus,soumis_le,valide_le,nb_clics,epingle,ordre,faits,avantages,limites,created_at,mis_a_jour_le";
+const SELECT_FIELDS = "id,titre,description_courte,description_longue,categorie,genre,partenaire_nom,partenaire_logo,image_url,cta_label,cta_url,statut,date_expiration,date_publication_prevue,motif_refus,soumis_le,valide_le,nb_clics,epingle,ordre,faits,avantages,limites,created_at,mis_a_jour_le";
 
 // Liste des offres de sa propre institution.
 export async function GET(req: NextRequest) {
@@ -56,8 +57,10 @@ export async function POST(req: NextRequest) {
       genre: body.genre || "avantage_exclusif",
       partenaire_nom: inst?.name ?? "",
       partenaire_logo: inst?.logo ?? null,
+      image_url: typeof body.image_url === "string" ? body.image_url : null,
       cta_label: body.cta_label || null,
       cta_url: body.cta_url || null,
+      date_expiration: typeof body.date_expiration === "string" ? body.date_expiration : null,
       statut: "brouillon",
       faits: Array.isArray(body.faits) ? body.faits.slice(0, 4) : [],
       avantages: Array.isArray(body.avantages) ? body.avantages : [],
@@ -66,5 +69,17 @@ export async function POST(req: NextRequest) {
     .select(SELECT_FIELDS)
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await enregistrerAction({
+    institutionId: membre.institutionId,
+    membreId: membre.membreId,
+    membreNom: await getMembreNomPourJournal(membre.membreId),
+    action: "offre_creee",
+    cibleTable: "offres",
+    cibleId: data.id,
+    details: { titre: data.titre },
+    req,
+  });
+
   return NextResponse.json(data);
 }

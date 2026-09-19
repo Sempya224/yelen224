@@ -11,7 +11,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 export async function PATCH(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "rdv.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!can(membre.role, "rdv.write", membre.accesRestreints)) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const rdvId = body?.rdv_id;

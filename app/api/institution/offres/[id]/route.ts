@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-const EDITABLE_FIELDS = ["titre", "description_courte", "description_longue", "categorie", "genre", "partenaire_logo", "cta_label", "cta_url", "date_publication_prevue", "faits", "avantages", "limites"] as const;
+const EDITABLE_FIELDS = ["titre", "description_courte", "description_longue", "categorie", "genre", "partenaire_logo", "image_url", "cta_label", "cta_url", "date_expiration", "date_publication_prevue", "faits", "avantages", "limites"] as const;
 
 // Modifie/soumet/suspend/archive une offre de sa propre institution.
 // Règle non négociable (décision CEO) : toute modification de contenu
@@ -18,7 +19,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { data: current, error: findErr } = await sb
     .from("offres")
-    .select("id, institution_id, statut")
+    .select("id, institution_id, statut, titre")
     .eq("id", id)
     .maybeSingle();
   if (findErr) return NextResponse.json({ error: findErr.message }, { status: 500 });
@@ -36,12 +37,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (current.statut !== "publiee") return NextResponse.json({ error: "Seule une offre publiée peut être suspendue" }, { status: 400 });
     const { error } = await sb.from("offres").update({ statut: "suspendue", mis_a_jour_le: new Date().toISOString() }).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await enregistrerAction({
+      institutionId: membre.institutionId, membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: "offre_suspendue", cibleTable: "offres", cibleId: id,
+      details: { titre: current.titre }, req: request,
+    });
     return NextResponse.json({ ok: true });
   }
   if (action === "archiver") {
     if (!can(membre.role, "offres.submit")) return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
     const { error } = await sb.from("offres").update({ statut: "archivee", mis_a_jour_le: new Date().toISOString() }).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await enregistrerAction({
+      institutionId: membre.institutionId, membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: "offre_archivee", cibleTable: "offres", cibleId: id,
+      details: { titre: current.titre }, req: request,
+    });
     return NextResponse.json({ ok: true });
   }
 
@@ -71,6 +84,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { data, error } = await sb.from("offres").update(payload).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await enregistrerAction({
+    institutionId: membre.institutionId, membreId: membre.membreId,
+    membreNom: await getMembreNomPourJournal(membre.membreId),
+    action: doitRepasserEnModeration ? "offre_soumise" : "offre_modifiee",
+    cibleTable: "offres", cibleId: id,
+    details: { titre: current.titre, champs: Object.keys(payload) },
+    req: request,
+  });
+
   return NextResponse.json(data);
 }
 
@@ -82,7 +105,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!can(membre.role, "offres.write")) return NextResponse.json({ error: "Action non autorisée pour votre rôle" }, { status: 403 });
   const { id } = await params;
 
-  const { data: current, error: findErr } = await sb.from("offres").select("id, institution_id, statut").eq("id", id).maybeSingle();
+  const { data: current, error: findErr } = await sb.from("offres").select("id, institution_id, statut, titre").eq("id", id).maybeSingle();
   if (findErr) return NextResponse.json({ error: findErr.message }, { status: 500 });
   if (!current || current.institution_id !== membre.institutionId) {
     return NextResponse.json({ error: "Offre introuvable" }, { status: 404 });
@@ -93,5 +116,13 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   const { error } = await sb.from("offres").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await enregistrerAction({
+    institutionId: membre.institutionId, membreId: membre.membreId,
+    membreNom: await getMembreNomPourJournal(membre.membreId),
+    action: "offre_supprimee", cibleTable: "offres", cibleId: id,
+    details: { titre: current.titre }, req: request,
+  });
+
   return NextResponse.json({ ok: true });
 }

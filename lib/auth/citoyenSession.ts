@@ -3,6 +3,15 @@ import type { NextRequest } from "next/server";
 import crypto from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { extraireContexteRequete } from "@/lib/journalActivite";
+import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { evaluerAppareil, enregistrerConnexion, type EvaluationAppareil } from "@/lib/auth/trustedDevice";
+
+const TRUSTED_DEVICE_CONFIG = {
+  table: "citoyen_remember_tokens",
+  idColumn: "citoyen_id",
+  cookieName: "yelen224_citoyen_remember",
+  maxAgeS: 60 * 24 * 60 * 60, // 60 jours, comme institution_remember_tokens
+} as const;
 
 /**
  * Révoque le token "se souvenir de moi" du device courant (si présent) —
@@ -53,51 +62,31 @@ export async function mintCitoyenSessionTokenHash(
   return { tokenHash: data.properties.hashed_token };
 }
 
-export const CITOYEN_REMEMBER_MAX_AGE_S = 60 * 24 * 60 * 60; // 60 jours, comme institution_remember_tokens
+export const CITOYEN_REMEMBER_MAX_AGE_S = TRUSTED_DEVICE_CONFIG.maxAgeS;
 
-/**
- * Lot D (chantier sécurité citoyen) — émet un vrai "se souvenir de moi"
- * avec bypass, mirroring institution_remember_tokens/verify-otp. Réutilise
- * `extraireContexteRequete` de lib/journalActivite.ts (Lot A du Journal
- * d'activité) plutôt que reparser le user-agent.
- *
- * Contrairement à la première version de ce lot (qui n'émettait aucun
- * cookie, en s'appuyant sur la persistance native de la session Supabase
- * Auth) : Bryan a tranché que ce token doit être un vrai mécanisme de
- * bypass, comme côté institution — le token brut est donc renvoyé à
- * l'appelant pour être posé en cookie httpOnly. Il ne redonne PAS de
- * session à lui seul (voir remember/check/route.ts : il ne fait
- * qu'identifier le compte pour proposer un déverrouillage rapide
- * PIN/biométrie), exactement comme le cookie institution ne fait
- * qu'indiquer quel écran de déverrouillage rapide afficher.
- *
- * Insert non-bloquant : une erreur ici ne doit jamais faire échouer la
- * connexion (même esprit que enregistrerAction dans lib/journalActivite.ts).
- */
-export async function enregistrerConnexionCitoyen(
+async function notifierNouvelAppareilSiBesoin(
   supabaseAdmin: SupabaseClient,
   citoyenId: string,
-  req?: NextRequest
-): Promise<{ rawToken: string } | null> {
-  const { ip, userAgent, navigateur, os } = extraireContexteRequete(req);
-  const rawToken = crypto.randomBytes(32).toString("base64url");
-  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-  const deviceLabel = navigateur && os ? `${navigateur} sur ${os}` : navigateur || os || null;
-  const expiresAt = new Date(Date.now() + CITOYEN_REMEMBER_MAX_AGE_S * 1000).toISOString();
+  req: NextRequest | undefined,
+  evaluation: EvaluationAppareil
+): Promise<void> {
+  // Notifie uniquement le cas "nouvel appareil réel, pending" — ni un
+  // appareil déjà connu (evaluation.connu), ni le tout premier appareil
+  // du compte (statutPourNouvelleLigne === 'trusted' malgré connu=false).
+  if (evaluation.connu || evaluation.statutPourNouvelleLigne !== "pending") return;
 
-  const { error } = await supabaseAdmin.from("citoyen_remember_tokens").insert({
-    citoyen_id: citoyenId,
-    token_hash: tokenHash,
-    user_agent: userAgent,
-    ip,
-    device_label: deviceLabel,
-    expires_at: expiresAt,
+  const { data: citoyen } = await supabaseAdmin.from("users").select("prenom").eq("id", citoyenId).maybeSingle();
+  const { navigateur, os } = extraireContexteRequete(req);
+  const appareil = navigateur && os ? `${navigateur} sur ${os}` : navigateur || os || "un appareil";
+
+  await envoyerNotification({
+    destinataireId: citoyenId,
+    destinataireType: "citoyen",
+    rdvId: null,
+    type: "nouvel_appareil",
+    titre: salutation(citoyen?.prenom || "cher client"),
+    message: `Une nouvelle connexion à votre compte a eu lieu depuis ${appareil}. Si ce n'est pas vous, changez votre code PIN et vérifiez vos appareils mémorisés depuis Sécurité.`,
   });
-  if (error) {
-    console.error("[CITOYEN REMEMBER TOKEN] Erreur insertion:", error.message);
-    return null;
-  }
-  return { rawToken };
 }
 
 /**
@@ -120,7 +109,16 @@ export async function completerConnexionCitoyen(
   if ("error" in sessionResult) {
     console.error("[CITOYEN COMPLETER CONNEXION] Erreur mint session:", sessionResult.error);
   }
-  const remember = await enregistrerConnexionCitoyen(supabaseAdmin, citoyenId, req);
+  // Une seule évaluation de l'appareil (Trusted Device, 30/08/2026),
+  // partagée par la notification et l'enregistrement — avant, ces deux
+  // fonctions refaisaient chacune la même requête, avec un ordre
+  // sensible (notifier avant d'insérer, pour ne pas fausser la détection).
+  // Logique générique dans lib/auth/trustedDevice.ts (revue critique
+  // 30/08/2026, même jour — extraite pour ne plus dupliquer la même
+  // implémentation entre citoyen et institution).
+  const evaluation = await evaluerAppareil(supabaseAdmin, TRUSTED_DEVICE_CONFIG, citoyenId, req);
+  await notifierNouvelAppareilSiBesoin(supabaseAdmin, citoyenId, req, evaluation);
+  const remember = await enregistrerConnexion(supabaseAdmin, TRUSTED_DEVICE_CONFIG, citoyenId, req, evaluation);
   return { tokenHash, remember };
 }
 

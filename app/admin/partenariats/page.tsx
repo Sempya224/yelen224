@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '@/app/admin/adminTheme'
 import { YelenLoader } from '@/components/YelenLoader'
+import { urlExterneSure } from '@/lib/urlValidation'
 
 type Demande = {
   id: string; institution_id: string; description_organisation: string; type_offres: string;
@@ -85,19 +86,28 @@ export default function PartenariatsPage() {
       </div>
 
       {loading ? (
-        <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+        <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
       ) : items.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px' }}>
           <p style={{ color: D.textSub, fontSize: '13px' }}>Aucune demande pour ce filtre.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {items.map(d => (
+          {items.map(d => {
+            // P0 Stored XSS (17/08/2026) — site_web copié tel quel depuis
+            // institutions.website sans validation (app/api/institution/partenariat/route.ts),
+            // revalidé ici au rendu avant de construire un href cliquable.
+            const websiteHref = urlExterneSure(d.site_web)
+            return (
             <div key={d.id} style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px', padding: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                 <span style={{ color: D.text, fontSize: '14px', fontWeight: 700 }}>{d.institutions?.name ?? '—'}</span>
                 <span style={{ color: D.textMuted, fontSize: '12px' }}>{d.institutions?.ville}</span>
-                <a href={d.site_web} target="_blank" rel="noopener noreferrer" style={{ color: D.blue, fontSize: '12px' }}>{d.site_web}</a>
+                {websiteHref ? (
+                  <a href={websiteHref} target="_blank" rel="noopener noreferrer" style={{ color: D.blue, fontSize: '12px' }}>{d.site_web}</a>
+                ) : d.site_web ? (
+                  <span style={{ color: D.textMuted, fontSize: '12px' }}>{d.site_web}</span>
+                ) : null}
               </div>
               <p style={{ color: D.textSub, fontSize: '13px', lineHeight: 1.6, margin: '0 0 8px' }}><strong style={{ color: D.text }}>Organisation : </strong>{d.description_organisation}</p>
               <p style={{ color: D.textSub, fontSize: '13px', lineHeight: 1.6, margin: '0 0 8px' }}><strong style={{ color: D.text }}>Offres envisagées : </strong>{d.type_offres}</p>
@@ -145,7 +155,7 @@ export default function PartenariatsPage() {
                 </>
               )}
             </div>
-          ))}
+          )})}
         </div>
       )}
     </div>

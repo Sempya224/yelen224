@@ -7,6 +7,7 @@
 // de module de thème admin partagé pour l'instant).
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '@/app/admin/adminTheme'
+import { YelenLoader } from '@/components/YelenLoader'
 
 type AdminInfo = { id: string; email: string; role: string; nom: string; totp_enabled: boolean; last_login: string | null }
 type LogEntry = { id: string; action: string; created_at: string; details: Record<string, unknown> | null }
@@ -144,7 +145,7 @@ export default function AdminSecurityPage() {
   }
 
   if (loading) {
-    return <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+    return <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
   }
 
   return (
@@ -171,8 +172,8 @@ export default function AdminSecurityPage() {
           <input type="password" placeholder="Mot de passe actuel" value={pwdActuel} onChange={e => setPwdActuel(e.target.value)} autoComplete="current-password" style={inputStyle()} required />
           <input type="password" placeholder="Nouveau mot de passe (10+ caractères, lettres et chiffres)" value={pwdNouveau} onChange={e => setPwdNouveau(e.target.value)} autoComplete="new-password" style={inputStyle()} required />
           <input type="password" placeholder="Confirmer le nouveau mot de passe" value={pwdConfirme} onChange={e => setPwdConfirme(e.target.value)} autoComplete="new-password" style={inputStyle()} required />
-          <button type="submit" disabled={pwdSaving} style={{ alignSelf: 'flex-end', backgroundColor: pwdSaving ? D.surface2 : D.green, color: pwdSaving ? D.textMuted : '#000', border: 'none', borderRadius: '10px', padding: '10px 20px', fontSize: '12.5px', fontWeight: '700', cursor: pwdSaving ? 'not-allowed' : 'pointer' }}>
-            {pwdSaving ? 'Sauvegarde…' : 'Mettre à jour'}
+          <button type="submit" disabled={pwdSaving} style={{ alignSelf: 'flex-end', backgroundColor: pwdSaving ? D.surface2 : D.green, color: pwdSaving ? D.textMuted : '#000', border: 'none', borderRadius: '10px', padding: '10px 20px', fontSize: '12.5px', fontWeight: '700', cursor: pwdSaving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            {pwdSaving ? <><YelenLoader size={12} color={D.textMuted}/>Sauvegarde…</> : 'Mettre à jour'}
           </button>
         </form>
       </Card>
@@ -181,7 +182,7 @@ export default function AdminSecurityPage() {
         {backupCodes ? (
           <div style={{ backgroundColor: D.yellowDim, border: `1px solid ${D.yellow}40`, borderRadius: '10px', padding: '16px' }}>
             <p style={{ color: D.yellow, fontSize: '12.5px', fontWeight: '700', margin: '0 0 10px' }}>
-              Notez ces codes de secours maintenant — ils ne seront plus jamais affichés. Chacun ne fonctionne qu'une seule fois, en remplacement de l'application si vous la perdez.
+              Notez ces codes de secours maintenant — ils ne seront plus jamais affichés. Chacun ne fonctionne qu&apos;une seule fois, en remplacement de l&apos;application si vous la perdez.
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
               {backupCodes.map(c => (
@@ -189,7 +190,7 @@ export default function AdminSecurityPage() {
               ))}
             </div>
             <button onClick={() => setBackupCodes(null)} style={{ backgroundColor: D.yellow, color: '#000', border: 'none', borderRadius: '8px', padding: '9px 16px', fontSize: '12.5px', fontWeight: '700', cursor: 'pointer' }}>
-              J'ai noté mes codes
+              J&apos;ai noté mes codes
             </button>
           </div>
         ) : admin?.totp_enabled ? (
@@ -199,8 +200,8 @@ export default function AdminSecurityPage() {
               <input type="password" placeholder="Mot de passe" value={disablePassword} onChange={e => setDisablePassword(e.target.value)} style={inputStyle()} />
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={() => { setDisabling(false); setDisablePassword('') }} style={{ background: 'none', border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '9px 16px', color: D.textSub, fontSize: '12.5px', fontWeight: '700', cursor: 'pointer' }}>Annuler</button>
-                <button onClick={confirmDisable} disabled={totpBusy} style={{ backgroundColor: D.red, color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', fontSize: '12.5px', fontWeight: '700', cursor: totpBusy ? 'not-allowed' : 'pointer' }}>
-                  {totpBusy ? 'Désactivation…' : 'Désactiver la 2FA'}
+                <button onClick={confirmDisable} disabled={totpBusy} style={{ backgroundColor: D.red, color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', fontSize: '12.5px', fontWeight: '700', cursor: totpBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  {totpBusy ? <><YelenLoader size={12} color="#fff"/>Désactivation…</> : 'Désactiver la 2FA'}
                 </button>
               </div>
             </div>
@@ -212,22 +213,26 @@ export default function AdminSecurityPage() {
           )
         ) : activating ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <p style={{ color: D.textSub, fontSize: '12.5px', margin: 0 }}>Scannez ce QR code avec votre application d'authentification, ou saisissez le secret manuellement.</p>
-            {qrDataUrl && <img src={qrDataUrl} alt="QR code 2FA" style={{ width: '160px', height: '160px', borderRadius: '10px', border: `1px solid ${D.border2}`, alignSelf: 'center' }} />}
+            <p style={{ color: D.textSub, fontSize: '12.5px', margin: 0 }}>Scannez ce QR code avec votre application d&apos;authentification, ou saisissez le secret manuellement.</p>
+            {qrDataUrl && (
+              // IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode.toDataURL), non fetchable par l'optimiseur next/image | reviewed=2026-08-08
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qrDataUrl} alt="QR code 2FA" style={{ width: '160px', height: '160px', borderRadius: '10px', border: `1px solid ${D.border2}`, alignSelf: 'center' }} />
+            )}
             {secretText && <code style={{ backgroundColor: D.surface2, border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '8px 10px', color: D.text, fontSize: '12px', textAlign: 'center', wordBreak: 'break-all' }}>{secretText}</code>}
             <input type="text" inputMode="numeric" placeholder="Code à 6 chiffres" value={confirmCode} onChange={e => setConfirmCode(e.target.value)} style={inputStyle()} />
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={() => { setActivating(false); setQrDataUrl(null); setSecretText(null); setConfirmCode('') }} style={{ background: 'none', border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '9px 16px', color: D.textSub, fontSize: '12.5px', fontWeight: '700', cursor: 'pointer' }}>Annuler</button>
-              <button onClick={confirmActivation} disabled={totpBusy || !confirmCode.trim()} style={{ backgroundColor: D.green, color: '#000', border: 'none', borderRadius: '8px', padding: '9px 16px', fontSize: '12.5px', fontWeight: '700', cursor: totpBusy ? 'not-allowed' : 'pointer' }}>
-                {totpBusy ? 'Vérification…' : 'Confirmer'}
+              <button onClick={confirmActivation} disabled={totpBusy || !confirmCode.trim()} style={{ backgroundColor: D.green, color: '#000', border: 'none', borderRadius: '8px', padding: '9px 16px', fontSize: '12.5px', fontWeight: '700', cursor: totpBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                {totpBusy ? <><YelenLoader size={12} color="#000"/>Vérification…</> : 'Confirmer'}
               </button>
             </div>
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
             <span style={{ backgroundColor: D.surface2, color: D.textSub, fontSize: '11.5px', fontWeight: '700', padding: '4px 10px', borderRadius: '20px' }}>Désactivée</span>
-            <button onClick={startActivation} disabled={totpBusy} style={{ backgroundColor: D.green, color: '#000', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '12.5px', fontWeight: '700', cursor: totpBusy ? 'not-allowed' : 'pointer' }}>
-              {totpBusy ? 'Préparation…' : 'Activer'}
+            <button onClick={startActivation} disabled={totpBusy} style={{ backgroundColor: D.green, color: '#000', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '12.5px', fontWeight: '700', cursor: totpBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              {totpBusy ? <><YelenLoader size={12} color="#000"/>Préparation…</> : 'Activer'}
             </button>
           </div>
         )}
@@ -235,7 +240,7 @@ export default function AdminSecurityPage() {
 
       <Card title="Activité récente">
         {logs.length === 0 ? (
-          <p style={{ color: D.textMuted, fontSize: '12.5px', margin: 0 }}>Aucune activité enregistrée pour l'instant.</p>
+          <p style={{ color: D.textMuted, fontSize: '12.5px', margin: 0 }}>Aucune activité enregistrée pour l&apos;instant.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {logs.map(l => (

@@ -1,30 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyAdmin(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
-  })
-  if (payload.role !== 'super_admin' && payload.role !== 'moderateur') throw new Error('FORBIDDEN')
-  return payload
-}
 
 // Suppression définitive — l'admin ne rédige plus d'offres, mais garde le
 // droit de retirer un contenu problématique (au-delà du simple refus/
 // suspension, qui restent visibles à l'institution avec leur historique).
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'offres.moderate')
     const { id } = await params
 
     const { error } = await supabaseAdmin.from('offres').delete().eq('id', id)
@@ -38,7 +27,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     })
 
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (e) {
+    if (e instanceof AdminAuthError) return adminAuthErrorResponse(e)
     return NextResponse.json({ error: 'Erreur' }, { status: 500 })
   }
 }

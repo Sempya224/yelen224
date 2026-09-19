@@ -11,17 +11,19 @@ export async function GET(req: NextRequest) {
   const authInstId = await getAuthenticatedInstitutionId(req);
   if (!authInstId) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   if (authInstId !== institution_id) return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
+  type RdvRow = { id: string; heure_rdv: string; statut: string; objet: string | null; citoyen_id: string | null; presence_status: string | null };
+  type UserRow = { id: string; prenom: string | null; nom: string | null; phone: string | null };
   const { data } = await sb.from("rdv")
     .select("id,heure_rdv,statut,objet,citoyen_id,presence_status")
     .eq("institution_id", institution_id)
     .eq("date_rdv", date)
     .order("heure_rdv", { ascending: true });
-  const rdvs = data || [];
-  const ids = [...new Set(rdvs.map((r: any) => r.citoyen_id).filter(Boolean))];
-  let noms: Record<string, string> = {};
+  const rdvs = (data || []) as unknown as RdvRow[];
+  const ids = [...new Set(rdvs.map((r) => r.citoyen_id).filter(Boolean))];
+  const noms: Record<string, string> = {};
   if (ids.length) {
     const { data: users } = await sb.from("users").select("id,prenom,nom,phone").in("id", ids);
-    (users || []).forEach((u: any) => { noms[u.id] = `${u.prenom || ""} ${u.nom || ""}`.trim() || u.phone || "Citoyen"; });
+    ((users || []) as unknown as UserRow[]).forEach((u) => { noms[u.id] = `${u.prenom || ""} ${u.nom || ""}`.trim() || u.phone || "Citoyen"; });
   }
-  return NextResponse.json({ rdvs: rdvs.map((r: any) => ({ ...r, citoyen_nom: noms[r.citoyen_id] || "Citoyen" })) });
+  return NextResponse.json({ rdvs: rdvs.map((r) => ({ ...r, citoyen_nom: noms[r.citoyen_id ?? ""] || "Citoyen" })) });
 }

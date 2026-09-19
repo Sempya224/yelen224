@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Configuration 2FA introuvable.', code: 'NOT_FOUND' }, { status: 404 })
     }
 
-    let codeValide = (await verifyTotp({ secret: user.totp_secret, token: code.trim() })).valid
+    let codeValide = (await verifyTotp({ secret: user.totp_secret, token: code.trim(), epochTolerance: 30 })).valid
     if (!codeValide && Array.isArray(user.totp_backup_codes)) {
       const codes: string[] = user.totp_backup_codes
       for (let i = 0; i < codes.length; i++) {
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
 
     if (!codeValide) {
       registerFailure(citoyenId)
-      return NextResponse.json({ error: 'Code invalide', code: 'INVALID_CODE' }, { status: 401 })
+      return NextResponse.json({ error: 'Ce code ne semble pas correct. Vérifiez qu\'il n\'a pas expiré dans votre application et réessayez.', code: 'INVALID_CODE' }, { status: 401 })
     }
 
     clearFailures(citoyenId)

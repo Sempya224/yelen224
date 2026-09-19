@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { POST_CATEGORIES } from "@/lib/communauteCategories";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 // Publication citoyenne "Yelen Community" — l'identité est vérifiée ici
 // via sb.auth.getUser(accessToken), jamais un id fourni tel quel par le
@@ -29,8 +30,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Choisissez une catégorie pour votre publication" }, { status: 400 });
   }
 
-  const { data: { user }, error: authErr } = await sb.auth.getUser(accessToken);
-  if (authErr || !user) {
+  const user = await verifierCitoyenToken(accessToken);
+  if (!user) {
     return NextResponse.json({ error: "Session invalide ou expirée" }, { status: 401 });
   }
 

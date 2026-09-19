@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { validateUpload, type UploadCategory } from "@/lib/uploadSecurity";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,55 +9,76 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 );
 
-const CIN_ACCEPTED_MIME = ["application/pdf", "image/jpeg", "image/png"];
-const MAX_CIN_SIZE = 10 * 1024 * 1024;
+const MAX_TAILLE = 10 * 1024 * 1024;
 
-// Vérification d'identité citoyen (chantier Hero "état vivant", 23/07/2026)
-// — auto-vérifié dès soumission d'une pièce (CIN), décision Bryan : pas de
-// file d'attente admin pour démarrer. Réutilise le bucket privé existant
-// "documents-citoyens" (déjà créé par Bryan, RLS sans policy, accès
-// service_role uniquement) sous un préfixe dédié plutôt que de demander un
-// nouveau bucket.
+// Vérification d'identité citoyen — flux complet recto + verso + selfie
+// (28/08/2026, retour Bryan — remplace le flux recto seul du même jour).
+// Toujours un vrai pipeline : passe en "en_attente", jamais d'auto-
+// vérification ici. Réutilise le bucket privé existant "documents-citoyens"
+// (déjà créé par Bryan, RLS sans policy, accès service_role uniquement).
+const CHAMPS: { champ: "recto" | "verso" | "selfie"; categorie: UploadCategory }[] = [
+  { champ: "recto", categorie: "DOCUMENT_KYC" },
+  { champ: "verso", categorie: "DOCUMENT_KYC" },
+  { champ: "selfie", categorie: "SELFIE_IDENTITE" },
+];
+
 export async function POST(request: NextRequest) {
   try {
     const form = await request.formData().catch(() => null);
     if (!form) return NextResponse.json({ error: "Corps de requête invalide", code: "BAD_REQUEST" }, { status: 400 });
 
     const accessToken = form.get("accessToken");
-    const file = form.get("file");
-
     if (typeof accessToken !== "string" || !accessToken) {
       return NextResponse.json({ error: "Non authentifié", code: "NO_SESSION" }, { status: 401 });
     }
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Fichier requis", code: "MISSING_FILE" }, { status: 400 });
-    }
-    if (!CIN_ACCEPTED_MIME.includes(file.type)) {
-      return NextResponse.json({ error: "Format non accepté (PDF, JPG, PNG uniquement)", code: "INVALID_FORMAT" }, { status: 400 });
-    }
-    if (file.size > MAX_CIN_SIZE) {
-      return NextResponse.json({ error: "Fichier trop volumineux (10 Mo max)", code: "TOO_LARGE" }, { status: 400 });
-    }
 
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authErr || !user) return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
 
-    const ext = file.name.split(".").pop() || "bin";
-    const path = `identite/${user.id}/${crypto.randomUUID()}.${ext}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const { error: upErr } = await supabaseAdmin.storage.from("documents-citoyens").upload(path, buffer, { contentType: file.type });
-    if (upErr) return NextResponse.json({ error: upErr.message, code: "UPLOAD_ERROR" }, { status: 500 });
+    const fichiers: Record<string, { buffer: Buffer; extension: string; detectedType: string }> = {};
 
-    const { error: updateErr } = await supabaseAdmin
-      .from("users")
-      .update({ cin_document_url: path, cin_soumis_le: new Date().toISOString(), identite_verifiee: true })
-      .eq("id", user.id);
-    if (updateErr) {
-      await supabaseAdmin.storage.from("documents-citoyens").remove([path]);
-      return NextResponse.json({ error: updateErr.message, code: "UPDATE_ERROR" }, { status: 500 });
+    for (const { champ, categorie } of CHAMPS) {
+      const f = form.get(champ);
+      if (!(f instanceof File)) {
+        return NextResponse.json({ error: `Fichier "${champ}" requis`, code: "MISSING_FILE", champ }, { status: 400 });
+      }
+      const buffer = Buffer.from(await f.arrayBuffer());
+      const verif = await validateUpload(buffer, categorie, MAX_TAILLE, f.name);
+      if (!verif.valid) return NextResponse.json({ error: verif.reason, code: "INVALID_FORMAT", champ }, { status: 400 });
+      fichiers[champ] = { buffer, extension: verif.extension, detectedType: verif.detectedType };
     }
 
-    return NextResponse.json({ success: true });
+    const uploadedPaths: string[] = [];
+    try {
+      const paths: Record<string, string> = {};
+      for (const champ of Object.keys(fichiers)) {
+        const { buffer, extension, detectedType } = fichiers[champ];
+        const path = `identite/${user.id}/${champ}-${crypto.randomUUID()}.${extension}`;
+        const { error: upErr } = await supabaseAdmin.storage.from("documents-citoyens").upload(path, buffer, { contentType: detectedType });
+        if (upErr) throw upErr;
+        uploadedPaths.push(path);
+        paths[champ] = path;
+      }
+
+      const { error: updateErr } = await supabaseAdmin
+        .from("users")
+        .update({
+          cin_document_url: paths.recto,
+          cin_verso_document_url: paths.verso,
+          cin_selfie_url: paths.selfie,
+          cin_soumis_le: new Date().toISOString(),
+          cin_statut: "en_attente",
+          cin_motif_refus: null,
+          cin_examine_le: null,
+        })
+        .eq("id", user.id);
+      if (updateErr) throw updateErr;
+
+      return NextResponse.json({ success: true });
+    } catch (e) {
+      if (uploadedPaths.length) await supabaseAdmin.storage.from("documents-citoyens").remove(uploadedPaths);
+      throw e;
+    }
   } catch (error) {
     console.error("[CITOYEN VERIFICATION IDENTITE UPLOAD ERROR]", error);
     return NextResponse.json({ error: "Erreur serveur", code: "SERVER_ERROR" }, { status: 500 });

@@ -1,0 +1,12 @@
+-- Moteur de réauthentification pour actions sensibles côté institution
+-- (16/09/2026) — mirroring admin_sessions.reauth_at
+-- (20260830000002_admin_sessions.sql) : une session institution valide ne
+-- suffit plus pour certaines actions critiques (suppression de compte,
+-- retrait d'une clé d'accès, changement de rôle/suppression d'un membre,
+-- remboursement...) — le PIN (+ TOTP si activé) du membre connecté doit
+-- être reconfirmé dans les 10 dernières minutes via
+-- POST /api/institution/auth/reauth avant que ces routes n'exécutent
+-- l'action. Colonne posée sur institution_sessions (déjà la table
+-- vivante des sessions, cf. 20260830000007_institution_sessions_revocation.sql)
+-- plutôt qu'une nouvelle table.
+ALTER TABLE institution_sessions ADD COLUMN reauth_at timestamptz;

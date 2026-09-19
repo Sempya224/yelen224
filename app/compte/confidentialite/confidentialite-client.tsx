@@ -6,8 +6,10 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { deleteCitoyenAccount } from "@/app/profil/actions";
+import { SuppressionCompteOverlay } from "@/components/SuppressionCompteOverlay";
 import type { ChampsVisibles } from "@/lib/citoyenConfidentialite";
 
 // Section définie au niveau module — jamais à l'intérieur du composant
@@ -46,6 +48,22 @@ function Switch({ on, onToggle, disabled }: { on: boolean; onToggle: () => void;
     >
       <div style={{ position: "absolute", top: "2px", left: on ? "20px" : "2px", width: "22px", height: "22px", borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}/>
     </button>
+  );
+}
+
+// Même convention que Section/Switch ci-dessus — était redéfini à
+// l'intérieur de ConfidentialiteClient() (bug réel, corrigé lors de
+// l'audit de consolidation), exactement le piège documenté en tête de
+// fichier.
+function Row({ titre, description, right, t1, t2 }: { titre: string; description: string; right: React.ReactNode; t1: string; t2: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "12px 0" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ color: t1, fontSize: "14px", fontWeight: 700, marginBottom: "2px" }}>{titre}</div>
+        <div style={{ color: t2, fontSize: "12px", lineHeight: 1.4 }}>{description}</div>
+      </div>
+      <div style={{ flexShrink: 0, marginTop: "2px" }}>{right}</div>
+    </div>
   );
 }
 
@@ -111,10 +129,9 @@ export function ConfidentialiteClient() {
   });
 
   const [pinConfigure, setPinConfigure] = useState(false);
-  const [suppEtape, setSuppEtape] = useState<"aucun" | "confirmer">("aucun");
-  const [suppTexte, setSuppTexte] = useState("");
-  const [suppPin, setSuppPin] = useState("");
-  const [suppMsg, setSuppMsg] = useState<string | null>(null);
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [phone, setPhone] = useState<string | null>(null);
+  const [suppOuvert, setSuppOuvert] = useState(false);
 
   const getAccessToken = useCallback(async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -124,15 +141,19 @@ export function ConfidentialiteClient() {
   const charger = useCallback(async () => {
     const accessToken = await getAccessToken();
     if (!accessToken) { showToast("Session expirée, reconnectez-vous.", "error"); return; }
-    const [statusRes, pinRes] = await Promise.all([
+    const [statusRes, securiteRes] = await Promise.all([
       fetch("/api/citoyen/confidentialite/status", { headers: { Authorization: `Bearer ${accessToken}` } }),
-      fetch("/api/citoyen/securite/pin", { headers: { Authorization: `Bearer ${accessToken}` } }),
+      fetch("/api/citoyen/securite/status", { headers: { Authorization: `Bearer ${accessToken}` } }),
     ]);
     const statusJson = await statusRes.json().catch(() => null);
     if (!statusRes.ok || !statusJson?.success) { showToast(statusJson?.error ?? "Impossible de charger vos préférences.", "error"); return; }
     setStatut(statusJson);
-    const pinJson = await pinRes.json().catch(() => null);
-    if (pinRes.ok && pinJson?.success) setPinConfigure(!!pinJson.pin_configured);
+    const securiteJson = await securiteRes.json().catch(() => null);
+    if (securiteRes.ok && securiteJson?.success) {
+      setPinConfigure(!!securiteJson.pin_configured);
+      setTotpEnabled(!!securiteJson.totp_enabled);
+      setPhone(securiteJson.phone ?? null);
+    }
   }, [getAccessToken]);
 
   useEffect(() => {
@@ -232,63 +253,85 @@ export function ConfidentialiteClient() {
     await charger();
   }
 
-  async function handleSupprimer() {
-    if (!userId) return;
-    setSuppMsg(null);
-    if (suppTexte.trim().toUpperCase() !== "SUPPRIMER") { setSuppMsg('Tapez "SUPPRIMER" pour confirmer.'); return; }
-    if (pinConfigure && suppPin.length < 4) { setSuppMsg("Entrez votre code PIN."); return; }
-
-    setBusy("suppression");
+  async function handleEnvoyerFeedback(raison: string | null, detail: string) {
     const accessToken = await getAccessToken();
-    if (!accessToken) { setSuppMsg("Session expirée, reconnectez-vous."); setBusy(null); return; }
+    if (!accessToken) return;
+    await fetch("/api/citoyen/confidentialite/suppression-feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken, raison, detail }),
+    }).catch(() => {});
+  }
+
+  async function handleEnvoyerOtpSuppression(): Promise<{ ok: true } | { ok: false; error: string }> {
+    const accessToken = await getAccessToken();
+    if (!accessToken) return { ok: false, error: "Session expirée, reconnectez-vous." };
+    const res = await fetch("/api/citoyen/confidentialite/suppression/otp-envoyer", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success) return { ok: false, error: json?.error ?? "Envoi du code impossible." };
+    return { ok: true };
+  }
+
+  // Vérifie l'identité avant d'autoriser l'écran de confirmation finale :
+  // code SMS toujours requis, + PIN et/ou TOTP si le citoyen les a activés
+  // (retour Bryan 12/09/2026) — aucune suppression n'a lieu ici.
+  async function handleVerifierIdentite(otp: string, pin: string, totp: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const accessToken = await getAccessToken();
+    if (!accessToken) return { ok: false, error: "Session expirée, reconnectez-vous." };
+
+    const otpRes = await fetch("/api/citoyen/confidentialite/suppression/otp-verifier", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken, code: otp }),
+    });
+    const otpJson = await otpRes.json().catch(() => null);
+    if (!otpRes.ok || !otpJson?.success) return { ok: false, error: otpJson?.error ?? "Code incorrect." };
 
     if (pinConfigure) {
-      const verifRes = await fetch("/api/citoyen/securite/pin/verify", {
+      const pinRes = await fetch("/api/citoyen/securite/pin/verify", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken, pin: suppPin }),
+        body: JSON.stringify({ accessToken, pin }),
       });
-      const verifJson = await verifRes.json().catch(() => null);
-      if (!verifRes.ok || !verifJson?.success) { setSuppMsg(verifJson?.error ?? "Code PIN incorrect."); setBusy(null); return; }
+      const pinJson = await pinRes.json().catch(() => null);
+      if (!pinRes.ok || !pinJson?.success) return { ok: false, error: pinJson?.error ?? "Code PIN incorrect." };
     }
 
+    if (totpEnabled) {
+      const totpRes = await fetch("/api/citoyen/securite/totp/verify-code", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken, code: totp }),
+      });
+      const totpJson = await totpRes.json().catch(() => null);
+      if (!totpRes.ok || !totpJson?.success) return { ok: false, error: totpJson?.error ?? "Code de double authentification incorrect." };
+    }
+
+    return { ok: true };
+  }
+
+  async function handleConfirmerSuppression(): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!userId) return { ok: false, error: "Session expirée, reconnectez-vous." };
+    const accessToken = await getAccessToken();
+    if (!accessToken) return { ok: false, error: "Session expirée, reconnectez-vous." };
+
     const result = await deleteCitoyenAccount(userId, accessToken);
-    setBusy(null);
-    if (!result.ok) { setSuppMsg(result.error); return; }
+    if (!result.ok) return { ok: false, error: result.error };
     await supabase.auth.signOut();
     try { localStorage.removeItem(YELEN224_USER_ID_KEY); } catch {}
     router.replace("/");
+    return { ok: true };
   }
 
   const btnPrimary: React.CSSProperties = {
-    background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "13.5px",
+    background: "#F5A623", color: "#080812", fontWeight: 800, fontSize: "13.5px",
     padding: "10px 16px", borderRadius: "12px", border: "none", cursor: "pointer",
   };
   const btnGhost: React.CSSProperties = {
     background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: t1, fontWeight: 700, fontSize: "13px",
     padding: "10px 16px", borderRadius: "12px", border: `1px solid ${brd}`, cursor: "pointer",
   };
-  const inputStyle: React.CSSProperties = {
-    width: "100%", backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#f5f5f8", border: `1px solid ${brd}`,
-    borderRadius: "12px", padding: "12px 14px", color: t1, fontSize: "14px",
-  };
-
-  const Row = ({ titre, description, right }: { titre: string; description: string; right: React.ReactNode }) => (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "12px 0" }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: t1, fontSize: "14px", fontWeight: 700, marginBottom: "2px" }}>{titre}</div>
-        <div style={{ color: t2, fontSize: "12px", lineHeight: 1.4 }}>{description}</div>
-      </div>
-      <div style={{ flexShrink: 0, marginTop: "2px" }}>{right}</div>
-    </div>
-  );
-
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Confidentialité"/>;
   }
 
   const profilOuvert = !!statut && (statut.champs_visibles.adresse || statut.champs_visibles.email || statut.champs_visibles.date_naissance);
@@ -297,7 +340,8 @@ export function ConfidentialiteClient() {
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Confidentialité"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ padding: "4px 4px 20px" }}>
           <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5 }}>Choisissez quelles informations vous souhaitez partager et gardez le contrôle de vos données.</p>
         </div>
@@ -322,7 +366,7 @@ export function ConfidentialiteClient() {
 
             {/* Visibilité */}
             <Section titre="Visibilité" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
                   <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "rgba(245,166,35,0.08)", display: "flex", alignItems: "center", justifyContent: "center", color: "#F5A623", flexShrink: 0 }}><Ic.Eye/></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -339,6 +383,7 @@ export function ConfidentialiteClient() {
                     {CHAMPS_LABELS.map((c) => (
                       <div key={c.key} style={{ borderBottom: `1px solid ${brd}` }}>
                         <Row
+                          t1={t1} t2={t2}
                           titre={c.titre} description={c.description}
                           right={<Switch on={statut.champs_visibles[c.key]} onToggle={() => majVisibilite({ [c.key]: !statut.champs_visibles[c.key] } as Partial<ChampsVisibles>)}/>}
                         />
@@ -348,8 +393,9 @@ export function ConfidentialiteClient() {
                 )}
               </div>
 
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Profil public"
                   description="Autoriser les établissements à consulter votre profil public avant une prise de rendez-vous."
                   right={<Switch on={statut.profil_public} onToggle={() => majVisibilite({ profil_public: !statut.profil_public })}/>}
@@ -359,14 +405,16 @@ export function ConfidentialiteClient() {
 
             {/* Partage des données */}
             <Section titre="Partage des données" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Historique des rendez-vous"
                   description="Autoriser un établissement à consulter vos anciens rendez-vous réalisés avec lui."
                   right={<Switch on={statut.partage_historique_rdv} onToggle={() => majPartage({ partageHistoriqueRdv: !statut.partage_historique_rdv })}/>}
                 />
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Historique des services"
                     description="Partager l'historique des services déjà effectués dans le même établissement."
                     right={<Switch on={statut.partage_historique_services} onToggle={() => majPartage({ partageHistoriqueServices: !statut.partage_historique_services })}/>}
@@ -374,6 +422,7 @@ export function ConfidentialiteClient() {
                 </div>
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Informations de réservation"
                     description="Partager uniquement les informations nécessaires au traitement de votre rendez-vous. Toujours activé — indispensable au fonctionnement de Yelen."
                     right={<Switch on={true} onToggle={() => {}} disabled/>}
@@ -384,15 +433,16 @@ export function ConfidentialiteClient() {
 
             {/* Autorisations */}
             <Section titre="Autorisations" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 {[
                   { icon: <Ic.Lock/>, titre: "Localisation", description: "Utilisée uniquement lorsque vous recherchez des établissements proches.", etat: permissions.geolocation },
-                  { icon: <Ic.Camera/>, titre: "Caméra", description: "Utilisée pour scanner les QR Codes.", etat: permissions.camera },
+                  { icon: <Ic.Camera/>, titre: "Caméra", description: "Utilisée pour scanner les QR codes.", etat: permissions.camera },
                   { icon: <Ic.Bell/>, titre: "Notifications", description: "Recevoir les rappels et informations importantes.", etat: permissions.notifications },
                   { icon: <Ic.Mic/>, titre: "Microphone", description: "Utilisé uniquement lorsque vous enregistrez un message vocal.", etat: permissions.microphone },
                 ].map((p, i) => (
                   <div key={p.titre} style={{ borderTop: i === 0 ? "none" : `1px solid ${brd}` }}>
                     <Row
+                      t1={t1} t2={t2}
                       titre={p.titre} description={p.description}
                       right={<span style={{ color: COULEUR_PERMISSION[p.etat], fontSize: "11.5px", fontWeight: 800 }}>{LABEL_PERMISSION[p.etat]}</span>}
                     />
@@ -400,6 +450,7 @@ export function ConfidentialiteClient() {
                 ))}
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Photos"
                     description="Ajouter une photo de profil ou transmettre un document. Aucune autorisation supplémentaire requise — le sélecteur de fichier de votre navigateur s'en charge."
                     right={<span style={{ color: t3, fontSize: "11.5px", fontWeight: 700 }}>—</span>}
@@ -413,21 +464,23 @@ export function ConfidentialiteClient() {
 
             {/* Consentements */}
             <Section titre="Consentements" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Conditions d'utilisation"
                   description={statut.cgu_acceptee_le ? `Acceptées — ${formatDate(statut.cgu_acceptee_le)}` : "Non acceptées"}
                   right={statut.cgu_acceptee_le
                     ? <span style={{ color: "#22c55e" }}><Ic.Check/></span>
-                    : <button disabled={busy === "consentement-cgu"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("cgu")}>{busy === "consentement-cgu" ? "…" : "Accepter"}</button>}
+                    : <button disabled={busy === "consentement-cgu"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("cgu")}>{busy === "consentement-cgu" ? "Enregistrement…" : "Accepter"}</button>}
                 />
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Politique de confidentialité"
                     description={statut.confidentialite_acceptee_le ? `Acceptée — ${formatDate(statut.confidentialite_acceptee_le)}` : "Non acceptée"}
                     right={statut.confidentialite_acceptee_le
                       ? <span style={{ color: "#22c55e" }}><Ic.Check/></span>
-                      : <button disabled={busy === "consentement-confidentialite"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("confidentialite")}>{busy === "consentement-confidentialite" ? "…" : "Accepter"}</button>}
+                      : <button disabled={busy === "consentement-confidentialite"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("confidentialite")}>{busy === "consentement-confidentialite" ? "Enregistrement…" : "Accepter"}</button>}
                   />
                 </div>
                 <div style={{ display: "flex", gap: "14px", marginTop: "10px", fontSize: "12px" }}>
@@ -436,14 +489,16 @@ export function ConfidentialiteClient() {
                 </div>
               </div>
 
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Communications Yelen"
                   description="Recevoir les nouveautés Yelen."
                   right={<Switch on={statut.communications_yelen} onToggle={() => majCommunication({ communicationsYelen: !statut.communications_yelen })}/>}
                 />
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Communications établissements"
                     description="Recevoir les annonces publiées par les établissements que vous suivez."
                     right={<Switch on={statut.communications_etablissements} onToggle={() => majCommunication({ communicationsEtablissements: !statut.communications_etablissements })}/>}
@@ -451,6 +506,7 @@ export function ConfidentialiteClient() {
                 </div>
                 <div style={{ borderTop: `1px solid ${brd}` }}>
                   <Row
+                    t1={t1} t2={t2}
                     titre="Personnalisation"
                     description="Recevoir des recommandations adaptées à votre activité."
                     right={<Switch on={statut.personnalisation} onToggle={() => majCommunication({ personnalisation: !statut.personnalisation })}/>}
@@ -461,8 +517,9 @@ export function ConfidentialiteClient() {
 
             {/* Mes données */}
             <Section titre="Mes données" t1={t1}>
-              <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "16px", padding: "16px", marginBottom: "12px" }}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginBottom: "12px" }}>
                 <Row
+                  t1={t1} t2={t2}
                   titre="Télécharger mes données"
                   description="Disponible depuis Paramètres → Télécharger mes données."
                   right={<Link href="/compte/mes-donnees" className="tap" style={{ color: "#F5A623", fontSize: "13px", fontWeight: 700, textDecoration: "none" }}>Ouvrir</Link>}
@@ -476,7 +533,7 @@ export function ConfidentialiteClient() {
                     <div style={{ color: "#ef4444", fontSize: "15px", fontWeight: 700, marginBottom: "3px" }}>Supprimer définitivement mes données</div>
                     <div style={{ color: t2, fontSize: "12.5px" }}>Supprimer définitivement votre compte et toutes les données associées.</div>
                   </div>
-                  <button className="tap" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", fontWeight: 800, fontSize: "13px", padding: "10px 14px", borderRadius: "12px", border: "1px solid rgba(239,68,68,0.3)", cursor: "pointer" }} onClick={() => setSuppEtape("confirmer")}>
+                  <button className="tap" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", fontWeight: 800, fontSize: "13px", padding: "10px 14px", borderRadius: "12px", border: "1px solid rgba(239,68,68,0.3)", cursor: "pointer" }} onClick={() => setSuppOuvert(true)}>
                     Supprimer
                   </button>
                 </div>
@@ -485,36 +542,22 @@ export function ConfidentialiteClient() {
           </>
         )}
       </main>
+      </PullToRefresh>
 
-      {/* Pop-up de confirmation — jamais une section qui s'ouvre verticalement
-          dans la page (retour Bryan), même convention que BiometrieModal
-          (app/page.tsx) : overlay plein écran, carte centrée. */}
-      {suppEtape === "confirmer" && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9000, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-          <div style={{ backgroundColor: card, borderRadius: "24px", padding: "24px", maxWidth: "380px", width: "100%", border: `1px solid ${brd}` }}>
-            <div style={{ color: "#ef4444", fontSize: "17px", fontWeight: 800, marginBottom: "12px" }}>Supprimer définitivement votre compte ?</div>
-            <div style={{ color: t1, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "16px" }}>
-              Cette action est irréversible. Toutes vos données, rendez-vous, documents et historiques seront supprimés conformément aux règles de conservation applicables. Certaines informations pouvant être légalement requises seront conservées pendant la durée prévue par la réglementation.
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div style={{ color: t2, fontSize: "12px", fontWeight: 700 }}>Tapez SUPPRIMER pour confirmer :</div>
-              <input style={inputStyle} value={suppTexte} onChange={(e) => setSuppTexte(e.target.value)} placeholder="SUPPRIMER" autoFocus/>
-              {pinConfigure && (
-                <>
-                  <div style={{ color: t2, fontSize: "12px", fontWeight: 700 }}>Code PIN :</div>
-                  <input style={{ ...inputStyle, letterSpacing: "2px", textAlign: "center" }} type="password" inputMode="numeric" maxLength={8} value={suppPin} onChange={(e) => setSuppPin(e.target.value.replace(/\D/g, ""))} placeholder="••••"/>
-                </>
-              )}
-              {suppMsg && <div style={{ color: "#ef4444", fontSize: "12.5px" }}>{suppMsg}</div>}
-              <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                <button className="tap" style={{ ...btnGhost, flex: 1 }} onClick={() => { setSuppEtape("aucun"); setSuppTexte(""); setSuppPin(""); setSuppMsg(null); }}>Annuler</button>
-                <button disabled={busy === "suppression"} className="tap" style={{ flex: 1, background: "#ef4444", color: "#fff", fontWeight: 800, fontSize: "13.5px", padding: "12px", borderRadius: "12px", border: "none", cursor: "pointer", opacity: busy === "suppression" ? 0.6 : 1 }} onClick={handleSupprimer}>
-                  {busy === "suppression" ? "…" : "Supprimer définitivement"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Parcours de suppression plein écran en 3 temps (retour Bryan
+          12/09/2026) — feedback préalable, vérification d'identité
+          (code SMS toujours + PIN/2FA si activés), puis confirmation
+          finale. Remplace l'ancienne modale centrée unique. */}
+      {suppOuvert && (
+        <SuppressionCompteOverlay
+          bg={bg} card={card} t1={t1} t2={t2} brd={brd} isDark={isDark}
+          pinConfigure={pinConfigure} totpEnabled={totpEnabled} phone={phone}
+          onClose={() => setSuppOuvert(false)}
+          onEnvoyerFeedback={handleEnvoyerFeedback}
+          onEnvoyerOtp={handleEnvoyerOtpSuppression}
+          onVerifierIdentite={handleVerifierIdentite}
+          onConfirmer={handleConfirmerSuppression}
+        />
       )}
 
       {toast && (

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
-import { getAuthenticatedMembre } from "@/lib/institutionAuth";
-import { isMembreRole, can } from "@/lib/institutionPermissions";
+import { getAuthenticatedMembre, estReauthRecente, revoquerSessionsMembre } from "@/lib/institutionAuth";
+import { isMembreRole, can, isDomaineKey } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import { isWeakPin, PIN_TROP_SIMPLE_MESSAGE } from "@/lib/pinSecurity";
 
 // Contourne RLS via service role — institution_membres n'a aucune policy
 // publique (migration 20260714000001), accès exclusivement via cette
@@ -22,30 +23,56 @@ export async function GET(req: NextRequest) {
   // Équipe), les autres rôles n'ont pas cet onglet mais ont quand même besoin
   // de connaître leurs collègues pour les sélecteurs "Assigné à" (tâches,
   // agenda) — liste allégée, sans identifiant/rôle/statut.
-  if (!can(membre.role, "equipe.read_full")) {
-    const { data, error } = await sb
-      .from("institution_membres")
-      .select("id,prenom,nom")
-      .eq("institution_id", membre.institutionId)
-      .eq("actif", true)
-      .order("prenom", { ascending: true });
+  if (!can(membre.role, "equipe.read_full", membre.accesRestreints)) {
+    const [{ data, error }, { data: moi }] = await Promise.all([
+      sb.from("institution_membres").select("id,prenom,nom").eq("institution_id", membre.institutionId).eq("actif", true).order("prenom", { ascending: true }),
+      // "Administration & accès" (onglet profil) — un membre peut toujours
+      // lire SON PROPRE enregistrement complet, même sans equipe.read_full :
+      // ce n'est pas un privilège d'équipe, juste son propre compte.
+      sb.from("institution_membres").select("id,identifiant,prenom,nom,role,actif,compte_principal,doit_changer_pin,locked_until,derniere_connexion,fonction,created_at,acces_restreints").eq("id", membre.membreId).maybeSingle(),
+    ]);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ membres: data ?? [], role: membre.role, membreId: membre.membreId });
+    return NextResponse.json({ membres: data ?? [], role: membre.role, membreId: membre.membreId, moi });
   }
 
   const { data, error } = await sb
     .from("institution_membres")
-    .select("id,identifiant,prenom,nom,role,actif,compte_principal,doit_changer_pin,created_at")
+    .select("id,identifiant,prenom,nom,role,actif,compte_principal,doit_changer_pin,locked_until,derniere_connexion,fonction,created_at,checkin_qr_generated_at,checkin_qr_revoked_at,acces_restreints")
     .eq("institution_id", membre.institutionId)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ membres: data ?? [], role: membre.role, membreId: membre.membreId });
+
+  // "Dernière activité" (refonte Enterprise Équipe, 05/08/2026) — dérivée
+  // de journal_activite, pas une nouvelle colonne. Une seule requête sur
+  // les 500 dernières entrées de l'institution plutôt qu'une requête par
+  // membre : suffisant en pratique pour couvrir l'activité récente de
+  // chacun, et évite un N+1 sur un écran qui peut afficher plusieurs
+  // dizaines de membres.
+  const { data: journalRecent } = await sb
+    .from("journal_activite")
+    .select("membre_id,action,created_at")
+    .eq("institution_id", membre.institutionId)
+    .not("membre_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  const derniereActiviteParMembre = new Map<string, { action: string; created_at: string }>();
+  for (const j of journalRecent ?? []) {
+    if (j.membre_id && !derniereActiviteParMembre.has(j.membre_id)) {
+      derniereActiviteParMembre.set(j.membre_id, { action: j.action, created_at: j.created_at });
+    }
+  }
+
+  const membresEnrichis = (data ?? []).map((m) => ({ ...m, derniere_activite: derniereActiviteParMembre.get(m.id) ?? null }));
+  const moi = membresEnrichis.find((m) => m.id === membre.membreId) ?? null;
+
+  return NextResponse.json({ membres: membresEnrichis, role: membre.role, membreId: membre.membreId, moi });
 }
 
 export async function POST(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "equipe.write")) {
+  if (!can(membre.role, "equipe.write", membre.accesRestreints)) {
     await enregistrerAction({
       institutionId: membre.institutionId, membreId: membre.membreId,
       membreNom: await getMembreNomPourJournal(membre.membreId),
@@ -68,6 +95,15 @@ export async function POST(req: NextRequest) {
   if (typeof nom !== "string" || !nom.trim()) return NextResponse.json({ error: "Nom requis" }, { status: 400 });
   if (!isMembreRole(role)) return NextResponse.json({ error: "Rôle invalide" }, { status: 400 });
   if (typeof pin !== "string" || !PIN_REGEX.test(pin)) return NextResponse.json({ error: "Le PIN doit contenir exactement 6 chiffres" }, { status: 400 });
+  if (isWeakPin(pin)) return NextResponse.json({ error: PIN_TROP_SIMPLE_MESSAGE }, { status: 400 });
+
+  // Rôles personnalisés (16/09/2026) — une liste de domaines RETIRÉS au
+  // rôle de base, jamais ajoutés. Body invalide rejeté explicitement (pas
+  // de silent-drop d'une valeur qui ne serait pas un DomaineKey connu).
+  const accesRestreints = body?.acces_restreints;
+  if (accesRestreints !== undefined && (!Array.isArray(accesRestreints) || !accesRestreints.every(isDomaineKey))) {
+    return NextResponse.json({ error: "Liste de domaines restreints invalide" }, { status: 400 });
+  }
 
   const { data: existant } = await sb.from("institution_membres").select("id").eq("identifiant", identifiant.trim()).maybeSingle();
   if (existant) return NextResponse.json({ error: "Cet identifiant est déjà utilisé" }, { status: 409 });
@@ -83,6 +119,9 @@ export async function POST(req: NextRequest) {
       nom: nom.trim(),
       role,
       doit_changer_pin: true,
+      fonction: typeof body?.fonction === "string" && body.fonction.trim() ? body.fonction.trim() : null,
+      acces_restreints: Array.isArray(accesRestreints) && accesRestreints.length ? accesRestreints : null,
+      invite_par_membre_id: membre.membreId,
     })
     .select("id")
     .single();
@@ -114,7 +153,7 @@ export async function PATCH(req: NextRequest) {
   // autre modification (rôle, statut actif, PIN d'un tiers) est réservée à
   // l'admin.
   const isSelfPinChange = id === membre.membreId && body?.pin !== undefined && Object.keys(body).every(k => ["id", "pin"].includes(k));
-  if (!isSelfPinChange && !can(membre.role, "equipe.write")) {
+  if (!isSelfPinChange && !can(membre.role, "equipe.write", membre.accesRestreints)) {
     await enregistrerAction({
       institutionId: membre.institutionId, membreId: membre.membreId,
       membreNom: await getMembreNomPourJournal(membre.membreId),
@@ -125,6 +164,21 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Accès réservé aux administrateurs" }, { status: 403 });
   }
 
+  // Moteur de réauthentification (16/09/2026, complété en revue finale) —
+  // changer le rôle d'un membre, le désactiver, OU réinitialiser le PIN
+  // d'un tiers sont les actions les plus sensibles de cet écran : réinitialiser
+  // le PIN d'un AUTRE membre est un vecteur de prise de contrôle de compte
+  // au moins aussi sérieux qu'un changement de rôle (l'admin peut ensuite se
+  // connecter en se faisant passer pour ce membre). isSelfPinChange n'est
+  // jamais concerné (déjà exclu ci-dessus des modifications réservées à
+  // l'admin) — seul le reset du PIN d'un TIERS est visé ici.
+  const resetPinDunTiers = typeof body?.pin === "string" && !isSelfPinChange;
+  const changeAccesRestreints = body?.acces_restreints !== undefined;
+  const actionSensible = isMembreRole(body?.role) || typeof body?.actif === "boolean" || resetPinDunTiers || changeAccesRestreints;
+  if (actionSensible && !estReauthRecente(membre)) {
+    return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: "REAUTH_REQUIRED" }, { status: 403 });
+  }
+
   const { data: cible } = await sb.from("institution_membres").select("id,institution_id,compte_principal").eq("id", id).maybeSingle();
   if (!cible || cible.institution_id !== membre.institutionId) {
     return NextResponse.json({ error: "Membre introuvable pour cette institution" }, { status: 404 });
@@ -133,18 +187,36 @@ export async function PATCH(req: NextRequest) {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (typeof body?.pin === "string") {
     if (!PIN_REGEX.test(body.pin)) return NextResponse.json({ error: "Le PIN doit contenir exactement 6 chiffres" }, { status: 400 });
+    if (isWeakPin(body.pin)) return NextResponse.json({ error: PIN_TROP_SIMPLE_MESSAGE }, { status: 400 });
     updates.pin_hash = await bcrypt.hash(body.pin, 10);
     updates.doit_changer_pin = false;
   }
-  if (can(membre.role, "equipe.write")) {
+  if (can(membre.role, "equipe.write", membre.accesRestreints)) {
     if (typeof body?.prenom === "string" && body.prenom.trim()) updates.prenom = body.prenom.trim();
     if (typeof body?.nom === "string" && body.nom.trim()) updates.nom = body.nom.trim();
+    if (typeof body?.fonction === "string") updates.fonction = body.fonction.trim() || null;
     if (isMembreRole(body?.role) && !cible.compte_principal) updates.role = body.role;
     if (typeof body?.actif === "boolean" && !cible.compte_principal) updates.actif = body.actif;
+    if (changeAccesRestreints && !cible.compte_principal) {
+      if (!Array.isArray(body.acces_restreints) || !body.acces_restreints.every(isDomaineKey)) {
+        return NextResponse.json({ error: "Liste de domaines restreints invalide" }, { status: 400 });
+      }
+      updates.acces_restreints = body.acces_restreints.length ? body.acces_restreints : null;
+    }
   }
 
   const { error } = await sb.from("institution_membres").update(updates).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Révocation ciblée (16/09/2026, revue finale) — un rôle changé, un
+  // compte désactivé, ou un PIN réinitialisé par un tiers doivent couper
+  // l'accès de CE membre immédiatement, pas seulement au bout de 8h.
+  // isSelfPinChange exclu : on ne déconnecte jamais un membre qui vient de
+  // changer son propre PIN depuis sa propre session (comportement standard,
+  // même raisonnement que revoquerAutresSessionsInstitution).
+  if (!isSelfPinChange && ("role" in updates || updates.actif === false || "pin_hash" in updates || "acces_restreints" in updates)) {
+    await revoquerSessionsMembre(sb, id, "membre_modifie");
+  }
 
   await enregistrerAction({
     institutionId: membre.institutionId,
@@ -163,7 +235,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "equipe.write")) {
+  if (!can(membre.role, "equipe.write", membre.accesRestreints)) {
     await enregistrerAction({
       institutionId: membre.institutionId, membreId: membre.membreId,
       membreNom: await getMembreNomPourJournal(membre.membreId),
@@ -172,6 +244,11 @@ export async function DELETE(req: NextRequest) {
       req,
     });
     return NextResponse.json({ error: "Accès réservé aux administrateurs" }, { status: 403 });
+  }
+  // Moteur de réauthentification (16/09/2026) — supprimer un membre est
+  // irréversible, même palier que le changement de rôle en PATCH ci-dessus.
+  if (!estReauthRecente(membre)) {
+    return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: "REAUTH_REQUIRED" }, { status: 403 });
   }
 
   const id = new URL(req.url).searchParams.get("id");
@@ -183,6 +260,11 @@ export async function DELETE(req: NextRequest) {
   }
   if (cible.compte_principal) return NextResponse.json({ error: "Le compte administrateur principal ne peut pas être supprimé" }, { status: 400 });
 
+  // Pas d'appel explicite à revoquerSessionsMembre ici (contrairement au
+  // PATCH ci-dessus) — institution_sessions.membre_id est ON DELETE CASCADE
+  // (migration 20260916000003), donc ses sessions disparaissent atomiquement
+  // avec la ligne institution_membres : "perd l'accès immédiatement"
+  // (promesse déjà affichée dans EquipeTab) devient réellement vrai.
   const { error } = await sb.from("institution_membres").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

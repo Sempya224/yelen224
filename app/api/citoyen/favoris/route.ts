@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { parseHoraires, isOuvertNow } from "@/lib/horaires";
 import { generateSlotsInRange, toISODate } from "@/lib/disponibilites";
+import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const JOURS_FENETRE_CRENEAUX = 28;
 const JOURS_FENETRE_ATTENTE = 90;
@@ -16,9 +18,8 @@ const supabaseAdmin = createClient(
 async function getAuthenticatedCitoyenId(request: NextRequest): Promise<string | null> {
   const accessToken = request.headers.get("authorization")?.replace("Bearer ", "");
   if (!accessToken) return null;
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !user) return null;
-  return user.id;
+  const user = await verifierCitoyenToken(accessToken);
+  return user?.id ?? null;
 }
 
 // Lot B (chantier Favoris citoyen) — un seul appel pour peupler l'écran,
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     const [{ data: institutions }, { data: annonces }, { data: services }, { data: rdvHistorique }, { data: rdvCreneaux }, { data: bookingsCreneaux }, { data: rdvAttente }] = await Promise.all([
       supabaseAdmin
         .from("institutions")
-        .select("id,name,secteur,ville,quartier,logo,badge_verifie,moyenne_avis,nb_avis,latitude,longitude,horaires,disponibilites,capacite_par_creneau")
+        .select("id,name,category,secteur,ville,quartier,logo,banniere,badge_verifie,description,statut,adresse,phone,moyenne_avis,nb_avis,latitude,longitude,horaires,disponibilites,capacite_par_creneau,activite_categorie_id")
         .in("id", institutionIds),
       supabaseAdmin
         .from("annonces")
@@ -171,11 +172,19 @@ export async function GET(request: NextRequest) {
         return {
           institution_id: inst.id,
           name: inst.name,
+          category: inst.category,
           secteur: inst.secteur,
           ville: inst.ville,
           quartier: inst.quartier,
           logo: inst.logo,
+          banniere: inst.banniere,
           badge_verifie: inst.badge_verifie,
+          description: inst.description,
+          statut: inst.statut,
+          adresse: inst.adresse,
+          phone: inst.phone,
+          horaires: inst.horaires,
+          activite_categorie_id: inst.activite_categorie_id,
           moyenne_avis: inst.moyenne_avis,
           prochain_creneau: prochainSlot ? { date_rdv: prochainSlot.dateRdv, heure_rdv: prochainSlot.heureRdv } : null,
           temps_attente_minutes: tempsAttenteMap.get(inst.id) ?? null,
@@ -198,10 +207,48 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Pas de POST/DELETE ici — contrairement aux tables de sécurité, l'ajout/
-// retrait d'un favori est couvert par la policy RLS `favoris_citoyen_own`
+// Pas de DELETE ici — contrairement aux tables de sécurité, l'ajout/retrait
+// d'un favori est couvert par la policy RLS `favoris_citoyen_own`
 // (auth.uid() = citoyen_id), donc fait directement en client via
 // supabase.from("citoyen_favoris").insert/delete(), même pattern déjà
 // établi pour annonce_likes (app/institution/[id]/page.tsx) et avis
-// (app/mes-rdv/page.tsx) — pas besoin de dupliquer cette logique
-// derrière une route service_role.
+// (app/mes-rdv/page.tsx). Le POST ci-dessous ne duplique pas cette
+// écriture — il ne fait qu'envoyer la notification de confirmation après
+// coup (chantier notifications, 04/08/2026), notificationEngine étant
+// service_role-only et donc impossible à appeler depuis le client.
+export async function POST(request: NextRequest) {
+  try {
+    const citoyenId = await getAuthenticatedCitoyenId(request);
+    if (!citoyenId) return NextResponse.json({ error: "Non authentifié", code: "NO_SESSION" }, { status: 401 });
+
+    const { institutionId } = await request.json();
+    if (!institutionId) return NextResponse.json({ error: "institutionId requis" }, { status: 400 });
+
+    const { data: favori } = await supabaseAdmin
+      .from("citoyen_favoris")
+      .select("id")
+      .eq("citoyen_id", citoyenId)
+      .eq("institution_id", institutionId)
+      .maybeSingle();
+    if (!favori) return NextResponse.json({ error: "Favori introuvable" }, { status: 404 });
+
+    const [{ data: citoyen }, { data: institution }] = await Promise.all([
+      supabaseAdmin.from("users").select("prenom").eq("id", citoyenId).maybeSingle(),
+      supabaseAdmin.from("institutions").select("name").eq("id", institutionId).maybeSingle(),
+    ]);
+
+    await envoyerNotification({
+      destinataireId: citoyenId,
+      destinataireType: "citoyen",
+      rdvId: null,
+      type: "favori_ajoute",
+      titre: salutation(citoyen?.prenom || "cher client"),
+      message: `${institution?.name || "Cet établissement"} a été ajouté à vos favoris. Retrouvez ses prochains créneaux depuis l'onglet Favoris.`,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[CITOYEN FAVORIS POST ERROR]", error);
+    return NextResponse.json({ error: "Erreur serveur", code: "SERVER_ERROR" }, { status: 500 });
+  }
+}

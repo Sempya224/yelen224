@@ -1,23 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse, verifyRecentReauth, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyAdmin(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
-  })
-  if (payload.role !== 'super_admin') throw new Error('FORBIDDEN')
-  return payload
-}
 
 // Whitelist stricte — jamais email/password_hash via cet endpoint
 // générique (mass-assignment corrigé le 19/07/2026 : .update(body) brut
@@ -25,12 +14,15 @@ async function verifyAdmin(request: NextRequest) {
 const CHAMPS_MODIFIABLES = ['nom', 'prenom', 'role', 'is_active'] as const
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  let admin: Awaited<ReturnType<typeof verifyAdmin>>
+  let admin: Awaited<ReturnType<typeof authorizeAdmin>>
   try {
-    admin = await verifyAdmin(request)
+    admin = await authorizeAdmin(request, 'admins.manage')
+    // Réauthentification récente obligatoire (Mission Hardening Admin,
+    // point 5, 30/08/2026) — cet endpoint modifie notamment `role`,
+    // exactement "modifier les permissions d'un autre administrateur".
+    await verifyRecentReauth(admin)
   } catch (e) {
-    const code = e instanceof Error && e.message === 'NO_TOKEN' ? 401 : 403
-    return NextResponse.json({ error: 'Non autorisé' }, { status: code })
+    return adminAuthErrorResponse(e)
   }
 
   try {
@@ -68,7 +60,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'admins.manage')
+    // Réauthentification récente obligatoire (Mission Hardening Admin,
+    // point 5, 30/08/2026) — "supprimer un compte" est explicitement listé
+    // dans le brief.
+    await verifyRecentReauth(admin)
     const { id } = await params
 
     // Ne pas supprimer son propre compte
@@ -87,7 +83,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     })
 
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (e) {
+    if (e instanceof AdminAuthError) return adminAuthErrorResponse(e)
     return NextResponse.json({ error: 'Erreur' }, { status: 500 })
   }
 }

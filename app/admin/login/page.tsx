@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { YelenLoader } from '@/components/YelenLoader'
 
 export default function AdminLogin() {
   const router = useRouter()
@@ -60,7 +61,14 @@ export default function AdminLogin() {
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
-          ...(totpRequired ? { totp_code: totpCode.trim() } : {}),
+          // .trim() seul ne retire que les espaces en début/fin — Google
+          // Authenticator affiche le code en 2 groupes de 3 séparés par un
+          // espace ("123 456"), et un copier-coller depuis l'appli conserve
+          // cet espace du milieu (7 caractères envoyés, TokenLengthError
+          // "got 7" côté serveur). replace(/\s+/g) retire tous les espaces,
+          // y compris internes, sans toucher aux tirets des codes de secours
+          // ("XXXX-XXXX", voir placeholder ci-dessous).
+          ...(totpRequired ? { totp_code: totpCode.replace(/\s+/g, "") } : {}),
         }),
       })
 
@@ -72,6 +80,18 @@ export default function AdminLogin() {
       }
 
       if (!res.ok) {
+        // Anti-abus device/IP (lib/security/authSecurity.ts, réponse 423,
+        // distincte du verrouillage de compte 429 ci-dessous) — bug corrigé
+        // 30/08/2026 : ce statut n'était pas reconnu ici, le formulaire ne
+        // passait donc jamais en état "bloqué" malgré un vrai blocage
+        // serveur, laissant le bouton indéfiniment retentable en silence.
+        if (res.status === 423) {
+          setBlocked(true)
+          setBlockTimer(data?.security?.retryAfterS ?? 900)
+          setError(data.error || 'Accès temporairement bloqué.')
+          return
+        }
+
         const newAttempts = attempts + 1
         setAttempts(newAttempts)
 
@@ -335,9 +355,10 @@ export default function AdminLogin() {
                 cursor: loading || blocked ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s',
                 letterSpacing: '0.2px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
               }}
             >
-              {loading ? 'Vérification...' : blocked ? 'Accès bloqué' : totpRequired ? 'Valider le code' : 'Accéder au dashboard'}
+              {loading ? <><YelenLoader size={16} color="#fff"/>Vérification…</> : blocked ? 'Accès bloqué' : totpRequired ? 'Valider le code' : 'Accéder au dashboard'}
             </button>
           </form>
         </div>

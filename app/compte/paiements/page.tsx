@@ -1,5 +1,10 @@
-import { CompteEcranVide } from "@/components/CompteEcranVide";
+import { Suspense } from "react";
+import { PaiementsClient } from "./paiements-client";
 
 export default function Page() {
-  return <CompteEcranVide titre="Mes paiements"/>;
+  return (
+    <Suspense>
+      <PaiementsClient/>
+    </Suspense>
+  );
 }

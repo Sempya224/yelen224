@@ -1,0 +1,17 @@
+-- Fix — `signalements.titre` bloquait tout INSERT (NOT NULL sans DEFAULT).
+-- Erreur réelle rencontrée par Bryan le 09/08/2026 en testant la création
+-- d'un signalement post-Lot2 UI : "null value in column "titre" of
+-- relation "signalements" violates not-null constraint".
+--
+-- Colonne legacy, hors radar du Lot 1 (aucune trace dans les migrations de
+-- ce repo — même catégorie de drift que `statut` qui était un enum caché,
+-- cf. 20260808000004) : jamais écrite par `lib/signalements.ts`
+-- (creerSignalement), jamais sélectionnée par aucune route API
+-- (app/api/admin/signalements/route.ts sélectionne des colonnes
+-- explicites sans `titre`), et le seul type qui la déclare encore
+-- (app/admin/adminTypes.ts::Signalement) n'est jamais rendu à l'écran par
+-- app/admin/moderation/page.tsx. Le modèle de cas actuel (motif +
+-- description) couvre déjà ce rôle — aucun remplacement nécessaire,
+-- simplement rendre la colonne nullable pour ne plus bloquer les 3 flux
+-- d'écriture (citoyen, institution, communauté Yelen).
+ALTER TABLE signalements ALTER COLUMN titre DROP NOT NULL;

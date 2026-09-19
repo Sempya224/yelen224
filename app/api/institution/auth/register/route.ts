@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
-import crypto from 'crypto'
+import { validerUrlExterne } from '@/lib/urlValidation'
+import { STATUT_JURIDIQUE_ID_LIST } from '@/lib/institutionTaxonomy'
+import { extraireIpClient } from '@/lib/edgeSecurity'
+import { generateInstitutionSlug } from '@/lib/institutionSlug'
+import {
+  resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
+  enregistrerTentative, messageSecurite,
+} from '@/lib/security/authSecurity'
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,72 +21,25 @@ const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
 
 const PHONE_REGEX = /^\+224\d{8,9}$/
 
-const SECTEURS = ['sante', 'administratif', 'financier', 'juridique', 'beaute_bien_etre', 'commerce', 'artisanat', 'services_divers']
-const STATUTS_JURIDIQUES = ['public', 'prive_formel', 'liberal', 'individuel_informel']
-
-// Même translittération que le backfill SQL de la migration
-// 20260805000010_clock_in_institutions_slug.sql — garde une normalisation
-// cohérente entre les institutions déjà en base et les nouvelles.
-const SLUG_TRANSLIT: Record<string, string> = {
-  à: 'a', â: 'a', ä: 'a', é: 'e', è: 'e', ê: 'e', ë: 'e',
-  ï: 'i', î: 'i', ô: 'o', ö: 'o', ù: 'u', û: 'u', ü: 'u',
-  ç: 'c', ñ: 'n',
-}
-
-function slugifyBase(name: string): string {
-  const lowered = name
-    .toLowerCase()
-    .split('')
-    .map((ch) => SLUG_TRANSLIT[ch] ?? ch)
-    .join('')
-  return lowered.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-}
-
-const ipAttempts = new Map<string, { count: number; resetAt: number }>()
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
-
-function checkIpRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const entry = ipAttempts.get(ip)
-  if (!entry || entry.resetAt < now) {
-    ipAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 })
-    return true
-  }
-  if (entry.count >= 5) return false
-  entry.count++
-  return true
-}
-
-function lockedMsRemaining(phone: string): number {
-  const entry = failedAttempts.get(phone)
-  if (!entry) return 0
-  const remaining = entry.lockedUntil - Date.now()
-  return remaining > 0 ? remaining : 0
-}
-
-function registerFailure(phone: string) {
-  const now = Date.now()
-  const entry = failedAttempts.get(phone)
-  const count = entry && entry.lockedUntil === 0 ? entry.count + 1 : 1
-  const lockedUntil = count >= 5 ? now + 5 * 60 * 1000 : 0
-  failedAttempts.set(phone, { count, lockedUntil })
-}
-
-function clearFailures(phone: string) {
-  failedAttempts.delete(phone)
-}
-
 export async function POST(request: NextRequest) {
-  try {
-    const ip =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      '127.0.0.1'
+  // Auth Security (chantier 28/08/2026) — remplace les 2 Map locales
+  // (ipAttempts/failedAttempts), voir lib/security/authSecurity.ts.
+  const { deviceId, estNouveau } = resoudreDeviceId(request)
+  const ip = extraireIpClient(request)
+  const userAgent = request.headers.get('user-agent')
 
-    if (!checkIpRateLimit(ip)) {
-      return NextResponse.json(
-        { error: 'Trop de tentatives. Réessayez dans 15 minutes.', code: 'RATE_LIMITED' },
-        { status: 429 }
+  const finaliser = (body: Record<string, unknown>, status: number) => {
+    const response = NextResponse.json(body, { status })
+    poserCookieDeviceSiNecessaire(response, deviceId, estNouveau)
+    return response
+  }
+
+  try {
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
       )
     }
 
@@ -86,7 +47,8 @@ export async function POST(request: NextRequest) {
     const {
       phone, code, name, category, ville, email, website, description,
       responsable_prenom, responsable_nom, responsable_role,
-      secteur, statut_juridique,
+      activite_categorie_id, activite_principale_id, activites_secondaires_ids,
+      statut_juridique,
       gestion_actuelle, volume_rdv_estime, type_service_souhaite, dispositif_principal,
     } = body
 
@@ -120,13 +82,67 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    if (!secteur || typeof secteur !== 'string' || !SECTEURS.includes(secteur)) {
+    // Chantier Taxonomie des activités (Phase 2, 20/08/2026) — remplace la
+    // validation SECTEUR_ID_LIST par un contrôle réel contre
+    // activite_categories/activites (jamais faire confiance aux ids
+    // envoyés par le client). institutions.secteur n'est plus jamais
+    // écrite par ce flux (gelée, pas supprimée — spec §14/§19 décision F).
+    if (!activite_categorie_id || typeof activite_categorie_id !== 'string') {
       return NextResponse.json(
-        { error: "Le secteur d'activité est requis", code: 'MISSING_FIELDS' },
+        { error: 'La catégorie d\'activité est requise', code: 'MISSING_FIELDS' },
         { status: 400 }
       )
     }
-    if (!statut_juridique || typeof statut_juridique !== 'string' || !STATUTS_JURIDIQUES.includes(statut_juridique)) {
+    if (!activite_principale_id || typeof activite_principale_id !== 'string') {
+      return NextResponse.json(
+        { error: "L'activité principale est requise", code: 'MISSING_FIELDS' },
+        { status: 400 }
+      )
+    }
+    const secondairesIds: string[] = Array.isArray(activites_secondaires_ids)
+      ? activites_secondaires_ids.filter((v): v is string => typeof v === 'string')
+      : []
+    if (secondairesIds.length > 3) {
+      return NextResponse.json(
+        { error: 'Au maximum 3 activités secondaires', code: 'INVALID_FORMAT' },
+        { status: 400 }
+      )
+    }
+    if (secondairesIds.includes(activite_principale_id)) {
+      return NextResponse.json(
+        { error: 'Une activité secondaire ne peut pas être identique à l\'activité principale', code: 'INVALID_FORMAT' },
+        { status: 400 }
+      )
+    }
+
+    const { data: categorieRow } = await supabaseAdmin
+      .from('activite_categories')
+      .select('id')
+      .eq('id', activite_categorie_id)
+      .eq('actif', true)
+      .maybeSingle()
+    if (!categorieRow) {
+      return NextResponse.json(
+        { error: 'Catégorie d\'activité invalide', code: 'INVALID_FORMAT' },
+        { status: 400 }
+      )
+    }
+
+    const activiteIdsAVerifier = [activite_principale_id, ...secondairesIds]
+    const { data: activiteRows } = await supabaseAdmin
+      .from('activites')
+      .select('id')
+      .in('id', activiteIdsAVerifier)
+      .eq('categorie_id', activite_categorie_id)
+      .eq('statut', 'active')
+    if (!activiteRows || activiteRows.length !== new Set(activiteIdsAVerifier).size) {
+      return NextResponse.json(
+        { error: 'Activité invalide ou n\'appartenant pas à la catégorie choisie', code: 'INVALID_FORMAT' },
+        { status: 400 }
+      )
+    }
+
+    if (!statut_juridique || typeof statut_juridique !== 'string' || !STATUT_JURIDIQUE_ID_LIST.includes(statut_juridique)) {
       return NextResponse.json(
         { error: 'Le statut juridique est requis', code: 'MISSING_FIELDS' },
         { status: 400 }
@@ -139,11 +155,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (lockedMsRemaining(phone) > 0) {
-      return NextResponse.json(
-        { error: 'Trop de tentatives. Réessayez dans quelques minutes.', code: 'LOCKED' },
-        { status: 429 }
-      )
+    // P0 Stored XSS (17/08/2026) — website optionnel à l'inscription mais,
+    // s'il est fourni, doit déjà être une URL http(s) propre. Même
+    // validation que app/api/institution/profile/route.ts (seul autre
+    // point d'écriture de ce champ).
+    let websiteValide: string = ''
+    if (typeof website === 'string' && website.trim()) {
+      const validation = validerUrlExterne(website)
+      if (!validation.valid) {
+        return NextResponse.json({ error: validation.error, code: 'INVALID_FORMAT' }, { status: 400 })
+      }
+      websiteValide = validation.url
     }
 
     // Ne pas dupliquer une institution déjà enregistrée sur ce numéro
@@ -154,10 +176,10 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (existing) {
-      return NextResponse.json(
-        { error: 'Ce numéro est déjà enregistré. Connectez-vous à la place.', code: 'ALREADY_REGISTERED' },
-        { status: 409 }
-      )
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'deja_enregistre', userAgent,
+      })
+      return finaliser({ error: 'Ce numéro est déjà enregistré. Connectez-vous à la place.', code: 'ALREADY_REGISTERED', security: etat }, 409)
     }
 
     // Revalidation complète du code OTP — ne fait jamais confiance à un état
@@ -181,42 +203,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (!verified) {
-      registerFailure(phone)
-      return NextResponse.json(
-        { error: 'Code incorrect', code: 'INVALID_CODE' },
-        { status: 401 }
-      )
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'code_incorrect', userAgent,
+      })
+      return finaliser({ error: 'Code incorrect', code: 'INVALID_CODE', security: etat }, 401)
     }
-
-    clearFailures(phone)
 
     // Slug URL-friendly requis par institutions.slug (NOT NULL UNIQUE + CHECK
     // de format, migration 20260805000010, portail Clock In Shift
-    // /clock/{slug}) — jamais fourni par ce flux avant ce correctif, ce qui
-    // faisait échouer TOUTE nouvelle inscription depuis l'exécution de cette
+    // /clock/{slug}, et depuis le chantier "URLs dynamiques institution"
+    // 28/08/2026 racine du dashboard authentifié /{slug}/{id}/{screen}) —
+    // jamais fourni par ce flux avant un premier correctif, ce qui faisait
+    // échouer TOUTE nouvelle inscription depuis l'exécution de cette
     // migration (violation NOT NULL, remontée en "Erreur lors de la création
-    // de l'institution", bug réel signalé par Bryan le 12/08/2026). Fallback
-    // aléatoire si le nom ne produit aucun caractère alphanumérique (l'id de
-    // l'institution n'existe pas encore à ce stade, contrairement au backfill
-    // SQL qui pouvait s'appuyer dessus). Suffixe numérique en cas de
-    // collision, garde-fou improbable au-delà de 50 tentatives.
-    const slugBase = slugifyBase(name) || `institution-${crypto.randomBytes(4).toString('hex')}`
-    let slug = slugBase
-    let slugSuffix = 1
-    while (true) {
-      const { data: slugClash } = await supabaseAdmin
-        .from('institutions')
-        .select('id')
-        .eq('slug', slug)
-        .maybeSingle()
-      if (!slugClash) break
-      slugSuffix++
-      slug = `${slugBase}-${slugSuffix}`
-      if (slugSuffix > 50) {
-        slug = `${slugBase}-${Date.now()}`
-        break
-      }
-    }
+    // de l'institution", bug réel signalé par Bryan le 12/08/2026).
+    const slug = await generateInstitutionSlug(supabaseAdmin, name)
 
     // Création de l'institution — niveau_confiance non fourni : la colonne a
     // un défaut ('profil_basique') côté base, source unique de vérité.
@@ -226,12 +227,12 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         slug,
         ...(typeof category === 'string' && category.trim() ? { category: category.trim() } : {}),
-        secteur,
+        activite_categorie_id,
         statut_juridique,
         ville: ville.trim(),
         phone,
         email: typeof email === 'string' && email.trim() ? email.trim() : null,
-        website: typeof website === 'string' && website.trim() ? website.trim() : null,
+        website: websiteValide || null,
         description: typeof description === 'string' && description.trim() ? description.trim() : null,
         badge_verifie: false,
         moyenne_avis: 0,
@@ -246,6 +247,18 @@ export async function POST(request: NextRequest) {
         { error: "Erreur lors de la création de l'institution", code: 'INSERT_ERROR' },
         { status: 500 }
       )
+    }
+
+    // Activité principale + secondaires — institution_activites (migration
+    // 20260821000005). Non bloquant comme les autres inserts secondaires
+    // de ce flux : l'institution existe déjà à ce stade.
+    const activiteRowsToInsert = [
+      { institution_id: institution.id, activite_id: activite_principale_id, principale: true, ordre: 0 },
+      ...secondairesIds.map((id, i) => ({ institution_id: institution.id, activite_id: id, principale: false, ordre: i + 1 })),
+    ]
+    const { error: activitesError } = await supabaseAdmin.from('institution_activites').insert(activiteRowsToInsert)
+    if (activitesError) {
+      console.error('[INSTITUTION REGISTER ACTIVITES INSERT ERROR]', activitesError.code, activitesError.message, activitesError.details, activitesError.hint)
     }
 
     // Responsable — table dédiée institution_responsables (migration
@@ -300,30 +313,38 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Établir la session — identique à /verify-otp en flux connexion
+    // Établir la session — identique à /verify-otp en flux connexion.
+    // institution_sessions (dette technique comblée 30/08/2026, mirroring
+    // admin_sessions) — voir lib/institutionAuth.ts::creerSessionInstitution.
+    const sid = await creerSessionInstitution(supabaseAdmin, {
+      institutionId: institution.id, membreId: membrePrincipal?.id ?? null, phone, userAgent: request.headers.get('user-agent'), ip,
+    })
+    if (!sid) {
+      return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
+    }
+
     const token = await new SignJWT({
       institutionId: institution.id,
       ...(membrePrincipal ? { membreId: membrePrincipal.id, role: membrePrincipal.role } : {}),
+      sid,
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(institution.id)
       .setIssuedAt()
-      .setExpirationTime('8h')
+      .setExpirationTime(INSTITUTION_SESSION_TTL_JWT)
       .setIssuer('yelen224-institution')
       .setAudience('yelen224-institution-dashboard')
       .sign(JWT_SECRET)
 
-    await supabaseAdmin.from('institution_sessions').insert({
-      institution_id: institution.id,
-      phone,
-      user_agent: request.headers.get('user-agent'),
-      is_active: true,
+    const etatFinal = await enregistrerTentative(supabaseAdmin, {
+      endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'compte_cree', userAgent,
     })
 
-    const response = NextResponse.json({
+    const response = finaliser({
       success: true,
       institution: { id: institution.id, name: institution.name },
-    })
+      security: etatFinal,
+    }, 200)
 
     response.cookies.set('yelen224_institution_session', token, {
       httpOnly: true,
@@ -337,10 +358,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[INSTITUTION REGISTER ERROR]', error)
-    return NextResponse.json(
-      { error: 'Erreur serveur', code: 'SERVER_ERROR' },
-      { status: 500 }
-    )
+    return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
   }
 }
 

@@ -32,15 +32,36 @@ export const ROLE_DESCRIPTIONS: Record<MembreRole, string> = {
   dirigeant: "Vue exécutive, statistiques et rapports — lecture seule sur le sensible, ne pilote pas les opérations.",
 };
 
+// "configuration-hotel" (chantier Hôtel, Phase 3, 19/08/2026) : onglet
+// additionnel gaté par institutions.secteur === "hotel" (filtre appliqué
+// dans page.tsx, même patron que "mes-offres"/partenaire_statut — pas ici,
+// TAB_MATRIX ne connaît que le rôle, jamais le secteur). Même palier que
+// "conditions-informations" (admin only) car il écrit le même champ
+// (informations_importantes) via la même route — aucune nouvelle ActionKey
+// nécessaire, "profil_entreprise.write" reste la barrière serveur réelle.
+// "support" (chantier "Séparation Messagerie/Support" 06/09/2026) : écran
+// dédié Support Yelen, ouvert dans un nouvel onglet navigateur (URL propre
+// /{slug}/{id}/support) depuis le panneau header "Aide & ressources" —
+// jamais un lien de sidebar (voir layout.tsx, aucune entrée NAV_GROUPS).
+// Volontairement "full" pour les 5 rôles dans TAB_MATRIX ci-dessous : même
+// principe que Feedback/Guide/FAQ, hors RBAC métier (contacter Yelen n'est
+// pas une donnée citoyenne sensible).
 export const TAB_KEYS = [
   "accueil", "rdv", "disponibilites", "services", "valider-rdv",
-  "communication", "scanner", "codeqr", "analyse", "parametres",
-  "profil-entreprise", "conditions-informations", "profil-responsable", "documents", "mes-clients",
-  "avis-reputation", "messagerie", "questions-clients",
+  "communication", "communaute-pro", "signalements", "scanner", "codeqr", "analyse", "parametres",
+  "profil-entreprise", "conditions-informations", "configuration-hotel", "profil-responsable", "documents", "mes-clients",
+  "avis-reputation", "messagerie", "support", "questions-clients",
   "rdv-historique", "equipe", "journal", "espace-travail",
   "paiements", "transactions", "historique-financier", "facturation",
   "rapports", "documents-financiers", "documents-clients", "profil",
-  "partenariat", "mes-offres",
+  "partenariat", "mes-offres", "clock-in-shift",
+  // Écrans dédiés issus de l'éclatement de "Paramètres" (14/09/2026) — même
+  // palier d'accès que "parametres" pour chaque rôle ci-dessous, cet écran
+  // ne faisant plus qu'y lister des liens vers ces 4 nouveaux onglets.
+  "parametres-securite", "parametres-notifications", "parametres-support", "parametres-legal",
+  // Module Collaboration (Lot A, 16/09/2026) — espace interne membre <->
+  // membre, distinct de "messagerie" (citoyen <-> institution).
+  "collaboration",
 ] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
 
@@ -58,61 +79,79 @@ export type TabAccess = "full" | "read" | "none";
 const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
   admin: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
-    "valider-rdv": "full", communication: "full", scanner: "full", codeqr: "full",
-    analyse: "full", parametres: "full", "profil-entreprise": "full", "conditions-informations": "full",
+    "valider-rdv": "full", communication: "full", "communaute-pro": "full", signalements: "full", scanner: "full", codeqr: "full",
+    analyse: "full", parametres: "full", "profil-entreprise": "full", "conditions-informations": "full", "configuration-hotel": "full",
     "profil-responsable": "full", documents: "full", "mes-clients": "full",
-    "avis-reputation": "full", messagerie: "full", "questions-clients": "full",
+    "avis-reputation": "full", messagerie: "full", support: "full", "questions-clients": "full",
     "rdv-historique": "full", equipe: "full", journal: "full", "espace-travail": "full",
     paiements: "full", transactions: "full", "historique-financier": "full",
     facturation: "full", rapports: "full", "documents-financiers": "full", "documents-clients": "full", profil: "full",
-    partenariat: "full", "mes-offres": "full",
+    partenariat: "full", "mes-offres": "full", "clock-in-shift": "full",
+    "parametres-securite": "full", "parametres-notifications": "full", "parametres-support": "full", "parametres-legal": "full",
+    collaboration: "full",
   },
+  // Front office pur (retour Bryan 13/09/2026) : l'agent d'accueil n'a plus
+  // aucun onglet en lecture seule — un accès "read" qu'il ne peut pas
+  // actionner n'a pas sa place dans son menu, mieux vaut qu'il ne le voie
+  // pas du tout (disponibilites/communication/communaute-pro/signalements
+  // passés de "read" à "none"). "accueil" redirige désormais vers
+  // "valider-rdv" pour ce rôle (voir layout.tsx) — l'agent n'a plus de vue
+  // d'ensemble générique, au même principe que le comptable et sa
+  // FinanceAccueilTab dédiée.
   agent: {
-    accueil: "full", rdv: "full", disponibilites: "read", services: "none",
-    "valider-rdv": "full", communication: "read", scanner: "full", codeqr: "full",
-    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
+    accueil: "full", rdv: "full", disponibilites: "none", services: "none",
+    "valider-rdv": "full", communication: "none", "communaute-pro": "none", signalements: "none", scanner: "full", codeqr: "full",
+    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "full",
-    "avis-reputation": "full", messagerie: "full", "questions-clients": "full",
+    "avis-reputation": "full", messagerie: "full", support: "full", "questions-clients": "full",
     "rdv-historique": "none", equipe: "none", journal: "none", "espace-travail": "full",
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "none", profil: "full",
-    partenariat: "none", "mes-offres": "none",
+    partenariat: "none", "mes-offres": "none", "clock-in-shift": "none",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    collaboration: "full",
   },
   // Menu strictement financier — décision CEO 22/07/2026 : le comptable
   // n'est plus lecteur des écrans des autres rôles (communication, analyse,
   // mes-clients, rdv-historique retirés), il a son propre espace de travail.
   comptable: {
     accueil: "full", rdv: "none", disponibilites: "none", services: "full",
-    "valider-rdv": "none", communication: "none", scanner: "none", codeqr: "none",
-    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
+    "valider-rdv": "none", communication: "none", "communaute-pro": "none", signalements: "none", scanner: "none", codeqr: "none",
+    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "none",
-    "avis-reputation": "none", messagerie: "none", "questions-clients": "none",
+    "avis-reputation": "none", messagerie: "none", support: "full", "questions-clients": "none",
     "rdv-historique": "none", equipe: "none", journal: "none", "espace-travail": "none",
     paiements: "full", transactions: "full", "historique-financier": "full",
-    facturation: "full", rapports: "full", "documents-financiers": "full", "documents-clients": "full", profil: "full",
-    partenariat: "none", "mes-offres": "none",
+    facturation: "full", rapports: "full", "documents-financiers": "full", "documents-clients": "none", profil: "full",
+    partenariat: "none", "mes-offres": "none", "clock-in-shift": "none",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    collaboration: "full",
   },
   superviseur: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
-    "valider-rdv": "none", communication: "full", scanner: "none", codeqr: "none",
-    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
+    "valider-rdv": "none", communication: "full", "communaute-pro": "full", signalements: "full", scanner: "none", codeqr: "none",
+    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "full",
-    "avis-reputation": "full", messagerie: "full", "questions-clients": "full",
+    "avis-reputation": "full", messagerie: "full", support: "full", "questions-clients": "full",
     "rdv-historique": "full", equipe: "none", journal: "full", "espace-travail": "full",
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "full", profil: "full",
-    partenariat: "full", "mes-offres": "full",
+    partenariat: "full", "mes-offres": "full", "clock-in-shift": "read",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    collaboration: "full",
   },
   dirigeant: {
     accueil: "full", rdv: "read", disponibilites: "none", services: "none",
-    "valider-rdv": "none", communication: "read", scanner: "none", codeqr: "none",
-    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none",
+    "valider-rdv": "none", communication: "read", "communaute-pro": "read", signalements: "read", scanner: "none", codeqr: "none",
+    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "read", documents: "read", "mes-clients": "none",
-    "avis-reputation": "read", messagerie: "none", "questions-clients": "none",
+    "avis-reputation": "read", messagerie: "none", support: "full", "questions-clients": "none",
     "rdv-historique": "read", equipe: "read", journal: "read", "espace-travail": "full",
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "none", profil: "full",
-    partenariat: "read", "mes-offres": "read",
+    partenariat: "read", "mes-offres": "read", "clock-in-shift": "read",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    collaboration: "full",
   },
 };
 
@@ -129,12 +168,32 @@ export type ActionKey =
   | "avis.repondre"
   | "questions.repondre"
   | "communication.publish_annonce"
+  | "communaute_pro.publish"
   | "espace_travail.write_projet"
   | "profil_entreprise.write" | "profil_responsable.write"
   | "documents_institutionnels.write"
   | "compte.delete_request"
   | "paiements.rembourser" | "facturation.write"
-  | "offres.write" | "offres.submit";
+  | "offres.write" | "offres.submit"
+  | "clock_in.write" | "clock_in.read_full"
+  | "signalements.write" | "signalements.manage" | "signalements.reopen"
+  | "signalements.notes_read" | "signalements.notes_write" | "signalements.attachments_write"
+  | "documents_clients.write" | "documents_clients.verify" | "documents_clients.archive"
+  | "appointment.check_in"
+  | "securite_institution.write"
+  // Module Collaboration (Lot A, 16/09/2026) — collaboration.send (DM).
+  // Lot B (groupes) : create_group ouvert aux 5 rôles (même palier que
+  // send) ; add_member/remove_member sont en plus toujours vérifiés au
+  // niveau ressource dans la route (créateur du groupe OU admin — une
+  // permission de rôle seule ne suffit pas à distinguer "mon groupe" d'un
+  // groupe créé par quelqu'un d'autre).
+  // Lot D (16/09/2026) : edit_message/delete_message/upload_file ouverts
+  // aux 5 rôles (même palier) — la vraie barrière reste "auteur du
+  // message" pour edit/delete, vérifiée au niveau ressource dans la
+  // route, jamais seulement par le rôle. "moderate" (supprimer/modérer le
+  // message d'un AUTRE membre) hors périmètre — non demandé, non construit.
+  | "collaboration.send" | "collaboration.create_group" | "collaboration.manage_group"
+  | "collaboration.edit_message" | "collaboration.delete_message" | "collaboration.upload_file";
 
 const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   "equipe.write": { admin: true },
@@ -156,6 +215,10 @@ const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   // la même nature d'action de front office.
   "questions.repondre": { admin: true, agent: true, superviseur: true },
   "communication.publish_annonce": { admin: true, superviseur: true },
+  // Même palier que communication.publish_annonce — même nature d'action
+  // (front commercial/marketing de l'institution vers les citoyens), juste
+  // un canal différent (fil Yelen Community vs Annonces).
+  "communaute_pro.publish": { admin: true, superviseur: true },
   "espace_travail.write_projet": { admin: true, superviseur: true },
   "profil_entreprise.write": { admin: true },
   "profil_responsable.write": { admin: true },
@@ -172,12 +235,170 @@ const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   // l'institution), pas le domaine de l'agent ni du comptable.
   "offres.write": { admin: true, superviseur: true },
   "offres.submit": { admin: true, superviseur: true },
+  // Clock In Shift (module Enterprise de pointage, décision CEO
+  // 26/07/2026) : même forme que equipe.write/equipe.read_full — gestion
+  // du personnel (employees/departments/work_schedules), domaine
+  // équivalent à "équipe" mais délibérément une table séparée
+  // (employees ≠ institution_membres, voir CLAUDE.md
+  // /chantier-clock-in-shift). Écriture réservée admin, lecture complète
+  // ouverte à superviseur/dirigeant (cohérent avec leur accès "read" sur
+  // l'onglet clock-in-shift dans TAB_MATRIX).
+  "clock_in.write": { admin: true },
+  "clock_in.read_full": { admin: true, superviseur: true, dirigeant: true },
+  // Signalements — Lot 1 case management (08/08/2026). Base déjà posée par
+  // TAB_MATRIX.signalements (admin=full, agent=read, comptable=none,
+  // superviseur=full, dirigeant=read) — ces clés ne dépassent jamais ce
+  // palier sauf notes_read/dirigeant, justifié explicitement ci-dessous.
+  "signalements.write": { admin: true, superviseur: true },
+  // Verbe ombrelle (assigner/priorité/statut/résoudre/clôturer/escalader/
+  // doublon) — mêmes rôles que .write, comme equipe.write couvre plusieurs
+  // verbes sans les séparer inutilement.
+  "signalements.manage": { admin: true, superviseur: true },
+  // Réouverture annule une décision déjà prise — action à plus fort impact,
+  // restreinte plus étroitement que .manage (même logique que
+  // rdv.delete_historique admin-seul vs rdv.write plus large).
+  "signalements.reopen": { admin: true },
+  // Note interne = "sensible" au sens de ROLE_DESCRIPTIONS.dirigeant
+  // ("lecture seule sur le sensible") — dirigeant lit, agent non malgré son
+  // accès "read" sur l'onglet (pas de mandat de supervision, éviter
+  // d'exposer une délibération interne au personnel de première ligne qui
+  // interagit au quotidien avec le citoyen concerné).
+  "signalements.notes_read": { admin: true, superviseur: true, dirigeant: true },
+  "signalements.notes_write": { admin: true, superviseur: true },
+  "signalements.attachments_write": { admin: true, superviseur: true },
+  // Documents clients — Lot 1 case management (09/08/2026). Base déjà posée
+  // par TAB_MATRIX["documents-clients"] (admin/comptable/superviseur=full,
+  // agent/dirigeant=none) — ces 3 clés reprennent exactement le même
+  // palier, elles servent seulement à distinguer les verbes (créer une
+  // demande/envoi, vérifier/valider/refuser, archiver) une fois qu'un
+  // écran (Lot 3) aura besoin de désactiver un bouton précis plutôt que
+  // tout l'onglet.
+  // Retiré au comptable (retour Bryan 16/09/2026) — "documents-clients" est
+  // désormais "none" dans TAB_MATRIX pour ce rôle, ces 3 clés n'auraient
+  // plus eu d'écran d'où être déclenchées.
+  "documents_clients.write": { admin: true, superviseur: true },
+  "documents_clients.verify": { admin: true, superviseur: true },
+  "documents_clients.archive": { admin: true, superviseur: true },
+  // Validation de présence par scan QR (GAP-05-01, 13/09/2026) — mêmes
+  // rôles que TAB_MATRIX.scanner ("full" uniquement pour admin/agent,
+  // "none" pour les 3 autres) : cette clé ne fait qu'appliquer côté
+  // serveur ce que la nav masquait déjà côté client, aucun changement de
+  // comportement pour un rôle existant.
+  "appointment.check_in": { admin: true, agent: true },
+  // Sécurité institution-wide (PIN/passkeys/appareils du compte principal,
+  // onglet "Sécurité du compte") — révue critique 16/09/2026, faille réelle
+  // trouvée : register-options/register-verify n'avaient qu'un contrôle de
+  // session, aucun contrôle de rôle. Comme auth-verify authentifie
+  // systématiquement comme le compte_principal (peu importe qui a
+  // enregistré la clé), un rôle non-admin pouvait s'auto-attribuer un accès
+  // équivalent admin en enregistrant sa propre passkey via un appel direct.
+  // Même palier que TAB_MATRIX["parametres-securite"] (admin seul).
+  "securite_institution.write": { admin: true },
+  // Module Collaboration (Lot A, 16/09/2026) — écrire dans une conversation
+  // interne, ouvert aux 5 rôles (même périmètre que TAB_MATRIX.collaboration).
+  "collaboration.send": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
+  // Lot B (groupes) — créer un groupe ouvert aux 5 rôles ; gérer les
+  // membres d'un groupe (add/remove) accordé ici à tous, la route vérifie
+  // en plus que l'appelant est bien le créateur du groupe OU admin.
+  "collaboration.create_group": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
+  "collaboration.manage_group": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
+  "collaboration.edit_message": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
+  "collaboration.delete_message": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
+  "collaboration.upload_file": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
 };
 
-export function canAccessTab(role: MembreRole, tab: TabKey): TabAccess {
+// Rôles personnalisés — restriction d'un rôle de base (16/09/2026, choix
+// délibéré après audit de 166 sites d'appel de can()/canAccessTab() dans le
+// code existant, tous synchrones sur un rôle fixe : une refonte complète en
+// rôles indépendants aurait exigé de les toucher un par un, avec un risque
+// de régression jugé disproportionné sur la couche d'autorisation. Ici, un
+// membre garde un rôle système mais peut se voir RETIRER certains domaines
+// (jamais en ajouter au-delà de ce que son rôle permet déjà) —
+// institution_membres.acces_restreints (migration 20260916000004), tableau
+// de DomaineKey. Source unique partagée UI (EquipeTab.tsx) + serveur —
+// jamais dupliquée.
+export const DOMAINE_KEYS = ["rdv", "clients", "equipe", "finance", "configuration", "securite_avancee", "rapports"] as const;
+export type DomaineKey = (typeof DOMAINE_KEYS)[number];
+
+export function isDomaineKey(value: unknown): value is DomaineKey {
+  return typeof value === "string" && (DOMAINE_KEYS as readonly string[]).includes(value);
+}
+
+export const DOMAINE_LABELS: Record<DomaineKey, string> = {
+  rdv: "Rendez-vous",
+  clients: "Clients",
+  equipe: "Équipe",
+  finance: "Finance",
+  configuration: "Configuration",
+  securite_avancee: "Sécurité avancée",
+  rapports: "Rapports",
+};
+
+export const DOMAINE_TABS: Record<DomaineKey, TabKey[]> = {
+  rdv: ["rdv", "valider-rdv"],
+  clients: ["mes-clients"],
+  equipe: ["equipe"],
+  finance: ["paiements", "transactions", "facturation"],
+  configuration: ["profil-entreprise", "parametres"],
+  securite_avancee: ["parametres-securite"],
+  rapports: ["analyse"],
+};
+
+// Résumé des domaines réellement accordés à un rôle (+ restrictions
+// éventuelles) — partagé entre le récapitulatif de création de membre
+// (EquipeTab.tsx) et l'écran de bienvenue de première connexion
+// (16/09/2026). "accorde" = ce que le rôle de base permet ; "retire" = ce
+// que l'admin a explicitement décoché pour CE membre.
+export function permissionsDuRole(role: MembreRole, accesRestreints: DomaineKey[] = []): { key: DomaineKey; label: string; accorde: boolean; retire: boolean }[] {
+  return DOMAINE_KEYS.map(key => {
+    const accorde = DOMAINE_TABS[key].some(t => canAccessTab(role, t) !== "none");
+    return { key, label: DOMAINE_LABELS[key], accorde, retire: accorde && accesRestreints.includes(key) };
+  });
+}
+
+// Pas d'ActionKey dédiée pour "rapports" (lecture seule, aucune écriture à
+// bloquer) ni "securite_avancee" (déjà admin-only via
+// securite_institution.write, une restriction supplémentaire n'aurait
+// aucun effet observable) — tableaux vides assumés, pas un oubli.
+export const DOMAINE_ACTIONS: Record<DomaineKey, ActionKey[]> = {
+  rdv: ["rdv.write", "rdv.delete_historique", "appointment.check_in"],
+  clients: ["mes_clients.write", "mes_clients.delete"],
+  equipe: ["equipe.write", "equipe.read_full"],
+  finance: ["paiements.rembourser", "facturation.write"],
+  configuration: ["profil_entreprise.write", "profil_responsable.write", "documents_institutionnels.write"],
+  securite_avancee: [],
+  rapports: [],
+};
+
+function domaineRestreint(restrictions: readonly string[] | null | undefined, verifie: (d: DomaineKey) => boolean): boolean {
+  if (!restrictions || restrictions.length === 0) return false;
+  return DOMAINE_KEYS.some(d => restrictions.includes(d) && verifie(d));
+}
+
+// `restrictions` optionnel et en 3e position — les 166 appels existants ne
+// le passent pas, donc `undefined` et un comportement strictement inchangé.
+// Seuls les appels mis à jour pour respecter acces_restreints le passent.
+export function canAccessTab(role: MembreRole, tab: TabKey, restrictions?: readonly string[] | null): TabAccess {
+  if (domaineRestreint(restrictions, d => DOMAINE_TABS[d].includes(tab))) return "none";
   return TAB_MATRIX[role][tab];
 }
 
-export function can(role: MembreRole, action: ActionKey): boolean {
+export function can(role: MembreRole, action: ActionKey, restrictions?: readonly string[] | null): boolean {
+  if (domaineRestreint(restrictions, d => DOMAINE_ACTIONS[d].includes(action))) return false;
   return ACTION_MATRIX[action][role] === true;
+}
+
+// Dérivées de TAB_MATRIX — déplacées depuis page.tsx (Lot D, Centre de
+// configuration institution, 12/08/2026) pour rester importables par un
+// composant hors de ce fichier (ex. CentreConfigurationTab.tsx) sans
+// dupliquer la matrice. TAB_MATRIX ne pilote toujours que le masquage de
+// nav/UI (cosmétique) — la vraie barrière de sécurité reste ACTION_MATRIX +
+// can(), vérifiée dans chaque route API avant d'exécuter une action.
+export function tabAllowed(role: MembreRole | null, key: string, restrictions?: readonly string[] | null): boolean {
+  if (!isTabKey(key)) return true;
+  return role !== null && canAccessTab(role, key, restrictions) !== "none";
+}
+export function tabReadOnly(role: MembreRole | null, key: string, restrictions?: readonly string[] | null): boolean {
+  if (!isTabKey(key)) return false;
+  return role !== null && canAccessTab(role, key, restrictions) === "read";
 }

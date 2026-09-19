@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import { envoyerNotification, salutation } from "@/lib/notificationEngine";
 
 // Lot E (chantier Avis + Favoris citoyen) — seule route qui peut écrire
 // dans avis.reponse_institution/reponse_le (colonnes protégées par le
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   // brouillon que le citoyen n'a pas encore publié.
   const { data: avisRow } = await sb
     .from("avis")
-    .select("id, citoyen_id")
+    .select("id, citoyen_id, rdv_id")
     .eq("id", avisId)
     .eq("institution_id", authInstId)
     .eq("brouillon", false)
@@ -55,6 +56,19 @@ export async function POST(req: NextRequest) {
     cibleId: avisId,
     details: { citoyen_id: avisRow.citoyen_id },
     req,
+  });
+
+  const [{ data: instRow }, { data: citoyenRow }] = await Promise.all([
+    sb.from("institutions").select("name").eq("id", authInstId).maybeSingle(),
+    sb.from("users").select("prenom").eq("id", avisRow.citoyen_id).maybeSingle(),
+  ]);
+  await envoyerNotification({
+    destinataireId: avisRow.citoyen_id,
+    destinataireType: "citoyen",
+    rdvId: avisRow.rdv_id,
+    type: "avis_reponse",
+    titre: salutation(citoyenRow?.prenom || "cher client"),
+    message: `${instRow?.name ?? "L'établissement"} a répondu à votre avis. Consultez la réponse depuis Mes avis.`,
   });
 
   return NextResponse.json({ ok: true });

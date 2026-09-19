@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { DepensesClient } from "./depenses-client";
 
 export default function Page() {
-  return <DepensesClient/>;
+  return (
+    <Suspense>
+      <DepensesClient/>
+    </Suspense>
+  );
 }

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { D } from '@/app/admin/adminTheme'
 import { Ic } from '@/app/admin/adminIcons'
 import { DataTable, exportCSV } from '@/app/admin/adminUiKit'
+import { YelenLoader } from '@/components/YelenLoader'
 
 export default function CitoyensPage() {
   const [data, setData] = useState<{id:string,nom:string,prenom:string,phone:string,email:string,created_at:string}[]>([])
@@ -45,7 +46,7 @@ export default function CitoyensPage() {
       </div>
       <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement...</div>
+          <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={24}/></div>
         ) : (
           <DataTable
             cols={[

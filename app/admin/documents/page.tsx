@@ -7,19 +7,29 @@
 // (app/institution/[id]/dashboard/components/DocumentsClientsTab.tsx).
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '@/app/admin/adminTheme'
+import { YelenLoader } from '@/components/YelenLoader'
+import type { DocumentStatut } from '@/lib/citoyenDocumentsConstants'
 
 type DocumentCitoyen = {
   id: string; institution_nom: string; citoyen_nom: string;
   sens: 'demande' | 'envoi'; type: string; label: string;
-  statut: 'en_attente' | 'televerse' | 'envoye' | 'annule';
+  statut: DocumentStatut;
   taille: number | null; created_at: string; traite_le: string | null;
 }
 
-const STATUT_INFO: Record<DocumentCitoyen['statut'], { label: string; color: string; bg: string }> = {
-  en_attente: { label: 'En attente', color: D.yellow, bg: D.yellowDim },
-  televerse:  { label: 'Reçu',       color: D.green,  bg: D.greenDim },
-  envoye:     { label: 'Envoyé',     color: D.blue,   bg: D.blueDim },
-  annule:     { label: 'Annulé',     color: D.red,    bg: D.redDim },
+// Documents clients — Lot 1 (09/08/2026) : statut aligné sur le nouveau
+// lifecycle (lib/citoyenDocumentsConstants.ts). Écran de supervision
+// lecture seule, non redessiné dans ce lot — seul ce mapping est mis à
+// jour pour ne pas afficher un badge vide/cassé après la migration des
+// valeurs stockées.
+const STATUT_INFO: Record<DocumentStatut, { label: string; color: string; bg: string }> = {
+  en_attente: { label: 'En attente',     color: D.yellow,     bg: D.yellowDim },
+  recu:       { label: 'Reçu',           color: D.blue,       bg: D.blueDim },
+  a_verifier: { label: 'À vérifier',     color: D.yellow,     bg: D.yellowDim },
+  valide:     { label: 'Validé',         color: D.green,      bg: D.greenDim },
+  refuse:     { label: 'Refusé',         color: D.red,        bg: D.redDim },
+  archive:    { label: 'Archivé',        color: D.textMuted,  bg: D.surface2 },
+  disponible: { label: 'Disponible',     color: D.green,      bg: D.greenDim },
 }
 
 function formatDate(d: string) {
@@ -59,10 +69,10 @@ export default function DocumentsCitoyenAdminPage() {
       </p>
 
       {loading ? (
-        <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+        <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
       ) : items.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px' }}>
-          <p style={{ color: D.textSub, fontSize: '13px' }}>Aucun document échangé pour l'instant.</p>
+          <p style={{ color: D.textSub, fontSize: '13px' }}>Aucun document échangé pour l&apos;instant.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -80,7 +90,7 @@ export default function DocumentsCitoyenAdminPage() {
                     {d.institution_nom} → {d.citoyen_nom}{d.taille ? ` · ${formatTaille(d.taille)}` : ''} · {formatDate(d.created_at)}
                   </div>
                 </div>
-                {(d.statut === 'televerse' || d.statut === 'envoye') && (
+                {d.statut !== 'en_attente' && (
                   <button onClick={() => telecharger(d.id)} style={{ background: D.surface2, border: `1px solid ${D.border2}`, color: D.textSub, fontSize: '12px', fontWeight: '700', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', flexShrink: 0 }}>
                     Télécharger
                   </button>

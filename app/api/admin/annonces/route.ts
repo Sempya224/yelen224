@@ -1,28 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyAdmin(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
-  })
-  // Durcissement rôle (chantier refonte admin 26/07/2026, Lot I).
-  if (!['super_admin', 'support', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
-  return payload
-}
 
 export async function GET(request: NextRequest) {
   try {
-    await verifyAdmin(request)
+    await authorizeAdmin(request, 'annonces.moderate')
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '25')
     const page  = parseInt(searchParams.get('page')  || '0')
@@ -56,14 +44,14 @@ export async function GET(request: NextRequest) {
     const enriched = (data ?? []).map((a) => ({ ...a, nb_vues: vuesMap[a.id] ?? 0 }))
 
     return NextResponse.json(enriched)
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'annonces.moderate')
     const body = await request.json()
 
     const { data, error } = await supabaseAdmin
@@ -93,6 +81,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data)
   } catch (err) {
+    if (err instanceof AdminAuthError) return adminAuthErrorResponse(err)
     console.error('[ANNONCES POST]', err)
     return NextResponse.json({ error: 'Erreur' }, { status: 500 })
   }

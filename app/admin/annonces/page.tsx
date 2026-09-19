@@ -8,6 +8,7 @@ import { D } from '@/app/admin/adminTheme'
 import { Ic } from '@/app/admin/adminIcons'
 import { Badge, DataTable, SlidePanel, ToastContainer } from '@/app/admin/adminUiKit'
 import type { Annonce, ToastItem } from '@/app/admin/adminTypes'
+import { YelenLoader } from '@/components/YelenLoader'
 
 export default function AnnoncesPage() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -104,7 +105,7 @@ export default function AnnoncesPage() {
 
       <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Chargement...</div>
+          <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={24}/></div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted }}>Aucune annonce</div>
         ) : (
@@ -187,8 +188,8 @@ export default function AnnoncesPage() {
             <span style={{ fontSize: '13px', color: D.textSub }}>Épingler en haut</span>
           </label>
           <div style={{ display: 'flex', gap: '8px', paddingTop: '4px' }}>
-            <button onClick={saveAnnonce} disabled={saving} style={{ flex: 1, padding: '11px', backgroundColor: D.yellow, border: 'none', borderRadius: D.radiusSm, color: '#000', fontSize: '13px', fontWeight: '700', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
-              {saving ? 'Sauvegarde...' : selected ? 'Enregistrer' : "Créer l'annonce"}
+            <button onClick={saveAnnonce} disabled={saving} style={{ flex: 1, padding: '11px', backgroundColor: D.yellow, border: 'none', borderRadius: D.radiusSm, color: '#000', fontSize: '13px', fontWeight: '700', cursor: 'pointer', opacity: saving ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              {saving ? <><YelenLoader size={12} color="#000"/>Sauvegarde…</> : selected ? 'Enregistrer' : "Créer l'annonce"}
             </button>
             <button onClick={() => setPanel(null)} style={{ padding: '11px 16px', backgroundColor: D.surface2, border: `1px solid ${D.border}`, borderRadius: D.radiusSm, color: D.textSub, fontSize: '13px', cursor: 'pointer' }}>Annuler</button>
           </div>

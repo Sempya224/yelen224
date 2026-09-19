@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,8 +25,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Non authentifié", code: "NO_SESSION" }, { status: 401 });
     }
 
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authErr || !user) {
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) {
       return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
     }
 
@@ -34,19 +35,23 @@ export async function POST(request: NextRequest) {
       ? crypto.createHash("sha256").update(currentRememberToken).digest("hex")
       : null;
 
+    // Trusted Device (30/08/2026) — status='revoked' plutôt qu'un DELETE,
+    // même raisonnement que securite/remember/revoke/route.ts (historique
+    // conservé, limite de révocation par session documentée là-bas).
     let query = supabaseAdmin
       .from("citoyen_remember_tokens")
-      .delete()
-      .eq("citoyen_id", user.id);
+      .update({ status: "revoked", revoked_at: new Date().toISOString() })
+      .eq("citoyen_id", user.id)
+      .neq("status", "revoked");
 
     if (currentTokenHash) {
       query = query.neq("token_hash", currentTokenHash);
     }
 
-    const { error: deleteError } = await query;
+    const { error: updateError } = await query;
 
-    if (deleteError) {
-      console.error("[CITOYEN REMEMBER REVOKE ALL ERROR]", deleteError.code, deleteError.message);
+    if (updateError) {
+      console.error("[CITOYEN REMEMBER REVOKE ALL ERROR]", updateError.code, updateError.message);
       return NextResponse.json({ error: "Erreur lors de la révocation", code: "DELETE_ERROR" }, { status: 500 });
     }
 

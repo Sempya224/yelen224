@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { jwtVerify } from "jose";
 import { verifyRegistrationResponse } from "@simplewebauthn/server";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
+import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,8 +43,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Requête incomplète", code: "MISSING_FIELDS" }, { status: 400 });
     }
 
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-    if (authErr || !user) {
+    const user = await verifierCitoyenToken(accessToken);
+    if (!user) {
       return NextResponse.json({ error: "Session invalide ou expirée", code: "NO_SESSION" }, { status: 401 });
     }
 
@@ -93,6 +95,17 @@ export async function POST(request: NextRequest) {
         { status: insertError.code === "23505" ? 409 : 500 }
       );
     }
+
+    const { data: citoyenRow } = await supabaseAdmin.from("users").select("prenom").eq("id", user.id).maybeSingle();
+    const label = typeof deviceLabel === "string" && deviceLabel.trim() ? ` (${deviceLabel.trim()})` : "";
+    await envoyerNotification({
+      destinataireId: user.id,
+      destinataireType: "citoyen",
+      rdvId: null,
+      type: "securite_biometrie_ajoutee",
+      titre: salutation(citoyenRow?.prenom || "cher client"),
+      message: `Une nouvelle méthode de connexion biométrique a été ajoutée à votre compte${label}. Si vous n'êtes pas à l'origine de cet ajout, sécurisez votre compte immédiatement.`,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

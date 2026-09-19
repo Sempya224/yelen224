@@ -97,8 +97,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Futur 2030 · Tech",
     icon: <Zap size={22} />, color: "#F59E0B", bgColor: "#FFFBEB",
     image: "https://images.pexels.com/photos/3861958/pexels-photo-3861958.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["En 2030, plus de 60% des emplois en Guinée nécessiteront des compétences numériques.", "Les développeurs guinéens gagnent déjà 3× le salaire moyen local en travaillant à distance.", "Coder aujourd'hui = créer ton propre emploi demain."],
-    stats: [{ value: "3×", label: "Salaire moyen" }, { value: "2030", label: "Horizon digital" }, { value: "60%", label: "Emplois tech" }],
+    content: ["Le numérique prend une place croissante dans l'économie guinéenne, y compris pour travailler à distance avec des clients à l'étranger.", "Coder aujourd'hui = créer ton propre emploi demain."],
     cta: "Commencer à apprendre",
   },
   {
@@ -107,8 +106,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Futur 2030 · Entrepreneuriat",
     icon: <TrendingUp size={22} />, color: "#10B981", bgColor: "#ECFDF5",
     image: "https://images.pexels.com/photos/3184291/pexels-photo-3184291.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["La Guinée compte 13M d'habitants — un marché immense encore peu saturé.", "Les startups africaines lèvent des fonds records chaque année.", "Un entrepreneur guinéen qui résout un vrai problème local peut toucher toute l'Afrique de l'Ouest."],
-    stats: [{ value: "13M", label: "Clients potentiels" }, { value: "CEDEAO", label: "Marché régional" }, { value: "+200%", label: "Startups 2024" }],
+    content: ["La Guinée est un marché de plusieurs millions d'habitants, encore peu saturé.", "L'écosystème des startups africaines continue de se développer.", "Un entrepreneur guinéen qui résout un vrai problème local peut toucher toute l'Afrique de l'Ouest."],
     cta: "Explorer l'entrepreneuriat",
   },
   {
@@ -118,7 +116,6 @@ const POPUPS: PopupData[] = [
     icon: <Star size={22} />, color: "#8B5CF6", bgColor: "#F5F3FF",
     image: "https://images.pexels.com/photos/3943716/pexels-photo-3943716.jpeg?auto=compress&cs=tinysrgb&w=800",
     content: ["Épargner 50 000 GNF/mois pendant 20 ans = capital de départ pour ta retraite.", "Les Guinéens qui investissent tôt dans l'immobilier ou l'agriculture bâtissent un patrimoine solide.", "La discipline financière à 20 ans te protège à 40 ans."],
-    stats: [{ value: "20 ans", label: "Commencer tôt" }, { value: "×5", label: "Valeur en 20 ans" }, { value: "0 dette", label: "Objectif liberté" }],
     cta: "Apprendre à épargner",
   },
   {
@@ -137,8 +134,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Futur 2032 · Agriculture",
     icon: <Users size={22} />, color: "#F59E0B", bgColor: "#FFFBEB",
     image: "https://images.pexels.com/photos/1595104/pexels-photo-1595104.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["La Guinée possède 30% des ressources en eau douce d'Afrique de l'Ouest.", "L'agriculture coopérative permet d'exporter et de diviser les coûts.", "Un jeune agriculteur organisé gagne plus qu'un fonctionnaire."],
-    stats: [{ value: "30%", label: "Eau douce CEDEAO" }, { value: "Export", label: "Potentiel" }, { value: "Coop", label: "Force collective" }],
+    content: ["La Guinée dispose d'importantes ressources en eau douce en Afrique de l'Ouest.", "L'agriculture coopérative permet d'exporter et de diviser les coûts.", "Un jeune agriculteur organisé peut mieux vivre de son activité."],
     cta: "Rejoindre une coopérative",
   },
   {
@@ -147,8 +143,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Futur 2030 · Leadership",
     icon: <Heart size={22} />, color: "#EF4444", bgColor: "#FEF2F2",
     image: "https://images.pexels.com/photos/3184465/pexels-photo-3184465.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["Enseigner ce que tu sais multiplie ton impact par 10.", "Les mentors construisent des réseaux puissants qui ouvrent des portes invisibles.", "Être respecté dans sa communauté vaut plus que n'importe quel diplôme étranger."],
-    stats: [{ value: "×10", label: "Impact multiplié" }, { value: "Réseau", label: "Ta richesse" }, { value: "Respect", label: "Capital social" }],
+    content: ["Enseigner ce que tu sais démultiplie ton impact.", "Les mentors construisent des réseaux puissants qui ouvrent des portes invisibles.", "Être respecté dans sa communauté est une vraie forme de réussite."],
     cta: "Devenir mentor",
   },
 
@@ -175,8 +170,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Organisation · Gestion du temps",
     icon: <Clock size={22} />, color: "#F59E0B", bgColor: "#FFFBEB",
     image: "https://images.pexels.com/photos/1181671/pexels-photo-1181671.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["Réserver via YELEN = arriver à l'heure exacte de ton rendez-vous.", "Plus de 3h de file perdue chaque semaine en Guinée par personne active.", "Les institutions qui utilisent YELEN réduisent les attentes de 80%."],
-    stats: [{ value: "−80%", label: "Temps d'attente" }, { value: "3h/sem", label: "Économisées" }, { value: "24/7", label: "Réservation" }],
+    content: ["Réserver via YELEN = arriver à l'heure exacte de ton rendez-vous.", "Plus besoin de faire la queue sur place : tu choisis ton créneau à l'avance.", "Réservation possible à tout moment, depuis ton téléphone."],
     cta: "Réserver maintenant",
   },
   {
@@ -217,8 +211,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Réussir · Sans passeport",
     icon: <Globe size={22} />, color: "#10B981", bgColor: "#ECFDF5",
     image: "https://images.pexels.com/photos/4974914/pexels-photo-4974914.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["Depuis Conakry, tu peux travailler pour des clients à Paris, Dubaï ou New York.", "Plateformes : Upwork, Fiverr, Malt, LinkedIn — accessibles avec un smartphone.", "Un graphiste guinéen peut gagner 500$/mois sans quitter Ratoma."],
-    stats: [{ value: "500$", label: "Possible/mois" }, { value: "WiFi", label: "Tout ce qu'il faut" }, { value: "Conakry", label: "→ Monde entier" }],
+    content: ["Depuis Conakry, tu peux travailler pour des clients à Paris, Dubaï ou New York.", "Plateformes : Upwork, Fiverr, Malt, LinkedIn — accessibles avec un smartphone.", "Un graphiste guinéen peut travailler pour des clients internationaux sans quitter Ratoma."],
     cta: "Lancer son freelance",
   },
   {
@@ -227,8 +220,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Réussir · Terres guinéennes",
     icon: <Lightbulb size={22} />, color: "#F59E0B", bgColor: "#FFFBEB",
     image: "https://images.pexels.com/photos/2165688/pexels-photo-2165688.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["La Guinée est l'un des pays les plus fertiles d'Afrique de l'Ouest.", "L'agri-tech permet de multiplier les rendements par 3 sans plus de terrain.", "Les marchés de Conakry, Kankan et Labé sont sous-approvisionnés."],
-    stats: [{ value: "×3", label: "Rendement agri-tech" }, { value: "Fertile", label: "Sol guinéen" }, { value: "3 villes", label: "Marchés actifs" }],
+    content: ["La Guinée est l'un des pays les plus fertiles d'Afrique de l'Ouest.", "L'agri-tech permet d'augmenter les rendements sans plus de terrain.", "Les marchés de Conakry, Kankan et Labé restent des débouchés à développer."],
     cta: "Explorer l'agri-tech",
   },
   {
@@ -237,7 +229,7 @@ const POPUPS: PopupData[] = [
     subtitle: "Réussir · Connexions",
     icon: <Users size={22} />, color: "#8B5CF6", bgColor: "#F5F3FF",
     image: "https://images.pexels.com/photos/1181622/pexels-photo-1181622.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["En Guinée, les opportunités circulent par le bouche-à-oreille et les cercles de confiance.", "Rejoindre une association professionnelle = accéder à 10× plus d'opportunités.", "Ton réseau est ton filet de sécurité ET ton tremplin."],
+    content: ["En Guinée, les opportunités circulent par le bouche-à-oreille et les cercles de confiance.", "Rejoindre une association professionnelle ouvre l'accès à plus d'opportunités.", "Ton réseau est ton filet de sécurité ET ton tremplin."],
     steps: [
       { label: "Identifier", desc: "3 mentors dans ton domaine" },
       { label: "Rejoindre", desc: "1 association pro" },
@@ -279,8 +271,7 @@ const POPUPS: PopupData[] = [
     subtitle: "YELEN · Impact citoyen",
     icon: <Zap size={22} />, color: "#F59E0B", bgColor: "#FFFBEB",
     image: "https://images.pexels.com/photos/3894378/pexels-photo-3894378.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["Chaque heure gagnée en file d'attente = 1h pour ta famille, ton business, ta santé.", "Un citoyen organisé devient un citoyen fort.", "YELEN te donne le contrôle de ton temps — ta ressource la plus précieuse."],
-    stats: [{ value: "1h", label: "Gagnée/visite" }, { value: "Ta famille", label: "Bénéficie" }, { value: "Contrôle", label: "De ton temps" }],
+    content: ["Le temps gagné en file d'attente, c'est du temps pour ta famille, ton business, ta santé.", "Un citoyen organisé devient un citoyen fort.", "YELEN te donne le contrôle de ton temps — ta ressource la plus précieuse."],
     cta: "Rejoindre YELEN",
   },
   {
@@ -289,8 +280,7 @@ const POPUPS: PopupData[] = [
     subtitle: "YELEN · Effet boule de neige",
     icon: <Star size={22} />, color: "#8B5CF6", bgColor: "#F5F3FF",
     image: "https://images.pexels.com/photos/3184339/pexels-photo-3184339.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["Quand tu utilises YELEN, tu inspires 5 personnes autour de toi.", "Un quartier qui réserve en ligne = un quartier plus productif.", "Tu contribues à moderniser la Guinée un RDV à la fois."],
-    stats: [{ value: "×5", label: "Effet viral" }, { value: "Quartier", label: "Modernisé" }, { value: "1 RDV", label: "= Grand changement" }],
+    content: ["Quand tu utilises YELEN, tu inspires ton entourage à faire pareil.", "Un quartier qui réserve en ligne gagne en organisation collective.", "Tu contribues à moderniser la Guinée un RDV à la fois."],
     cta: "Partager YELEN",
   },
   {
@@ -324,8 +314,7 @@ const POPUPS: PopupData[] = [
     subtitle: "YELEN · Communauté",
     icon: <Award size={22} />, color: "#10B981", bgColor: "#ECFDF5",
     image: "https://images.pexels.com/photos/3183150/pexels-photo-3183150.jpeg?auto=compress&cs=tinysrgb&w=800",
-    content: ["Parraine 5 amis sur YELEN et débloques des avantages prioritaires.", "Les prescripteurs ont accès aux créneaux rares en avant-première.", "Ensemble, on transforme l'administration guinéenne."],
-    stats: [{ value: "5 amis", label: "Parrainés" }, { value: "Priorité", label: "Sur les créneaux" }, { value: "Ensemble", label: "On change tout" }],
+    content: ["Fais découvrir YELEN à ton entourage.", "Plus de citoyens organisés, c'est un service public qui s'améliore pour tous.", "Ensemble, on transforme l'administration guinéenne."],
     cta: "Devenir prescripteur",
   },
 ];

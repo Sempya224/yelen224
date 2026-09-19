@@ -19,15 +19,20 @@ export async function POST(request: NextRequest) {
 
     const { data: remembered } = await supabaseAdmin
       .from('institution_remember_tokens')
-      .select('institution_id, expires_at')
+      .select('id, institution_id, status, expires_at')
       .eq('token_hash', tokenHash)
       .maybeSingle()
 
-    if (!remembered || new Date(remembered.expires_at).getTime() < Date.now()) {
+    // Trusted Device (30/08/2026) — un appareil 'revoked' ne doit plus
+    // jamais proposer le déverrouillage rapide (voir remember/check
+    // citoyen pour le même raisonnement).
+    if (!remembered || remembered.status === 'revoked' || new Date(remembered.expires_at).getTime() < Date.now()) {
       const response = NextResponse.json({ error: 'Appareil non reconnu ou expiré', code: 'INVALID_OR_EXPIRED' }, { status: 401 })
       response.cookies.delete('yelen224_institution_remember')
       return response
     }
+
+    void supabaseAdmin.from('institution_remember_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', remembered.id)
 
     const { data: institution } = await supabaseAdmin
       .from('institutions')

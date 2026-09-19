@@ -17,6 +17,38 @@ on:
 jobs:
   build-and-typecheck:
     runs-on: ubuntu-latest
+    # De nombreuses routes API instancient leur client Supabase/leurs
+    # secrets JWT/VAPID au niveau module (hors handler) - Next.js exécute
+    # ce code au chargement pendant "Collecting page data", même en
+    # l'absence de toute requête réelle pendant le build. Ces valeurs sont
+    # des placeholders jetables, jamais des vrais secrets : aucun appel
+    # réseau n'est fait pendant le build, elles servent uniquement à
+    # satisfaire les validations de format (URL/clé non vide, clé VAPID
+    # 65 octets decodee) pour que le build aboutisse. VAPID_PRIVATE_KEY/
+    # NEXT_PUBLIC_VAPID_PUBLIC_KEY ci-dessous forment une paire generee
+    # avec web-push, sans lien avec un vrai abonnement push.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-for-ci-build-only
+      SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key-for-ci-build-only
+      ADMIN_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      ADMIN_ENTRY_TOKEN: placeholder-secret-for-ci-build-only-0000000000000000
+      ADMIN_ENTRY_WEBAUTHN_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      ADMIN_OTP_FALLBACK: "000000"
+      CHECKIN_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      CITOYEN_OTP_FALLBACK: "000000"
+      CITOYEN_TOTP_CHALLENGE_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      CITOYEN_WEBAUTHN_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      EMPLOYEE_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      INSTITUTION_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      INSTITUTION_OTP_FALLBACK: "000000"
+      INSTITUTION_TOTP_CHALLENGE_JWT_SECRET: placeholder-secret-for-ci-build-only-0000000000000000
+      MOBILE_WALL_ENABLED: "false"
+      NEXT_PUBLIC_APP_URL: https://example.com
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: BGCBAFnXrEZh8VlwuZOljwEYalEpziGu0WR1WKyLtwr6Cs_3QJ6BU7CiRpj47mk9CqwL2nU5rpgCPgzsGl4rvUE
+      VAPID_PRIVATE_KEY: sKZHj4Zf6_BCgos0seQVjfnjGMoEsbYMiadJlSMHLKo
+      VAPID_SUBJECT: mailto:ci-build@example.com
+      QR_SECRET_KEY: placeholder-secret-for-ci-build-only-0000000000000000
     steps:
       - uses: actions/checkout@v4
 

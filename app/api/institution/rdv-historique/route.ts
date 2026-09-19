@@ -45,7 +45,13 @@ export async function GET(req: NextRequest) {
     .eq("institution_id", authInstId)
     .lte("date_rdv", dateTo || new Date().toISOString().slice(0, 10))
     .order("date_rdv", { ascending: false })
-    .order("heure_rdv", { ascending: false });
+    .order("heure_rdv", { ascending: false })
+    // Audit Lot 12 (07/08/2026) : aucune borne avant ce correctif — une
+    // institution avec des années d'historique et sans date_from renvoyait
+    // TOUT son historique rdv en une requête. Ordre déjà desc, donc ce
+    // plafond garde les plus récents ; un date_from explicite reste non
+    // borné par choix (l'utilisateur a demandé cette plage précisément).
+    .limit(1000);
 
   if (dateFrom) query = query.gte("date_rdv", dateFrom);
   // "absent" est un constat de présence (presence_status), jamais un statut
@@ -69,7 +75,8 @@ export async function GET(req: NextRequest) {
     .eq("institution_id", authInstId)
     .neq("statut", "annule");
   const paidMap = new Map<string, { nom: string; prix: number; duree_minutes: number }>();
-  (paidRaw ?? []).forEach((b: any) => {
+  type PaidRow = { date_rdv: string; heure_rdv: string; paid_services: { nom: string; prix: number; duree_minutes: number } | null };
+  ((paidRaw ?? []) as unknown as PaidRow[]).forEach((b) => {
     if (!b.paid_services) return;
     paidMap.set(`${b.date_rdv}|${b.heure_rdv}`, b.paid_services);
   });

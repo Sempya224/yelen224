@@ -37,3 +37,36 @@ export const D = {
   radiusLg:  '14px',
   font:      '-apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif',
 }
+
+// Adaptateur vers la primitive partagée components/ui/Button.tsx — ne
+// change aucune couleur, ne fait que reformer D dans la forme générique
+// attendue par Button/ConfirmModal (chantier gouvernance des actions et
+// confirmation, 16/08/2026). D est un singleton (dark forcé), pas besoin
+// de paramètre theme contrairement à l'équivalent institution.
+import type { ButtonTokens } from '@/components/ui/Button'
+export const uiTokens: ButtonTokens = {
+  accent: D.yellow, accentText: '#000',
+  surface: D.surface2, border: D.border2,
+  text: D.text, textMuted: D.textMuted,
+  danger: D.red, dangerBg: D.redDim, dangerBorder: D.redBrd,
+  radius: D.radius, radiusSm: D.radiusSm, font: D.font,
+}
+
+// Adaptateur vers components/ui/Card.tsx (mission "Design System partagé
+// Admin → Institution", 01/09/2026) — valeurs identiques au motif répété 62×
+// dans app/admin/** (backgroundColor: D.surface, border: D.border,
+// borderRadius: D.radius), pas une nouvelle couleur.
+import type { CardTokens } from '@/components/ui/Card'
+export const cardTokens: CardTokens = { surface: D.surface, border: D.border, radius: D.radius }
+
+// Adaptateurs vers components/ui/Input.tsx, Select.tsx, Pagination.tsx,
+// EmptyState.tsx (même mission, 02/09/2026) — valeurs identiques aux motifs
+// répétés réels dans app/admin/**, pas une nouvelle couleur.
+import type { InputTokens } from '@/components/ui/Input'
+export const inputTokens: InputTokens = { surface: D.surface2, border: D.border, radiusSm: D.radiusSm, text: D.text }
+
+import type { PaginationTokens } from '@/components/ui/Pagination'
+export const paginationTokens: PaginationTokens = { border: D.border, surface2: D.surface2, textMuted: D.textMuted, textSub: D.textSub, radiusSm: D.radiusSm }
+
+import type { EmptyStateTokens } from '@/components/ui/EmptyState'
+export const emptyStateTokens: EmptyStateTokens = { surface: D.surface, border: D.border, radiusLg: D.radiusLg, textSub: D.textSub }

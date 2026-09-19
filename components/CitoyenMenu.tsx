@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { formatYelenId } from "@/lib/citoyenIdentite";
 
 // Menu plein écran ouvert depuis l'onglet Accueil (remplace le logo Yelen,
@@ -114,6 +115,56 @@ export const ITEMS: { label: string; href: string; badge: () => React.ReactNode 
   { label: "Yelen Rewards",    href: "/menu/recompenses",   badge: Badge.Trophy },
   { label: "Nouveautés Yelen", href: "/menu/nouveautes",    badge: Badge.Spark },
 ];
+// ⚠️ ITEMS/Badge ci-dessus restent utilisés tels quels par
+// components/CompteRechercheOverlay.tsx (hub de recherche "Mon Compte",
+// contexte différent) — jamais y toucher pour ce chantier V2, qui ne
+// change QUE le rendu propre à CitoyenMenu ci-dessous.
+
+// Refonte V2 (retour Bryan 28/08/2026) — les badges "Cash App" deux tons
+// ci-dessus donnaient une impression de liste de fonctionnalités
+// décorée ; V2 vise un menu éditorial façon Apple/Revolut : glyphes trait
+// monochromes homogènes (un seul langage visuel, jamais une couleur par
+// item), regroupés par intention plutôt qu'empilés dans l'ordre
+// historique. #F5A623 reste l'unique accent (anneau de l'avatar, chevron
+// du profil) — jamais une couleur par ligne.
+const LineIc = {
+  Target: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>,
+  Wallet: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10.5h18"/><circle cx="16.5" cy="14.5" r="1" fill="currentColor" stroke="none"/></svg>,
+  Calc: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M8 7h8"/><circle cx="8.3" cy="12.2" r=".6" fill="currentColor" stroke="none"/><circle cx="12" cy="12.2" r=".6" fill="currentColor" stroke="none"/><circle cx="15.7" cy="12.2" r=".6" fill="currentColor" stroke="none"/><circle cx="8.3" cy="16" r=".6" fill="currentColor" stroke="none"/><circle cx="12" cy="16" r=".6" fill="currentColor" stroke="none"/><circle cx="15.7" cy="16" r=".6" fill="currentColor" stroke="none"/></svg>,
+  Book: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>,
+  Trend: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg>,
+  Gift: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="4"/><path d="M12 8v13M3 12v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6"/><path d="M12 8c-2 0-3.5-1-3.5-2.5S9.5 3 11 3c1.5 0 1 3 1 5zM12 8c2 0 3.5-1 3.5-2.5S14.5 3 13 3c-1.5 0-1 3-1 5z"/></svg>,
+  Trophy: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M7 6H4a1 1 0 0 0-1 1c0 2.5 1.5 4.5 4 5M17 6h3a1 1 0 0 1 1 1c0 2.5-1.5 4.5-4 5"/></svg>,
+  Spark: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></svg>,
+};
+
+const SECTIONS: { title: string; items: { label: string; href: string; icon?: keyof typeof LineIc }[] }[] = [
+  { title: "Votre espace", items: [
+    { label: "Vos centres d'intérêt", href: "/menu/interets",     icon: "Target" },
+    { label: "Mes dépenses",          href: "/menu/depenses",     icon: "Wallet" },
+    { label: "Calculatrice",          href: "/menu/calculatrice", icon: "Calc" },
+    { label: "Leçons d'argent",       href: "/menu/lecons-argent",icon: "Book" },
+    { label: "Vos tendances",         href: "/menu/vos-tendances",icon: "Trend" },
+  ]},
+  { title: "Yelen", items: [
+    { label: "Parrainage",       href: "/menu/parrainage",  icon: "Gift" },
+    { label: "Yelen Rewards",    href: "/menu/recompenses", icon: "Trophy" },
+    { label: "Nouveautés Yelen", href: "/menu/nouveautes",  icon: "Spark" },
+  ]},
+];
+
+// Liens "Support" (demande Bryan 11/09/2026) — sans icône, sur une seule
+// ligne façon footer (Feedback · Aide · Contact), volontairement plus
+// discrets que les sections ci-dessus (liens utilitaires, pas des
+// fonctionnalités du produit). Réutilise les écrans existants plutôt que
+// d'en créer de nouveaux : /compte/feedback et /compte/aide (chantier
+// "engagement"), /contact (page publique déjà utilisée comme destination
+// support depuis la FAQ).
+const FOOTER_LINKS: { label: string; href: string }[] = [
+  { label: "Feedback", href: "/compte/feedback" },
+  { label: "Aide",     href: "/compte/aide" },
+  { label: "Contact",  href: "/contact" },
+];
 
 export function CitoyenMenu({
   isDark, onClose, onOpenCompte, userId, userName, userPhoto, initials, identiteVerifiee,
@@ -127,66 +178,110 @@ export function CitoyenMenu({
   initials: string;
   identiteVerifiee: boolean;
 }) {
-  const bg    = isDark ? "#0A0A0F" : "#F2F2F7";
-  const card  = isDark ? "#1C1C1E" : "#FFFFFF";
-  const t1    = isDark ? "#FFFFFF" : "#000000";
-  const t2    = isDark ? "#8E8E93" : "#6C6C70";
-  const brd   = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const bg     = isDark ? "#0A0A0F" : "#F9F9FB";
+  const t1     = isDark ? "#FFFFFF" : "#0d0d1a";
+  const t2     = isDark ? "#8E8E93" : "#6C6C70";
+  const brd    = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
+  const iconBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
   const yelenId = userId ? formatYelenId(userId) : "YL-????-????";
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, backgroundColor: bg, overflowY: "auto", animation: "menuFadeIn 0.2s ease", fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, backgroundColor: bg, display: "flex", flexDirection: "column", overflow: "hidden", animation: "menuFadeIn 0.2s ease", fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`
         @keyframes menuFadeIn{from{opacity:0}to{opacity:1}}
         .tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}
         .tap:active{opacity:0.65;transform:scale(0.97)}
+        .menu-greeting-main{transform-origin:58% 88%;animation:handWave 5s ease-in-out infinite}
+        @keyframes handWave{
+          0%,78%,100%{transform:rotate(0deg)}
+          85%{transform:rotate(-9deg)}
+          91%{transform:rotate(7deg)}
+          97%{transform:rotate(-3deg)}
+        }
       `}</style>
 
-      {/* Bandeau = header du menu (retour CEO 25/07/2026 : le X séparé
-          au-dessus d'une carte identique aux autres cartes de l'app ne se
-          distinguait pas — ici c'est un vrai bandeau propre à cet espace).
-          Fond doré Yelen (même dégradé que CompteHeader/CarteIdentiteCompte,
-          retour CEO 25/07/2026 : cohérence de marque) en mode clair, neutre
-          en mode sombre (même logique que le reste de l'app). Tape dessus →
-          onglet Compte (pas l'écran profil séparé), le X ferme le menu. */}
-      <div style={{ position: "relative", background: isDark ? bg : "linear-gradient(160deg,#F5A623 0%,#E8960A 45%,#C8740A 100%)", borderRadius: "0 0 28px 28px", paddingTop: "env(safe-area-inset-top)", overflow: "hidden", borderBottom: isDark ? `1px solid ${brd}` : "none" }}>
-        <div style={{ position: "absolute", top: "-60px", right: "-40px", width: "200px", height: "200px", borderRadius: "50%", background: isDark ? "radial-gradient(circle,rgba(245,166,35,0.16) 0%,transparent 70%)" : "radial-gradient(circle,rgba(0,0,0,0.05) 0%,transparent 70%)", pointerEvents: "none" }}/>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 16px 4px", position: "relative" }}>
-          <span style={{ fontSize: "10px", fontWeight: "800", color: isDark ? "#F5A623" : "rgba(8,8,18,0.55)", letterSpacing: "1.5px" }}>CONÇU POUR VOUS</span>
-          <button onClick={onClose} className="tap" style={{ width: "32px", height: "32px", borderRadius: "50%", background: isDark ? "#2C2C2E" : "rgba(0,0,0,0.14)", border: isDark ? `1px solid ${brd}` : "1px solid rgba(255,255,255,0.18)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer" }}>
+      {/* En-tête V2 (retour Bryan 28/08/2026) — remplace le bandeau doré
+          plein écran/glow décoratif par un accès profil compact et neutre :
+          "conserver l'accès en haut, mais le rendre moins massif". Le seul
+          accent restant est #F5A623 (anneau de l'avatar, chevron) — plus de
+          fond plein coloré. `flexShrink: 0` conservé : reste fixe, seul le
+          bloc de sections en dessous défile. */}
+      <div style={{ flexShrink: 0, paddingTop: "env(safe-area-inset-top)" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 16px 0" }}>
+          <button onClick={onClose} aria-label="Fermer" className="tap" style={{ width: "28px", height: "28px", borderRadius: "50%", background: iconBg, border: "none", display: "flex", alignItems: "center", justifyContent: "center", color: t2, cursor: "pointer" }}>
             {MenuIc.Close()}
           </button>
         </div>
 
-        <button onClick={onOpenCompte} className="tap" style={{ display: "flex", width: "100%", alignItems: "center", gap: "12px", padding: "10px 16px 22px", background: "none", border: "none", cursor: "pointer", position: "relative", textAlign: "left" }}>
+        <button onClick={onOpenCompte} className="tap" style={{ display: "flex", width: "100%", alignItems: "center", gap: "12px", padding: "8px 16px 18px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
           <div style={{ position: "relative", flexShrink: 0 }}>
-            <div style={{ width: "50px", height: "50px", borderRadius: "50%", overflow: "hidden", backgroundColor: isDark ? "#2C2C2E" : "rgba(0,0,0,0.14)", backdropFilter: isDark ? undefined : "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "17px", fontWeight: "800", color: isDark ? "#fff" : "#080812" }}>
-              {userPhoto ? <img src={userPhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : initials}
+            <div style={{ width: "44px", height: "44px", position: "relative", borderRadius: "50%", overflow: "hidden", backgroundColor: iconBg, border: "1.5px solid #F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", fontWeight: "800", color: t1 }}>
+              {userPhoto ? <Image src={userPhoto} alt="" fill sizes="44px" style={{ objectFit: "cover" }}/> : initials}
             </div>
             {identiteVerifiee && (
-              <div style={{ position: "absolute", bottom: "-2px", right: "-2px", width: "17px", height: "17px", borderRadius: "50%", background: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", border: isDark ? "2px solid #1C1C1E" : "2px solid #E8960A" }}>
+              <div style={{ position: "absolute", bottom: "-1px", right: "-1px", width: "15px", height: "15px", borderRadius: "50%", background: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${bg}` }}>
                 {MenuIc.Check()}
               </div>
             )}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: isDark ? "#fff" : "#080812", fontSize: "17px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{userName || "Mon compte"}</div>
-            <div style={{ fontFamily: "monospace", fontSize: "12px", color: isDark ? "#8E8E93" : "rgba(8,8,18,0.6)", fontWeight: "600", letterSpacing: "0.5px", marginTop: "2px" }}>{yelenId}</div>
+            <div style={{ color: t1, fontSize: "15.5px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{userName || "Mon compte"}</div>
+            <div style={{ fontFamily: "monospace", fontSize: "11px", color: t2, fontWeight: "600", letterSpacing: "0.4px", marginTop: "1px" }}>{yelenId}</div>
           </div>
-          <span style={{ color: isDark ? "#8E8E93" : "rgba(8,8,18,0.5)", flexShrink: 0 }}>{MenuIc.Chev()}</span>
+          <div style={{ position: "relative", width: "76px", aspectRatio: "1250 / 1024", flexShrink: 0 }}>
+            <Image src="/illustrations/agente-salutation.png" alt="Une agente Yelen vous souhaite la bienvenue" fill sizes="76px" style={{ objectFit: "contain" }}/>
+            <Image src="/illustrations/agente-salutation-main.png" alt="" width={380} height={380} className="menu-greeting-main" style={{ position: "absolute", left: "8.8%", top: "31.25%", width: "30.4%", height: "37.1%" }}/>
+          </div>
+          <span style={{ color: "#F5A623", flexShrink: 0 }}>{MenuIc.Chev()}</span>
         </button>
+        <div style={{ height: "1px", background: brd, margin: "0 16px" }}/>
       </div>
 
-      <div style={{ padding: "16px 16px 40px" }}>
-        <div style={{ backgroundColor: card, borderRadius: "16px", overflow: "hidden" }}>
-          {ITEMS.map((item, i) => (
-            <Link key={item.href} href={item.href} className="tap" style={{ display: "flex", alignItems: "center", gap: "14px", padding: "10px 14px", textDecoration: "none", borderBottom: i < ITEMS.length - 1 ? `1px solid ${brd}` : "none" }}>
-              <div style={{ flexShrink: 0, lineHeight: 0 }}>{item.badge()}</div>
-              <span style={{ color: t1, fontSize: "15px", fontWeight: "600", flex: 1 }}>{item.label}</span>
-              <span style={{ color: t2 }}>{MenuIc.Chev()}</span>
-            </Link>
+      {/* Sections regroupées par intention (retour Bryan 28/08/2026) —
+          "Votre espace" / "Yelen", plus une pile plate de 8 lignes
+          identiques. Pas de carte englobante : liste à plat sur le fond de
+          l'écran, séparateurs très fins entre lignes uniquement (jamais
+          entre sections, l'espacement + le libellé suffisent à distinguer
+          les groupes — "beaucoup plus de respiration" du brief). */}
+      <div style={{ flex: 1, overflowY: "auto", overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>
+        <div style={{ padding: "4px 16px 40px" }}>
+          {SECTIONS.map((section, si) => (
+            <div key={section.title} style={{ marginTop: si === 0 ? "16px" : "30px" }}>
+              <div style={{ color: t2, fontSize: "11px", fontWeight: "700", letterSpacing: "0.6px", textTransform: "uppercase", padding: "0 2px 6px" }}>{section.title}</div>
+              <div>
+                {section.items.map((item, i) => (
+                  <Link key={item.href} href={item.href} className="tap" style={{ display: "flex", alignItems: "center", gap: "14px", padding: "13px 2px", textDecoration: "none", borderBottom: i < section.items.length - 1 ? `1px solid ${brd}` : "none" }}>
+                    {item.icon && (
+                      <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: t1 }}>
+                        {LineIc[item.icon]()}
+                      </div>
+                    )}
+                    <span style={{ color: t1, fontSize: "14.5px", fontWeight: "600", flex: 1 }}>{item.label}</span>
+                    <span style={{ color: t2, opacity: 0.7 }}>{MenuIc.Chev()}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
           ))}
+
+          {/* Ligne "Support" — Feedback/Aide/Contact sur une seule ligne,
+              séparés par un point médian, sans icône ni chevron (demande
+              Bryan 11/09/2026, corrigée en cours de session : d'abord
+              rendue en 3 lignes empilées, puis regroupée ici). */}
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: "8px", marginTop: "30px" }}>
+            {FOOTER_LINKS.map((item, i) => (
+              <span key={item.href} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {i > 0 && <span style={{ color: t2, opacity: 0.5, fontSize: "13px" }}>·</span>}
+                <Link href={item.href} className="tap" style={{ color: t2, fontSize: "13px", fontWeight: "600", textDecoration: "none" }}>{item.label}</Link>
+              </span>
+            ))}
+          </div>
+
+          {/* Copyright — tout en bas, sous la dernière section (demande
+              Bryan 11/09/2026). Texte statique, aucune donnée dynamique. */}
+          <div style={{ textAlign: "center", color: t2, fontSize: "11px", fontWeight: "500", opacity: 0.6, marginTop: "10px" }}>
+            © 2026 Yelen224. Tous droits réservés.
+          </div>
         </div>
       </div>
     </div>

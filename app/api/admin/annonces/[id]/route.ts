@@ -1,34 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
 
-async function verifyAdmin(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
-  })
-  // Durcissement rôle (chantier refonte admin 26/07/2026, Lot I).
-  if (!['super_admin', 'support', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
-  return payload
-}
+// Liste blanche stricte — jamais institution_id/id/created_at/
+// nb_vues/nb_clics/nb_partages via cet endpoint générique (mass-assignment
+// audit sécurité 14/09/2026, même classe que le correctif du 19/07/2026 sur
+// admin_users). Champs réellement envoyés par app/admin/annonces/page.tsx :
+// form complet (titre/contenu/type/statut/date_expiration/epingle) ou
+// toggle épinglage (epingle seul).
+const CHAMPS_MODIFIABLES = ['titre', 'contenu', 'type', 'statut', 'date_expiration', 'epingle'] as const
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'annonces.moderate')
     const { id } = await params
     const body = await request.json()
 
+    const updates: Record<string, unknown> = {}
+    for (const champ of CHAMPS_MODIFIABLES) {
+      if (champ in body) updates[champ] = body[champ]
+    }
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'Aucun champ modifiable fourni' }, { status: 400 })
+    }
+
     const { error } = await supabaseAdmin
       .from('annonces')
-      .update(body)
+      .update(updates)
       .eq('id', id)
 
     if (error) throw error
@@ -38,18 +42,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       action: 'MODIFIER_ANNONCE',
       cible_table: 'annonces',
       cible_id: id,
-      details: body,
+      details: updates,
     })
 
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (e) {
+    if (e instanceof AdminAuthError) return adminAuthErrorResponse(e)
     return NextResponse.json({ error: 'Erreur' }, { status: 500 })
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'annonces.moderate')
     const { id } = await params
 
     const { error } = await supabaseAdmin.from('annonces').delete().eq('id', id)
@@ -63,7 +68,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     })
 
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (e) {
+    if (e instanceof AdminAuthError) return adminAuthErrorResponse(e)
     return NextResponse.json({ error: 'Erreur' }, { status: 500 })
   }
 }

@@ -7,6 +7,7 @@
 // (pas de module de thème admin partagé pour l'instant).
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '@/app/admin/adminTheme'
+import { YelenLoader } from '@/components/YelenLoader'
 
 type Item = {
   id: string; citoyen_id: string; reponse: string; commentaire: string | null;
@@ -55,11 +56,11 @@ export default function SatisfactionPage() {
     <div>
       <h1 style={{ color: D.text, fontSize: '22px', fontWeight: '800', marginBottom: '4px' }}>Satisfaction</h1>
       <p style={{ color: D.textSub, fontSize: '13px', marginBottom: '20px' }}>
-        Réponses au widget "Comment on s'en sort ?" — évalue Yelen en général, affiché aux citoyens connectés sur les fiches institution.
+        Réponses au widget &quot;Comment on s&apos;en sort ?&quot; — évalue Yelen en général, affiché aux citoyens connectés sur les fiches institution.
       </p>
 
       {loading ? (
-        <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+        <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
       ) : !resume || resume.total === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px' }}>
           <p style={{ color: D.textSub, fontSize: '13px' }}>Aucune réponse pour le moment.</p>

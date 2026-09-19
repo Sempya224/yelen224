@@ -1,27 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { envoyerNotification, salutation } from '@/lib/notificationEngine'
+import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 )
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyAdmin(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin', audience: 'yelen224-admin-dashboard',
-  })
-  if (!['super_admin', 'moderateur', 'admin'].includes(payload.role as string)) throw new Error('FORBIDDEN')
-  return payload
-}
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await verifyAdmin(request)
+    const admin = await authorizeAdmin(request, 'institutions.manage')
     const { id } = await params
     const body = await request.json().catch(() => ({}))
 
@@ -48,8 +38,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       details: { raison: body.raison || 'Non spécifiée', avertissements_total: nouveauNb },
     })
 
+    await envoyerNotification({
+      destinataireId: id,
+      destinataireType: 'institution',
+      rdvId: null,
+      type: 'institution_avertissement',
+      titre: salutation(inst?.name || 'votre équipe'),
+      message: `Un avertissement a été enregistré sur votre compte (${nouveauNb} au total). Motif : ${body.raison || 'non spécifié'}. Des avertissements répétés peuvent entraîner une suspension.`,
+    })
+
     return NextResponse.json({ ok: true, avertissements: nouveauNb })
-  } catch {
+  } catch (e) {
+    if (e instanceof AdminAuthError) return adminAuthErrorResponse(e)
     return NextResponse.json({ error: 'Erreur' }, { status: 500 })
   }
 }

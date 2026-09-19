@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateSecret, generateURI } from "otplib";
 import QRCode from "qrcode";
-import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { getAuthenticatedMembre, estReauthRecente } from "@/lib/institutionAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +19,12 @@ export async function POST(request: NextRequest) {
     const membre = await getAuthenticatedMembre(request);
     if (!membre) {
       return NextResponse.json({ error: "Non authentifié", code: "NO_SESSION" }, { status: 401 });
+    }
+    // Même raisonnement que webauthn/membre/register-options (moteur de
+    // réauth, 16/09/2026) — exposer un secret TOTP à une session volée
+    // permettrait à l'attaquant d'activer sa propre 2FA sur le compte.
+    if (!estReauthRecente(membre)) {
+      return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: "REAUTH_REQUIRED" }, { status: 403 });
     }
 
     const { data: row } = await supabaseAdmin.from("institution_membres").select("prenom, nom, identifiant").eq("id", membre.membreId).maybeSingle();

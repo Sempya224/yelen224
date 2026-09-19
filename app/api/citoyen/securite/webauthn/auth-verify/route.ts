@@ -4,6 +4,11 @@ import { jwtVerify } from "jose";
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type { AuthenticationResponseJSON, WebAuthnCredential } from "@simplewebauthn/server";
 import { completerConnexionCitoyen, mintTotpChallengeToken, CITOYEN_REMEMBER_MAX_AGE_S } from "@/lib/auth/citoyenSession";
+import { extraireIpClient } from "@/lib/edgeSecurity";
+import {
+  resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
+  enregistrerTentative, messageSecurite,
+} from "@/lib/security/authSecurity";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,27 +30,6 @@ function getWebAuthnOrigin(request: NextRequest): { rpID: string; expectedOrigin
   return { rpID: u.hostname, expectedOrigin: u.origin };
 }
 
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>();
-
-function lockedMsRemaining(citoyenId: string): number {
-  const entry = failedAttempts.get(citoyenId);
-  if (!entry) return 0;
-  const remaining = entry.lockedUntil - Date.now();
-  return remaining > 0 ? remaining : 0;
-}
-
-function registerFailure(citoyenId: string) {
-  const now = Date.now();
-  const entry = failedAttempts.get(citoyenId);
-  const count = entry && entry.lockedUntil === 0 ? entry.count + 1 : 1;
-  const lockedUntil = count >= 5 ? now + 5 * 60 * 1000 : 0;
-  failedAttempts.set(citoyenId, { count, lockedUntil });
-}
-
-function clearFailures(citoyenId: string) {
-  failedAttempts.delete(citoyenId);
-}
-
 // Contrairement au PIN citoyen (verrou local secondaire uniquement), le
 // WebAuthn est traité ici comme un véritable facteur d'authentification
 // alternatif — au succès, on mint une vraie session Supabase Auth (même
@@ -54,7 +38,29 @@ function clearFailures(citoyenId: string) {
 // se contenter d'un flag local. Le client redeem le hashed_token via
 // supabase.auth.verifyOtp(), exactement comme après un OTP réussi.
 export async function POST(request: NextRequest) {
+  // Auth Security (Lot 3, 30/08/2026) — remplace la Map locale
+  // failedAttempts (non persistante, non partagée entre instances
+  // serverless), dernière survivante de ce pattern côté citoyen — voir
+  // lib/security/authSecurity.ts.
+  const { deviceId, estNouveau } = resoudreDeviceId(request);
+  const ip = extraireIpClient(request);
+  const userAgent = request.headers.get("user-agent");
+
+  const finaliser = (body: Record<string, unknown>, status: number) => {
+    const response = NextResponse.json(body, { status });
+    poserCookieDeviceSiNecessaire(response, deviceId, estNouveau);
+    return response;
+  };
+
   try {
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip });
+    if (porte.state === "blocked" || porte.state === "support_only") {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === "blocked" ? "AUTH_SECURITY_BLOCKED" : "AUTH_SECURITY_SUPPORT_ONLY", security: porte },
+        423
+      );
+    }
+
     const body = await request.json();
     const { citoyenId, credential, challengeToken } = body as {
       citoyenId: string;
@@ -63,11 +69,7 @@ export async function POST(request: NextRequest) {
     };
 
     if (!citoyenId || typeof citoyenId !== "string" || !credential || !challengeToken) {
-      return NextResponse.json({ error: "Requête incomplète", code: "MISSING_FIELDS" }, { status: 400 });
-    }
-
-    if (lockedMsRemaining(citoyenId) > 0) {
-      return NextResponse.json({ error: "Trop de tentatives. Réessayez dans quelques minutes.", code: "LOCKED" }, { status: 429 });
+      return finaliser({ error: "Requête incomplète", code: "MISSING_FIELDS" }, 400);
     }
 
     let expectedChallenge: string;
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest) {
       }
       expectedChallenge = payload.challenge;
     } catch {
-      return NextResponse.json({ error: "Challenge invalide ou expiré. Réessayez.", code: "INVALID_CHALLENGE" }, { status: 401 });
+      return finaliser({ error: "Challenge invalide ou expiré. Réessayez.", code: "INVALID_CHALLENGE" }, 401);
     }
 
     const { data: credRow } = await supabaseAdmin
@@ -89,8 +91,10 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (!credRow) {
-      registerFailure(citoyenId);
-      return NextResponse.json({ error: "Appareil non reconnu", code: "CREDENTIAL_NOT_FOUND" }, { status: 401 });
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: "citoyen_login", deviceId, ip, identifiant: citoyenId, outcome: "credential_not_found", userAgent,
+      });
+      return finaliser({ error: "Appareil non reconnu", code: "CREDENTIAL_NOT_FOUND", security: etat }, 401);
     }
 
     const { rpID, expectedOrigin } = getWebAuthnOrigin(request);
@@ -111,8 +115,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (!verification.verified) {
-      registerFailure(citoyenId);
-      return NextResponse.json({ error: "Échec de la vérification de l'empreinte/Face ID", code: "VERIFICATION_FAILED" }, { status: 401 });
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: "citoyen_login", deviceId, ip, identifiant: citoyenId, outcome: "verification_failed", userAgent,
+      });
+      return finaliser({ error: "Échec de la vérification de l'empreinte/Face ID", code: "VERIFICATION_FAILED", security: etat }, 401);
     }
 
     // Le compteur doit progresser à chaque authentification — une valeur
@@ -123,11 +129,15 @@ export async function POST(request: NextRequest) {
     const { newCounter } = verification.authenticationInfo;
     if (credRow.counter !== 0 && newCounter !== 0 && newCounter <= credRow.counter) {
       console.error("[CITOYEN WEBAUTHN AUTH VERIFY] Régression de compteur suspecte", citoyenId, credRow.credential_id);
-      registerFailure(citoyenId);
-      return NextResponse.json({ error: "Anomalie de sécurité détectée. Réessayez ou reconnectez-vous par SMS.", code: "COUNTER_REGRESSION" }, { status: 401 });
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: "citoyen_login", deviceId, ip, identifiant: citoyenId, outcome: "counter_regression", userAgent,
+      });
+      return finaliser({ error: "Anomalie de sécurité détectée. Réessayez ou reconnectez-vous par SMS.", code: "COUNTER_REGRESSION", security: etat }, 401);
     }
 
-    clearFailures(citoyenId);
+    const etatVerifie = await enregistrerTentative(supabaseAdmin, {
+      endpointCategory: "citoyen_login", deviceId, ip, identifiant: citoyenId, outcome: "verification_ok", userAgent,
+    });
 
     await supabaseAdmin
       .from("citoyen_webauthn_credentials")
@@ -146,15 +156,15 @@ export async function POST(request: NextRequest) {
 
     if (userRow?.totp_enabled) {
       const totpToken = await mintTotpChallengeToken(citoyenId);
-      return NextResponse.json({ requiresTotp: true, totpToken });
+      return finaliser({ requiresTotp: true, totpToken, security: etatVerifie }, 200);
     }
 
     const { tokenHash, remember } = await completerConnexionCitoyen(supabaseAdmin, citoyenId, request);
     if (!tokenHash) {
-      return NextResponse.json({ error: "Impossible d'établir la session", code: "SESSION_ERROR" }, { status: 500 });
+      return finaliser({ error: "Impossible d'établir la session", code: "SESSION_ERROR" }, 500);
     }
 
-    const response = NextResponse.json({ success: true, tokenHash });
+    const response = finaliser({ success: true, tokenHash, security: etatVerifie }, 200);
 
     if (remember) {
       response.cookies.set("yelen224_citoyen_remember", remember.rawToken, {
@@ -169,7 +179,7 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (error) {
     console.error("[CITOYEN WEBAUTHN AUTH VERIFY ERROR]", error);
-    return NextResponse.json({ error: "Erreur serveur", code: "SERVER_ERROR" }, { status: 500 });
+    return finaliser({ error: "Erreur serveur", code: "SERVER_ERROR" }, 500);
   }
 }
 

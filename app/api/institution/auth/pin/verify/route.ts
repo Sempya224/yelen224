@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
 import bcrypt from 'bcryptjs'
-import { mintInstitutionTotpChallengeToken } from '@/lib/auth/institutionSession'
+import {
+  mintInstitutionTotpChallengeToken, verifierVerrouInstitution,
+  enregistrerEchecConnexionInstitution, reinitialiserEchecsConnexionInstitution,
+} from '@/lib/auth/institutionSession'
+import { extraireIpClient } from '@/lib/edgeSecurity'
+import {
+  resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
+  enregistrerTentative, messageSecurite,
+} from '@/lib/security/authSecurity'
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,54 +21,29 @@ const supabaseAdmin = createClient(
 
 const JWT_SECRET = new TextEncoder().encode(process.env.INSTITUTION_JWT_SECRET!)
 
-const ipAttempts = new Map<string, { count: number; resetAt: number }>()
-// Verrouillage plus long que l'OTP (15 min vs 5 min) : un code à 4-8
-// chiffres a beaucoup moins d'entropie qu'un OTP à 6 chiffres à usage
-// unique, donc le frein contre le brute-force doit être plus sévère.
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
-
-function checkIpRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const entry = ipAttempts.get(ip)
-  if (!entry || entry.resetAt < now) {
-    ipAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 })
-    return true
-  }
-  if (entry.count >= 10) return false
-  entry.count++
-  return true
-}
-
-function lockedMsRemaining(institutionId: string): number {
-  const entry = failedAttempts.get(institutionId)
-  if (!entry) return 0
-  const remaining = entry.lockedUntil - Date.now()
-  return remaining > 0 ? remaining : 0
-}
-
-function registerFailure(institutionId: string) {
-  const now = Date.now()
-  const entry = failedAttempts.get(institutionId)
-  const count = entry && entry.lockedUntil === 0 ? entry.count + 1 : 1
-  const lockedUntil = count >= 5 ? now + 15 * 60 * 1000 : 0
-  failedAttempts.set(institutionId, { count, lockedUntil })
-}
-
-function clearFailures(institutionId: string) {
-  failedAttempts.delete(institutionId)
-}
-
 export async function POST(request: NextRequest) {
-  try {
-    const ip =
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      request.headers.get('x-real-ip') ||
-      '127.0.0.1'
+  // Auth Security (chantier 28/08/2026, Lot 2 sécurité) — remplace les 2
+  // Map locales (ipAttempts/failedAttempts par institutionId, non
+  // persistantes, non partagées entre instances serverless) par le même
+  // mécanisme device+IP partagé que le flux OTP (lookup/verify-otp),
+  // catégorie 'institution_login' commune aux 3 facteurs de connexion
+  // institution (OTP/PIN/WebAuthn) — voir lib/security/authSecurity.ts.
+  const { deviceId, estNouveau } = resoudreDeviceId(request)
+  const ip = extraireIpClient(request)
+  const userAgent = request.headers.get('user-agent')
 
-    if (!checkIpRateLimit(ip)) {
-      return NextResponse.json(
-        { error: 'Trop de tentatives. Réessayez dans 15 minutes.', code: 'RATE_LIMITED' },
-        { status: 429 }
+  const finaliser = (body: Record<string, unknown>, status: number) => {
+    const response = NextResponse.json(body, { status })
+    poserCookieDeviceSiNecessaire(response, deviceId, estNouveau)
+    return response
+  }
+
+  try {
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
       )
     }
 
@@ -67,38 +51,50 @@ export async function POST(request: NextRequest) {
     const { institutionId, pin } = body
 
     if (!institutionId || typeof institutionId !== 'string' || !pin || typeof pin !== 'string') {
-      return NextResponse.json({ error: 'Requête incomplète', code: 'MISSING_FIELDS' }, { status: 400 })
+      return finaliser({ error: 'Requête incomplète', code: 'MISSING_FIELDS' }, 400)
     }
 
-    const lockedMs = lockedMsRemaining(institutionId)
-    if (lockedMs > 0) {
-      return NextResponse.json(
-        { error: `Trop de tentatives. Réessayez dans ${Math.ceil(lockedMs / 60000)} minute(s).`, code: 'LOCKED' },
-        { status: 429 }
-      )
+    // Verrouillage par compte (revue critique 30/08/2026, même jour) —
+    // complète le throttle device+IP ci-dessus, contournable par rotation
+    // du cookie device. Voir lib/auth/institutionSession.ts.
+    const verrou = await verifierVerrouInstitution(supabaseAdmin, institutionId)
+    if (verrou.verrouille) {
+      return finaliser({ error: `Trop de tentatives. Réessayez dans ${verrou.minutesRestantes} minute(s).`, code: 'LOCKED' }, 429)
     }
 
     const { data: institution } = await supabaseAdmin
       .from('institutions')
-      .select('id, name, phone, pin_hash')
+      .select('id, name, phone, pin_hash, statut')
       .eq('id', institutionId)
       .single()
 
     if (!institution || !institution.pin_hash) {
-      return NextResponse.json(
-        { error: 'Aucun code de déverrouillage configuré pour cette institution', code: 'NOT_CONFIGURED' },
-        { status: 404 }
-      )
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: 'institution_login', deviceId, ip, identifiant: institutionId, outcome: 'not_configured', userAgent,
+      })
+      return finaliser({ error: 'Aucun code de déverrouillage configuré pour cette institution', code: 'NOT_CONFIGURED', security: etat }, 404)
     }
 
     const valid = await bcrypt.compare(pin, institution.pin_hash)
 
     if (!valid) {
-      registerFailure(institutionId)
-      return NextResponse.json({ error: 'Code incorrect', code: 'INVALID_PIN' }, { status: 401 })
+      await enregistrerEchecConnexionInstitution(supabaseAdmin, institutionId)
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: 'institution_login', deviceId, ip, identifiant: institutionId, outcome: 'code_incorrect', userAgent,
+      })
+      return finaliser({ error: 'Ce code ne semble pas correct. Réessayez.', code: 'INVALID_PIN', security: etat }, 401)
     }
 
-    clearFailures(institutionId)
+    await reinitialiserEchecsConnexionInstitution(supabaseAdmin, institutionId)
+    const etatVerifie = await enregistrerTentative(supabaseAdmin, {
+      endpointCategory: 'institution_login', deviceId, ip, identifiant: institutionId, outcome: 'code_correct', userAgent,
+    })
+
+    // Institution suspendue — ne bloque plus la connexion (révisé le
+    // 17/08/2026, voir membre/login/route.ts pour le raisonnement complet ;
+    // ce PIN de déverrouillage rapide est un flux compte_principal, jamais
+    // un membre d'équipe classique).
+    const suspended = institution.statut === 'suspendue'
 
     // Fondation multi-comptes (migration 20260714000001) — inclut membreId/
     // role dans le même JWT si le membre Admin principal existe déjà.
@@ -117,29 +113,32 @@ export async function POST(request: NextRequest) {
         role: membrePrincipal.role,
         rememberMe: false,
       })
-      return NextResponse.json({ requiresTotp: true, totpToken })
+      return finaliser({ requiresTotp: true, totpToken, security: etatVerifie }, 200)
+    }
+
+    // institution_sessions (dette technique comblée 30/08/2026, mirroring
+    // admin_sessions) — voir lib/institutionAuth.ts::creerSessionInstitution.
+    const sid = await creerSessionInstitution(supabaseAdmin, {
+      institutionId: institution.id, membreId: membrePrincipal?.id ?? null, phone: institution.phone, userAgent: request.headers.get('user-agent'), ip,
+    })
+    if (!sid) {
+      return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
     }
 
     const token = await new SignJWT({
       institutionId: institution.id,
       ...(membrePrincipal ? { membreId: membrePrincipal.id, role: membrePrincipal.role } : {}),
+      sid,
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(institution.id)
       .setIssuedAt()
-      .setExpirationTime('8h')
+      .setExpirationTime(INSTITUTION_SESSION_TTL_JWT)
       .setIssuer('yelen224-institution')
       .setAudience('yelen224-institution-dashboard')
       .sign(JWT_SECRET)
 
-    await supabaseAdmin.from('institution_sessions').insert({
-      institution_id: institution.id,
-      phone: institution.phone,
-      user_agent: request.headers.get('user-agent'),
-      is_active: true,
-    })
-
-    const response = NextResponse.json({ success: true, institution: { id: institution.id, name: institution.name } })
+    const response = finaliser({ success: true, institution: { id: institution.id, name: institution.name }, suspended, security: etatVerifie }, 200)
 
     response.cookies.set('yelen224_institution_session', token, {
       httpOnly: true,
@@ -153,7 +152,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[INSTITUTION PIN VERIFY ERROR]', error)
-    return NextResponse.json({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, { status: 500 })
+    return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
   }
 }
 

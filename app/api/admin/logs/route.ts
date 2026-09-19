@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
+import { verifyAdminSession, adminAuthErrorResponse } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,39 +8,33 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
-
-async function verifyToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  // Durcissement rôle (chantier refonte admin 26/07/2026, Lot I).
-  if (payload.role !== 'super_admin') throw new Error('FORBIDDEN')
-  return payload
-}
-
 export async function GET(request: NextRequest) {
   try {
-    await verifyToken(request)
+    const session = await verifyAdminSession(request)
 
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '30')
     const page  = parseInt(searchParams.get('page')  || '0')
     const adminId = searchParams.get('admin_id')
 
-    // Filtre optionnel — l'écran Sécurité (Mon compte) l'appelle avec son
-    // propre admin_id pour n'afficher que ses propres événements, pas
-    // ceux des autres admins.
+    // logs.read (écran "Logs système", vue globale) reste réservé à
+    // super_admin. Mais l'écran Sécurité (Mon compte, visible à tous les
+    // rôles) appelle cette même route avec son propre admin_id pour
+    // afficher uniquement SES propres actions — un contrôle de rôle seul
+    // ne suffit pas ici : même authentifié, un rôle non-super_admin est
+    // forcé sur son propre admin_id côté serveur, jamais celui fourni par
+    // le client (protection BOLA — voir lib/adminAuth.ts).
     let query = supabaseAdmin
       .from('admin_logs')
       .select('id, action, created_at, admin_id, cible_table, cible_id, details')
       .order('created_at', { ascending: false })
       .range(page * limit, (page + 1) * limit - 1)
 
-    if (adminId) query = query.eq('admin_id', adminId)
+    if (session.role === 'super_admin') {
+      if (adminId) query = query.eq('admin_id', adminId)
+    } else {
+      query = query.eq('admin_id', session.adminId)
+    }
 
     const { data, error } = await query
 
@@ -48,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(data || [])
 
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }

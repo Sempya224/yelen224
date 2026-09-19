@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
-
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
+import { verifyAdminSession } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,24 +10,29 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    const token = request.cookies.get('yelen224_admin_session')?.value
+    try {
+      const session = await verifyAdminSession(request)
 
-    if (token) {
-      try {
-        const { payload } = await jwtVerify(token, JWT_SECRET, {
-          issuer: 'yelen224-admin',
-          audience: 'yelen224-admin-dashboard',
-        })
+      // admin_sessions (Mission Hardening Admin, point 7, 30/08/2026) —
+      // révoque UNIQUEMENT la session courante (par sid), jamais les
+      // autres appareils du même compte : un logout normal n'a jamais eu
+      // vocation à déconnecter ailleurs, contrairement à change-password/
+      // 2fa-disable. Possible maintenant que chaque session a sa propre
+      // ligne — avant (GAP-04-04), un seul timestamp par compte rendait
+      // cette distinction impossible.
+      await supabaseAdmin
+        .from('admin_sessions')
+        .update({ revoked_at: new Date().toISOString(), revoked_reason: 'logout' })
+        .eq('id', session.sid)
 
-        // Log de déconnexion
-        await supabaseAdmin.from('admin_logs').insert({
-          admin_id: payload.sub,
-          action: 'LOGOUT',
-          details: { timestamp: new Date().toISOString() },
-        })
-      } catch {
-        // Token invalide → on logout quand même
-      }
+      // Log de déconnexion
+      await supabaseAdmin.from('admin_logs').insert({
+        admin_id: session.adminId,
+        action: 'LOGOUT',
+        details: { timestamp: new Date().toISOString() },
+      })
+    } catch {
+      // Pas de session / token invalide → on logout quand même
     }
 
     const response = NextResponse.json({ success: true })

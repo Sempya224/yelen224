@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
-import { CompteHeader } from "@/components/CompteEcranVide";
-import { SECTEUR_LABELS } from "@/lib/secteurs";
+import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { EmptyState } from "@/components/EmptyState";
+import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 
 const P = { pointerEvents: "none" as const };
 const Ic = {
@@ -101,6 +104,12 @@ export function FavorisClient() {
   const [recherche, setRecherche] = useState("");
   const [secteurFiltre, setSecteurFiltre] = useState<string | null>(null);
   const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   function showToast(msg: string, type: "success" | "error" = "success") {
     setToast({ msg, type });
@@ -170,14 +179,14 @@ export function FavorisClient() {
 
   const kpi = useMemo(() => {
     const list = favoris ?? [];
-    const trenteJours = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const trenteJours = nowTick - 30 * 24 * 60 * 60 * 1000;
     return {
       total: list.length,
       visites: list.filter((f) => f.derniere_visite).length,
       nouveaux: list.filter((f) => new Date(f.favori_depuis).getTime() >= trenteJours).length,
       ouverts: list.filter((f) => f.ouvert).length,
     };
-  }, [favoris]);
+  }, [favoris, nowTick]);
 
   const btnGhost: React.CSSProperties = {
     background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", color: t1, fontWeight: 700, fontSize: "12.5px",
@@ -185,19 +194,15 @@ export function FavorisClient() {
   };
 
   if (loading) {
-    return (
-      <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
+    return <CompteLoadingScreen titre="Établissements favoris"/>;
   }
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
       <CompteHeader titre="Établissements favoris"/>
-      <main style={{ padding: "16px 16px 40px", maxWidth: "560px", margin: "0 auto" }}>
+      <PullToRefresh onRefresh={charger} isDark={isDark}>
+      <main style={{ padding: "16px 16px 40px" }}>
         <div style={{ padding: "4px 4px 20px" }}>
           <p style={{ color: t2, fontSize: "13.5px", margin: 0, lineHeight: 1.5 }}>Retrouvez rapidement vos établissements préférés.</p>
         </div>
@@ -210,7 +215,7 @@ export function FavorisClient() {
             { label: "Nouveaux", valeur: kpi.nouveaux },
             { label: "Ouverts", valeur: kpi.ouverts },
           ].map((k) => (
-            <div key={k.label} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "12px 8px", textAlign: "center" }}>
+            <div key={k.label} style={{ backgroundColor: card, borderRadius: "14px", padding: "12px 8px", textAlign: "center" }}>
               <div style={{ color: t1, fontSize: "18px", fontWeight: 900 }}>{k.valeur}</div>
               <div style={{ color: t2, fontSize: "10.5px", fontWeight: 700, marginTop: "2px" }}>{k.label}</div>
             </div>
@@ -229,9 +234,9 @@ export function FavorisClient() {
         {/* Filtres secteur */}
         {secteursPresents.length > 1 && (
           <div style={{ display: "flex", gap: "8px", overflowX: "auto", marginBottom: "20px", paddingBottom: "2px" }}>
-            <button className="tap" onClick={() => setSecteurFiltre(null)} style={{ ...btnGhost, flexShrink: 0, backgroundColor: !secteurFiltre ? "rgba(245,166,35,0.12)" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"), borderColor: !secteurFiltre ? "rgba(245,166,35,0.4)" : brd, color: !secteurFiltre ? "#F5A623" : t1 }}>Tous</button>
+            <button className="tap" onClick={() => setSecteurFiltre(null)} style={{ ...btnGhost, flexShrink: 0, backgroundColor: !secteurFiltre ? "#F5A623" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"), borderColor: !secteurFiltre ? "#F5A623" : brd, color: !secteurFiltre ? "#080812" : t1 }}>Tous</button>
             {secteursPresents.map((s) => (
-              <button key={s} className="tap" onClick={() => setSecteurFiltre(s)} style={{ ...btnGhost, flexShrink: 0, backgroundColor: secteurFiltre === s ? "rgba(245,166,35,0.12)" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"), borderColor: secteurFiltre === s ? "rgba(245,166,35,0.4)" : brd, color: secteurFiltre === s ? "#F5A623" : t1 }}>
+              <button key={s} className="tap" onClick={() => setSecteurFiltre(s)} style={{ ...btnGhost, flexShrink: 0, backgroundColor: secteurFiltre === s ? "#F5A623" : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"), borderColor: secteurFiltre === s ? "#F5A623" : brd, color: secteurFiltre === s ? "#080812" : t1 }}>
                 {SECTEUR_LABELS[s] ?? s}
               </button>
             ))}
@@ -240,26 +245,24 @@ export function FavorisClient() {
 
         {/* Liste */}
         {favorisFiltres.length === 0 && (favoris?.length ?? 0) === 0 && (
-          <div style={{ textAlign: "center", padding: "48px 20px" }}>
-            <div style={{ color: t3, marginBottom: "16px", display: "flex", justifyContent: "center" }}><Ic.Heart/></div>
-            <div style={{ color: t1, fontSize: "16px", fontWeight: 800, marginBottom: "6px" }}>Aucun favori</div>
-            <div style={{ color: t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "20px" }}>Ajoutez vos établissements préférés afin de les retrouver rapidement et recevoir leurs annonces.</div>
-            <Link href="/recherche" className="tap" style={{ display: "inline-block", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "14px", padding: "13px 22px", borderRadius: "14px", textDecoration: "none" }}>Découvrir des établissements</Link>
+          <div style={{ textAlign: "center", padding: "28px 20px 20px" }}>
+            <EmptyState variant="favoris" title="Aucun favori" message="Ajoutez vos établissements préférés afin de les retrouver rapidement et recevoir leurs annonces." color="#F5A623" titleColor={t1} textColor={t2}/>
+            <Link href="/recherche" className="tap" style={{ display: "inline-block", background: "#F5A623", color: "#080812", fontWeight: 800, fontSize: "14px", padding: "13px 22px", borderRadius: "14px", textDecoration: "none" }}>Découvrir des établissements</Link>
           </div>
         )}
 
         {favorisFiltres.length === 0 && (favoris?.length ?? 0) > 0 && (
-          <div style={{ textAlign: "center", padding: "32px 20px", color: t2, fontSize: "13px" }}>Aucun résultat pour ces filtres.</div>
+          <EmptyState variant="recherche" title="Aucun résultat" message="Essayez une autre recherche ou modifiez vos filtres." color="#F5A623" titleColor={t1} textColor={t2}/>
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {favorisFiltres.map((f) => {
             const dist = position && f.latitude && f.longitude ? distanceKm(position.lat, position.lng, f.latitude, f.longitude) : null;
             return (
-              <div key={f.institution_id} style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "18px", padding: "16px" }}>
+              <div key={f.institution_id} style={{ backgroundColor: card, borderRadius: "18px", padding: "16px" }}>
                 <div style={{ display: "flex", gap: "12px", marginBottom: "12px" }}>
-                  <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: "rgba(245,166,35,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
-                    {f.logo ? <img src={f.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/> : <span style={{ color: "#F5A623", fontWeight: 800, fontSize: "15px" }}>{initials(f.name)}</span>}
+                  <div style={{ width: "48px", height: "48px", position: "relative", borderRadius: "14px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                    {f.logo ? <Image src={f.logo} alt="" fill sizes="48px" style={{ objectFit: "cover" }}/> : <span style={{ color: "#080812", fontWeight: 800, fontSize: "15px" }}>{initials(f.name)}</span>}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
@@ -300,14 +303,14 @@ export function FavorisClient() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
                   <span style={{ color: t3, fontSize: "11.5px" }}>{formatRelatif(f.derniere_visite)}</span>
                   {f.annonce_active && (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "rgba(245,166,35,0.1)", color: "#F5A623", fontSize: "10.5px", fontWeight: 800, padding: "3px 8px", borderRadius: "20px" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "#F5A623", color: "#080812", fontSize: "10.5px", fontWeight: 800, padding: "3px 8px", borderRadius: "20px" }}>
                       <Ic.Announce/> Nouvelle annonce
                     </span>
                   )}
                 </div>
 
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <Link href={`/institution/${f.institution_id}`} className="tap" style={{ flex: 1, textAlign: "center", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812", fontWeight: 800, fontSize: "13px", padding: "10px", borderRadius: "12px", textDecoration: "none" }}>Voir le profil</Link>
+                  <Link href={`/institution/${f.institution_id}`} className="tap" style={{ flex: 1, textAlign: "center", background: "#F5A623", color: "#080812", fontWeight: 800, fontSize: "13px", padding: "10px", borderRadius: "12px", textDecoration: "none" }}>Voir le profil</Link>
                   {f.latitude && f.longitude && (
                     <a href={`https://www.google.com/maps/search/?api=1&query=${f.latitude},${f.longitude}`} target="_blank" rel="noreferrer" className="tap" style={{ ...btnGhost, padding: "10px" }}><Ic.Route/></a>
                   )}
@@ -319,6 +322,7 @@ export function FavorisClient() {
           })}
         </div>
       </main>
+      </PullToRefresh>
 
       {toast && (
         <div style={{

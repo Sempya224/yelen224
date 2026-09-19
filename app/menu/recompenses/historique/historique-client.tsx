@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader } from "@/components/CompteEcranVide";
-import { YelenLoaderEcran } from "@/components/YelenLoader";
+import { YelenLoader, YelenLoaderEcran } from "@/components/YelenLoader";
 
 type LigneHistorique = {
   id: string;
@@ -152,7 +152,7 @@ export function HistoriqueRecompensesClient() {
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
       <CompteHeader titre="Historique des points" fondNeutre retourHref="/menu/recompenses"/>
 
-      <div style={{ padding: "16px", maxWidth: "560px", margin: "0 auto" }}>
+      <div style={{ padding: "16px" }}>
         {loading ? (
           <YelenLoaderEcran labelColor={t3}/>
         ) : erreur ? (
@@ -164,7 +164,7 @@ export function HistoriqueRecompensesClient() {
             {groupes.map((g) => (
               <div key={g.titre} style={{ marginBottom: "18px" }}>
                 <div style={{ color: t2, fontSize: "12.5px", fontWeight: "700", marginBottom: "8px" }}>{g.titre}</div>
-                <div style={{ background: card, border: `1px solid ${brd}`, borderRadius: "16px", overflow: "hidden" }}>
+                <div style={{ background: card, borderRadius: "16px", overflow: "hidden" }}>
                   {g.lignes.map((h, i) => {
                     const teinte = teinteLigne(h);
                     return (
@@ -188,9 +188,9 @@ export function HistoriqueRecompensesClient() {
               <button
                 onClick={() => { setChargementSuite(true); void charger(curseurSuivant); }}
                 disabled={chargementSuite}
-                style={{ width: "100%", padding: "12px", borderRadius: "14px", border: `1px solid ${brd}`, background: card, color: t1, fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+                style={{ width: "100%", padding: "12px", borderRadius: "14px", border: `1px solid ${brd}`, background: card, color: t1, fontSize: "13px", fontWeight: "700", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
               >
-                {chargementSuite ? "Chargement…" : "Charger plus"}
+                {chargementSuite ? <><YelenLoader size={14} color={t1}/>Chargement…</> : "Charger plus"}
               </button>
             )}
           </>

@@ -4,6 +4,7 @@
 // mirroring exact de app/admin/offres/page.tsx. Les citoyens publient
 // depuis /communaute, jamais l'admin : ici on approuve ou refuse.
 import { useEffect, useState, useCallback } from 'react'
+import Image from 'next/image'
 import { D } from '@/app/admin/adminTheme'
 import { YelenLoader } from '@/components/YelenLoader'
 import { POST_CATEGORIE_LABELS, type PostCategorie } from '@/lib/communauteCategories'
@@ -93,7 +94,7 @@ export default function PostsModerationPage() {
       </div>
 
       {loading ? (
-        <div style={{ padding: '48px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement…</div>
+        <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={26}/></div>
       ) : items.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: '14px' }}>
           <p style={{ color: D.textSub, fontSize: '13px' }}>Aucune publication pour ce filtre.</p>
@@ -114,8 +115,9 @@ export default function PostsModerationPage() {
                 {o.images && o.images.length > 0 && (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '0 0 8px' }}>
                     {o.images.map((url, i) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={i} src={url} alt="" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px', border: `1px solid ${D.border}` }} />
+                      <div key={i} style={{ position: 'relative', width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', border: `1px solid ${D.border}` }}>
+                        <Image src={url} alt="" fill sizes="80px" style={{ objectFit: 'cover' }} />
+                      </div>
                     ))}
                   </div>
                 )}

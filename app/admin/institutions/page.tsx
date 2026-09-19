@@ -5,10 +5,13 @@
 // toast, consomme app/api/admin/institutions/route.ts +
 // [id]/valider|refuser|suspendre|reactiver|badge|plan.
 import { useCallback, useEffect, useState } from 'react'
-import { D } from '@/app/admin/adminTheme'
+import Image from 'next/image'
+import { D, uiTokens } from '@/app/admin/adminTheme'
 import { Ic } from '@/app/admin/adminIcons'
 import { Badge, DataTable, SlidePanel, ToastContainer, exportCSV } from '@/app/admin/adminUiKit'
 import type { Institution, ToastItem } from '@/app/admin/adminTypes'
+import { YelenLoader } from '@/components/YelenLoader'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 export default function InstitutionsPage() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -25,6 +28,11 @@ export default function InstitutionsPage() {
   const [selected, setSelected] = useState<Institution | null>(null)
   const [panel, setPanel] = useState<string | null>(null)
   const [motif, setMotif] = useState('')
+  const [confirmSuspendre, setConfirmSuspendre] = useState(false)
+  const [motifSuspension, setMotifSuspension] = useState('')
+  // Durée optionnelle (décision CEO 17/08/2026) — null = suspension indéfinie,
+  // toujours le défaut (comportement historique inchangé si l'admin ne choisit rien).
+  const [dureeSuspension, setDureeSuspension] = useState<number | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [page, setPage] = useState(0)
 
@@ -71,7 +79,10 @@ export default function InstitutionsPage() {
         load()
         setPanel(null)
         setMotif('')
-      } else toast('Erreur action', 'error')
+      } else {
+        const body = await res.json().catch(() => null)
+        toast(body?.error || 'Erreur action', 'error')
+      }
     } catch { toast('Erreur réseau', 'error') }
     finally { setActionLoading(null) }
   }
@@ -138,7 +149,7 @@ export default function InstitutionsPage() {
 
       <div style={{ backgroundColor: D.surface, border: `1px solid ${D.border}`, borderRadius: D.radius, overflow: 'hidden' }}>
         {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Chargement...</div>
+          <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}><YelenLoader size={24}/></div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: D.textMuted, fontSize: '13px' }}>Aucune institution trouvée</div>
         ) : (
@@ -170,8 +181,8 @@ export default function InstitutionsPage() {
                       Voir
                     </button>
                     {inst.statut === 'en_attente' && (
-                      <button onClick={() => action(inst.id, 'valider')} disabled={actionLoading === inst.id + 'valider'} style={{ padding: '4px 8px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', color: D.green, fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>
-                        {actionLoading === inst.id + 'valider' ? '...' : Ic.Check(D.green)}
+                      <button onClick={() => action(inst.id, 'valider')} disabled={actionLoading === inst.id + 'valider'} style={{ padding: '4px 8px', backgroundColor: D.greenDim, border: `1px solid ${D.greenBrd}`, borderRadius: '5px', color: D.green, fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {actionLoading === inst.id + 'valider' ? <YelenLoader size={11} color={D.green}/> : Ic.Check(D.green)}
                       </button>
                     )}
                     {inst.statut === 'suspendue' ? (
@@ -179,7 +190,7 @@ export default function InstitutionsPage() {
                         Réactiver
                       </button>
                     ) : (
-                      <button onClick={() => { setSelected(inst); setPanel('suspendre') }} style={{ padding: '4px 8px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: '5px', color: D.red, fontSize: '11px', cursor: 'pointer' }}>
+                      <button onClick={() => { setSelected(inst); setConfirmSuspendre(true) }} style={{ padding: '4px 8px', backgroundColor: D.redDim, border: `1px solid ${D.redBrd}`, borderRadius: '5px', color: D.red, fontSize: '11px', cursor: 'pointer' }}>
                         {Ic.Ban(D.red)}
                       </button>
                     )}
@@ -206,8 +217,8 @@ export default function InstitutionsPage() {
         {selected && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', backgroundColor: D.surface2, borderRadius: D.radiusSm, border: `1px solid ${D.border}` }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: `linear-gradient(135deg, ${D.yellow}, #b8860b)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: '800', color: '#000', flexShrink: 0, overflow: 'hidden' }}>
-                {selected.logo ? <img src={selected.logo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/> : (selected.name?.slice(0,2) || '?').toUpperCase()}
+              <div style={{ width: '48px', height: '48px', position: 'relative', borderRadius: '12px', background: `linear-gradient(135deg, ${D.yellow}, #b8860b)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: '800', color: '#000', flexShrink: 0, overflow: 'hidden' }}>
+                {selected.logo ? <Image src={selected.logo} alt="" fill sizes="48px" style={{ objectFit: 'cover' }}/> : (selected.name?.slice(0,2) || '?').toUpperCase()}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
@@ -262,7 +273,7 @@ export default function InstitutionsPage() {
                     Réactiver le compte
                   </button>
                 ) : (
-                  <button onClick={() => action(selected.id, 'suspendre')} style={{ padding: '9px', backgroundColor: D.orangeDim, border: `1px solid ${D.orangeBrd}`, borderRadius: D.radiusSm, color: D.orange, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                  <button onClick={() => setConfirmSuspendre(true)} style={{ padding: '9px', backgroundColor: D.orangeDim, border: `1px solid ${D.orangeBrd}`, borderRadius: D.radiusSm, color: D.orange, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
                     Suspendre
                   </button>
                 )}
@@ -299,6 +310,43 @@ export default function InstitutionsPage() {
           </button>
         </div>
       </SlidePanel>
+
+      <ConfirmModal
+        open={confirmSuspendre}
+        onClose={() => { setConfirmSuspendre(false); setMotifSuspension(''); setDureeSuspension(null) }}
+        onConfirm={async () => { if (selected) await action(selected.id, 'suspendre', { motif: motifSuspension, dureeJours: dureeSuspension ?? undefined }); setConfirmSuspendre(false); setMotifSuspension(''); setDureeSuspension(null) }}
+        tokens={uiTokens}
+        level={2}
+        title={selected ? `Suspendre ${selected.name} ?` : 'Suspendre cette institution ?'}
+        description="L'établissement disparaît de la recherche citoyenne immédiatement."
+        consequences={[
+          "Les citoyens ne peuvent plus trouver ni réserver auprès de cet établissement.",
+          "L'institution reçoit une notification incluant le motif ci-dessous et peut demander une révision.",
+        ]}
+        reversible
+        motifValue={motifSuspension}
+        onMotifChange={setMotifSuspension}
+        motifPlaceholder="Raison de la suspension — transmise à l'institution..."
+        confirmLabel="Suspendre"
+      >
+        <div style={{ marginBottom: '14px' }}>
+          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: D.textMuted, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Durée (optionnel)</label>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {[{ label: 'Indéfinie', v: null }, { label: '3 jours', v: 3 }, { label: '7 jours', v: 7 }, { label: '30 jours', v: 30 }].map(o => (
+              <button key={o.label} type="button" onClick={() => setDureeSuspension(o.v)}
+                style={{ padding: '6px 12px', borderRadius: '20px', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer',
+                  backgroundColor: dureeSuspension === o.v ? D.yellow : D.surface2,
+                  color: dureeSuspension === o.v ? '#000' : D.textSub,
+                  border: `1px solid ${dureeSuspension === o.v ? D.yellow : D.border}` }}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <p style={{ color: D.textMuted, fontSize: '10.5px', marginTop: '6px' }}>
+            {dureeSuspension ? `Réactivation automatique dans ${dureeSuspension} jour(s).` : "Reste suspendue jusqu'à réactivation manuelle ou révision acceptée."}
+          </p>
+        </div>
+      </ConfirmModal>
     </div>
   )
 }

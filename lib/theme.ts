@@ -35,4 +35,4 @@ export const T = {
     },
   } as const;
   
-  export type ThemeTokens = typeof T.dark;
+  export type ThemeTokens = (typeof T)[keyof typeof T];

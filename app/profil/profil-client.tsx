@@ -9,6 +9,7 @@ import { T } from "@/lib/theme";
 import { VILLES_GUINEE } from "@/lib/villes";
 import { deleteCitoyenAccount, updateCitoyenProfile } from "./actions";
 import { LogoutFlow, CITOYEN_LOGOUT_COPY } from "@/components/LogoutFlow";
+import { YelenLoader } from "@/components/YelenLoader";
 
 type UserRow = {
   id: string;
@@ -147,7 +148,7 @@ export function ProfilClient() {
       await loadUser(userId);
       setFile(null);
       setEditing(false);
-      if (options.redirectToDashboard) router.push("/dashboard");
+      if (options.redirectToDashboard) router.push("/");
     } finally {
       setSaving(false);
     }
@@ -202,6 +203,7 @@ export function ProfilClient() {
     <div style={{ position: "relative", width: `${size}px`, height: `${size}px`, flexShrink: 0 }}>
       <div style={{ width: "100%", height: "100%", borderRadius: "24px", overflow: "hidden", background: "linear-gradient(135deg,#F5A623,#C8940A)", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${cardBord}` }}>
         {displayPhoto ? (
+          // IMG-EXCEPTION: reason=displayPhoto vaut soit une URL blob: locale (nouvel upload via preview) soit l'URL réelle photo_url, non fetchable par l'optimiseur next/image dans le cas blob | reviewed=2026-08-08
           // eslint-disable-next-line @next/next/no-img-element
           <img src={displayPhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
         ) : (
@@ -218,8 +220,7 @@ export function ProfilClient() {
   if (loading || !userId) {
     return (
       <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <YelenLoader size={40}/>
       </div>
     );
   }
@@ -228,7 +229,7 @@ export function ProfilClient() {
     return (
       <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px", padding: "24px", textAlign: "center" }}>
         <p style={{ color: "#ef4444", fontSize: "13px" }}>{loadError ?? "Erreur."}</p>
-        <button onClick={() => router.push("/dashboard")} className="tap" style={{ color: "#F5A623", fontSize: "13px", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>Retour à l'accueil</button>
+        <button onClick={() => router.push("/")} className="tap" style={{ color: "#F5A623", fontSize: "13px", fontWeight: 700, background: "none", border: "none", cursor: "pointer" }}>Retour à l&apos;accueil</button>
       </div>
     );
   }

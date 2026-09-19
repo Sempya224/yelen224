@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
@@ -9,6 +10,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { YelenLogo } from "@/components/YelenLogo";
 import { formatYelenId } from "@/lib/citoyenIdentite";
 import { generateBrandedQR } from "@/lib/qrBrand";
+import { YelenLoader } from "@/components/YelenLoader";
 
 const P = { pointerEvents: "none" as const };
 const Ic = {
@@ -102,7 +104,7 @@ export function CarteYelenClient() {
         const url = await generateBrandedQR(`YELEN-ID:${formatYelenId(userId)}`, 600);
         setQrDataUrl(url);
       } catch {
-        showToast("Impossible de générer le QR Code.", "error");
+        showToast("Impossible de générer le QR code.", "error");
       } finally {
         setQrLoading(false);
       }
@@ -122,8 +124,7 @@ export function CarteYelenClient() {
   if (loading) {
     return (
       <div style={{ minHeight: "100svh", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: "40px", height: "40px", border: `3px solid ${isDark ? "rgba(245,166,35,0.15)" : "rgba(245,166,35,0.2)"}`, borderTopColor: "#F5A623", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <YelenLoader size={40}/>
       </div>
     );
   }
@@ -181,7 +182,9 @@ export function CarteYelenClient() {
 
             <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
               {profil?.photo_url ? (
-                <img src={profil.photo_url} alt="" style={{ width: "56px", height: "56px", borderRadius: "16px", objectFit: "cover", border: "1px solid rgba(0,0,0,0.15)" }}/>
+                <div style={{ position: "relative", width: "56px", height: "56px", borderRadius: "16px", overflow: "hidden", border: "1px solid rgba(0,0,0,0.15)", flexShrink: 0 }}>
+                  <Image src={profil.photo_url} alt="" fill sizes="56px" style={{ objectFit: "cover" }}/>
+                </div>
               ) : (
                 <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>{initiales}</div>
               )}
@@ -292,7 +295,9 @@ export function CarteYelenClient() {
             ) : (
               <>
                 <div style={{ display: "inline-block", padding: "16px", backgroundColor: "#fff", borderRadius: "16px", border: "3px solid #F5A623", marginBottom: "20px", boxShadow: "0 4px 20px rgba(245,166,35,0.2)" }}>
-                  <img src={qrDataUrl} alt="QR Code Yelen ID" width="240" height="240" style={{ display: "block", borderRadius: "8px" }}/>
+                  {/* IMG-EXCEPTION: reason=data URL base64 générée localement (QRCode), non fetchable par l'optimiseur next/image | reviewed=2026-08-08 */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={qrDataUrl} alt="QR code Yelen ID" width="240" height="240" style={{ display: "block", borderRadius: "8px" }}/>
                 </div>
                 <div style={{ fontFamily: "monospace", fontSize: "18px", fontWeight: "800", color: "#F5A623", letterSpacing: "1px", marginBottom: "14px" }}>{yelenId}</div>
                 <div style={{ color: t2, fontSize: "13px", lineHeight: 1.6, textAlign: "center", maxWidth: "320px" }}>Ce code identifie votre compte Yelen. Ne le partagez qu&apos;aux personnes ou établissements de confiance.</div>

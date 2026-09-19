@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader } from "@/components/CompteEcranVide";
+import { YelenLoaderEcran } from "@/components/YelenLoader";
 
 // "Vos tendances" — chantier engagement du 25/07/2026. Contrairement à
 // Leçons d'argent / Calculatrice, aucune recherche externe n'était
@@ -172,14 +173,14 @@ export function VosTendancesClient() {
       <div style={{ padding: "28px 20px 8px", textAlign: "center", animation: "screenIn 0.35s ease" }}>
         <div style={{ margin: "0 auto 16px", width: "88px" }}>{Illu.hero()}</div>
         <div style={{ color: t1, fontSize: "20px", fontWeight: "900", marginBottom: "6px" }}>Vos tendances</div>
-        <div style={{ color: t2, fontSize: "13px", lineHeight: "1.5" }}>Vos vrais chiffres sur Yelen. Rien d'inventé, rien de deviné.</div>
+        <div style={{ color: t2, fontSize: "13px", lineHeight: "1.5" }}>Vos vrais chiffres sur Yelen. Rien d&apos;inventé, rien de deviné.</div>
       </div>
 
       {loading ? (
-        <div style={{ padding: "60px 20px", textAlign: "center", color: t3, fontSize: "14px", fontWeight: "600" }}>Chargement…</div>
+        <YelenLoaderEcran labelColor={t3}/>
       ) : totalRdv === 0 ? (
         <div style={{ padding: "50px 20px", textAlign: "center", color: t3, fontSize: "13.5px", lineHeight: "1.6" }}>
-          Rien à montrer pour l'instant. Prenez votre premier RDV, et on vous montre vos tendances ici.
+          Rien à montrer pour l&apos;instant. Prenez votre premier RDV, et on vous montre vos tendances ici.
         </div>
       ) : (
         <div style={{ padding: "12px 20px 40px" }}>
@@ -245,8 +246,8 @@ export function VosTendancesClient() {
           <Link href="/menu/lecons-argent" className="tap" style={{ display: "flex", alignItems: "center", gap: "14px", textDecoration: "none", borderRadius: "20px", padding: "18px", marginTop: "16px", background: "linear-gradient(135deg,#1B1B2B 0%,#3D2E5C 100%)", boxShadow: "0 4px 16px rgba(27,27,43,0.25)", animation: "cardIn 0.35s ease 0.46s both" }}>
             <div style={{ flexShrink: 0 }}>{Illu.ctaLecons()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: "#fff", fontSize: "14.5px", fontWeight: "800", marginBottom: "3px" }}>Envie d'y voir plus clair sur votre argent ?</div>
-              <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px", lineHeight: "1.5" }}>Nos leçons expliquent le crédit et l'épargne simplement, avec des vraies infos sur la Guinée.</div>
+              <div style={{ color: "#fff", fontSize: "14.5px", fontWeight: "800", marginBottom: "3px" }}>Envie d&apos;y voir plus clair sur votre argent ?</div>
+              <div style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px", lineHeight: "1.5" }}>Nos leçons expliquent le crédit et l&apos;épargne simplement, avec des vraies infos sur la Guinée.</div>
             </div>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><path d="m9 18 6-6-6-6"/></svg>
           </Link>
@@ -256,15 +257,15 @@ export function VosTendancesClient() {
           )}
 
           <div style={{ backgroundColor: card, borderRadius: "18px", padding: "18px", boxShadow: isDark ? "none" : "0 2px 10px rgba(0,0,0,0.05)", animation: "cardIn 0.35s ease 0.48s both" }}>
-            <div style={{ color: t1, fontSize: "13.5px", fontWeight: "800", marginBottom: "12px" }}>D'où viennent ces chiffres</div>
+            <div style={{ color: t1, fontSize: "13.5px", fontWeight: "800", marginBottom: "12px" }}>D&apos;où viennent ces chiffres</div>
             <div style={{ color: t2, fontSize: "12.5px", lineHeight: "1.7" }}>
-              On compte. C'est tout. Vos RDV, vos favoris, vos avis, vos démarches : ce sont les vrais chiffres de votre compte, pas une estimation.
+              On compte. C&apos;est tout. Vos RDV, vos favoris, vos avis, vos démarches : ce sont les vrais chiffres de votre compte, pas une estimation.
               <br/><br/>
-              Le graphique, c'est le nombre de RDV que vous avez pris chaque mois, sur les 6 derniers mois. Rien de plus.
+              Le graphique, c&apos;est le nombre de RDV que vous avez pris chaque mois, sur les 6 derniers mois. Rien de plus.
               <br/><br/>
-              Votre secteur, votre adresse et votre jour "préférés" ? On regarde simplement ce qui revient le plus souvent chez vous. On attend que vous ayez au moins 3 RDV avant de vous le dire — un seul rendez-vous, ça ne fait pas une habitude.
+              Votre secteur, votre établissement et votre jour &quot;préférés&quot; ? On regarde simplement ce qui revient le plus souvent chez vous. On attend que vous ayez au moins 3 RDV avant de vous le dire — un seul rendez-vous, ça ne fait pas une habitude.
               <br/><br/>
-              Pas d'IA ici. Pas de note sur 100. Et on ne vous compare à personne — juste vous, et vos chiffres.
+              Pas d&apos;IA ici. Pas de note sur 100. Et on ne vous compare à personne — juste vous, et vos chiffres.
             </div>
           </div>
         </div>

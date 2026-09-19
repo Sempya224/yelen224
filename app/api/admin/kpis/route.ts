@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { jwtVerify } from 'jose'
-
-const JWT_SECRET = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET!)
+import { authorizeAdmin, adminAuthErrorResponse } from '@/lib/adminAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,19 +8,9 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-async function verifyAdminToken(request: NextRequest) {
-  const token = request.cookies.get('yelen224_admin_session')?.value
-  if (!token) throw new Error('NO_TOKEN')
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    issuer: 'yelen224-admin',
-    audience: 'yelen224-admin-dashboard',
-  })
-  return payload
-}
-
 export async function GET(request: NextRequest) {
   try {
-    await verifyAdminToken(request)
+    await authorizeAdmin(request, 'kpis.read')
 
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
@@ -174,7 +162,7 @@ export async function GET(request: NextRequest) {
       secteurs: secteursArr,
     })
 
-  } catch {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  } catch (e) {
+    return adminAuthErrorResponse(e)
   }
 }
