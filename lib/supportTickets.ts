@@ -83,7 +83,9 @@ async function notifierInstitution(institutionId: string, ticketId: string, titr
 export type TicketListItem = {
   id: string; numero_public: string; categorie: SupportCategorie; sujet: string;
   statut: SupportStatut; priorite: SupportPriorite; agent_nom: string | null;
-  dernier_message: string | null; dernier_message_at: string | null; cree_le: string; non_lus: number;
+  dernier_message: string | null; dernier_message_at: string | null;
+  dernier_message_expediteur: "citoyen" | "agent" | null;
+  cree_le: string; non_lus: number;
 };
 
 export async function listerTicketsCitoyen(citoyenId: string): Promise<TicketListItem[]> {
@@ -100,7 +102,7 @@ export async function listerTicketsCitoyen(citoyenId: string): Promise<TicketLis
     .select("ticket_id,contenu,type,cree_le,expediteur_type,lu")
     .in("ticket_id", ids)
     .order("cree_le", { ascending: false });
-  const dernierParTicket = new Map<string, { contenu: string | null; type: string; cree_le: string }>();
+  const dernierParTicket = new Map<string, { contenu: string | null; type: string; cree_le: string; expediteur_type: string }>();
   const nonLusParTicket = new Map<string, number>();
   for (const m of msgs ?? []) {
     if (!dernierParTicket.has(m.ticket_id)) dernierParTicket.set(m.ticket_id, m);
@@ -121,6 +123,7 @@ export async function listerTicketsCitoyen(citoyenId: string): Promise<TicketLis
       agent_nom: t.assigned_agent_id ? agentNomMap.get(t.assigned_agent_id) ?? null : null,
       dernier_message: dernier ? (dernier.type === "image" ? "📷 Image" : dernier.contenu) : null,
       dernier_message_at: dernier?.cree_le ?? null,
+      dernier_message_expediteur: dernier ? (dernier.expediteur_type === "agent" ? "agent" : "citoyen") : null,
       cree_le: t.cree_le, non_lus: nonLusParTicket.get(t.id) ?? 0,
     };
   });

@@ -1634,8 +1634,20 @@ function GuidanceDecouverteCard({ t1, t2, card, brd, onOffreClick }: { t1: strin
     return () => { annule = true; };
   }, []);
 
-  const CARD_WIDTH = 220, GAP = 10;
-  const { scrollRef, onScroll, actif } = useScrollDots(CARD_WIDTH, GAP);
+  // Carrousel "carte dominante + aperçu de la suivante" (refonte visuelle
+  // 21/09/2026, brief "Pour vous aujourd'hui") — largeur fluide (%) plutôt
+  // que le pixel fixe des autres carrousels de l'écran, donc useScrollDots
+  // (largeur fixe attendue) n'est pas réutilisable ici : l'index actif est
+  // mesuré directement sur la largeur réelle de la première carte au scroll.
+  const GUIDANCE_GAP = 14;
+  const guidanceScrollRef = useRef<HTMLDivElement>(null);
+  const [guidanceActif, setGuidanceActif] = useState(0);
+  function onGuidanceScroll() {
+    const el = guidanceScrollRef.current;
+    const first = el?.firstElementChild as HTMLElement | null;
+    if (!el || !first) return;
+    setGuidanceActif(Math.round(el.scrollLeft / (first.getBoundingClientRect().width + GUIDANCE_GAP)));
+  }
   const [banniereFermee, setBanniereFermee] = useState(false);
 
   if (!candidats || candidats.length === 0) return null;
@@ -1674,21 +1686,26 @@ function GuidanceDecouverteCard({ t1, t2, card, brd, onOffreClick }: { t1: strin
 
       {candidatsCarousel.length > 0 && (
       <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2px" }}>
-        <div style={{ color: t1, fontSize: "17px", fontWeight: "900", letterSpacing: "-0.3px", display: "flex", alignItems: "center", gap: "6px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+        <div style={{ color: t1, fontSize: "19px", fontWeight: "900", letterSpacing: "-0.3px", display: "flex", alignItems: "center", gap: "6px" }}>
           Pour vous aujourd&apos;hui
           {/* Sparkle en SVG, jamais l'emoji Unicode ✨ — un emoji couleur ne
               peut pas être teinté en or Yelen exact via CSS (palette figée
               dans la police), retour Bryan 27/08/2026. */}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="#F5A623"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="#F5A623"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg>
         </div>
         {/* Visuel uniquement pour l'instant : le moteur ne propose jamais
             plus de 2-3 cartes à la fois par conception (jamais un
             catalogue), donc aucune page "voir tout" n'existe encore. */}
-        <span style={{ color: "#F5A623", fontSize: "13px", fontWeight: "700" }}>Voir tout →</span>
+        <span style={{ color: "#F5A623", fontSize: "13px", fontWeight: "800", flexShrink: 0, whiteSpace: "nowrap" }}>Voir tout →</span>
       </div>
-      <div style={{ color: t2, fontSize: "12.5px", marginBottom: "12px" }}>Des suggestions personnalisées selon votre activité</div>
-      <div ref={scrollRef} onScroll={onScroll} style={{ display: "flex", gap: `${GAP}px`, overflowX: "auto", paddingBottom: "4px", scrollSnapType: "x mandatory" }}>
+      <div style={{ color: t2, fontSize: "13px", lineHeight: 1.4, maxWidth: "260px", marginBottom: "18px" }}>Des suggestions personnalisées selon votre activité</div>
+      {/* Carte dominante + aperçu de la suivante (brief 21/09/2026) : chaque
+          carte prend la largeur du carrousel moins un aperçu fixe de la
+          suivante, plutôt que plusieurs petites cartes fixes côte à côte
+          comme les autres carrousels de l'écran — signale naturellement
+          qu'il y a d'autres suggestions à découvrir au swipe. */}
+      <div ref={guidanceScrollRef} onScroll={onGuidanceScroll} style={{ display: "flex", gap: `${GUIDANCE_GAP}px`, overflowX: "auto", paddingBottom: "6px", scrollSnapType: "x mandatory" }}>
         {candidatsCarousel.map((c, i) => {
           const v = GUIDANCE_VISUEL[c.source_type] ?? GUIDANCE_VISUEL.lecon;
           return (
@@ -1706,24 +1723,24 @@ function GuidanceDecouverteCard({ t1, t2, card, brd, onOffreClick }: { t1: strin
                   onOffreClick(c.action.destination.split("/").pop() ?? "");
                 }
               }}
-              style={{ textDecoration: "none", flexShrink: 0, scrollSnapAlign: "start" }}
+              style={{ textDecoration: "none", flexShrink: 0, width: "calc(100% - 48px)", scrollSnapAlign: "start" }}
             >
-              <div style={{ width: `${CARD_WIDTH}px`, backgroundColor: card, borderRadius: "20px", padding: "16px", position: "relative", overflow: "hidden" }} className="tap">
-                {c.badge && (
-                  <div style={{ position: "absolute", top: "10px", right: "10px", background: "#F5A623", borderRadius: "20px", padding: "2px 8px", fontSize: "9px", fontWeight: "800", color: "#080812" }}>{c.badge}</div>
-                )}
-                <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: v.grad, border: `1px solid ${brd}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", color: v.iconColor }}>
+              <div style={{ backgroundColor: card, borderRadius: "28px", padding: "24px", minHeight: "248px", display: "flex", flexDirection: "column", boxShadow: "0 2px 20px rgba(0,0,0,0.06)" }} className="tap">
+                <div style={{ width: "56px", height: "56px", borderRadius: "18px", background: v.grad, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "16px", color: v.iconColor, flexShrink: 0 }}>
                   {v.icon()}
                 </div>
-                <div style={{ color: t1, fontSize: "14px", fontWeight: "800", marginBottom: "4px", lineHeight: 1.25 }}>{c.titre}</div>
-                <div style={{ color: t2, fontSize: "11px", lineHeight: 1.4, marginBottom: "12px" }}>{c.interpretation}</div>
-                {c.action && <span style={{ color: v.accent, fontSize: "12.5px", fontWeight: "800" }}>{c.action.label} →</span>}
+                {c.badge && (
+                  <div style={{ color: v.accent, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.4px", marginBottom: "6px" }}>{c.badge}</div>
+                )}
+                <div style={{ color: t1, fontSize: "19px", fontWeight: "800", lineHeight: 1.25, marginBottom: "8px", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{c.titre}</div>
+                <div style={{ color: t2, fontSize: "13.5px", lineHeight: 1.5, marginBottom: "16px", flex: 1, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{c.interpretation}</div>
+                {c.action && <span style={{ color: "#F5A623", fontSize: "13.5px", fontWeight: "800" }}>{c.action.label} →</span>}
               </div>
             </Link>
           );
         })}
       </div>
-      <ScrollDots count={candidatsCarousel.length} actif={actif} accent="#F5A623" inactif={brd}/>
+      <ScrollDots count={candidatsCarousel.length} actif={guidanceActif} accent="#F5A623" inactif={brd}/>
       </div>
       )}
     </div>
@@ -2603,7 +2620,7 @@ export default function YelenApp() {
   // Statut de mes publications (retour Bryan 27/07/2026) — utilise la
   // policy posts_own_read (auteur_id = auth.uid(), tous statuts), jamais
   // exposé aux autres citoyens.
-  const [mesPublications, setMesPublications] = useState<{ id: string; statut: string; contenu: string | null; created_at: string; motif_refus: string | null }[]>([]);
+  const [mesPublications, setMesPublications] = useState<{ id: string; statut: string; contenu: string | null; created_at: string; motif_refus: string | null; images: string[] | null; categorie: string | null }[]>([]);
   const [mesPublicationsLoaded, setMesPublicationsLoaded] = useState(false);
   const [mesPublicationsOuvert, setMesPublicationsOuvert] = useState(false);
   // Recherche Community — Lot 1 (09/09/2026), voir ChercherCommunauteOverlay.tsx.
@@ -3399,10 +3416,15 @@ export default function YelenApp() {
     if (tab !== "communaute" || mesPublicationsLoaded || !userId) return;
     setMesPublicationsLoaded(true);
     (async () => {
-      const { data } = await supabase.from("posts").select("id, statut, contenu, created_at, motif_refus").eq("auteur_id", userId).order("created_at", { ascending: false });
+      const { data } = await supabase.from("posts").select("id, statut, contenu, created_at, motif_refus, images, categorie").eq("auteur_id", userId).order("created_at", { ascending: false });
       setMesPublications(data ?? []);
+      // Réactions réelles (section 3 refonte "Mes publications", 21/09/2026)
+      // — mêmes compteurs/mêmes lignes post_likes/post_comments que le fil
+      // principal, jamais un chiffre recalculé différemment ici.
+      const idsPublies = (data ?? []).filter(p => p.statut === "publiee").map(p => p.id);
+      if (idsPublies.length > 0) chargerReactionsPosts(idsPublies, userId);
     })();
-  }, [tab, mesPublicationsLoaded, userId]);
+  }, [tab, mesPublicationsLoaded, userId, chargerReactionsPosts]);
 
   // Changer le filtre catégorie recharge le fil depuis le début — le
   // filtre s'applique côté requête (pagination serveur), pas un simple
@@ -3656,7 +3678,7 @@ export default function YelenApp() {
       if (!res.ok) throw new Error(j?.error || "Échec de la publication");
       setComposerTexte(""); setComposerFichiers([]); setComposerOuvert(false); setComposerCategorie(null);
       if (userId) {
-        const { data: mesPubFraiches } = await supabase.from("posts").select("id, statut, contenu, created_at, motif_refus").eq("auteur_id", userId).order("created_at", { ascending: false });
+        const { data: mesPubFraiches } = await supabase.from("posts").select("id, statut, contenu, created_at, motif_refus, images, categorie").eq("auteur_id", userId).order("created_at", { ascending: false });
         setMesPublications(mesPubFraiches ?? []);
       }
     } catch {
@@ -4072,6 +4094,7 @@ export default function YelenApp() {
       {mesPublicationsOuvert && (
         <MesPublicationsOverlay
           publications={mesPublications}
+          postLikes={postLikes} postCommentCounts={postCommentCounts}
           bg={bg} card={card} card2={card2} t1={t1} t2={t2} t3={t3} brd={brd}
           onClose={() => setMesPublicationsOuvert(false)}
           identiteVerifiee={identiteVerifiee}

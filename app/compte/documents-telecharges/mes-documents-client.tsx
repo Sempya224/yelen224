@@ -112,14 +112,19 @@ export function MesDocumentsClient() {
   }, [documents, recherche]);
 
   async function handleTelecharger(d: Document) {
+    // Fenêtre ouverte de façon synchrone dans la pile du clic — un window.open()
+    // déclenché après un await est bloqué silencieusement par les bloqueurs de
+    // popup (Safari iOS notamment) : rien ne se passe, aucune erreur visible.
+    const fenetre = window.open("", "_blank");
     setBusy(d.id);
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) { showToast("Session expirée, reconnectez-vous.", "error"); setBusy(null); return; }
+    if (!session?.access_token) { showToast("Session expirée, reconnectez-vous.", "error"); setBusy(null); fenetre?.close(); return; }
     const res = await fetch(`/api/citoyen/documents?download=${d.id}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
     const json = await res.json().catch(() => null);
     setBusy(null);
-    if (!res.ok) { showToast(json?.error ?? "Impossible de télécharger ce document.", "error"); return; }
-    window.open(json.url, "_blank");
+    if (!res.ok) { showToast(json?.error ?? "Impossible de télécharger ce document.", "error"); fenetre?.close(); return; }
+    if (fenetre) fenetre.location.href = json.url;
+    else window.open(json.url, "_blank");
   }
 
   async function handleUpload() {

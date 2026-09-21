@@ -244,12 +244,17 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
   // (60s) que app/institution/[id]/dashboard/components/PaiementsTab.tsx.
   async function telechargerRecuFiche() {
     if (!booking?.recu_id) return;
+    // Fenêtre ouverte de façon synchrone dans la pile du clic — un window.open()
+    // déclenché après un await est bloqué silencieusement par les bloqueurs de
+    // popup (Safari iOS notamment) : rien ne se passe, aucune erreur visible.
+    const fenetre = window.open("", "_blank");
     setTelechargementRecu(true);
     const res = await fetch(`/api/institution/recus/${booking.recu_id}/pdf`);
     const j = await res.json().catch(() => null);
     setTelechargementRecu(false);
-    if (!res.ok || !j?.signedUrl) return;
-    window.open(j.signedUrl, "_blank");
+    if (!res.ok || !j?.signedUrl) { fenetre?.close(); return; }
+    if (fenetre) fenetre.location.href = j.signedUrl;
+    else window.open(j.signedUrl, "_blank");
   }
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);

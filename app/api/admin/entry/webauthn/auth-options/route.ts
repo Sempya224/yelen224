@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateAuthenticationOptions } from "@simplewebauthn/server";
+import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 import { extraireIpClient } from "@/lib/edgeSecurity";
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentativeAdminEntry, messageSecurite,
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     const { data: creds } = await supabaseAdmin
       .from("admin_entry_webauthn_credentials")
-      .select("credential_id")
+      .select("credential_id, transports")
       .is("revoked_at", null);
 
     if (!creds || creds.length === 0) {
@@ -56,7 +57,10 @@ export async function POST(request: NextRequest) {
 
     const options = await generateAuthenticationOptions({
       rpID,
-      allowCredentials: creds.map((c) => ({ id: c.credential_id })),
+      allowCredentials: creds.map((c) => ({
+        id: c.credential_id,
+        transports: (c.transports ?? undefined) as AuthenticatorTransportFuture[] | undefined,
+      })),
       userVerification: "required",
     });
 

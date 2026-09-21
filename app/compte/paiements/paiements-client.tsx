@@ -144,14 +144,19 @@ export function PaiementsClient() {
 
   async function telechargerRecu(p: Paiement) {
     if (!p.recu) return;
+    // Fenêtre ouverte de façon synchrone dans la pile du clic — un window.open()
+    // déclenché après un await est bloqué silencieusement par les bloqueurs de
+    // popup (Safari iOS notamment) : rien ne se passe, aucune erreur visible.
+    const fenetre = window.open("", "_blank");
     setTelechargement(p.id);
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) { showToast("Session expirée, reconnectez-vous.", "error"); setTelechargement(null); return; }
+    if (!session?.access_token) { showToast("Session expirée, reconnectez-vous.", "error"); setTelechargement(null); fenetre?.close(); return; }
     const res = await fetch(`/api/citoyen/recus/${p.recu.id}/pdf`, { headers: { Authorization: `Bearer ${session.access_token}` } });
     const json = await res.json().catch(() => null);
     setTelechargement(null);
-    if (!res.ok || !json?.signedUrl) { showToast(json?.error || "Reçu indisponible", "error"); return; }
-    window.open(json.signedUrl, "_blank");
+    if (!res.ok || !json?.signedUrl) { showToast(json?.error || "Reçu indisponible", "error"); fenetre?.close(); return; }
+    if (fenetre) fenetre.location.href = json.signedUrl;
+    else window.open(json.signedUrl, "_blank");
   }
 
   if (loading) {

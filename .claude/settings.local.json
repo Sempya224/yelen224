@@ -206,7 +206,11 @@
       "Bash(gh auth *)",
       "Bash(gh repo *)",
       "Bash(npm outdated *)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(echo \"exit code: $?\")",
+      "Bash(netlify --version)",
+      "Bash(netlify status *)",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }
