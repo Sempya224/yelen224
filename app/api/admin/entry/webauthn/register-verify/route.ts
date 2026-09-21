@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Échec de la vérification de l'empreinte/Face ID", code: "VERIFICATION_FAILED" }, { status: 401 });
     }
 
-    const { id, publicKey, counter } = verification.registrationInfo.credential;
+    const { id, publicKey, counter, transports } = verification.registrationInfo.credential;
 
     const { error: insertError } = await supabaseAdmin
       .from("admin_entry_webauthn_credentials")
@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
         credential_id: id,
         public_key: Buffer.from(publicKey).toString("base64url"),
         counter,
+        transports: transports && transports.length > 0 ? transports : null,
         device_label: typeof deviceLabel === "string" && deviceLabel.trim() ? deviceLabel.trim() : null,
       });
 
