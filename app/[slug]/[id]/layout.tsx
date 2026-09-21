@@ -25,7 +25,7 @@
 // ✅ Bandeau progression profil + statut Yelen intégré sous le header
 // ═══════════════════════════════════════════════════════════════════════
 
-import React, { Suspense, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, Dispatch, SetStateAction } from "react";
+import React, { Suspense, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -91,6 +91,15 @@ import { DocumentsClientsTab } from "./components/DocumentsClientsTab";
 import { PartenariatTab } from "./components/PartenariatTab";
 import { MesOffresTab } from "./components/MesOffresTab";
 import { ClockInShiftTab } from "./components/ClockInShiftTab";
+import { YelenCompteTab } from "./components/YelenCompteTab";
+import { YelenContratTab } from "./components/YelenContratTab";
+import { YelenForfaitTab } from "./components/YelenForfaitTab";
+import { YelenPaiementsTab } from "./components/YelenPaiementsTab";
+import { YelenTransactionsTab } from "./components/YelenTransactionsTab";
+import { YelenReconciliationTab } from "./components/YelenReconciliationTab";
+import { YelenFraisTab } from "./components/YelenFraisTab";
+import { YelenFacturationTab } from "./components/YelenFacturationTab";
+import { YelenDocumentsTab } from "./components/YelenDocumentsTab";
 import { LogoutFlow, INSTITUTION_LOGOUT_COPY } from "./components/LogoutFlow";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -148,7 +157,7 @@ export type Client = {
   est_nouveau: boolean;
 };
 
-type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "collaboration" | "support" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift" | "parametres-securite" | "parametres-notifications" | "parametres-support" | "parametres-legal";
+type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "collaboration" | "support" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift" | "parametres-securite" | "parametres-notifications" | "parametres-support" | "parametres-legal" | "yelen-compte" | "yelen-contrat" | "yelen-forfait" | "yelen-paiements" | "yelen-transactions" | "yelen-reconciliation" | "yelen-frais-commissions" | "yelen-facturation" | "yelen-documents" | "yelen-support";
 // Onglets encore navigables quand institutions.statut === "suspendue"
 // (décision CEO 17/08/2026, écran dédié "Espace suspendu") — interprétation
 // de "Communication/Support" + "Paramètres/Compte", ajustable ici seul.
@@ -176,6 +185,62 @@ const FINANCE_GROUPS: { key: "operations" | "suivi"; label: string; icon: React.
   { key: "suivi", label: "Suivi & documents", tabs: ["historique-financier", "rapports", "documents-financiers", "documents-clients"],
     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
 ];
+// Même principe que FINANCE_GROUPS, appliqué au groupe "Équipe & travail" du
+// panneau "Compte" (pas la sidebar principale) : 4 écrans → 2 sous-sections
+// repliables (Équipe / Travail), fermées par défaut, ouvertes aussi si `tab`
+// est déjà un de leurs enfants.
+const EQUIPE_TRAVAIL_GROUPS: { key: "equipe" | "travail"; label: string; icon: React.ReactNode; tabs: DashboardTab[] }[] = [
+  { key: "equipe", label: "Équipe", tabs: ["equipe", "collaboration"],
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+  { key: "travail", label: "Travail", tabs: ["espace-travail", "clock-in-shift"],
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> },
+];
+// "Yelen Business" (17/09/2026, schéma à 4 sections repris de Bryan le
+// même jour) — 3e menu, ouvert depuis le popover "Management" du header
+// (icône avatar) via businessMenuOpen, pas depuis la sidebar gauche
+// (retour Bryan : menu principal trop chargé) ni un panneau docké dans
+// "Compte" — un tiroir flottant ancré à droite de l'écran
+// (.yelen-business-drawer), overlay indépendant de la navigation interne
+// à gauche. Relation commerciale institution <-> Yelen (compte/contrat,
+// forfait, frais/commission de la plateforme, documents Yelen, support
+// dédié), distincte du groupe "Finance" qui gère l'argent des clients de
+// l'institution. Écrans à l'état vide pour l'instant (voir
+// YelenBusinessStub plus bas) — aucune donnée/route réelle encore.
+// Regroupé en 4 sections (Compte / Finance / Documents / Assistance) —
+// YELEN_BUSINESS_TABS reste la liste à plat dérivée (flatMap), pour ne
+// rien changer aux appels existants (.some/.map) qui ne connaissent pas
+// la notion de section.
+const YELEN_BUSINESS_SECTIONS: { section: string; items: { key: DashboardTab; label: string; icon: React.ReactNode }[] }[] = [
+  { section: "Compte", items: [
+    { key: "yelen-compte", label: "Compte Yelen",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-7 8-7s8 3 8 7"/></svg> },
+    { key: "yelen-contrat", label: "Contrat Yelen",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 3v2a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V3"/><path d="M9.5 13l1.8 1.8L14.5 11.5"/></svg> },
+  ]},
+  { section: "Finance", items: [
+    { key: "yelen-forfait", label: "Forfait Yelen",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
+    { key: "yelen-paiements", label: "Moyens de paiement",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> },
+    { key: "yelen-transactions", label: "Transactions",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> },
+    { key: "yelen-reconciliation", label: "Réconciliation",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg> },
+    { key: "yelen-frais-commissions", label: "Frais & commissions",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="17"/><path d="M15 9.5c0-1.38-1.34-2.5-3-2.5s-3 1.12-3 2.5S10.34 12 12 12s3 1.12 3 2.5-1.34 2.5-3 2.5-3-1.12-3-2.5"/></svg> },
+    { key: "yelen-facturation", label: "Facturation",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg> },
+  ]},
+  { section: "Documents", items: [
+    { key: "yelen-documents", label: "Documents Yelen",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> },
+  ]},
+  { section: "Assistance", items: [
+    { key: "yelen-support", label: "Support Yelen",
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.8 1c0 1.5-2.3 1.8-2.3 3.3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+  ]},
+];
+const YELEN_BUSINESS_TABS: { key: DashboardTab; label: string; icon: React.ReactNode }[] = YELEN_BUSINESS_SECTIONS.flatMap(s => s.items);
 // Item de la liste "Paramètres" — soit un lien externe (href), soit une
 // bascule d'onglet interne au dashboard (onTab), jamais les deux.
 type SettingsItem = { label: string; href: string | null; onTab?: DashboardTab; color: string };
@@ -204,6 +269,32 @@ function KeepMounted({ tabKey, current, visited, onBack, C, children }: {
         </button>
       )}
       {children}
+    </div>
+  );
+}
+
+// État vide générique des 7 écrans "Yelen Business" (17/09/2026, voir
+// YELEN_BUSINESS_TABS) — scaffolding volontaire, aucune donnée/route
+// réelle pour l'instant. Un seul composant paramétré (label + icône)
+// plutôt que 7 quasi-doublons, jamais du texte brut : en-tête de page
+// standard (titre + repère "Yelen Business") + carte centrée façon
+// NotifEmptyIllustration/IllustrationRdvNeuf (halo doré, icône, titre,
+// description). Remplacé écran par écran quand chaque brique sera
+// réellement construite.
+function YelenBusinessStub({ label, icon, C }: { label: string; icon: React.ReactNode; C: ThemeTokens }) {
+  return (
+    <div style={{ padding: "20px 16px" }}>
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "4px" }}>Yelen Business</div>
+        <div style={{ color: C.t1, fontSize: "20px", fontWeight: "800" }}>{label}</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px", padding: "56px 20px", textAlign: "center", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px" }}>
+        <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: `${C.gold}12`, border: `1px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center", color: C.gold }}>
+          {icon}
+        </div>
+        <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Bientôt disponible</div>
+        <div style={{ color: C.t3, fontSize: "12px", lineHeight: 1.6, maxWidth: "320px" }}>Cet écran de {label.toLowerCase()} est en préparation — rien à configurer pour l&apos;instant.</div>
+      </div>
     </div>
   );
 }
@@ -397,6 +488,11 @@ export type Stats = {
   avis_count: number; moyenne_avis: number; avis_non_lus: number;
   taux_confirmation: number; taux_annulation: number; taux_satisfaction: number;
   rdv_total: number; evolution_week: number; evolution_month: number;
+  // V3 (17/09/2026) — indique si une vraie période précédente existe pour
+  // comparer (prevWkN/prevMoN > 0). Sans base réelle, l'UI affiche "Historique
+  // insuffisant" plutôt qu'un 0% fabriqué (division par zéro déjà court-
+  // circuitée à 0 avant ce chantier, ce qui se lisait à tort comme "stable").
+  evolution_week_has: boolean; evolution_month_has: boolean;
   peak_hour: string; peak_day: string;
   rdv_par_jour: { day: string; count: number }[];
   rdv_par_heure: { hour: string; count: number }[];
@@ -405,8 +501,13 @@ export type Stats = {
   ratio_refus: number;
   compte_restreint: boolean;
   score_sante: number;
-  kpi_variations: { nouveau: number; pending: number; confirmed: number; done: number; cancelled: number; total: number; non_traites: number };
+  // V3 : { value, has } — `has=false` (pas de RDV la veille pour cette
+  // catégorie) doit afficher "Pas encore de comparaison", jamais un %
+  // fabriqué (0% ou +100% arbitraire comme avant ce chantier).
+  kpi_variations: { nouveau: KpiVariation; pending: KpiVariation; confirmed: KpiVariation; done: KpiVariation; cancelled: KpiVariation; total: KpiVariation; non_traites: KpiVariation };
 };
+
+export type KpiVariation = { value: number; has: boolean };
 
 // ─── Design Tokens ────────────────────────────────────────────────────
 // ─── CSS Global ────────────────────────────────────────────────────────
@@ -467,8 +568,22 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
   @keyframes glow{0%,100%{box-shadow:0 0 8px ${C.gold}40}50%{box-shadow:0 0 24px ${C.gold}70}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   @keyframes bannerAlive{0%,100%{box-shadow:inset 0 0 0 rgba(0,0,0,0)}50%{box-shadow:inset 0 0 24px rgba(0,0,0,0.18)}}
+  @keyframes slideInRight{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
   .tap{transition:opacity .12s,transform .12s;cursor:pointer;touch-action:manipulation;user-select:none}
   .tap:active{opacity:0.65;transform:scale(0.97)}
+  /* ── Tiroir "Yelen Business" (17/09/2026) — flottant, ancré à droite,
+      indépendant de la sidebar/du panneau Compte, actif à toutes les
+      largeurs (contrairement à .yelen-account-panel, desktop uniquement).
+      z-index au-dessus du header (200) et des popovers (500). ── */
+  .yelen-business-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:598;animation:fadeIn 0.2s ease}
+  .yelen-business-drawer{
+    position:fixed;top:0;right:0;bottom:0;width:min(340px,92vw);height:100svh;
+    background:${C.bgCard};border-left:1px solid ${C.border2};
+    box-shadow:-16px 0 48px rgba(0,0,0,0.35);
+    display:flex;flex-direction:column;overflow:hidden;z-index:599;
+    animation:slideInRight 0.2s ease;
+    padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
+  }
   input::placeholder{color:${C.t3}}
   textarea::placeholder{color:${C.t3}}
   input,textarea{color:${C.t1};background:transparent;border:none;outline:none;font-family:inherit}
@@ -483,11 +598,11 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
   @media(min-width:1024px){
     .yelen-shell{display:flex;height:100svh;overflow:hidden}
     .yelen-sidebar{
-      width:264px;min-width:264px;height:100svh;overflow:visible;
+      width:224px;min-width:224px;height:100svh;overflow:visible;
       background:${C.bgCard};border-right:1px solid rgba(255,255,255,0.07);
       display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:400
     }
-    .yelen-main{margin-left:264px;flex:1;overflow-y:auto;height:100svh;display:flex;flex-direction:column}
+    .yelen-main{margin-left:224px;flex:1;overflow-y:auto;height:100svh;display:flex;flex-direction:column}
     .yelen-bottom-nav{display:none!important}
     .yelen-content{flex:1;overflow-y:auto}
     .yelen-header-inner{padding:0 32px!important}
@@ -512,20 +627,6 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
   }
   @media(min-width:1024px){
     .yelen-main{padding-bottom:0!important}
-  }
-  /* ── Footer général (CGU/Confidentialité/Guide/FAQ/Support/copyright,
-      retour Bryan 16/09/2026) : fixe, ne doit jamais suivre le scroll du
-      contenu. <1024px : posé juste au-dessus de .yelen-bottom-nav (même
-      calc(48px + safe-area) que son padding). ≥1024px : pas de bottom-nav,
-      collé au bas du viewport, décalé par --footer-left (posé en inline,
-      même valeur que le marginLeft de .yelen-main) pour ne jamais passer
-      sous la sidebar. .yelen-main.yelen-has-footer compense l'espace
-      retiré du flux normal (spécificité supérieure à la règle
-      padding-bottom:0!important ci-dessus, pas de conflit de cascade). ── */
-  .yelen-footer-fixed{position:fixed;left:0;right:0;bottom:calc(48px + env(safe-area-inset-bottom));z-index:150}
-  @media(min-width:1024px){
-    .yelen-footer-fixed{left:var(--footer-left,264px);bottom:0}
-    .yelen-main.yelen-has-footer{padding-bottom:54px!important}
   }
   /* ── Header : recherche + popovers (recherche, RDV entrant, feedback,
       aide, "..."), mobile-first — bottom sheet plein écran par défaut,
@@ -1385,13 +1486,18 @@ function GuideScalingModal({ onClose }: { onClose: () => void }) {
 function ScoreSante({ score, stats, actionsPrioritaires, onVoirActions }: { score: number; stats: Stats; actionsPrioritaires?: number; onVoirActions?: () => void }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
+  const [detailsOuverts, setDetailsOuverts] = useState(false);
   const color = score >= 80 ? C.green : score >= 60 ? C.gold : score >= 40 ? C.orange : C.red;
   const label = score >= 80 ? "Excellent" : score >= 60 ? "Bon" : score >= 40 ? "À améliorer" : "Critique";
+  // V3 (17/09/2026) — poids réels de scoreSante (voir calcul dans loadData),
+  // affichés pour rendre le score explicable plutôt qu'une boîte noire.
+  // Seuil ✓/⚠ à 70% : arbitraire mais cohérent avec les seuils déjà
+  // utilisés pour label/couleur du score global (60/80).
   const facteurs = [
-    { label: "Taux de confirmation", value: stats.taux_confirmation, color: C.green },
-    { label: "Satisfaction clients", value: stats.taux_satisfaction, color: C.gold },
-    { label: "Réactivité (RDV/sem)", value: Math.min(stats.week * 10, 100), color: C.blue },
-    { label: "Absence de refus", value: Math.max(0, 100 - stats.ratio_refus * 10), color: C.blue },
+    { label: "Taux de confirmation", value: stats.taux_confirmation, color: C.green, poids: 30 },
+    { label: "Satisfaction clients", value: stats.taux_satisfaction, color: C.gold, poids: 25 },
+    { label: "Réactivité (RDV/sem)", value: Math.min(stats.week * 10, 100), color: C.blue, poids: 20 },
+    { label: "Absence de refus", value: Math.max(0, 100 - stats.ratio_refus * 10), color: C.blue, poids: 25 },
   ];
   return (
     <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${color}25`, marginBottom: "20px", boxShadow: C.shadow }}>
@@ -1415,16 +1521,35 @@ function ScoreSante({ score, stats, actionsPrioritaires, onVoirActions }: { scor
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        {facteurs.map(f => (
-          <div key={f.label} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ color: C.t3, fontSize: "10px", width: "140px", flexShrink: 0 }}>{f.label}</span>
-            <div style={{ flex: 1, height: "4px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "2px", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${f.value}%`, backgroundColor: f.color, borderRadius: "2px" }}/>
+        {facteurs.map(f => {
+          const ok = f.value >= 70;
+          return (
+            <div key={f.label} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {ok ? (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              )}
+              <span style={{ color: C.t3, fontSize: "10px", width: "128px", flexShrink: 0 }}>{f.label}</span>
+              <div style={{ flex: 1, height: "4px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "2px", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${f.value}%`, backgroundColor: f.color, borderRadius: "2px" }}/>
+              </div>
+              <span style={{ color: f.color, fontSize: "11px", fontWeight: "800", width: "32px", textAlign: "right" }}>{Math.round(f.value)}%</span>
             </div>
-            <span style={{ color: f.color, fontSize: "11px", fontWeight: "800", width: "32px", textAlign: "right" }}>{Math.round(f.value)}%</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
+      <button onClick={() => setDetailsOuverts(v => !v)} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "10.5px", fontWeight: "700", cursor: "pointer", padding: "10px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
+        {detailsOuverts ? "Masquer les détails" : "Voir les détails"} <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="3" strokeLinecap="round" style={{ transform: detailsOuverts ? "rotate(-90deg)" : "rotate(90deg)" }}><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+      {detailsOuverts && (
+        <div style={{ marginTop: "8px", padding: "12px 14px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px" }}>
+          <div style={{ color: C.t2, fontSize: "10.5px", lineHeight: 1.6 }}>
+            Score = somme pondérée des 4 facteurs ci-dessus : Taux de confirmation (30%), Satisfaction clients (25%), Réactivité — RDV cette semaine (20%), Absence de refus sur vos 10 derniers RDV traités (25%).
+            {" "}Un facteur marqué ⚠ est sous 70% et pèse sur le score global.
+          </div>
+        </div>
+      )}
       {!!actionsPrioritaires && actionsPrioritaires > 0 && (
         <div style={{ marginTop: "16px", border: `1px solid ${C.red}30`, borderRadius: "14px", padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
@@ -1726,10 +1851,10 @@ function InstitutionDashboardInner() {
     today: 0, week: 0, month: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, nouveau: 0, absents: 0, non_traites: 0,
     avis_count: 0, moyenne_avis: 0, avis_non_lus: 0,
     taux_confirmation: 0, taux_annulation: 0, taux_satisfaction: 0, rdv_total: 0,
-    evolution_week: 0, evolution_month: 0, peak_hour: "—", peak_day: "—",
+    evolution_week: 0, evolution_month: 0, evolution_week_has: false, evolution_month_has: false, peak_hour: "—", peak_day: "—",
     rdv_par_jour: [], rdv_par_heure: [], notes_distribution: [], recent_activity: [],
     ratio_refus: 0, compte_restreint: false, score_sante: 0,
-    kpi_variations: { nouveau: 0, pending: 0, confirmed: 0, done: 0, cancelled: 0, total: 0, non_traites: 0 },
+    kpi_variations: { nouveau: { value: 0, has: false }, pending: { value: 0, has: false }, confirmed: { value: 0, has: false }, done: { value: 0, has: false }, cancelled: { value: 0, has: false }, total: { value: 0, has: false }, non_traites: { value: 0, has: false } },
   });
 
   // Nouvelle structure de menu (chantier réorganisation dashboard) : "demandes"
@@ -1837,11 +1962,6 @@ function InstitutionDashboardInner() {
   // besoin que instRefreshKey ci-dessus, colonne distincte (voir listener
   // realtime plus bas).
   const [communauteRefreshKey, setCommunauteRefreshKey] = useState(0);
-  // Écran de confirmation "espace activé" (refonte V2 Centre de
-  // configuration, décision CEO 14/08/2026) — affiché une fois à la
-  // transition false->true de configComplete, avant de révéler le
-  // dashboard KPI. Remplace l'ancien simple toast (voir handleConfigStatusChange).
-  const [justActivated, setJustActivated] = useState(false);
   const [messagerieUnread, setMessagerieUnread] = useState(0);
   // Support Yelen (chantier "Séparation Messagerie/Support" 06/09/2026) —
   // strictement séparé de messagerieUnread ci-dessus depuis que le canal
@@ -1862,6 +1982,11 @@ function InstitutionDashboardInner() {
   const [acceptingConditions, setAcceptingConditions] = useState(false);
   const etapeValidationInitRef = useRef(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  // 3e menu "Yelen Business" (17/09/2026) — panneau empilé à droite du
+  // panneau Compte, ouvert depuis son item "Plus" (voir YELEN_BUSINESS_TABS).
+  // Fermé automatiquement avec le panneau Compte (closeAccountMenu) puisqu'il
+  // n'a pas de sens sans lui rester ouvert.
+  const [businessMenuOpen, setBusinessMenuOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Sous-sections repliables de la section sidebar "Finance" (7 écrans → 2
@@ -1873,6 +1998,13 @@ function InstitutionDashboardInner() {
   // 76px) la section Finance reste rendue à plat comme avant, la
   // hiérarchie n'a pas de sens sans place pour l'indentation/les labels.
   const [financeGroupsOpen, setFinanceGroupsOpen] = useState<{ operations: boolean; suivi: boolean }>({ operations: false, suivi: false });
+  const [equipeTravailGroupsOpen, setEquipeTravailGroupsOpen] = useState<{ equipe: boolean; travail: boolean }>({ equipe: false, travail: false });
+  // Groupe "Établissement" du panneau Compte (retour Bryan 17/09/2026) :
+  // repliable, fermé par défaut — configuration/documents/conditions ne
+  // servent qu'une fois, juste après la création du compte, pas à consulter
+  // à chaque visite comme les autres groupes du panneau. Rouvert
+  // automatiquement si `tab` est déjà un de ses enfants (lien direct).
+  const [etablissementOpen, setEtablissementOpen] = useState(false);
   // Tooltip instantané façon Supabase pour les icônes de la sidebar
   // réduite — portalé (position:fixed) pour ne pas être rogné par
   // overflow-y:auto du <nav> (CSS force overflow-x en "auto" dès que
@@ -1905,6 +2037,8 @@ function InstitutionDashboardInner() {
   const [termineDialog, setTermineDialog] = useState<RDV | null>(null);
   const [selectedRDV, setSelectedRDV]       = useState<RDV | null>(null);
   const [mesClientsInitialId, setMesClientsInitialId] = useState<string | null>(null);
+  const [mesClientsInitialFiltre, setMesClientsInitialFiltre] = useState<"fideles" | "nouveaux" | "occasionnels" | "a_reactiver" | null>(null);
+  const [mesClientsInitialSearch, setMesClientsInitialSearch] = useState<string | null>(null);
   const [rdvHistorique, setRdvHistorique]   = useState<{ id: string; action: string; membre_nom: string; created_at: string }[]>([]);
   const [rdvEvents, setRdvEvents]           = useState<{ id: string; auteur_type: string; action: string; motif: string | null; created_at: string }[]>([]);
   const [actionLoading, setActionLoading]   = useState<string | null>(null);
@@ -1934,6 +2068,11 @@ function InstitutionDashboardInner() {
   const [showBannerDetail, setShowBannerDetail] = useState(false);
   const [dismissRetard, setDismissRetard]   = useState(false);
   const lastRdvCountRef                     = useRef(0);
+  // Vue d'ensemble V3 (17/09/2026) — sélecteur de période du graphe
+  // "Évolution des RDV", dérivé côté client de `rdvs` (déjà chargé, 300
+  // RDV les + récents, voir api/institution/rdv/route.ts) : pas de
+  // nouvel appel réseau pour passer de 7 à 30/90 jours.
+  const [evolutionRange, setEvolutionRange] = useState<7 | 30 | 90>(7);
 
   // ── Header : popovers (recherche, "...", feedback, aide, RDV entrant) ──
   const [activePopover, setActivePopover]   = useState<"search" | "system" | "feedback" | "help" | "rdv" | "notifications" | "questions" | "avatar" | null>(null);
@@ -2378,10 +2517,13 @@ function InstitutionDashboardInner() {
       // réelles disponibles : compte du jour vs compte de la veille, sur
       // le statut actuel de chaque RDV programmé ce jour-là.
       const hierStr = dayAgo.toISOString().slice(0, 10);
-      const variationVsHier = (filtre: (r: typeof rdvList[number]) => boolean): number => {
+      // V3 (17/09/2026) — `has: false` quand hier n'a aucune ligne pour cette
+      // catégorie : ni 0% (faux "stable") ni +100% (faux doublement), voir
+      // définition de KpiVariation ci-dessus.
+      const variationVsHier = (filtre: (r: typeof rdvList[number]) => boolean): KpiVariation => {
         const auj = rdvList.filter(r => r.date_rdv === today && filtre(r)).length;
         const hierN = rdvList.filter(r => r.date_rdv === hierStr && filtre(r)).length;
-        return hierN > 0 ? Math.round(((auj - hierN) / hierN) * 100) : (auj > 0 ? 100 : 0);
+        return hierN > 0 ? { value: Math.round(((auj - hierN) / hierN) * 100), has: true } : { value: 0, has: false };
       };
       const kpiVariations = {
         nouveau:   variationVsHier(r => r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)),
@@ -2446,6 +2588,7 @@ function InstitutionDashboardInner() {
         rdv_total: total,
         evolution_week:  prevWkN > 0 ? Math.round(((weekN - prevWkN) / prevWkN) * 100) : 0,
         evolution_month: prevMoN > 0 ? Math.round(((monthN - prevMoN) / prevMoN) * 100) : 0,
+        evolution_week_has: prevWkN > 0, evolution_month_has: prevMoN > 0,
         peak_hour: peakHour, peak_day: peakDay,
         rdv_par_jour: rdvParJour, rdv_par_heure: rdvParHeure,
         notes_distribution: notesDist, recent_activity: recentActivity,
@@ -2750,10 +2893,6 @@ function InstitutionDashboardInner() {
     ]},
     { label: "Activité", items: [
       { key: "messagerie", label: "Messagerie",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
-      // Collaboration (Lot A, 16/09/2026) — membre <-> membre, distinct de
-      // Messagerie (citoyen <-> institution) juste au-dessus : icône
-      // volontairement différente (personnes, pas bulle de discussion).
-      { key: "collaboration", label: "Collaboration", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
       { key: "rdv",        label: "Rendez-vous",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
       { key: "disponibilites", label: "Disponibilités", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
       { key: "services",   label: "Services",        icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
@@ -2808,6 +2947,9 @@ function InstitutionDashboardInner() {
     { group: "Relation client", key: "avis-reputation", label: "Avis et réputation", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> },
     { group: "Relation client", key: "questions-clients", label: "Questions des clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg> },
     { group: "Équipe & travail", key: "equipe", label: "Équipe", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+    // Collaboration (déplacé du menu principal vers Compte > Équipe & travail,
+    // 16/09/2026) — membre <-> membre, distinct de Messagerie (citoyen <-> institution).
+    { group: "Équipe & travail", key: "collaboration", label: "Collaboration", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
     { group: "Équipe & travail", key: "espace-travail", label: "Espace de travail", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> },
     { group: "Équipe & travail", key: "clock-in-shift", label: "Clock In Shift", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
     { group: "Historique", key: "journal", label: "Journal d'activité", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
@@ -2848,7 +2990,6 @@ function InstitutionDashboardInner() {
     setAccountMenuOpen(false);
     setSidebarCollapsed(false);
   }
-
   function renderMainNav(collapsed: boolean) {
     // Bouton d'un écran (repris tel quel pour un item à plat ET pour un
     // enfant replié sous un groupe Finance — seul `indent` change).
@@ -2916,7 +3057,7 @@ function InstitutionDashboardInner() {
       <style>{cssFor(C, theme)}</style>
 
       {/* ── SIDEBAR PC (≥1024px) ── */}
-      <aside className="yelen-sidebar" style={{ width: sidebarCollapsed ? "76px" : "264px", minWidth: sidebarCollapsed ? "76px" : "264px", transition: "width 0.18s ease" }}>
+      <aside className="yelen-sidebar" style={{ width: sidebarCollapsed ? "68px" : "224px", minWidth: sidebarCollapsed ? "68px" : "224px", transition: "width 0.18s ease" }}>
         {/* Bouton réduire/étendre le menu, façon Supabase */}
         <button
           onClick={toggleSidebarCollapsed}
@@ -2924,7 +3065,7 @@ function InstitutionDashboardInner() {
           title={sidebarCollapsed ? "Étendre le menu" : "Réduire le menu"}
           style={{ position: "absolute", right: "-12px", top: "72px", width: "24px", height: "24px", borderRadius: "50%", backgroundColor: "transparent", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 401, color: C.t2 }}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ transform: sidebarCollapsed ? "rotate(180deg)" : "none", transition: "transform 0.18s" }}><polyline points="15 18 9 12 15 6"/></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="3"/><path d="M9 3v18"/></svg>
         </button>
         {/* Logo + titre */}
         <div style={{ padding: sidebarCollapsed ? "20px 10px 12px" : "20px 16px 12px", borderBottom: `1px solid ${C.border}` }}>
@@ -2989,7 +3130,7 @@ function InstitutionDashboardInner() {
           façon Supabase (Project Settings). Desktop uniquement (≥1024px,
           voir CSS .yelen-account-panel). ── */}
       {accountMenuOpen && (
-        <div className="yelen-account-panel" style={{ left: sidebarCollapsed ? "76px" : "264px" }}>
+        <div className="yelen-account-panel" style={{ left: sidebarCollapsed ? "68px" : "224px" }}>
           <div style={{ padding: "16px 16px 14px", borderBottom: `1px solid ${C.border}` }}>
             <button onClick={closeAccountMenu} className="tap" style={{ display: "flex", alignItems: "center", gap: "5px", background: "transparent", border: "none", padding: 0, marginBottom: "12px", cursor: "pointer", color: C.t3, fontSize: "10.5px", fontWeight: "700", letterSpacing: "0.3px" }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -3006,22 +3147,71 @@ function InstitutionDashboardInner() {
             </div>
           )}
           <div style={{ padding: "8px 10px 10px", display: "flex", flexDirection: "column" }}>
-            {accountGroups.map((group, gi) => (
-              <div key={group.label} style={{ marginTop: gi > 0 ? "14px" : "2px" }}>
-                <div style={{ padding: "0 8px 4px", color: C.t3, fontSize: "9.5px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase" }}>{group.label}</div>
-                <div style={{ display: "flex", flexDirection: "column" }}>
-                  {group.items.map(item => {
-                    const active = tab === item.key;
-                    return (
-                      <button key={item.key} onClick={() => item.onClick ? item.onClick() : setTab(item.key as typeof tab)} className="tap yelen-account-item" style={{ display: "flex", alignItems: "center", gap: "9px", padding: "6.5px 8px", borderRadius: "7px", background: "transparent", border: "none", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "12.5px", cursor: "pointer", textAlign: "left", width: "100%" }}>
-                        <span style={{ color: active ? C.gold : C.t3, flexShrink: 0, display: "flex" }}>{React.cloneElement(item.icon as React.ReactElement<{ width?: string | number; height?: string | number }>, { width: 14, height: 14 })}</span>
-                        <span style={{ flex: 1 }}>{item.label}</span>
-                      </button>
-                    );
-                  })}
+            {accountGroups.map((group, gi) => {
+              const renderAccountItem = (item: (typeof group.items)[number]) => {
+                const active = tab === item.key;
+                return (
+                  <button key={item.key} onClick={() => item.onClick ? item.onClick() : setTab(item.key as typeof tab)} className="tap yelen-account-item" style={{ display: "flex", alignItems: "center", gap: "9px", padding: "6.5px 8px", borderRadius: "7px", background: "transparent", border: "none", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "12.5px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                    <span style={{ color: active ? C.gold : C.t3, flexShrink: 0, display: "flex" }}>{React.cloneElement(item.icon as React.ReactElement<{ width?: string | number; height?: string | number }>, { width: 14, height: 14 })}</span>
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                  </button>
+                );
+              };
+              // "Établissement" (config hôtel/documents/conditions) : groupe
+              // entier replié par défaut, un seul clic sur son en-tête
+              // l'ouvre — jamais utile en continu, seulement après la
+              // création du compte (voir état etablissementOpen ci-dessus).
+              if (group.label === "Établissement") {
+                const open = etablissementOpen || group.items.some(i => i.key === tab);
+                return (
+                  <div key={group.label} style={{ marginTop: gi > 0 ? "14px" : "2px" }}>
+                    <button onClick={() => setEtablissementOpen(v => !v)} className="tap" style={{ display: "flex", alignItems: "center", gap: "4px", padding: "0 8px 4px", background: "transparent", border: "none", color: C.t3, fontSize: "9.5px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase", cursor: "pointer", width: "100%", textAlign: "left" }}>
+                      <span style={{ flex: 1 }}>{group.label}</span>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    {open && (
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        {group.items.map(item => renderAccountItem(item))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return (
+                <div key={group.label} style={{ marginTop: gi > 0 ? "14px" : "2px" }}>
+                  <div style={{ padding: "0 8px 4px", color: C.t3, fontSize: "9.5px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase" }}>{group.label}</div>
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {/* "Équipe & travail" (4 écrans) : 2 sous-sections repliables
+                        (Équipe / Travail), même principe que FINANCE_GROUPS dans
+                        la sidebar principale, fermées par défaut, ouvertes aussi
+                        si `tab` est déjà un de leurs enfants (lien direct). */}
+                    {group.label === "Équipe & travail" ? (
+                      EQUIPE_TRAVAIL_GROUPS.map(sub => {
+                        const subItems = group.items.filter(i => sub.tabs.includes(i.key as DashboardTab));
+                        if (subItems.length === 0) return null;
+                        const open = equipeTravailGroupsOpen[sub.key] || subItems.some(i => i.key === tab);
+                        return (
+                          <div key={sub.key}>
+                            <button onClick={() => setEquipeTravailGroupsOpen(v => ({ ...v, [sub.key]: !v[sub.key] }))} className="tap" style={{ display: "flex", alignItems: "center", gap: "9px", padding: "6.5px 8px", borderRadius: "7px", background: "transparent", border: "none", color: open ? C.gold : C.t2, fontWeight: "500", fontSize: "12.5px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                              <span style={{ color: open ? C.gold : C.t3, flexShrink: 0, display: "flex" }}>{sub.icon}</span>
+                              <span style={{ flex: 1 }}>{sub.label}</span>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            {open && (
+                              <div style={{ display: "flex", flexDirection: "column", paddingLeft: "14px" }}>
+                                {subItems.map(item => renderAccountItem(item))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      group.items.map(item => renderAccountItem(item))
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {membreRole !== null && (
             <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${C.border}`, marginTop: "4px" }}>
@@ -3033,6 +3223,62 @@ function InstitutionDashboardInner() {
         </div>
       )}
 
+      {/* ── TIROIR "YELEN BUSINESS" (17/09/2026) — 3e menu, ouvert depuis
+          l'item dédié du popover "Management" (icône avatar du header),
+          plus depuis le menu principal gauche (retour Bryan : trop chargé
+          là-bas) ni docké dans un panneau Compte — un tiroir flottant
+          ancré à droite de l'écran, overlay au-dessus du contenu, ne
+          modifie jamais marginLeft/sidebar. Séparation volontaire "menus
+          de travail" (sidebar gauche, écrans internes) vs "Yelen Business"
+          (relation commerciale avec la plateforme). Portalé dans
+          document.body pour passer au-dessus de tout (même raison que
+          HeaderPopover : le <header> a un backdropFilter qui casse
+          position:fixed pour un descendant). ── */}
+      {businessMenuOpen && typeof document !== "undefined" && createPortal(
+        <>
+          <div className="yelen-business-overlay" onClick={() => setBusinessMenuOpen(false)}/>
+          <div className="yelen-business-drawer">
+            <div style={{ padding: "20px 20px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+              <div>
+                <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", letterSpacing: "-0.3px" }}>Yelen Business</div>
+                <div style={{ color: C.gold, fontSize: "11px", fontWeight: "700", marginTop: "2px" }}>Votre relation avec Yelen</div>
+              </div>
+              <button onClick={() => setBusinessMenuOpen(false)} className="tap" style={{ background: "none", border: "none", cursor: "pointer", color: C.t3, padding: "4px", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div style={{ padding: "10px 12px 16px", display: "flex", flexDirection: "column", flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {YELEN_BUSINESS_SECTIONS.map(({ section, items }) => {
+                const visibleItems = items.filter(item => navAllowed(item.key));
+                if (visibleItems.length === 0) return null;
+                return (
+                  <div key={section} style={{ marginBottom: "6px" }}>
+                    <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px", padding: "12px 10px 6px" }}>{section}</div>
+                    {visibleItems.map(item => {
+                      const active = tab === item.key;
+                      return (
+                        <button key={item.key} onClick={() => { setTab(item.key); setBusinessMenuOpen(false); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 10px", borderRadius: "10px", background: "transparent", border: "none", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                          <span style={{ color: active ? C.gold : C.t3, flexShrink: 0, display: "flex" }}>{item.icon}</span>
+                          <span style={{ flex: 1 }}>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            {/* ── Footer du tiroir (17/09/2026, retour Bryan) — copyright,
+                toujours ancré en bas puisque la liste ci-dessus scroll
+                indépendamment (flex:1 + overflow-y:auto), jamais le tiroir
+                entier. ── */}
+            <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.border}`, color: C.t3, fontSize: "10.5px", textAlign: "center", flexShrink: 0 }}>
+              © 2026 Yelen224 — Par SemPya224
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
       {/* ── CONTENU PRINCIPAL ── */}
       {/* ── paddingBottom en dur (80px) remplacé par un calc() aligné sur la
           hauteur réelle de .yelen-bottom-nav (~48px de contenu) + son
@@ -3041,7 +3287,7 @@ function InstitutionDashboardInner() {
           au-dessus du menu du bas sur les appareils/navigateurs sans
           encoche (retour Bryan 29/07/2026, capture à l'appui). ≥1024px
           continue de forcer 0 via la règle existante, inchangé. ── */}
-      <div className={`yelen-main${tab !== "accueil" ? " yelen-has-footer" : ""}`} style={{ paddingBottom: tab !== "accueil" ? "calc(48px + 54px + env(safe-area-inset-bottom))" : "calc(48px + env(safe-area-inset-bottom))", marginLeft: `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 216 : 0)}px`, "--footer-left": `${(sidebarCollapsed ? 76 : 264) + (accountMenuOpen ? 216 : 0)}px`, transition: "margin-left 0.18s ease" } as React.CSSProperties}>
+      <div className="yelen-main" style={{ paddingBottom: "calc(48px + env(safe-area-inset-bottom))", marginLeft: `${(sidebarCollapsed ? 68 : 224) + (accountMenuOpen ? 216 : 0)}px`, transition: "margin-left 0.18s ease" } as React.CSSProperties}>
 
       {/* ── MODALS ── */}
       {showGuide && <GuideScalingModal onClose={() => setShowGuide(false)}/>}
@@ -3388,11 +3634,21 @@ function InstitutionDashboardInner() {
               )}
               <div style={{ minWidth: 0 }}>
                 <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {membrePrenom ? getSalutation(membrePrenom) : inst?.name ? getSalutation(inst.name) : "Dashboard"}
+                  {/* Retour Bryan 17/09/2026 : le rôle "admin" (propriétaire/
+                      responsable de l'établissement, seul rôle à accès total —
+                      voir MembreRole) est salué par le nom de l'entreprise, pas
+                      son propre prénom. Les 4 autres rôles (agent, comptable,
+                      superviseur, dirigeant) gardent la salutation par prénom,
+                      inchangée. */}
+                  {membreRole === "admin"
+                    ? (inst?.name ? getSalutation(inst.name) : "Dashboard")
+                    : (membrePrenom ? getSalutation(membrePrenom) : inst?.name ? getSalutation(inst.name) : "Dashboard")}
                 </div>
-                <div style={{ color: C.t3, fontSize: "9px", fontWeight: "700", letterSpacing: "0.5px" }}>
-                  {membreRole ? ROLE_LABELS[membreRole].toUpperCase() : "YELEN224 PRO"}
-                </div>
+                {/* ── Sous-titre rôle (ADMIN/AGENT D'ACCUEIL/…) retiré d'ici
+                    (retour Bryan 17/09/2026) : redondant avec le nom déjà
+                    affiché juste au-dessus, et encombrait la salutation.
+                    Déplacé dans le popover "Management" (icône avatar,
+                    ci-dessous) sous forme de carte profil en pied de menu. ── */}
               </div>
             </div>
 
@@ -3705,8 +3961,8 @@ function InstitutionDashboardInner() {
 
                         <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
                           <div style={{ color: C.t3, fontSize: "9px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 4px" }}>Informations légales</div>
-                          <a href="/cgu" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Conditions d&apos;utilisation</a>
-                          <a href="/confidentialite" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Politique de confidentialité</a>
+                          <Link href="/cgu" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Conditions d&apos;utilisation</Link>
+                          <Link href="/confidentialite" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Politique de confidentialité</Link>
                         </div>
                       </>
                     )}
@@ -3773,6 +4029,13 @@ function InstitutionDashboardInner() {
                   ...avatarMenuItems.map(item => ({ key: item.key, label: item.label, badge: 0, dot: false,
                     icon: item.icon,
                     onClick: () => { setTab(item.key); setActivePopover(null); } })),
+                  // "Yelen Business" (17/09/2026) — même raison que
+                  // avatarMenuItems ci-dessus : mobile n'a pas l'avatar du
+                  // header, repris ici pour garder un accès équivalent au
+                  // tiroir desktop (voir YELEN_BUSINESS_TABS).
+                  ...(YELEN_BUSINESS_TABS.some(t => navAllowed(t.key)) ? [{ key: "yelen-business", label: "Yelen Business", badge: 0, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>,
+                    onClick: () => { setBusinessMenuOpen(true); setActivePopover(null); } }] : []),
                   ...(tabAllowed(membreRole, "partenariat") ? [{ key: "partenariat", label: "Partenaires", badge: 0, dot: inst?.partenaire_statut === "approuve",
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg>,
                     onClick: () => { setTab("partenariat"); setActivePopover(null); } }] : []),
@@ -3864,6 +4127,44 @@ function InstitutionDashboardInner() {
                     </button>
                   );
                 })}
+              </div>
+
+              {/* ── "Yelen Business" (17/09/2026) — retour Bryan : trop chargé
+                  dans le menu principal gauche, mieux ici dans le popover
+                  "Management" du compte, ouvre un tiroir séparé à droite
+                  (voir .yelen-business-drawer), indépendant de la navigation
+                  interne à gauche. Séparateur au-dessus pour le distinguer
+                  des onglets Profil ci-dessus (ce n'est pas un onglet). ── */}
+              {YELEN_BUSINESS_TABS.some(t => navAllowed(t.key)) && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginTop: "6px", paddingTop: "6px", borderTop: `1px solid ${C.border}` }}>
+                  <button onClick={() => { setActivePopover(null); setBusinessMenuOpen(true); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: C.t1, fontSize: "13px", fontWeight: "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                    <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>
+                    <span style={{ flex: 1 }}>Yelen Business</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                </div>
+              )}
+
+              {/* ── Carte profil en pied de menu (retour Bryan 17/09/2026) —
+                  reprend le nom + rôle retirés de la salutation du header
+                  (redondants avec le nom déjà visible là-bas), présentés ici
+                  façon compte connecté (avatar initiale + nom + badge rôle),
+                  jamais du texte brut. Ici toujours le prénom du membre
+                  connecté lui-même (y compris rôle admin) — distinct de la
+                  salutation du header qui, elle, garde le nom de
+                  l'établissement pour ce rôle (décision inchangée). ── */}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", marginTop: "8px", borderTop: `1px solid ${C.border}` }}>
+                <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "13px", fontWeight: "800", color: "#000" }}>
+                  {(membrePrenom || "Y").charAt(0).toUpperCase()}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {membrePrenom || "Yelen224 Pro"}
+                  </div>
+                  <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    {membreRole ? ROLE_LABELS[membreRole] : "Yelen224 Pro"}
+                  </div>
+                </div>
               </div>
             </HeaderPopover>
           </div>
@@ -3986,11 +4287,11 @@ function InstitutionDashboardInner() {
         const todayStr = now2.toISOString().slice(0, 10);
 
         const donutSegments = [
-          { label: "Nouveau", value: stats.nouveau, color: C.gold },
-          { label: "En attente", value: stats.pending, color: C.orange },
-          { label: "Confirmés", value: stats.confirmed, color: C.blue },
-          { label: "Terminés", value: stats.done, color: C.green },
-          { label: "Annulés", value: stats.cancelled, color: C.red },
+          { label: "Nouveau", value: stats.nouveau, color: C.gold, filter: "nouveau" },
+          { label: "En attente", value: stats.pending, color: C.orange, filter: "en_attente" },
+          { label: "Confirmés", value: stats.confirmed, color: C.blue, filter: "confirme" },
+          { label: "Terminés", value: stats.done, color: C.green, filter: "effectue" },
+          { label: "Annulés", value: stats.cancelled, color: C.red, filter: "annule" },
         ];
         const donutTotal = donutSegments.reduce((a, b) => a + b.value, 0) || 1;
         const R = 58, CIRC = 2 * Math.PI * R;
@@ -4004,20 +4305,13 @@ function InstitutionDashboardInner() {
         ];
         const rappels = rappelsBruts.filter((r): r is Rappel => !!r);
 
-        const lignePts = (() => {
-          const W = 100, H = 34, pad = 3;
-          const maxC = Math.max(...stats.rdv_par_jour.map(d => d.count), 1);
-          return stats.rdv_par_jour.map((d, i) => ({
-            x: pad + (i / Math.max(stats.rdv_par_jour.length - 1, 1)) * (W - 2 * pad),
-            y: H - pad - (d.count / maxC) * (H - 2 * pad),
-            d,
-          }));
-        })();
-
         return (
         <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
           <style>{`
             .vd-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+            .vd-band{display:flex;flex-direction:column;gap:14px;margin-bottom:14px}
+            .vd-band-half{flex:1;min-width:0}
+            .vd-band-divider{display:none}
             .vd-analytics{display:flex;flex-direction:column;gap:16px}
             .vd-ops{display:flex;flex-direction:column;gap:16px}
             .vd-header{display:flex;flex-direction:column}
@@ -4036,6 +4330,10 @@ function InstitutionDashboardInner() {
             }
             @media(min-width:1024px){
               .vd-kpis{grid-template-columns:repeat(7,1fr)}
+              .vd-kpis.vd-kpis-2{grid-template-columns:repeat(2,1fr)}
+              .vd-kpis.vd-kpis-3{grid-template-columns:repeat(3,1fr)}
+              .vd-band{flex-direction:row;align-items:stretch;gap:24px;margin-bottom:20px}
+              .vd-band-divider{display:block;width:1px;flex-shrink:0;border-radius:2px}
               .vd-analytics{display:grid;grid-template-columns:2fr 2fr 1.5fr;align-items:start}
               .vd-ops{display:grid;grid-template-columns:repeat(3,1fr);align-items:start}
               .vd-header{flex-direction:row;align-items:flex-end;justify-content:space-between;gap:20px}
@@ -4058,8 +4356,8 @@ function InstitutionDashboardInner() {
               <div className="vd-date-inline" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>
                 {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </div>
-              <h1 className="vd-title" style={{ color: C.t1, marginBottom: "6px" }}>Vue d&apos;ensemble</h1>
-              <p style={{ color: C.t2, fontSize: "13px" }}>Suivez la performance de votre établissement en temps réel.</p>
+              <h1 className="vd-title" style={{ color: C.t1, marginBottom: "6px" }}>Aperçu général</h1>
+              <p style={{ color: C.t2, fontSize: "13px" }}>Suivez la performance de votre entreprise en temps réel.</p>
             </div>
 
             <div className="vd-greeting" style={{ position: "relative", width: "110px", aspectRatio: "1250 / 1024", flexShrink: 0 }}>
@@ -4113,34 +4411,81 @@ function InstitutionDashboardInner() {
             </div>
           </div>
 
-          {/* ── SECTION 2 : 6 cartes KPI ── */}
-          <div className="vd-kpis" style={{ marginBottom: "20px" }}>
-            {[
-              { label: "Nouveaux RDV", value: stats.nouveau,   color: C.gold,   variation: stats.kpi_variations.nouveau,   filter: "nouveau",    icon: <><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></> },
-              { label: "En attente",   value: stats.pending,   color: C.orange, variation: stats.kpi_variations.pending,   filter: "en_attente", icon: <><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></> },
-              { label: "Non traités",  value: stats.non_traites, color: C.orange, variation: stats.kpi_variations.non_traites, filter: "en_retard", icon: <><circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></> },
-              { label: "Confirmés",    value: stats.confirmed, color: C.blue,   variation: stats.kpi_variations.confirmed, filter: "confirme",   icon: <><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></> },
-              { label: "Terminés",     value: stats.done,      color: C.green,  variation: stats.kpi_variations.done,      filter: "effectue",   icon: <><rect x="4" y="4" width="16" height="16" rx="4"/><polyline points="8 12 11 15 16 9"/></> },
-              { label: "Annulés",      value: stats.cancelled, color: C.red,    variation: stats.kpi_variations.cancelled, filter: "annule",     icon: <><circle cx="12" cy="12" r="9"/><line x1="14.5" y1="9.5" x2="9.5" y2="14.5"/><line x1="9.5" y1="9.5" x2="14.5" y2="14.5"/></> },
-              { label: "Total RDV",    value: stats.rdv_total, color: C.purple, variation: stats.kpi_variations.total,     filter: "tous",       icon: <><line x1="7" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="20" y2="12"/><line x1="7" y1="17" x2="20" y2="17"/><line x1="4" y1="7" x2="4.01" y2="7"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="17" x2="4.01" y2="17"/></> },
-            ].map(k => (
-              <Card key={k.label} tokens={toCardTokens(C)} padding="12px" onClick={() => { setTab("rdv"); setRdvFilter(k.filter); }} className="tap yelen-card-hover" style={{ boxShadow: C.shadow }}>
-                <div style={{ width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "6px" }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={k.color} strokeWidth="2" strokeLinecap="round">{k.icon}</svg>
+          {/* ── SECTION 2 : 7 cartes KPI — V3 (17/09/2026), composition
+              affinée le 17/09/2026 (retour Bryan) : Activité + À traiter
+              fusionnées en une seule bande horizontale (50/50, séparateur
+              vertical doré) pour récupérer de la hauteur — Résultat garde
+              sa propre rangée en dessous. Mêmes 7 cartes, mêmes clics
+              setTab("rdv")+setRdvFilter, même variation "Pas encore de
+              comparaison" (voir variationVsHier), aucune donnée/logique
+              changée : uniquement la composition. ── */}
+          {(() => {
+            type KpiCarte = { label: string; value: number; color: string; variation: KpiVariation; filter: string; icon: React.ReactNode };
+            const groupeActivite: KpiCarte[] = [
+              { label: "Nouveaux RDV", value: stats.nouveau,   color: C.gold,   variation: stats.kpi_variations.nouveau, filter: "nouveau", icon: <><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></> },
+              { label: "Total RDV",    value: stats.rdv_total, color: C.purple, variation: stats.kpi_variations.total,   filter: "tous",    icon: <><line x1="7" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="20" y2="12"/><line x1="7" y1="17" x2="20" y2="17"/><line x1="4" y1="7" x2="4.01" y2="7"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="17" x2="4.01" y2="17"/></> },
+            ];
+            const groupeATraiter: KpiCarte[] = [
+              { label: "En attente",  value: stats.pending,     color: C.orange, variation: stats.kpi_variations.pending,     filter: "en_attente", icon: <><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></> },
+              { label: "Non traités", value: stats.non_traites, color: C.orange, variation: stats.kpi_variations.non_traites, filter: "en_retard",  icon: <><circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></> },
+            ];
+            const groupeResultat: KpiCarte[] = [
+              { label: "Confirmés", value: stats.confirmed, color: C.blue,  variation: stats.kpi_variations.confirmed, filter: "confirme", icon: <><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></> },
+              { label: "Terminés",  value: stats.done,      color: C.green, variation: stats.kpi_variations.done,      filter: "effectue", icon: <><rect x="4" y="4" width="16" height="16" rx="4"/><polyline points="8 12 11 15 16 9"/></> },
+              { label: "Annulés",   value: stats.cancelled, color: C.red,   variation: stats.kpi_variations.cancelled, filter: "annule",   icon: <><circle cx="12" cy="12" r="9"/><line x1="14.5" y1="9.5" x2="9.5" y2="14.5"/><line x1="9.5" y1="9.5" x2="14.5" y2="14.5"/></> },
+            ];
+            const renderCartes = (items: KpiCarte[]) => (
+              <div className={`vd-kpis vd-kpis-${items.length}`}>
+                {items.map(k => (
+                  <Card key={k.label} tokens={toCardTokens(C)} padding="12px" onClick={() => { setTab("rdv"); setRdvFilter(k.filter); }} className="tap yelen-card-hover" style={{ boxShadow: C.shadow }}>
+                    <div style={{ width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "6px" }}>
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={k.color} strokeWidth="2" strokeLinecap="round">{k.icon}</svg>
+                    </div>
+                    <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-0.5px", lineHeight: 1 }}><AnimatedNumber value={k.value}/></div>
+                    <div style={{ color: C.t2, fontSize: "11px", fontWeight: "700", marginTop: "3px" }}>{k.label}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "3px", marginTop: "3px" }}>
+                      {k.variation.has ? (
+                        <>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={k.variation.value >= 0 ? C.green : C.red} strokeWidth="3" strokeLinecap="round" style={{ transform: k.variation.value < 0 ? "rotate(180deg)" : "none" }}><polyline points="18 15 12 9 6 15"/></svg>
+                          <span style={{ color: k.variation.value >= 0 ? C.green : C.red, fontSize: "10px", fontWeight: "800" }}>{k.variation.value >= 0 ? "+" : ""}{k.variation.value}%</span>
+                          <span style={{ color: C.t3, fontSize: "10px" }}>vs hier</span>
+                        </>
+                      ) : (
+                        <span style={{ color: C.t3, fontSize: "9.5px", fontStyle: "italic" }}>Pas encore de comparaison</span>
+                      )}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            );
+            const labelStyle: React.CSSProperties = { color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: "8px" };
+            return (
+              <>
+                <div className="vd-band">
+                  <div className="vd-band-half">
+                    <div style={labelStyle}>Activité</div>
+                    {renderCartes(groupeActivite)}
+                  </div>
+                  <div className="vd-band-divider" style={{ background: `linear-gradient(to bottom, transparent, ${C.gold}55, transparent)` }}/>
+                  <div className="vd-band-half">
+                    <div style={labelStyle}>À traiter</div>
+                    {renderCartes(groupeATraiter)}
+                  </div>
                 </div>
-                <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-0.5px", lineHeight: 1 }}><AnimatedNumber value={k.value}/></div>
-                <div style={{ color: C.t2, fontSize: "11px", fontWeight: "700", marginTop: "3px" }}>{k.label}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: "3px", marginTop: "3px" }}>
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={k.variation >= 0 ? C.green : C.red} strokeWidth="3" strokeLinecap="round" style={{ transform: k.variation < 0 ? "rotate(180deg)" : "none" }}><polyline points="18 15 12 9 6 15"/></svg>
-                  <span style={{ color: k.variation >= 0 ? C.green : C.red, fontSize: "10px", fontWeight: "800" }}>{k.variation >= 0 ? "+" : ""}{k.variation}%</span>
-                  <span style={{ color: C.t3, fontSize: "10px" }}>vs hier</span>
+                <div style={{ marginBottom: "14px" }}>
+                  <div style={labelStyle}>Résultat</div>
+                  {renderCartes(groupeResultat)}
                 </div>
-              </Card>
-            ))}
-          </div>
+              </>
+            );
+          })()}
 
-          {/* ── Bonus conservé : Aujourd'hui + Semaine/Mois (pas dans le
-              spec, donnée réelle distincte non dupliquée ailleurs) ── */}
+          {/* ── Aujourd'hui + Semaine/Mois — V3 : Aujourd'hui montre en plus
+              l'heure du prochain RDV du jour (donnée déjà calculée dans
+              `prochains` ci-dessus, pas de nouvelle requête) ; Semaine/Mois
+              affichent "Historique insuffisant pour établir une tendance" au
+              lieu d'un "+0% vs préc." fabriqué quand la période précédente
+              n'a aucun RDV réel à comparer (evolution_*_has). ── */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "24px", flexWrap: "wrap" }}>
             <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: "1 1 200px", boxShadow: C.shadow }}>
               <div style={{ color: C.t2, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Aujourd&apos;hui</div>
@@ -4150,9 +4495,17 @@ function InstitutionDashboardInner() {
                   <div style={{ color: C.t3, fontSize: "11px", lineHeight: 1.4 }}>Aucun RDV confirmé aujourd&apos;hui.</div>
                 </div>
               ) : (
-                <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
-                  <div style={{ color: C.t1, fontSize: "34px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.today}/></div>
-                  <div style={{ color: C.t3, fontSize: "11px" }}>{stats.confirmed} confirmés</div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+                    <div style={{ color: C.t1, fontSize: "34px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.today}/></div>
+                    <div style={{ color: C.t3, fontSize: "11px" }}>{stats.confirmed} confirmés</div>
+                  </div>
+                  {(() => {
+                    const prochainAuj = prochains.find(r => r.date_rdv === todayStr);
+                    return prochainAuj ? (
+                      <div style={{ color: C.t2, fontSize: "10.5px", marginTop: "6px" }}>Prochain à {formatHeure(prochainAuj.heure_rdv)} — {prochainAuj.citoyen_nom}</div>
+                    ) : null;
+                  })()}
                 </div>
               )}
             </Card>
@@ -4161,7 +4514,9 @@ function InstitutionDashboardInner() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: C.t2, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Semaine</div>
                   <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.week}/></div>
-                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px" }}>{stats.evolution_week > 0 ? "+" : ""}{stats.evolution_week}% vs préc.</div>
+                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px", fontStyle: stats.evolution_week_has ? "normal" : "italic" }}>
+                    {stats.evolution_week_has ? `${stats.evolution_week > 0 ? "+" : ""}${stats.evolution_week}% vs préc.` : "Historique insuffisant pour établir une tendance"}
+                  </div>
                 </div>
                 <Image src="/illustrations/rdv-semaine.png" alt="" width={880} height={560} style={{ width: "90px", height: "auto", flexShrink: 0, display: "block" }}/>
               </div>
@@ -4171,7 +4526,9 @@ function InstitutionDashboardInner() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: C.t2, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Mois</div>
                   <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.month}/></div>
-                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px" }}>{stats.evolution_month > 0 ? "+" : ""}{stats.evolution_month}% vs préc.</div>
+                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px", fontStyle: stats.evolution_month_has ? "normal" : "italic" }}>
+                    {stats.evolution_month_has ? `${stats.evolution_month > 0 ? "+" : ""}${stats.evolution_month}% vs préc.` : "Historique insuffisant pour établir une tendance"}
+                  </div>
                 </div>
                 <Image src="/illustrations/rdv-mois.png" alt="" width={1150} height={650} style={{ width: "90px", height: "auto", flexShrink: 0, display: "block" }}/>
               </div>
@@ -4182,35 +4539,76 @@ function InstitutionDashboardInner() {
           <div className="vd-analytics" style={{ marginBottom: "24px" }}>
             <ScoreSante score={stats.score_sante} stats={stats} actionsPrioritaires={actionsPrioritaires} onVoirActions={() => { setTab("rdv"); setRdvFilter("nouveau"); }}/>
 
-            <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
-                <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Évolution des RDV</span>
-                <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700", backgroundColor: C.bg3, padding: "3px 9px", borderRadius: "20px" }}>7 jours</span>
-              </div>
-              <svg viewBox="0 0 100 34" width="100%" height="90" preserveAspectRatio="none">
-                {[0.25, 0.5, 0.75].map(f => <line key={f} x1="3" x2="97" y1={34 - 3 - f * 28} y2={34 - 3 - f * 28} stroke={C.border} strokeWidth="0.4"/>)}
-                <path d={lignePts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ")} fill="none" stroke={C.blue} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                {lignePts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="1.6" fill={C.blue}/>)}
-              </svg>
-              <div style={{ display: "flex", marginBottom: "14px" }}>
-                {stats.rdv_par_jour.map((d, i) => (
-                  <span key={i} style={{ flex: 1, textAlign: "center", color: C.t3, fontSize: "9px", fontWeight: "600" }}>{d.day}</span>
-                ))}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                {[
-                  { label: "Total RDV", value: String(stats.rdv_total) },
-                  { label: "vs semaine dernière", value: `${stats.evolution_week > 0 ? "+" : ""}${stats.evolution_week}%` },
-                  { label: "Moyenne / jour", value: (stats.week / 7).toFixed(1) },
-                  { label: "Jour le plus chargé", value: stats.peak_day },
-                ].map(s => (
-                  <div key={s.label}>
-                    <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800" }}>{s.value}</div>
-                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{s.label}</div>
+            {(() => {
+              // V3 (17/09/2026) — sélecteur 7/30/90j dérivé de `rdvs` (déjà
+              // chargé en entier, 300 RDV les + récents) plutôt que du seul
+              // stats.rdv_par_jour figé à 7 jours. Comparaison à la période
+              // précédente de même longueur, honnête (evoHasComparison=false
+              // → "Pas encore de comparaison", jamais un % fabriqué).
+              const evoDebut = new Date(now2); evoDebut.setDate(evoDebut.getDate() - (evolutionRange - 1)); evoDebut.setHours(0, 0, 0, 0);
+              const evoPrevDebut = new Date(evoDebut); evoPrevDebut.setDate(evoPrevDebut.getDate() - evolutionRange);
+              const evoPrevFin = new Date(evoDebut); evoPrevFin.setDate(evoPrevFin.getDate() - 1);
+              const evolutionSeries = Array.from({ length: evolutionRange }, (_, i) => {
+                const d = new Date(evoDebut); d.setDate(d.getDate() + i);
+                const ds = d.toISOString().slice(0, 10);
+                return { date: ds, day: d.toLocaleDateString("fr-FR", { weekday: "short" }), count: rdvs.filter(r => r.date_rdv === ds).length };
+              });
+              const evoTotal = evolutionSeries.reduce((a, b) => a + b.count, 0);
+              const evoPrecN = rdvs.filter(r => new Date(r.date_rdv) >= evoPrevDebut && new Date(r.date_rdv) <= evoPrevFin).length;
+              const evoHasComparison = evoPrecN > 0;
+              const evoDeltaPct = evoHasComparison ? Math.round(((evoTotal - evoPrecN) / evoPrecN) * 100) : 0;
+              const evoLabelComparaison = evolutionRange === 7 ? "vs semaine précédente" : evolutionRange === 30 ? "vs mois précédent" : "vs période précédente";
+              const maxC = Math.max(...evolutionSeries.map(d => d.count), 1);
+              const rPt = evolutionRange > 30 ? 0.8 : evolutionRange > 7 ? 1.2 : 1.6;
+              const evolutionPts = evolutionSeries.map((d, i) => ({
+                x: 3 + (i / Math.max(evolutionSeries.length - 1, 1)) * 94,
+                y: 34 - 3 - (d.count / maxC) * 28,
+                d,
+              }));
+              return (
+              <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+                  <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Évolution des RDV</span>
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    {([7, 30, 90] as const).map(r => (
+                      <button key={r} onClick={() => setEvolutionRange(r)} className="tap" style={{ backgroundColor: evolutionRange === r ? C.gold : C.bg3, color: evolutionRange === r ? "#080812" : C.t2, border: "none", borderRadius: "20px", padding: "3px 10px", fontSize: "10px", fontWeight: "800", cursor: "pointer" }}>
+                        {r}j
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </Card>
+                </div>
+                <svg viewBox="0 0 100 34" width="100%" height="90" preserveAspectRatio="none">
+                  {[0.25, 0.5, 0.75].map(f => <line key={f} x1="3" x2="97" y1={34 - 3 - f * 28} y2={34 - 3 - f * 28} stroke={C.border} strokeWidth="0.4"/>)}
+                  <path d={evolutionPts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ")} fill="none" stroke={C.blue} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  {evolutionPts.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={rPt} fill={C.blue} style={{ cursor: "pointer" }} onClick={() => { setRdvDateFilter(p.d.date); setTab("rdv"); }}>
+                      <title>{`${p.d.date} — ${p.d.count} RDV`}</title>
+                    </circle>
+                  ))}
+                </svg>
+                {evolutionRange === 7 && (
+                  <div style={{ display: "flex", marginBottom: "14px" }}>
+                    {evolutionSeries.map((d, i) => (
+                      <span key={i} style={{ flex: 1, textAlign: "center", color: C.t3, fontSize: "9px", fontWeight: "600" }}>{d.day}</span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: evolutionRange === 7 ? 0 : "14px" }}>
+                  {[
+                    { label: `Total (${evolutionRange}j)`, value: String(evoTotal) },
+                    { label: evoLabelComparaison, value: evoHasComparison ? `${evoDeltaPct > 0 ? "+" : ""}${evoDeltaPct}%` : "Pas encore de comparaison" },
+                    { label: "Moyenne / jour", value: (evoTotal / evolutionRange).toFixed(1) },
+                    { label: "Jour le plus chargé", value: stats.peak_day },
+                  ].map(s => (
+                    <div key={s.label}>
+                      <div style={{ color: C.t1, fontSize: s.value.length > 12 ? "12px" : "16px", fontWeight: "800" }}>{s.value}</div>
+                      <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+              );
+            })()}
 
             <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
               <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Répartition par statut</span>
@@ -4223,7 +4621,7 @@ function InstitutionDashboardInner() {
                       const dash = `${frac * CIRC} ${CIRC}`;
                       const offset = -donutCumul * CIRC;
                       donutCumul += frac;
-                      return seg.value > 0 ? <circle key={seg.label} cx="66" cy="66" r={R} fill="none" stroke={seg.color} strokeWidth="14" strokeDasharray={dash} strokeDashoffset={offset}/> : null;
+                      return seg.value > 0 ? <circle key={seg.label} cx="66" cy="66" r={R} fill="none" stroke={seg.color} strokeWidth="14" strokeDasharray={dash} strokeDashoffset={offset} onClick={() => { setTab("rdv"); setRdvFilter(seg.filter); }} style={{ cursor: "pointer" }}/> : null;
                     })}
                   </svg>
                   <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -4233,7 +4631,7 @@ function InstitutionDashboardInner() {
                 </div>
                 <div style={{ flex: 1, minWidth: "140px" }}>
                   {donutSegments.map(seg => (
-                    <div key={seg.label} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                    <div key={seg.label} onClick={() => { setTab("rdv"); setRdvFilter(seg.filter); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", cursor: "pointer" }}>
                       <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: seg.color, flexShrink: 0 }}/>
                       <span style={{ color: C.t2, fontSize: "11px", flex: 1 }}>{seg.label}</span>
                       <span style={{ color: C.t1, fontSize: "11px", fontWeight: "800" }}>{seg.value}</span>
@@ -4319,12 +4717,25 @@ function InstitutionDashboardInner() {
               </button>
             </Card>
 
+            {/* ── V3 (17/09/2026) : "Rappels importants" renommée "À traiter
+                maintenant" (brief CEO) — même logique déjà exactement
+                conforme au spec (rappelsBruts ne construit un item que si
+                une vraie condition est vraie, jamais un rappel de façade),
+                pas de carte dupliquée. Empty state complété d'une phrase
+                explicite "Tout est à jour" en plus des illustrations déjà
+                réelles. ── */}
             <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
-              <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Rappels importants</span>
+              <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>À traiter maintenant</span>
               {rappels.length === 0 ? (
-                <div style={{ display: "flex", gap: "10px" }}>
-                  <Image src="/illustrations/rdv-retard-vide.png" alt="Vous n'avez aucun RDV en retard, vous êtes à jour" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
-                  <Image src="/illustrations/annulations-vide.png" alt="Vous n'avez eu aucune annulation ces 30 derniers jours" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "10px" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span style={{ color: C.green, fontSize: "12px", fontWeight: "800" }}>Tout est à jour</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <Image src="/illustrations/rdv-retard-vide.png" alt="Vous n'avez aucun RDV en retard, vous êtes à jour" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
+                    <Image src="/illustrations/annulations-vide.png" alt="Vous n'avez eu aucune annulation ces 30 derniers jours" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
+                  </div>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -4431,6 +4842,11 @@ function InstitutionDashboardInner() {
             <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
               <Link href="/cgu" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>CGU</Link>
               <Link href="/confidentialite" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>Confidentialité</Link>
+              {/* Guide Yelen — même modale que le panneau "Aide" du header (setShowGuide). */}
+              <button onClick={() => setShowGuide(true)} className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "400", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>Guide</button>
+              <a href="/guide-prestataire" target="_blank" rel="noopener noreferrer" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>FAQ</a>
+              {/* Support — ouvre SupportYelenTab (tab "support") dans un nouvel onglet navigateur. */}
+              <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>Support</a>
               <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700" }}>© 2026 Yelen224 by SemPya224</span>
             </div>
             <button onClick={() => loadData()} disabled={refreshing} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: refreshing ? "default" : "pointer" }}>
@@ -5080,10 +5496,19 @@ function InstitutionDashboardInner() {
       <KeepMounted tabKey="paiements" current={tab} visited={visitedTabs}><PaiementsTab instId={instId} onToast={showToast} isAdmin={isAdmin}/></KeepMounted>
       <KeepMounted tabKey="transactions" current={tab} visited={visitedTabs}><TransactionsTab instId={instId}/></KeepMounted>
       <KeepMounted tabKey="historique-financier" current={tab} visited={visitedTabs}><HistoriqueFinancierTab instId={instId}/></KeepMounted>
-      <KeepMounted tabKey="facturation" current={tab} visited={visitedTabs}><FacturationTab instId={instId} onToast={showToast} isAdmin={isAdmin}/></KeepMounted>
+      <KeepMounted tabKey="facturation" current={tab} visited={visitedTabs}><FacturationTab instId={instId} onToast={showToast} isAdmin={isAdmin} membreRole={membreRole}
+          onVoirClient={tabAllowed(membreRole, "mes-clients", accesRestreints) ? (citoyenId) => { setMesClientsInitialId(citoyenId); setTab("mes-clients"); } : undefined}/></KeepMounted>
       <KeepMounted tabKey="rapports" current={tab} visited={visitedTabs}><RapportsTab instId={instId}/></KeepMounted>
       <KeepMounted tabKey="documents-financiers" current={tab} visited={visitedTabs}><DocumentsFinanciersTab instId={instId} onToast={showToast}/></KeepMounted>
       <KeepMounted tabKey="documents-clients" current={tab} visited={visitedTabs}><DocumentsClientsTab instId={instId} onToast={showToast} active={tab === "documents-clients"}/></KeepMounted>
+      {/* ═══ YELEN BUSINESS (17/09/2026) — 10 écrans à l'état vide (4
+          sections : Compte/Finance/Documents/Assistance), voir
+          YELEN_BUSINESS_SECTIONS/YelenBusinessStub en tête de fichier ═══ */}
+      {YELEN_BUSINESS_TABS.map(item => (
+        <KeepMounted key={item.key} tabKey={item.key} current={tab} visited={visitedTabs}>
+          <YelenBusinessStub label={item.label} icon={item.icon} C={C}/>
+        </KeepMounted>
+      ))}
       <KeepMounted tabKey="partenariat" current={tab} visited={visitedTabs}>
         {tabReadOnly(membreRole, "partenariat") && <ReadOnlyNotice C={C}/>}
         <PartenariatTab
@@ -5108,6 +5533,46 @@ function InstitutionDashboardInner() {
       <KeepMounted tabKey="collaboration" current={tab} visited={visitedTabs}>
         <CollaborationTab onToast={showToast}/>
       </KeepMounted>
+
+      {/* ═══════════════════════════════════════════════════════════
+          YELEN BUSINESS — relation commerciale institution <-> Yelen.
+          Premier écran construit (Compte Yelen) ; yelen-contrat/
+          yelen-forfait/yelen-paiements/yelen-transactions/
+          yelen-reconciliation/yelen-frais-commissions/yelen-facturation/
+          yelen-documents/yelen-support restent à l'état vide (chantiers
+          séparés à venir).
+      ═══════════════════════════════════════════════════════════ */}
+      <KeepMounted tabKey="yelen-compte" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenCompteTab inst={inst} onToast={showToast}
+          onVoirJournal={tabAllowed(membreRole, "journal") ? () => setTab("journal") : undefined}
+          onContacterSupport={() => setTab("support")}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-contrat" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenContratTab inst={inst} onToast={showToast} onContacterSupport={() => setTab("support")}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-forfait" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenForfaitTab inst={inst} onToast={showToast} onContacterSupport={() => setTab("support")}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-paiements" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenPaiementsTab inst={inst} onToast={showToast}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-transactions" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenTransactionsTab inst={inst} onToast={showToast} membreRole={membreRole} onVoirForfait={() => setTab("yelen-forfait")}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-reconciliation" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenReconciliationTab inst={inst} onToast={showToast} membreRole={membreRole}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-frais-commissions" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenFraisTab inst={inst} onToast={showToast} membreRole={membreRole}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-facturation" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <YelenFacturationTab inst={inst} onToast={showToast} membreRole={membreRole} onVoirForfait={() => setTab("yelen-forfait")}/>
+      </KeepMounted>
+      <KeepMounted tabKey="yelen-documents" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        {tabReadOnly(membreRole, "yelen-documents") && <ReadOnlyNotice C={C}/>}
+        <YelenDocumentsTab inst={inst} onToast={showToast} membreRole={membreRole}/>
+      </KeepMounted>
+
       {/* Support Yelen (chantier "Séparation Messagerie/Support" 06/09/2026)
           — URL propre /{slug}/{id}/support, ouverte dans un nouvel onglet
           navigateur depuis le panneau header "Aide & ressources" (jamais un
@@ -5134,7 +5599,7 @@ function InstitutionDashboardInner() {
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="mes-clients" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
         {tabReadOnly(membreRole, "mes-clients", accesRestreints) && <ReadOnlyNotice C={C}/>}
-        <MesClientsTab instId={instId} onToast={showToast} isAdmin={isAdmin} access={tabReadOnly(membreRole, "mes-clients", accesRestreints) ? "read" : "full"} onOuvrirMessagerie={tabAllowed(membreRole, "messagerie") ? ouvrirMessagerieClient : undefined} initialClientId={mesClientsInitialId} onInitialClientConsumed={() => setMesClientsInitialId(null)}/>
+        <MesClientsTab instId={instId} onToast={showToast} isAdmin={isAdmin} access={tabReadOnly(membreRole, "mes-clients", accesRestreints) ? "read" : "full"} onOuvrirMessagerie={tabAllowed(membreRole, "messagerie") ? ouvrirMessagerieClient : undefined} onVoirFacturation={tabAllowed(membreRole, "facturation", accesRestreints) ? () => setTab("facturation") : undefined} initialClientId={mesClientsInitialId} onInitialClientConsumed={() => setMesClientsInitialId(null)} initialSortBy={mesClientsInitialFiltre} onInitialSortByConsumed={() => setMesClientsInitialFiltre(null)} initialSearch={mesClientsInitialSearch} onInitialSearchConsumed={() => setMesClientsInitialSearch(null)}/>
       </KeepMounted>
 
       <KeepMounted tabKey="equipe" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
@@ -5172,6 +5637,7 @@ function InstitutionDashboardInner() {
           stats={stats}
           onOpenGuide={() => setShowGuide(true)}
           active={tab === "analyse"}
+          onVoirClients={tabAllowed(membreRole, "mes-clients", accesRestreints) ? (filtre, texte) => { setMesClientsInitialFiltre(filtre ?? null); setMesClientsInitialSearch(texte ?? null); setTab("mes-clients"); } : undefined}
         />
       </KeepMounted>
 
@@ -5326,33 +5792,6 @@ function InstitutionDashboardInner() {
         <LegalTab/>
       </KeepMounted>
 
-      {/* ── FOOTER GÉNÉRAL — tous les onglets sauf "Vue d'ensemble" (décision
-          Bryan 16/09/2026). Un seul rendu, sibling de tous les KeepMounted
-          ci-dessus : reste dans le flux sous l'onglet actif quel qu'il soit,
-          pas besoin de le dupliquer dans chaque écran. ── */}
-      {tab !== "accueil" && (
-        <footer className="yelen-footer-fixed" style={{ padding: "12px 16px", textAlign: "center", backgroundColor: `${C.bgCard}F7`, backdropFilter: "blur(32px) saturate(200%)", borderTop: `1px solid ${C.border}` }}>
-          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: "10px" }}>
-            <a href="/cgu" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>CGU</a>
-            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
-            <a href="/confidentialite" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>Confidentialité</a>
-            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
-            {/* Guide Yelen — même modale que le panneau "Aide" du header
-                (setShowGuide), pas un 2e composant de guide parallèle. */}
-            <button onClick={() => setShowGuide(true)} className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>Guide</button>
-            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
-            <a href="/guide-prestataire" target="_blank" rel="noopener noreferrer" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>FAQ</a>
-            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
-            {/* Support — ouvre SupportYelenTab (tab "support") dans un nouvel
-                onglet navigateur, même mécanisme que le panneau "Aide" du
-                header (retour Bryan : "l'utilisateur peut naviguer entre les
-                2 écrans"), pas une navigation interne setTab(). */}
-            <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textDecoration: "none" }}>Support</a>
-            <span style={{ color: C.border2, fontSize: "11px" }}>·</span>
-            <span style={{ color: C.t3, fontSize: "10px" }}>© 2026 Yelen224 by SemPya224</span>
-          </div>
-        </footer>
-      )}
 
       {/* ═══════ BOTTOM NAVIGATION — 4 onglets + "Plus" (mobile) ═══════
           8-9 onglets ne tiennent plus dans une barre à 5 colonnes égales.

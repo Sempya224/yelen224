@@ -365,7 +365,7 @@ function InstPopup({ inst, onClose, userPos }: {
               </div>
               <span style={{ color: "#3b82f6", fontSize: "12px", fontWeight: "700" }}>Itinéraire</span>
             </a>
-            <button onClick={() => { try { navigator.share({ title: inst.name, url: `/institution/${inst.id}` }) } catch { window.open(`/institution/${inst.id}`, "_blank") } }} className="pbtn" style={{
+            <button onClick={() => { try { navigator.share({ title: inst.name, url: `/institution/${inst.id}?source=share` }) } catch { window.open(`/institution/${inst.id}?source=share`, "_blank") } }} className="pbtn" style={{
               display: "flex", flexDirection: "column", alignItems: "center", gap: "7px",
               padding: "14px 10px", background: "rgba(139,92,246,0.06)",
               border: "1px solid rgba(139,92,246,0.2)", borderRadius: "14px",
@@ -396,7 +396,7 @@ function InstPopup({ inst, onClose, userPos }: {
           </a>
 
           {/* Fiche complète */}
-          <a href={`/institution/${inst.id}`} className="pbtn" style={{
+          <a href={`/institution/${inst.id}?source=nearby`} className="pbtn" style={{
             display: "block", textAlign: "center", marginTop: "10px", padding: "12px",
             border: "1px solid #e5e7eb", color: "#374151", fontWeight: "600",
             fontSize: "13px", borderRadius: "12px", textDecoration: "none",

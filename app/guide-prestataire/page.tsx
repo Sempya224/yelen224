@@ -393,7 +393,7 @@ function GuidePrestataireInner() {
             <p style={{ color: "#6b5000", fontSize: "13px", margin: "0 0 16px", lineHeight: 1.6 }}>Vous êtes prêt à lancer votre présence professionnelle sur Yelen224.</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               <Link href="/institution/inscription" style={{ background: "linear-gradient(135deg,#F5A623,#e8950f)", color: "#1a1200", fontWeight: "900", fontSize: "14px", padding: "14px", borderRadius: "14px", textDecoration: "none", textAlign: "center", boxShadow: "0 4px 16px rgba(245,166,35,0.4)" }}>Inscrire mon institution →</Link>
-              <a href="/contact" style={{ background: "rgba(255,255,255,0.7)", border: "1.5px solid rgba(200,140,0,0.25)", color: "#1a1200", fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", textAlign: "center" }}>Parler à l&apos;équipe</a>
+              <Link href="/contact" style={{ background: "rgba(255,255,255,0.7)", border: "1.5px solid rgba(200,140,0,0.25)", color: "#1a1200", fontWeight: "700", fontSize: "13px", padding: "13px", borderRadius: "14px", textDecoration: "none", textAlign: "center" }}>Parler à l&apos;équipe</Link>
             </div>
           </div>
         )}

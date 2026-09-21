@@ -76,7 +76,6 @@ const Ic = {
 const GOLD = "#F5A623";
 const GREEN = "#22c55e";
 const RED = "#ef4444";
-const BLUE = "#2563EB";
 
 type Statut = "jamais_soumis" | "en_attente" | "refusee" | "verifiee";
 type ErreurBloc = { titre: string; message: string } | null;
@@ -423,7 +422,7 @@ function FlowEnvoi({ T, showToast, onEnvoye }: { T: Tokens; showToast: (m: strin
             { n: "01", t: "Préparez votre CIN (recto et verso)" },
             { n: "02", t: "Photographiez le recto, le verso, puis vous-même" },
             { n: "03", t: "Yelen vérifie votre identité" },
-          ].map((s, i, arr) => (
+          ].map((s, i) => (
             <div key={s.n} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", borderTop: i > 0 ? `1px solid ${T.brd}` : "none" }}>
               <div style={{ width: "28px", height: "28px", borderRadius: "9px", background: T.isDark ? "rgba(245,166,35,0.12)" : "rgba(245,166,35,0.1)", color: GOLD, fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{s.n}</div>
               <span style={{ color: T.t1, fontSize: "13px", fontWeight: 600 }}>{s.t}</span>

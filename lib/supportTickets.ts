@@ -208,8 +208,14 @@ export async function obtenirTicketCitoyen(citoyenId: string, ticketId: string):
     .eq("ticket_id", ticketId)
     .order("cree_le", { ascending: true });
 
-  // Marquer lu côté citoyen — messages agent non lus.
-  void sb.from("support_ticket_messages").update({ lu: true }).eq("ticket_id", ticketId).eq("expediteur_type", "agent").eq("lu", false);
+  // Marquer lu côté citoyen — messages agent non lus. `.then()` obligatoire
+  // (pas `void` seul) : les builders supabase-js sont des thenables
+  // paresseux, la requête ne part réellement qu'une fois `.then()`/`.catch()`/
+  // `await` invoqué dessus — bug réel trouvé le 16/09/2026 sur le même
+  // pattern côté Chaîne Yelen (voir app/page.tsx::toggleAbonnement), jamais
+  // exécuté silencieusement jusqu'ici.
+  sb.from("support_ticket_messages").update({ lu: true }).eq("ticket_id", ticketId).eq("expediteur_type", "agent").eq("lu", false)
+    .then(({ error }) => { if (error) console.error("[Support] Marquage lu (citoyen) échoué:", error.message); });
 
   // Nom par MESSAGE, pas par ticket : un ticket réouvert (brief section
   // 21) peut être repris par un agent différent — utiliser agentNom
@@ -464,7 +470,8 @@ export async function obtenirTicketInstitution(institutionId: string, ticketId: 
     .eq("ticket_id", ticketId)
     .order("cree_le", { ascending: true });
 
-  void sb.from("support_ticket_messages").update({ lu: true }).eq("ticket_id", ticketId).eq("expediteur_type", "agent").eq("lu", false);
+  sb.from("support_ticket_messages").update({ lu: true }).eq("ticket_id", ticketId).eq("expediteur_type", "agent").eq("lu", false)
+    .then(({ error }) => { if (error) console.error("[Support] Marquage lu (citoyen) échoué:", error.message); });
 
   const agentIdsMessages = [...new Set((messages ?? []).map(m => m.agent_id).filter((v): v is string => !!v))];
   const agentNomParMessage = new Map<string, string>();
@@ -638,7 +645,8 @@ export async function obtenirTicketAgent(ticketId: string): Promise<(Omit<Ticket
   ]);
   const agentNom = agent ? [agent.prenom, agent.nom].filter(Boolean).join(" ") || "Agent Yelen" : null;
 
-  void sb.from("support_ticket_messages").update({ lu: true }).eq("ticket_id", ticketId).eq("expediteur_type", expediteurNonAgent).eq("lu", false);
+  sb.from("support_ticket_messages").update({ lu: true }).eq("ticket_id", ticketId).eq("expediteur_type", expediteurNonAgent).eq("lu", false)
+    .then(({ error }) => { if (error) console.error("[Support] Marquage lu (agent/institution) échoué:", error.message); });
 
   // Voir obtenirTicketCitoyen : nom par message, pas par ticket (agent
   // potentiellement différent après une réouverture).

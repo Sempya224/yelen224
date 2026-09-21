@@ -236,7 +236,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
     }
     setSavedForm(form);
     onToast("Profil entreprise enregistré.", C.green);
-  }, [form, onToast]);
+  }, [form, onToast, C.red, C.green]);
 
   // Ouvre le sélecteur — si statut_juridique est déjà connu, vérifie d'abord
   // si des documents ont été soumis (verrou : les documents requis sont
@@ -310,7 +310,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
     setActivitesSecondairesIds(pendingActivitesSecondairesIds);
     setTaxoModalOpen(false);
     onToast("Statut juridique et activité enregistrés.", C.green);
-  }, [pendingStatut, pendingCategorieId, pendingActivitePrincipaleId, pendingActivitesSecondairesIds, onToast]);
+  }, [pendingStatut, pendingCategorieId, pendingActivitePrincipaleId, pendingActivitesSecondairesIds, onToast, C.red, C.green]);
 
   if (loading) {
     return (

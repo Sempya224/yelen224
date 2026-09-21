@@ -314,7 +314,7 @@ function BoutonMaPosition({ position, statut, demarrerSuivi }: {
   );
 }
 
-export default function CarteMap({ institutions, selectedId = null, onSelect, onZoneChange, citoyenGeoloc = null }: {
+export default function CarteMap({ institutions, selectedId = null, onSelect, onZoneChange }: {
   institutions: Institution[]
   selectedId?: string | null
   onSelect?: (id: string) => void
@@ -327,6 +327,10 @@ export default function CarteMap({ institutions, selectedId = null, onSelect, on
   citoyenGeoloc?: { lat: number; lng: number } | null
 }) {
   const [mounted, setMounted] = useState(false)
+  // Détection "monté côté client" pour éviter un rendu SSR de Leaflet (API DOM
+  // indisponible côté serveur) — ne peut pas être calculé pendant le rendu,
+  // c'est justement ce que cet effet détecte.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setMounted(true) }, [])
   const { position: maPosition, statut: statutLocalisation, demarrerSuivi } = useMaPosition()
   if (!mounted) return null

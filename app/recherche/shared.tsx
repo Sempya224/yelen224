@@ -99,8 +99,8 @@ export function ctaPourInstitution(inst: Institution): { action: CtaAction; labe
 export function ctaHrefInstitution(inst: Institution, action: CtaAction): string {
   switch (action) {
     case "rdv": return `/rdv/${inst.id}`;
-    case "website": return urlExterneSure(inst.website) ?? `/institution/${inst.id}`;
-    case "whatsapp": return inst.whatsapp ? `https://wa.me/${inst.whatsapp.replace(/\D/g, "")}` : `/institution/${inst.id}`;
+    case "website": return urlExterneSure(inst.website) ?? `/institution/${inst.id}?source=yelen_search`;
+    case "whatsapp": return inst.whatsapp ? `https://wa.me/${inst.whatsapp.replace(/\D/g, "")}` : `/institution/${inst.id}?source=yelen_search`;
     case "phone": return `tel:${inst.phone}`;
   }
 }

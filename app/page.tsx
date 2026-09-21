@@ -635,10 +635,6 @@ function PromoBandeauDepuisSpec({ spec, isDark }: { spec: (typeof PROMO_BANDEAUX
 
 type RDV = { id: string; date_rdv: string; heure_rdv?: string; statut: string; objet?: string; institution_id?: string; institution_name?: string; institution_secteur?: string | null; institution_logo?: string | null; presence?: boolean; presence_status?: string };
 type Inst = { id: string; name: string; category?: string; secteur?: string; ville?: string; quartier?: string; adresse?: string; latitude?: number; longitude?: number; phone?: string; logo?: string; moyenne_avis?: number; nb_avis?: number; badge_verifie?: boolean; plan?: string; disponibilites?: unknown };
-// "Cette semaine" (Home V2) — mêmes formes exactes que /api/citoyen/assistant
-// (upcoming/avisAttente/annonces), voir components/MonAssistant.tsx pour la
-// version bandeau qui consomme la même route.
-type InstitutionLiteHome = { id: string; name: string; category: string; logo: string | null } | null;
 type PageRouter = ReturnType<typeof useRouter>;
 
 // new Date("2026-07-30") = minuit UTC = 29 juillet au soir dans un fuseau
@@ -1430,7 +1426,7 @@ function SuggestionsIntelligentes({ rdvs, insts, userLat, userLng, tendances, of
   if (userLat && userLng && insts.length > 0) {
     const proche = insts.find((i: Inst) => i.latitude && i.longitude);
     if (proche) {
-      suggestions.push({ icon: "📍", titre: proche.name, sous: "À proximité de vous · Disponible maintenant", href: `/institution/${proche.id}`, color: "#3b82f6", tag: "Près de vous" });
+      suggestions.push({ icon: "📍", titre: proche.name, sous: "À proximité de vous · Disponible maintenant", href: `/institution/${proche.id}?source=nearby`, color: "#3b82f6", tag: "Près de vous" });
     }
   }
 
@@ -2172,7 +2168,7 @@ function SearchPlaceholder({ color }: { color: string }) {
 // ============================================================
 // SECTION ABOUT + VIDEO YELEN224
 // ============================================================
-function AboutYelen({ isDark, t1, t2, brd }: { isDark: boolean; t1: string; t2: string; brd: string }) {
+function AboutYelen({ isDark, t1, t2 }: { isDark: boolean; t1: string; t2: string; brd: string }) {
   const [playing, setPlaying] = useState(false);
   const [thumbFallback, setThumbFallback] = useState(false);
   const VIDEO_ID = "3pvKVLhRcpo";
@@ -3379,6 +3375,7 @@ export default function YelenApp() {
     if (!userId || communauteFavorisEnCours[institutionId]) return;
     setCommunauteFavorisEnCours(prev => ({ ...prev, [institutionId]: "ajout" }));
     const { error } = await supabase.from("citoyen_favoris").insert({ citoyen_id: userId, institution_id: institutionId });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     if (error) { setCommunauteFavorisEnCours(prev => { const { [institutionId]: _drop, ...reste } = prev; return reste; }); return; }
     setCommunauteFavorisIds(prev => new Set(prev).add(institutionId));
     setCommunauteFavorisEnCours(prev => ({ ...prev, [institutionId]: "ajoute" }));
@@ -3463,12 +3460,21 @@ export default function YelenApp() {
       // Journal "Abonnés perdus" (23/08/2026) — best-effort, jamais
       // bloquant : le désabonnement lui-même est déjà acté ci-dessus,
       // l'événement n'est qu'une trace pour l'analytics institution.
-      void supabase.from("citoyen_abonnement_events").insert({ institution_id: institutionId, citoyen_id: userId, type: "desabonne" });
+      // ⚠️ `.then()` obligatoire (pas juste `void` devant l'appel) — les
+      // builders supabase-js sont des thenables paresseux, la requête HTTP
+      // ne part réellement que lorsque `.then()`/`.catch()`/`await` est
+      // invoqué dessus. Un simple `void supabase.from(...).insert(...)`
+      // construit la requête sans jamais l'envoyer — bug réel trouvé le
+      // 16/09/2026 (aucune ligne créée depuis le lancement de la
+      // fonctionnalité, silencieux car jamais vérifié).
+      supabase.from("citoyen_abonnement_events").insert({ institution_id: institutionId, citoyen_id: userId, type: "desabonne" })
+        .then(({ error }) => { if (error) console.error("[Chaîne Yelen] Événement désabonnement non enregistré:", error.message); });
     } else {
       const { error } = await supabase.from("citoyen_abonnements").insert({ institution_id: institutionId, citoyen_id: userId });
       if (error) { setAbonnementsIds(prev => { const next = new Set(prev); next.delete(institutionId); return next; }); return; }
       setAbonnementConfirmation({ nom, type: "abonne" });
-      void supabase.from("citoyen_abonnement_events").insert({ institution_id: institutionId, citoyen_id: userId, type: "abonne" });
+      supabase.from("citoyen_abonnement_events").insert({ institution_id: institutionId, citoyen_id: userId, type: "abonne" })
+        .then(({ error }) => { if (error) console.error("[Chaîne Yelen] Événement abonnement non enregistré:", error.message); });
     }
   }
 
@@ -4034,7 +4040,7 @@ export default function YelenApp() {
           institutionId={institutionProfilId}
           isDark={isDark} bg={bg} card={card} t1={t1} t2={t2} t3={t3} brd={brd}
           onClose={() => setInstitutionProfilId(null)}
-          onDecouvrir={() => { const id = institutionProfilId; setInstitutionProfilId(null); router.push(`/institution/${id}`); }}
+          onDecouvrir={() => { const id = institutionProfilId; setInstitutionProfilId(null); router.push(`/institution/${id}?source=community`); }}
           onOuvrirPost={post => { setInstitutionProfilId(null); ouvrirPostDetail(post); }}
           estAbonne={abonnementsIds.has(institutionProfilId)}
           onToggleAbonnement={nom => toggleAbonnement(institutionProfilId, nom)}

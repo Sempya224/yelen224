@@ -550,7 +550,7 @@ export function RechercheOverlay({
                 <SectionResultats titre="Établissements" C={C} t2={t2} onVoirTout={() => commit(query)} labelVoirTout="Voir tout">
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     {etablissementsTrouves.slice(0, 6).map(inst => (
-                      <div key={inst.id} className="ro-card"><CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { commit(query); window.location.href = `/institution/${inst.id}`; }} categorieById={categorieById}/></div>
+                      <div key={inst.id} className="ro-card"><CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { commit(query); window.location.href = `/institution/${inst.id}?source=yelen_search`; }} categorieById={categorieById}/></div>
                     ))}
                   </div>
                 </SectionResultats>
@@ -560,7 +560,7 @@ export function RechercheOverlay({
                 <SectionResultats titre="Services" C={C} t2={t2}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                     {servicesTrouves.map((s, i) => (
-                      <a key={`${s.instId}-${i}`} href={`/institution/${s.instId}`} onClick={() => commit(query)} className="ro-tap ro-card" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px", background: C.cardBg, borderRadius: "14px", textDecoration: "none" }}>
+                      <a key={`${s.instId}-${i}`} href={`/institution/${s.instId}?source=yelen_search`} onClick={() => commit(query)} className="ro-tap ro-card" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px", background: C.cardBg, borderRadius: "14px", textDecoration: "none" }}>
                         <InstitutionLogo inst={{ id: s.instId, name: s.instName, activite_categorie_id: s.instActiviteCategorieId, logo: s.instLogo } as Institution} size={38} categorieById={categorieById}/>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ color: C.text, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.nom}</div>
@@ -626,7 +626,7 @@ export function RechercheOverlay({
                 <SectionResultats titre="Recommandations" sousTitre={secteurTopLabel ? `Basé sur vos rendez-vous en ${secteurTopLabel.toLowerCase()}` : undefined} C={C} t2={t2}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     {recommandations.map(inst => (
-                      <div key={inst.id} className="ro-card"><CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { commit(query); window.location.href = `/institution/${inst.id}`; }} categorieById={categorieById}/></div>
+                      <div key={inst.id} className="ro-card"><CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { commit(query); window.location.href = `/institution/${inst.id}?source=yelen_search`; }} categorieById={categorieById}/></div>
                     ))}
                   </div>
                 </SectionResultats>
@@ -686,7 +686,7 @@ export function RechercheOverlay({
                 <div className="no-scroll" style={{ overflowX: "auto" }}>
                   <div style={{ display: "flex", gap: "10px", width: "max-content" }}>
                     {recentesInst.map(inst => (
-                      <a key={inst.id} href={`/institution/${inst.id}`} className="ro-tap" style={{ width: "84px", flexShrink: 0, textDecoration: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+                      <a key={inst.id} href={`/institution/${inst.id}?source=yelen_search`} className="ro-tap" style={{ width: "84px", flexShrink: 0, textDecoration: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
                         <InstitutionLogo inst={inst as unknown as Institution} size={56} categorieById={categorieById}/>
                         <span style={{ color: C.text, fontSize: "10.5px", fontWeight: "700", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>{inst.name}</span>
                       </a>
@@ -715,7 +715,7 @@ export function RechercheOverlay({
                   <div style={{ display: "flex", gap: "10px", width: "max-content" }}>
                     {s.items.map(inst => (
                       <div key={inst.id} style={{ width: "260px", flexShrink: 0 }}>
-                        <CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} hideCover estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { window.location.href = `/institution/${inst.id}`; }} categorieById={categorieById}/>
+                        <CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} hideCover estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { window.location.href = `/institution/${inst.id}?source=yelen_search`; }} categorieById={categorieById}/>
                       </div>
                     ))}
                   </div>
@@ -728,7 +728,7 @@ export function RechercheOverlay({
                 <div style={{ color: C.text, fontSize: "14px", fontWeight: "800", marginBottom: "10px" }}>Vos favoris</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {favorisInsts.slice(0, 4).map(inst => (
-                    <CarteInstitutionCard key={inst.id} inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { window.location.href = `/institution/${inst.id}`; }} categorieById={categorieById}/>
+                    <CarteInstitutionCard key={inst.id} inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => { window.location.href = `/institution/${inst.id}?source=yelen_search`; }} categorieById={categorieById}/>
                   ))}
                 </div>
               </section>

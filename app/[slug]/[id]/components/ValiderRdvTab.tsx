@@ -472,7 +472,6 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
     if (!actionSuccess) return;
     const t = setTimeout(() => resetCode(), 2000);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionSuccess]);
 
   const codeComplete = digits.every(d => d !== "");

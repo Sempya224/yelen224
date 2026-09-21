@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Sora } from "next/font/google";
 
 // Auto-hébergée (Lot 1.5, 13/08/2026) — voir app/ambassades/page.tsx pour
@@ -233,12 +234,12 @@ function FAQItem({ faq, sectionColor }: { faq: FAQ; sectionColor: string }) {
                 ) : (
                   <div style={{ textAlign: "center" }}>
                     <p style={{ color: "#8B6914", fontSize: "13px", margin: "0 0 10px", fontFamily: "var(--font-sora), sans-serif" }}>Merci. Notre équipe peut vous aider.</p>
-                    <a href="/contact" style={{
+                    <Link href="/contact" style={{
                       display: "inline-block", background: "#F5A623",
                       color: "#1a1200", fontWeight: "800", fontSize: "13px",
                       padding: "10px 22px", borderRadius: "12px", textDecoration: "none",
                       fontFamily: "var(--font-sora), sans-serif",
-                    }}>Contacter le support →</a>
+                    }}>Contacter le support →</Link>
                   </div>
                 )}
               </div>
@@ -392,9 +393,9 @@ export default function FAQPage() {
             <p style={{ color: "#6b5000", fontSize: "13px", maxWidth: "280px", margin: "0 auto 20px", lineHeight: 1.6 }}>
               Contactez directement notre équipe.
             </p>
-            <a href="/contact" style={{ display: "inline-block", background: "#F5A623", color: "#1a1200", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "16px", textDecoration: "none", fontFamily: "var(--font-sora), sans-serif", boxShadow: "0 4px 16px rgba(245,166,35,0.4)" }}>
+            <Link href="/contact" style={{ display: "inline-block", background: "#F5A623", color: "#1a1200", fontWeight: "800", fontSize: "14px", padding: "13px 28px", borderRadius: "16px", textDecoration: "none", fontFamily: "var(--font-sora), sans-serif", boxShadow: "0 4px 16px rgba(245,166,35,0.4)" }}>
               Contacter le support →
-            </a>
+            </Link>
           </div>
         )}
 
@@ -406,9 +407,9 @@ export default function FAQPage() {
               Disponible lun–ven 8h–18h GMT depuis Conakry et New York.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <a href="/contact" style={{ background: "#F5A623", color: "#1a1200", fontWeight: "800", fontSize: "14px", padding: "14px 24px", borderRadius: "16px", textDecoration: "none", fontFamily: "var(--font-sora), sans-serif", boxShadow: "0 4px 16px rgba(245,166,35,0.35)" }}>
+              <Link href="/contact" style={{ background: "#F5A623", color: "#1a1200", fontWeight: "800", fontSize: "14px", padding: "14px 24px", borderRadius: "16px", textDecoration: "none", fontFamily: "var(--font-sora), sans-serif", boxShadow: "0 4px 16px rgba(245,166,35,0.35)" }}>
                 Nous contacter →
-              </a>
+              </Link>
               <a href="tel:+13473016768" style={{ background: "rgba(255,255,255,0.7)", border: "1.5px solid rgba(200,140,0,0.25)", color: "#1a1200", fontWeight: "700", fontSize: "13px", padding: "13px 24px", borderRadius: "16px", textDecoration: "none", fontFamily: "var(--font-sora), sans-serif" }}>
                 📞 +1 347 301 6768
               </a>

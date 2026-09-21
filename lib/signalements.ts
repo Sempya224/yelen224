@@ -47,6 +47,8 @@ export async function creerSignalement(params: {
   motif: string;
   description: string;
   rdvId?: string | null;
+  incidentDate?: string | null;
+  incidentHeure?: string | null;
   priorite?: SignalementPriorite;
   acteur: Acteur;
   req?: NextRequest;
@@ -59,6 +61,8 @@ export async function creerSignalement(params: {
     motif: params.motif,
     description: params.description,
     rdv_id: params.rdvId ?? null,
+    incident_date: params.incidentDate ?? null,
+    incident_heure: params.incidentHeure ?? null,
     priorite: params.priorite ?? "normale",
     statut: "nouveau",
   }).select("id, numero_public").single();

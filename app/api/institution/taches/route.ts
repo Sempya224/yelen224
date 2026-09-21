@@ -35,14 +35,20 @@ export async function GET(req: NextRequest) {
   }
   const authInstId = membre.institutionId;
 
-  const statut = new URL(req.url).searchParams.get("statut");
+  const { searchParams } = new URL(req.url);
+  const statut = searchParams.get("statut");
+  const projetId = searchParams.get("projet_id");
   let query = sb
     .from("taches")
-    .select("id,titre,description,priorite,statut,echeance,checklist,citoyen_id,rdv_id,membre_id,cree_par_membre_id,created_at,updated_at")
+    .select("id,titre,description,priorite,statut,echeance,checklist,citoyen_id,rdv_id,membre_id,cree_par_membre_id,projet_id,created_at,updated_at")
     .eq("institution_id", authInstId)
     .order("echeance", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (statut && (STATUTS as readonly string[]).includes(statut)) query = query.eq("statut", statut);
+  // V3 Projets (20/09/2026, validé avec Bryan) — "même donnée, deux
+  // contextes" (item 11) : filtre additif, aucun changement pour les
+  // appelants existants (TachesSection.tsx n'envoie jamais ce paramètre).
+  if (projetId) query = query.eq("projet_id", projetId);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -68,6 +74,7 @@ export async function POST(req: NextRequest) {
   const citoyenId = typeof body?.citoyen_id === "string" ? body.citoyen_id : null;
   const rdvId = typeof body?.rdv_id === "string" ? body.rdv_id : null;
   const membreAssigneId = typeof body?.membre_id === "string" ? body.membre_id : null;
+  const projetId = typeof body?.projet_id === "string" ? body.projet_id : null;
   let checklist: ChecklistItem[] = [];
   if (body?.checklist !== undefined) {
     const parsed = parseChecklist(body.checklist);
@@ -87,10 +94,14 @@ export async function POST(req: NextRequest) {
     const { data: membreExists } = await sb.from("institution_membres").select("id").eq("institution_id", authInstId).eq("id", membreAssigneId).maybeSingle();
     if (!membreExists) return NextResponse.json({ error: "Membre introuvable pour cette institution" }, { status: 404 });
   }
+  if (projetId) {
+    const { data: projetExists } = await sb.from("projets").select("id").eq("institution_id", authInstId).eq("id", projetId).maybeSingle();
+    if (!projetExists) return NextResponse.json({ error: "Projet introuvable pour cette institution" }, { status: 404 });
+  }
 
   const { data, error } = await sb
     .from("taches")
-    .insert({ institution_id: authInstId, titre: titre.trim(), description, priorite, echeance, checklist, citoyen_id: citoyenId, rdv_id: rdvId, membre_id: membreAssigneId, cree_par_membre_id: membre.membreId })
+    .insert({ institution_id: authInstId, titre: titre.trim(), description, priorite, echeance, checklist, citoyen_id: citoyenId, rdv_id: rdvId, membre_id: membreAssigneId, projet_id: projetId, cree_par_membre_id: membre.membreId })
     .select("id")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -146,6 +157,13 @@ export async function PATCH(req: NextRequest) {
       if (!membreExists) return NextResponse.json({ error: "Membre introuvable pour cette institution" }, { status: 404 });
     }
     updates.membre_id = body.membre_id;
+  }
+  if (typeof body?.projet_id === "string" || body?.projet_id === null) {
+    if (typeof body.projet_id === "string") {
+      const { data: projetExists } = await sb.from("projets").select("id").eq("institution_id", authInstId).eq("id", body.projet_id).maybeSingle();
+      if (!projetExists) return NextResponse.json({ error: "Projet introuvable pour cette institution" }, { status: 404 });
+    }
+    updates.projet_id = body.projet_id;
   }
 
   const { data, error } = await sb

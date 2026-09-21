@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { Inter } from "next/font/google";
 import { supabase } from "@/lib/supabase";
@@ -968,7 +969,7 @@ function SignalementInner() {
               </button>
 
               <p style={{ fontSize: "11px", color: C.textFaint, textAlign: "center", lineHeight: "1.6", marginTop: "14px" }}>
-                En soumettant ce signalement, vous acceptez nos <a href="/cgu" style={{ color: "#F5A623", textDecoration: "none" }}>CGU</a> et confirmez l&apos;exactitude des informations fournies.
+                En soumettant ce signalement, vous acceptez nos <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none" }}>CGU</Link> et confirmez l&apos;exactitude des informations fournies.
               </p>
             </div>
           </div>

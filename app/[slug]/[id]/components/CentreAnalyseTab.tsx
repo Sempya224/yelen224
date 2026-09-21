@@ -30,18 +30,21 @@ import { parseLocalDate, SectionHeader, timeAgo } from "../dashboardShared";
 import { DEVISE_LABEL } from "@/lib/devise";
 import type { RDV, Stats } from "../layout";
 import type { VueEnsemble, KpiMetric, PointEvolution, TopOffre, PeriodeJours, CanalStat, AnalyseGeo, RegionStat, PrefectureStat } from "@/lib/analyseAggregation";
-import { genererInsightAnalyse, genererInsightClients } from "@/lib/analyseInsight";
+import { genererInsightAnalyse, genererInsightClients, genererPointsAttention, type PointAttention } from "@/lib/analyseInsight";
 import { GUINEE_REGIONS_GEO, GUINEE_VIEWBOX, GUINEE_CONTOUR_PATH, type RegionKey } from "@/lib/guineeRegionsGeo";
 import { REGIONS_GUINEE_LABELS } from "@/lib/villes";
-import type { SegmentCount, FrequenceBucket, RfmSegment, ClientAnalyseStat, EvolutionClientsPoint, AnalyseClients } from "@/lib/analyseClients";
+import type { SegmentCount, FrequenceBucket, RfmSegment, ClientAnalyseStat, EvolutionClientsPoint, AnalyseClients, RetentionSemaine, CohorteRetention } from "@/lib/analyseClients";
+import type { AnalyseAcquisition, SourceStat, ApresDecouverteStat, EvolutionAcquisitionPoint } from "@/lib/analyseAcquisition";
+import { type AcquisitionSource, ACQUISITION_SOURCE_LABELS } from "@/lib/acquisitionSource";
 import { SEGMENT_LABELS, type SegmentClient } from "@/lib/segmentsClients";
 import type { AnalyseTunnel, PerteEtape, CauseAbandon } from "@/lib/analyseTunnel";
 import type { AnalyseHeatmap, HeatmapCell, CreneauInfo, PerformanceJour } from "@/lib/analyseHeatmap";
 
-type SousOnglet = "vue-ensemble" | "tunnel" | "heatmap" | "geographie" | "mes-clients" | "performances";
+type SousOnglet = "vue-ensemble" | "acquisition" | "tunnel" | "heatmap" | "geographie" | "mes-clients" | "performances";
 
 const SOUS_ONGLETS: { key: SousOnglet; label: string; icon: React.ReactNode }[] = [
   { key: "vue-ensemble", label: "Vue d'ensemble", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg> },
+  { key: "acquisition", label: "Acquisition", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg> },
   { key: "tunnel", label: "Tunnel", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg> },
   { key: "heatmap", label: "Heatmap", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
   { key: "geographie", label: "Géographie", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> },
@@ -958,12 +961,413 @@ function EvolutionClients({ evolution, C }: { evolution: EvolutionClientsPoint[]
   );
 }
 
-function AnalyseClientsTab({ data, C }: { data: AnalyseClients | null; C: ThemeTokens }) {
+// ═══════════════════════════════════════════════════════════════════════
+// ACQUISITION — comment les citoyens découvrent la fiche + ce qu'ils font
+// ensuite. Présente des données, ne recommande jamais une source plutôt
+// qu'une autre (brief §13) — contrairement à "Insight IA" ailleurs dans
+// cet écran, qui recommande explicitement. Aucun événement "service_view"
+// distinct : dans le parcours réel, cliquer un service démarre
+// directement le flux RDV (appointment_started), voir
+// lib/analyseAcquisition.ts pour le détail de cette décision.
+// ═══════════════════════════════════════════════════════════════════════
+const METRIQUES_EVOLUTION_ACQ = [
+  { key: "visiteurs", label: "Visiteurs" },
+  { key: "nouveaux", label: "Nouveaux visiteurs" },
+  { key: "recurrents", label: "Visiteurs récurrents" },
+  { key: "actions", label: "Actions" },
+] as const;
+type MetriqueEvolutionAcq = typeof METRIQUES_EVOLUTION_ACQ[number]["key"];
+
+const FILTRE_SOURCES_ACQ: { key: AcquisitionSource | "toutes"; label: string }[] = [
+  { key: "toutes", label: "Toutes les sources" },
+  { key: "yelen_search", label: ACQUISITION_SOURCE_LABELS.yelen_search },
+  { key: "nearby", label: ACQUISITION_SOURCE_LABELS.nearby },
+  { key: "qr_code", label: ACQUISITION_SOURCE_LABELS.qr_code },
+  { key: "community", label: ACQUISITION_SOURCE_LABELS.community },
+  { key: "announcement", label: ACQUISITION_SOURCE_LABELS.announcement },
+  { key: "share", label: ACQUISITION_SOURCE_LABELS.share },
+  { key: "external", label: ACQUISITION_SOURCE_LABELS.external },
+  { key: "direct", label: ACQUISITION_SOURCE_LABELS.direct },
+  { key: "unknown", label: ACQUISITION_SOURCE_LABELS.unknown },
+];
+
+function IllustrationBoussole({ C }: { C: ThemeTokens }) {
+  return (
+    <svg width="88" height="88" viewBox="0 0 96 96" fill="none">
+      <circle cx="48" cy="48" r="44" fill={`${C.gold}0a`}/>
+      <circle cx="48" cy="48" r="22" stroke={C.t3} strokeWidth="2" strokeDasharray="3 5"/>
+      <path d="M48 34l6 14-6 14-6-14z" stroke={C.t3} strokeWidth="2" strokeLinejoin="round"/>
+      <circle cx="70" cy="66" r="11" fill={C.bgCard} stroke={C.gold} strokeWidth="2"/>
+      <path d="M65 66h10M70 61v10" stroke={C.gold} strokeWidth="2.2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+function SourcesTableAcq({ sources, C, triPar, onCliquerSource }: { sources: SourceStat[]; C: ThemeTokens; triPar: "visiteurs" | "actions"; onCliquerSource?: (s: AcquisitionSource) => void }) {
+  const lignes = sources.slice().sort((a, b) => b[triPar] - a[triPar]);
+  if (lignes.length === 0) return (
+    <EmptyState C={C} illustration={<IllustrationBoussole C={C}/>}
+      titre="Pas encore de source à afficher"
+      texte="Dès que des citoyens découvriront votre fiche, leurs parcours apparaîtront ici."/>
+  );
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11.5px", minWidth: "460px" }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+            {["Source", "Visiteurs", "Part", "Actions", "Taux d'action"].map(h => (
+              <th key={h} style={{ textAlign: h === "Source" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {lignes.map(s => (
+            <tr key={s.source} onClick={onCliquerSource ? () => onCliquerSource(s.source) : undefined} style={{ borderBottom: `1px solid ${C.border}`, cursor: onCliquerSource ? "pointer" : "default" }}>
+              <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 700, whiteSpace: "nowrap" }}>{s.label}</td>
+              <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 800, textAlign: "right" }}>{s.visiteurs}</td>
+              <td style={{ padding: "8px 6px", color: C.t2, textAlign: "right" }}>{s.part}%</td>
+              <td style={{ padding: "8px 6px", color: C.t2, textAlign: "right" }}>{s.actions}</td>
+              <td style={{ padding: "8px 6px", color: s.tauxAction !== null ? C.gold : C.t3, fontWeight: 700, textAlign: "right" }}>{s.tauxAction !== null ? `${s.tauxAction}%` : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ApresDecouverteCard({ stats, C }: { stats: ApresDecouverteStat[]; C: ThemeTokens }) {
+  if (stats.length === 0) return (
+    <EmptyState C={C} illustration={<IllustrationPulse C={C}/>}
+      titre="Rien à afficher pour l'instant"
+      texte="Les actions réalisées après une visite de fiche (RDV démarré, contact, partage...) apparaîtront ici."/>
+  );
+  const max = Math.max(1, ...stats.map(s => s.count));
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "16px", flexWrap: "wrap", color: C.t3, fontSize: "11px", fontWeight: 700 }}>
+        Découverte <span style={{ color: C.t2 }}>→</span> Fiche consultée <span style={{ color: C.t2 }}>→</span> Action
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        {stats.map(s => (
+          <div key={s.eventType}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+              <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>{s.label}</span>
+              <span style={{ color: C.t1, fontSize: "11px", fontWeight: 800 }}>{s.count}</span>
+            </div>
+            <div style={{ height: "8px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.max((s.count / max) * 100, 4)}%`, backgroundColor: C.purple, borderRadius: "4px" }}/>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const EVOL_ACQ_W = 600, EVOL_ACQ_H = 180, EVOL_ACQ_PAD = 10;
+function toEvolAcqPolyline(data: EvolutionAcquisitionPoint[], key: MetriqueEvolutionAcq, maxVal: number): string {
+  if (data.length === 0) return "";
+  const stepX = data.length > 1 ? (EVOL_ACQ_W - EVOL_ACQ_PAD * 2) / (data.length - 1) : 0;
+  return data.map((d, i) => {
+    const x = EVOL_ACQ_PAD + i * stepX;
+    const y = EVOL_ACQ_H - EVOL_ACQ_PAD - (d[key] / maxVal) * (EVOL_ACQ_H - EVOL_ACQ_PAD * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+}
+
+function EvolutionAcquisitionChart({ evolution, C, metrique }: { evolution: EvolutionAcquisitionPoint[]; C: ThemeTokens; metrique: MetriqueEvolutionAcq }) {
+  const total = evolution.reduce((s, d) => s + d[metrique], 0);
+  const maxVal = Math.max(1, ...evolution.map(d => d[metrique]));
+  if (evolution.length === 0 || total === 0) return (
+    <div style={{ height: "180px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <EmptyState C={C} illustration={<IllustrationCourbe C={C}/>}
+        titre="Rien à afficher sur cette période"
+        texte="L'évolution de vos découvertes se dessinera ici au fil de votre activité."/>
+    </div>
+  );
+  return (
+    <svg viewBox={`0 0 ${EVOL_ACQ_W} ${EVOL_ACQ_H}`} preserveAspectRatio="none" style={{ width: "100%", height: "180px" }}>
+      <polyline points={toEvolAcqPolyline(evolution, metrique, maxVal)} fill="none" stroke={C.gold} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+function AcquisitionTab({ data, C, sourceFiltre, onChangeSourceFiltre, onVoirSourceDetail }: {
+  data: AnalyseAcquisition | null; C: ThemeTokens;
+  sourceFiltre: AcquisitionSource | undefined; onChangeSourceFiltre: (s: AcquisitionSource | undefined) => void;
+  onVoirSourceDetail?: (s: AcquisitionSource) => void;
+}) {
+  const [metrique, setMetrique] = useState<MetriqueEvolutionAcq>("visiteurs");
+  const vide = data !== null && data.visiteurs.valeur === 0 && data.sources.length === 0;
+  const selectStyle: React.CSSProperties = { backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "7px 10px", color: C.t1, fontSize: "11px", fontWeight: 700, cursor: "pointer" };
+
+  return (
+    <div>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+        <SectionHeader label="Acquisition" accent={C.blue}/>
+        <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Comprenez comment les citoyens découvrent votre établissement sur Yelen et ce qu&apos;ils font ensuite.</p>
+        {data === null ? (
+          <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
+        ) : vide ? (
+          <EmptyState C={C} illustration={<IllustrationBoussole C={C}/>}
+            titre="Votre acquisition commencera ici"
+            texte="Lorsque des citoyens commenceront à découvrir votre établissement sur Yelen, vous verrez ici d'où ils viennent, combien consultent votre fiche et quelles actions ils réalisent."/>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: "8px" }}>
+            <KpiCard label="Visiteurs de la fiche" unite="%" C={C} color={C.purple} metric={data.visiteurs} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}/>
+            <KpiCard label="Nouveaux visiteurs" unite="%" C={C} color={C.blue} metric={data.nouveauxVisiteurs} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg>}/>
+            <KpiCard label="Visiteurs récurrents" unite="%" C={C} color={C.green} metric={data.visiteursRecurrents} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>}/>
+            <KpiCard label="Actions générées" unite="%" C={C} color={C.teal} metric={data.actionsGenerees} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>}/>
+            <KpiCard label="Taux d'action" unite="pts" C={C} color={C.gold} metric={data.tauxAction} format={v => `${v}%`} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>}/>
+          </div>
+        )}
+      </Card>
+
+      {data !== null && !vide && (
+        <>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+            <SectionHeader label="Comment les citoyens vous découvrent" accent={C.blue}/>
+            <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Les principales sources qui amènent des citoyens vers votre fiche Yelen.</p>
+            <SourcesTableAcq sources={data.sources} C={C} triPar="visiteurs"/>
+          </Card>
+
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+            <SectionHeader label="Après la découverte" accent={C.purple}/>
+            <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Découvrez les actions réalisées après l&apos;arrivée sur votre fiche.</p>
+            <ApresDecouverteCard stats={data.apresDecouverte} C={C}/>
+          </Card>
+
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Évolution des découvertes</div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <select value={metrique} onChange={e => setMetrique(e.target.value as MetriqueEvolutionAcq)} className="tap" style={selectStyle}>
+                  {METRIQUES_EVOLUTION_ACQ.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </select>
+                <select value={sourceFiltre ?? "toutes"} onChange={e => onChangeSourceFiltre(e.target.value === "toutes" ? undefined : e.target.value as AcquisitionSource)} className="tap" style={selectStyle}>
+                  {FILTRE_SOURCES_ACQ.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <EvolutionAcquisitionChart evolution={data.evolution} C={C} metrique={metrique}/>
+          </Card>
+
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Quelles sources génèrent le plus d&apos;actions ?</div>
+            <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>{onVoirSourceDetail ? "Cliquez sur une source pour voir son détail." : "Lecture seule."}</p>
+            <SourcesTableAcq sources={data.sources} C={C} triPar="actions" onCliquerSource={onVoirSourceDetail}/>
+          </Card>
+
+          {data.sources.length > 0 && (
+            <Card tokens={toCardTokens(C)} padding="16px">
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Ce qui amène vos visiteurs</div>
+              <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Répartition réelle de vos sources de découverte sur la période.</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {data.sources.slice(0, 5).map(s => (
+                  <div key={s.source} style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>{s.label}</span>
+                    <span style={{ color: C.t1, fontSize: "12px", fontWeight: 800 }}>{s.part}% de vos découvertes</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Drill-down par source (Lot G) — fetch dédié avec ?source=, indépendant
+// du filtre d'évolution de l'écran principal (deux besoins différents :
+// "filtrer le graphique" vs "détailler une source précise").
+function AcquisitionSourceDrawer({ instId, periodeJours, source, onClose, C }: { instId: string; periodeJours: PeriodeJours; source: AcquisitionSource; onClose: () => void; C: ThemeTokens }) {
+  const [detail, setDetail] = useState<AnalyseAcquisition | null>(null);
+  const [metrique, setMetrique] = useState<MetriqueEvolutionAcq>("visiteurs");
+
+  useEffect(() => {
+    setDetail(null);
+    (async () => {
+      const res = await fetch(`/api/institution/analyse/acquisition?jours=${periodeJours}&source=${source}`);
+      const j = await res.json().catch(() => null);
+      if (res.ok && j) setDetail(j);
+    })();
+  }, [instId, periodeJours, source]);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <style>{`@media(min-width:1024px){.acq-drawer-panel{align-items:center!important;max-width:560px!important;border-radius:20px!important;max-height:86svh!important}}`}</style>
+      <div onClick={e => e.stopPropagation()} className="acq-drawer-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border}`, borderBottom: "none" }}>
+        <button onClick={onClose} className="tap" aria-label="Fermer" style={{ position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "4px" }}>{ACQUISITION_SOURCE_LABELS[source]}</div>
+        {detail === null ? (
+          <div style={{ display: "flex", justifyContent: "center", padding: "24px" }}><YelenLoader size={22}/></div>
+        ) : (
+          <>
+            <div style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>{detail.visiteurs.valeur ?? 0} visiteurs sur la période</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: "8px", marginBottom: "18px" }}>
+              <KpiCard label="Nouveaux" unite="%" C={C} color={C.blue} metric={detail.nouveauxVisiteurs} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg>}/>
+              <KpiCard label="Récurrents" unite="%" C={C} color={C.green} metric={detail.visiteursRecurrents} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>}/>
+              <KpiCard label="Actions" unite="%" C={C} color={C.teal} metric={detail.actionsGenerees} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>}/>
+              <KpiCard label="Taux d'action" unite="pts" C={C} color={C.gold} metric={detail.tauxAction} format={v => `${v}%`} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>}/>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Évolution</div>
+              <select value={metrique} onChange={e => setMetrique(e.target.value as MetriqueEvolutionAcq)} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "6px 9px", color: C.t1, fontSize: "10.5px", fontWeight: 700, cursor: "pointer" }}>
+                {METRIQUES_EVOLUTION_ACQ.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+              </select>
+            </div>
+            <EvolutionAcquisitionChart evolution={detail.evolution} C={C} metrique={metrique}/>
+
+            <div style={{ marginTop: "20px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", color: C.t3, fontSize: "11px", fontWeight: 700 }}>
+              <span style={{ color: C.t1 }}>{ACQUISITION_SOURCE_LABELS[source]}</span> <span>→</span> Fiche <span>→</span> Service <span>→</span> Action
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RetentionBars({ tauxRetour, C }: { tauxRetour: RetentionSemaine[]; C: ThemeTokens }) {
+  const donnees = tauxRetour.filter(s => s.pct !== null);
+  if (donnees.length === 0) return (
+    <EmptyState C={C} illustration={<IllustrationCourbe C={C}/>}
+      titre="Pas encore assez de recul"
+      texte="Le taux de retour par semaine s'affichera dès qu'au moins une semaine complète se sera écoulée après les premières visites."/>
+  );
+  const max = Math.max(1, ...donnees.map(s => s.pct ?? 0));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {tauxRetour.map(s => (
+        <div key={s.semaine}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+            <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>{s.label}</span>
+            <span style={{ color: C.t1, fontSize: "11px", fontWeight: 800 }}>{s.pct !== null ? `${s.pct}%` : "—"}</span>
+          </div>
+          <div style={{ height: "8px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "4px", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: s.pct !== null ? `${Math.max((s.pct / max) * 100, 4)}%` : "0%", backgroundColor: C.teal, borderRadius: "4px" }}/>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function celluleCouleur(pct: number, C: ThemeTokens): string {
+  if (pct >= 60) return C.green;
+  if (pct >= 35) return C.gold;
+  if (pct >= 15) return C.orange;
+  return C.red;
+}
+
+function CohorteHeatmap({ cohortes, C }: { cohortes: CohorteRetention[]; C: ThemeTokens }) {
+  if (cohortes.length === 0) return (
+    <EmptyState C={C} illustration={<IllustrationDonut C={C}/>}
+      titre="Pas encore de cohorte complète"
+      texte="Dès qu'un groupe de nouveaux clients aura au moins une semaine d'historique, sa rétention apparaîtra ici semaine par semaine."/>
+  );
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", minWidth: "440px" }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+            {["Cohorte", "Taille", "S1", "S2", "S3", "S4"].map(h => (
+              <th key={h} style={{ textAlign: h === "Cohorte" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {cohortes.map(co => (
+            <tr key={co.cohorteLabel} style={{ borderBottom: `1px solid ${C.border}` }}>
+              <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 700, whiteSpace: "nowrap" }}>{co.cohorteLabel}</td>
+              <td style={{ padding: "8px 6px", color: C.t3, textAlign: "right" }}>{co.taille}</td>
+              {[co.s1, co.s2, co.s3, co.s4].map((v, i) => (
+                <td key={i} style={{ padding: "8px 6px", textAlign: "right" }}>
+                  <span style={{ color: v !== null ? C.t1 : C.t3, fontWeight: v !== null ? 800 : 400, backgroundColor: v !== null ? `${celluleCouleur(v, C)}20` : "transparent", padding: "2px 7px", borderRadius: "6px" }}>{v !== null ? `${v}%` : "—"}</span>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type SegmentFiltre = "fideles" | "nouveaux" | "occasionnels" | "a_reactiver";
+const SEGMENT_CARD_META: { key: SegmentFiltre; label: string; couleur: (c: ThemeTokens) => string; sousTitre: string }[] = [
+  { key: "fideles", label: "Clients fidèles", couleur: c => c.green, sousTitre: "Reviennent régulièrement" },
+  { key: "nouveaux", label: "Nouveaux clients", couleur: c => c.blue, sousTitre: "Première visite récente" },
+  { key: "occasionnels", label: "Clients occasionnels", couleur: c => c.orange, sousTitre: "Reviennent rarement" },
+  { key: "a_reactiver", label: "Clients à réactiver", couleur: c => c.red, sousTitre: "Absents depuis longtemps" },
+];
+
+function segmentsToCounts(data: AnalyseClients): Record<SegmentFiltre, number> {
+  const fideles = (data.segments.find(s => s.segment === "fidele")?.count ?? 0) + (data.segments.find(s => s.segment === "vip")?.count ?? 0);
+  return {
+    fideles,
+    nouveaux: data.segments.find(s => s.segment === "nouveau")?.count ?? 0,
+    occasionnels: data.segments.find(s => s.segment === "occasionnel")?.count ?? 0,
+    a_reactiver: data.segments.find(s => s.segment === "inactif")?.count ?? 0,
+  };
+}
+
+function SegmentCards({ data, C, onVoirSegment }: { data: AnalyseClients; C: ThemeTokens; onVoirSegment?: (filtre: SegmentFiltre) => void }) {
+  const counts = segmentsToCounts(data);
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "10px" }}>
+      {SEGMENT_CARD_META.map(m => (
+        <div key={m.key} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "14px", borderLeft: `3px solid ${m.couleur(C)}` }}>
+          <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800 }}>{counts[m.key]}</div>
+          <div style={{ color: C.t1, fontSize: "12px", fontWeight: 700, marginTop: "4px" }}>{m.label}</div>
+          <div style={{ color: C.t3, fontSize: "10.5px", marginTop: "2px" }}>{m.sousTitre}</div>
+          {onVoirSegment && counts[m.key] > 0 && (
+            <button onClick={() => onVoirSegment(m.key)} className="tap" style={{ background: "none", border: "none", color: m.couleur(C), fontSize: "10.5px", fontWeight: 800, padding: 0, marginTop: "10px", cursor: "pointer" }}>Voir le segment →</button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const TON_COULEUR: Record<PointAttention["ton"], (c: ThemeTokens) => string> = { alerte: c => c.orange, positif: c => c.green, info: c => c.blue };
+const CIBLE_META: Partial<Record<NonNullable<PointAttention["cible"]>, { label: string; filtre: SegmentFiltre }>> = {
+  "clients-inactifs": { label: "Voir ces clients", filtre: "a_reactiver" },
+  "nouveaux-clients": { label: "Voir le segment", filtre: "nouveaux" },
+};
+
+function PointsAttentionList({ points, C, onVoirClients }: { points: PointAttention[]; C: ThemeTokens; onVoirClients?: (filtre?: SegmentFiltre) => void }) {
+  if (points.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {points.map((p, i) => {
+        const couleur = TON_COULEUR[p.ton](C);
+        const cta = p.cible ? CIBLE_META[p.cible] : undefined;
+        return (
+          <div key={i} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px", borderLeft: `3px solid ${couleur}` }}>
+            <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6, margin: 0 }}>{p.message}</p>
+            {cta && onVoirClients && (
+              <button onClick={() => onVoirClients(cta.filtre)} className="tap" style={{ background: "none", border: "none", color: couleur, fontSize: "10.5px", fontWeight: 800, padding: 0, marginTop: "8px", cursor: "pointer" }}>{cta.label} →</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AnalyseClientsTab({ data, C, geo, onVoirGeographie, onVoirClients }: { data: AnalyseClients | null; C: ThemeTokens; geo: AnalyseGeo | null; onVoirGeographie?: () => void; onVoirClients?: (filtre?: SegmentFiltre, texte?: string) => void }) {
+  const [rechercheTexte, setRechercheTexte] = useState("");
   return (
     <div>
       <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
         <SectionHeader label="Analyse de la clientèle" accent={C.purple}/>
-        <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Comprenez le comportement de vos citoyens — segments, fidélisation, évolution. Pour gérer une fiche client, utilisez l&apos;écran &quot;Mes clients&quot; du menu principal.</p>
+        <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Comprenez votre clientèle — acquisition, fidélité, fréquence et évolution. Pour gérer une fiche client, utilisez l&apos;écran &quot;Mes clients&quot; du menu principal.</p>
         {data === null ? (
           <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
         ) : (
@@ -981,19 +1385,103 @@ function AnalyseClientsTab({ data, C }: { data: AnalyseClients | null; C: ThemeT
       {data !== null && data.topClients.length > 0 && (
         <>
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Évolution de la clientèle</div>
-            <EvolutionClients evolution={data.evolution} C={C}/>
+            <SectionHeader label="Comprendre votre clientèle" accent={C.blue}/>
+            <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Voyez comment votre clientèle évolue et identifiez les habitudes qui comptent.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "14px" }}>
+              <div>
+                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Évolution de la clientèle</div>
+                <EvolutionClients evolution={data.evolution} C={C}/>
+              </div>
+              <div>
+                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Votre clientèle aujourd&apos;hui</div>
+                <DonutSegments segments={data.segments} C={C}/>
+                {data.clientsRecurrents.valeur !== null && data.clientsRecurrents.valeur > 0 && (
+                  <div style={{ marginTop: "12px" }}>
+                    <p style={{ color: C.t2, fontSize: "11.5px", fontWeight: 700, margin: 0 }}>{data.clientsRecurrents.valeur} clients reviennent régulièrement</p>
+                    {onVoirClients && (
+                      <button onClick={() => onVoirClients("fideles")} className="tap" style={{ background: "none", border: "none", color: C.blue, fontSize: "11px", fontWeight: 800, padding: 0, marginTop: "6px", cursor: "pointer" }}>Voir les clients →</button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </Card>
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Segmentation</div>
-            <DonutSegments segments={data.segments} C={C}/>
+            <SectionHeader label="Fidélité & rétention" accent={C.teal}/>
+            <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Comprenez combien de clients reviennent et à quel rythme.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "14px" }}>
+              <div>
+                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Taux de retour {data.tauxFidelite.valeur !== null ? `— ${data.tauxFidelite.valeur}%` : ""}</div>
+                <RetentionBars tauxRetour={data.tauxRetour} C={C}/>
+              </div>
+              <div>
+                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Rétention par cohorte</div>
+                <CohorteHeatmap cohortes={data.cohortes} C={C}/>
+              </div>
+            </div>
           </Card>
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Fidélisation — fréquence de visite</div>
+            <SectionHeader label="Segments de clientèle" accent={C.gold}/>
+            <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Identifiez les différents profils qui composent votre clientèle.</p>
+            <SegmentCards data={data} C={C} onVoirSegment={onVoirClients ? (f) => onVoirClients(f) : undefined}/>
+          </Card>
+
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+            <SectionHeader label="Comportement des clients" accent={C.purple}/>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: "8px", margin: "14px 0 16px" }}>
+              {[
+                { label: "Fréquence", valeur: data.frequenceMoyenne.valeur !== null ? `${data.frequenceMoyenne.valeur} visites` : "—", sousTitre: "fréquence moyenne" },
+                { label: "Temps entre deux visites", valeur: data.intervalleMoyenVisites !== null ? `${data.intervalleMoyenVisites} jours` : "—", sousTitre: "intervalle moyen" },
+                { label: "Clients récurrents", valeur: data.tauxFidelite.valeur !== null ? `${data.tauxFidelite.valeur}%` : "—", sousTitre: "reviennent après leur première visite" },
+              ].map(b => (
+                <div key={b.label} style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "12px" }}>
+                  <div style={{ color: C.t1, fontSize: "18px", fontWeight: 800 }}>{b.valeur}</div>
+                  <div style={{ color: C.t2, fontSize: "11px", fontWeight: 700, marginTop: "4px" }}>{b.label}</div>
+                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{b.sousTitre}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Fréquence des visites</div>
             <FidelisationHisto fidelisation={data.fidelisation} C={C}/>
           </Card>
+
+          {geo !== null && geo.prefectures.length > 0 && (() => {
+            const totalRdvGeo = geo.prefectures.reduce((s, p) => s + p.rdv, 0);
+            return (
+              <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+                <SectionHeader label="D'où viennent vos clients ?" accent={C.teal}/>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", margin: "14px 0 12px" }}>
+                  {geo.prefectures.slice(0, 5).map(p => {
+                    const pct = totalRdvGeo > 0 ? Math.round((p.rdv / totalRdvGeo) * 100) : 0;
+                    return (
+                      <div key={p.ville}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                          <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>{p.ville}</span>
+                          <span style={{ color: C.t1, fontSize: "11px", fontWeight: 800 }}>{pct}%</span>
+                        </div>
+                        <div style={{ height: "6px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "3px", overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${pct}%`, backgroundColor: C.teal, borderRadius: "3px" }}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {onVoirGeographie && (
+                  <button onClick={onVoirGeographie} className="tap" style={{ background: "none", border: "none", color: C.teal, fontSize: "11px", fontWeight: 800, padding: 0, cursor: "pointer" }}>Voir la géographie →</button>
+                )}
+              </Card>
+            );
+          })()}
+
+          {genererPointsAttention(data).length > 0 && (
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+              <SectionHeader label="Points d'attention" accent={C.orange}/>
+              <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Observations générées automatiquement à partir de vos données.</p>
+              <PointsAttentionList points={genererPointsAttention(data)} C={C} onVoirClients={onVoirClients}/>
+            </Card>
+          )}
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Analyse RFM simplifiée</div>
@@ -1031,6 +1519,23 @@ function AnalyseClientsTab({ data, C }: { data: AnalyseClients | null; C: ThemeT
             </div>
             <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.7 }}>{genererInsightClients(data)}</p>
           </Card>
+
+          {onVoirClients && (
+            <Card tokens={toCardTokens(C)} padding="16px" style={{ marginTop: "14px" }}>
+              <SectionHeader label="Explorer votre clientèle" accent={C.purple}/>
+              <p style={{ color: C.t3, fontSize: "11px", marginBottom: "12px", lineHeight: 1.5 }}>Recherchez et filtrez pour retrouver un client précis — bascule vers l&apos;écran de gestion dédié.</p>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+                <input value={rechercheTexte} onChange={e => setRechercheTexte(e.target.value)} onKeyDown={e => { if (e.key === "Enter") onVoirClients(undefined, rechercheTexte || undefined); }} placeholder="Rechercher un client…" style={{ flex: 1, backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px", color: C.t1, fontSize: "12.5px" }}/>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => onVoirClients(undefined, rechercheTexte || undefined)}>Rechercher</Button>
+              </div>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px" }}>
+                {([{ key: undefined, label: "Tous" }, { key: "nouveaux", label: "Nouveaux" }, { key: "fideles", label: "Fidèles" }, { key: "occasionnels", label: "Occasionnels" }, { key: "a_reactiver", label: "À réactiver" }] as const).map(f => (
+                  <button key={f.label} onClick={() => onVoirClients(f.key, undefined)} className="tap" style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "6px 12px", color: C.t2, fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>{f.label}</button>
+                ))}
+              </div>
+              <button onClick={() => onVoirClients(undefined, undefined)} className="tap" style={{ background: "none", border: "none", color: C.purple, fontSize: "12px", fontWeight: 800, padding: 0, cursor: "pointer" }}>Voir tous les clients →</button>
+            </Card>
+          )}
         </>
       )}
     </div>
@@ -1314,12 +1819,13 @@ function HeatmapComplete({ heatmap, C }: { heatmap: AnalyseHeatmap | null; C: Th
   );
 }
 
-export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = true }: {
+export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = true, onVoirClients }: {
   instId: string;
   rdvs: RDV[];
   stats: Stats;
   onOpenGuide: () => void;
   active?: boolean;
+  onVoirClients?: (filtre?: "fideles" | "nouveaux" | "occasionnels" | "a_reactiver", texte?: string) => void;
 }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
@@ -1347,6 +1853,9 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
   const [analyseClients, setAnalyseClients] = useState<AnalyseClients | null>(null);
   const [tunnel, setTunnel] = useState<AnalyseTunnel | null>(null);
   const [heatmap, setHeatmap] = useState<AnalyseHeatmap | null>(null);
+  const [acquisition, setAcquisition] = useState<AnalyseAcquisition | null>(null);
+  const [acquisitionSourceFiltre, setAcquisitionSourceFiltre] = useState<AcquisitionSource | undefined>(undefined);
+  const [acquisitionDrillDown, setAcquisitionDrillDown] = useState<AcquisitionSource | null>(null);
 
   useEffect(() => {
     // queueMicrotask (même convention qu'ailleurs dans ce dossier, ex.
@@ -1400,6 +1909,19 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
       if (res.ok && j) setGeo(j);
     })();
   }, [instId, periodeJours]);
+
+  // Fetch séparé (paramètre "source" en plus, filtrable sans re-déclencher
+  // les 6 autres requêtes ci-dessus).
+  useEffect(() => {
+    setAcquisition(null);
+    (async () => {
+      const qs = new URLSearchParams({ jours: String(periodeJours) });
+      if (acquisitionSourceFiltre) qs.set("source", acquisitionSourceFiltre);
+      const res = await fetch(`/api/institution/analyse/acquisition?${qs.toString()}`);
+      const j = await res.json().catch(() => null);
+      if (res.ok && j) setAcquisition(j);
+    })();
+  }, [instId, periodeJours, acquisitionSourceFiltre]);
 
   // Le graphique d'évolution garde son propre sélecteur 7j/30j/90j/1an
   // (Lot 3) — un seul fetch large, indépendant du sélecteur global.
@@ -1472,12 +1994,16 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
             </Card>
           </>
         )}
+        {sousOnglet === "acquisition" && <AcquisitionTab data={acquisition} C={C} sourceFiltre={acquisitionSourceFiltre} onChangeSourceFiltre={setAcquisitionSourceFiltre} onVoirSourceDetail={s => setAcquisitionDrillDown(s)}/>}
         {sousOnglet === "tunnel" && <TunnelComplet rdvsPeriode={rdvsPeriode} tunnel={tunnel} C={C}/>}
         {sousOnglet === "heatmap" && <HeatmapComplete heatmap={heatmap} C={C}/>}
         {sousOnglet === "geographie" && <CarteGeographique geo={geo}/>}
-        {sousOnglet === "mes-clients" && <AnalyseClientsTab data={analyseClients} C={C}/>}
+        {sousOnglet === "mes-clients" && <AnalyseClientsTab data={analyseClients} C={C} geo={geo} onVoirGeographie={() => setSousOnglet("geographie")} onVoirClients={onVoirClients}/>}
         {sousOnglet === "performances" && <PerformancesStub C={C}/>}
       </div>
+      {acquisitionDrillDown && (
+        <AcquisitionSourceDrawer instId={instId} periodeJours={periodeJours} source={acquisitionDrillDown} onClose={() => setAcquisitionDrillDown(null)} C={C}/>
+      )}
     </div>
   );
 }

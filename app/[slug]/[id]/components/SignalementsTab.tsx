@@ -66,13 +66,14 @@ type SignalementDetail = {
   signalement: Signalement & {
     resolution_action: string | null; resolution_explication: string | null;
     doublon_de_signalement_id: string | null; resolu_le: string | null; cloture_le: string | null;
+    incident_date: string | null; incident_heure: string | null;
   };
   events: SignalementEventRow[];
   attachments: SignalementAttachmentRow[];
   notes: SignalementNoteRow[] | null; // null = non autorisé (signalements.notes_read absent), distingué d'une liste vide
 };
 type Membre = { id: string; prenom: string; nom: string };
-type CitoyenOption = { id: string; nom: string; phone: string };
+type CitoyenOption = { id: string; nom: string; phone: string; nb_rdv?: number; dernier_rdv?: string };
 type RdvOption = { id: string; objet: string | null; date_rdv: string; heure_rdv: string; statut: string };
 
 // ── Constantes métier ───────────────────────────────────────────────────
@@ -328,18 +329,23 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
   const [formNote, setFormNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
 
-  const [etapeCreation, setEtapeCreation] = useState<"form" | "verify" | "succes">("form");
+  const [etapeCreation, setEtapeCreation] = useState<"identification" | "situation" | "verify" | "succes">("identification");
   const [creCitoyenId, setCreCitoyenId] = useState("");
+  const [creCitoyenRecherche, setCreCitoyenRecherche] = useState("");
   const [creRdvId, setCreRdvId] = useState("");
   const [rdvsEligibles, setRdvsEligibles] = useState<RdvOption[]>([]);
   const [loadingRdvsEligibles, setLoadingRdvsEligibles] = useState(false);
   const [creMotif, setCreMotif] = useState("");
   const [creDescription, setCreDescription] = useState("");
-  const [creImageFile, setCreImageFile] = useState<File | null>(null);
-  const [creImagePreview, setCreImagePreview] = useState<string | null>(null);
+  const [creIncidentDate, setCreIncidentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [creIncidentHeure, setCreIncidentHeure] = useState(() => new Date().toTimeString().slice(0, 5));
+  const [creFichiers, setCreFichiers] = useState<{ file: File; preview: string | null }[]>([]);
+  const [creConfirme, setCreConfirme] = useState(false);
   const [creSaving, setCreSaving] = useState(false);
   const [creError, setCreError] = useState("");
   const [creNumeroPublic, setCreNumeroPublic] = useState("");
+  const [creSignalementId, setCreSignalementId] = useState("");
+  const MAX_PIECES_JOINTES = 5;
 
   // ── Chargement ──────────────────────────────────────────────────────
   const chargerListe = useCallback(async (avecSpinner: boolean) => {
@@ -369,7 +375,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
     const res = await fetch("/api/institution/clients");
     const json = await res.json().catch(() => null);
     if (res.ok && Array.isArray(json?.clients)) {
-      setCitoyens(json.clients.map((c: { id: string; nom: string; phone: string }) => ({ id: c.id, nom: c.nom, phone: c.phone })));
+      setCitoyens(json.clients.map((c: { id: string; nom: string; phone: string; nb_rdv?: number; dernier_rdv?: string }) => ({ id: c.id, nom: c.nom, phone: c.phone, nb_rdv: c.nb_rdv, dernier_rdv: c.dernier_rdv })));
     }
   }, []);
 
@@ -545,30 +551,50 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
 
   // ── Création ────────────────────────────────────────────────────────
   function resetCreation() {
-    setEtapeCreation("form"); setCreCitoyenId(""); setCreRdvId(""); setRdvsEligibles([]); setCreMotif(""); setCreDescription("");
-    setCreImageFile(null); setCreImagePreview(null); setCreError(""); setCreNumeroPublic("");
+    setEtapeCreation("identification"); setCreCitoyenId(""); setCreCitoyenRecherche(""); setCreRdvId(""); setRdvsEligibles([]); setCreMotif(""); setCreDescription("");
+    setCreIncidentDate(new Date().toISOString().slice(0, 10)); setCreIncidentHeure(new Date().toTimeString().slice(0, 5));
+    setCreFichiers([]); setCreConfirme(false); setCreError(""); setCreNumeroPublic(""); setCreSignalementId("");
   }
-  function validerEtapeForm() {
+  function validerEtapeIdentification() {
     setCreError("");
     if (!creCitoyenId) { setCreError("Sélectionnez un citoyen."); return; }
-    if (!creRdvId) { setCreError("Sélectionnez le rendez-vous concerné."); return; }
     if (!creMotif) { setCreError("Choisissez un motif de signalement."); return; }
-    if (!creDescription.trim() || creDescription.length < 20) { setCreError("Décrivez le problème en au moins 20 caractères."); return; }
+    setEtapeCreation("situation");
+  }
+  function validerEtapeSituation() {
+    setCreError("");
+    if (!creDescription.trim() || creDescription.trim().length < 20) { setCreError("Décrivez le problème en au moins 20 caractères."); return; }
+    if (creDescription.trim().length > 1000) { setCreError("Description limitée à 1000 caractères."); return; }
+    if (!creIncidentDate) { setCreError("Indiquez la date de l'incident."); return; }
     setEtapeCreation("verify");
   }
+  function ajouterFichiers(fichiers: FileList | null) {
+    if (!fichiers) return;
+    const nouveaux = Array.from(fichiers).slice(0, MAX_PIECES_JOINTES - creFichiers.length).map(file => ({
+      file, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+    }));
+    setCreFichiers(prev => [...prev, ...nouveaux]);
+  }
+  function retirerFichier(index: number) {
+    setCreFichiers(prev => prev.filter((_, i) => i !== index));
+  }
   async function confirmerCreation() {
+    if (!creConfirme) return;
     setCreSaving(true); setCreError("");
     try {
       const form = new FormData();
       form.set("citoyen_id", creCitoyenId);
-      form.set("rdv_id", creRdvId);
+      if (creRdvId) form.set("rdv_id", creRdvId);
       form.set("motif", creMotif);
       form.set("description", creDescription.trim());
-      if (creImageFile) form.set("file", creImageFile);
+      form.set("incident_date", creIncidentDate);
+      if (creIncidentHeure) form.set("incident_heure", creIncidentHeure);
+      creFichiers.forEach(f => form.append("files", f.file));
       const res = await fetch("/api/institution/signalements", { method: "POST", body: form });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.success) { setCreError(json?.error || "Erreur lors de l'envoi. Réessayez."); setCreSaving(false); return; }
       setCreNumeroPublic(json.numeroPublic || "");
+      setCreSignalementId(json.id || "");
       setEtapeCreation("succes");
       chargerListe(false);
     } catch {
@@ -580,6 +606,12 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
 
   const citoyenCree = citoyens.find(c => c.id === creCitoyenId);
   const rdvCree = rdvsEligibles.find(r => r.id === creRdvId);
+  const citoyensTrouves = creCitoyenRecherche.trim().length > 0
+    ? citoyens.filter(c => {
+        const q = creCitoyenRecherche.trim().toLowerCase();
+        return c.nom.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q);
+      }).slice(0, 6)
+    : [];
 
   // ─────────────────────────────────────────────────────────────────────
   // VUE CRÉATION — bottom-sheet mobile-first, dialogue centré ≥1024px
@@ -588,12 +620,13 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
   // PC, 15/08/2026).
   // ─────────────────────────────────────────────────────────────────────
   if (vue === "creation") {
+    const etapeIndex = { identification: 0, situation: 1, verify: 2, succes: 3 }[etapeCreation];
     return (
       <>
         <style>{`
           @media(min-width:1024px){
             .sig-creation-overlay{align-items:center!important}
-            .sig-creation-panel{max-width:640px!important;border-radius:20px!important;max-height:88svh!important}
+            .sig-creation-panel{max-width:760px!important;border-radius:20px!important;max-height:88svh!important}
             .sig-creation-grip{display:none!important}
             .sig-creation-close-x{display:flex!important}
           }
@@ -604,61 +637,76 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
           <button onClick={() => { resetCreation(); setVue("liste"); }} className="sig-creation-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.t2 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
-          <h2 style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 18px" }}>Nouveau signalement</h2>
 
-          {etapeCreation === "form" && (
+          {etapeCreation !== "succes" && (
+            <div style={{ marginBottom: "18px" }}>
+              <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: 800, margin: "0 0 3px" }}>Nouveau signalement</h2>
+              <p style={{ color: C.t2, fontSize: "12.5px", margin: 0 }}>Signaler une situation concernant un citoyen.</p>
+              <div style={{ display: "flex", gap: "5px", marginTop: "14px" }}>
+                {[0, 1, 2].map(i => (
+                  <div key={i} style={{ height: "3px", flex: 1, borderRadius: "2px", backgroundColor: i <= etapeIndex ? C.gold : C.border }}/>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {etapeCreation === "identification" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-              <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderLeft: `3px solid ${C.red}`, borderRadius: "10px", padding: "12px 16px", fontSize: "12px", color: C.t2, lineHeight: 1.7 }}>
-                Un signalement est examiné par l&apos;équipe Yelen et peut entraîner une décision sur le compte concerné : avertissement, restriction d&apos;accès, correction de données, ou aucune action si le signalement n&apos;est pas fondé. Documentez uniquement un fait réel et précis, survenu lors du rendez-vous sélectionné ci-dessous — un signalement infondé ou abusif expose son auteur aux mêmes conséquences.
+              <div style={{ backgroundColor: `${C.gold}0f`, border: `1px solid ${C.gold}30`, borderRadius: "10px", padding: "12px 16px", fontSize: "12px", color: C.t2, lineHeight: 1.7 }}>
+                <strong style={{ color: C.t1 }}>À savoir —</strong> votre signalement sera examiné par l&apos;équipe Yelen. Un signalement ne constitue pas automatiquement une sanction. Décrivez uniquement des faits précis et vérifiables.
               </div>
 
               <div>
                 <label style={labelStyle(C)}>Citoyen concerné *</label>
-                <select value={creCitoyenId} onChange={e => setCreCitoyenId(e.target.value)} style={{ ...inputStyle(C), color: creCitoyenId ? C.t1 : C.t3 }}>
-                  <option value="">Sélectionner un citoyen…</option>
-                  {citoyens.map(c => (
-                    <option key={c.id} value={c.id}>{c.nom}</option>
-                  ))}
-                </select>
-                {citoyens.length === 0 && (
-                  <p style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6, marginTop: "8px" }}>
-                    Aucun client trouvé. Un citoyen doit avoir eu au moins un rendez-vous avec votre établissement pour apparaître ici.
-                  </p>
+                {citoyenCree ? (
+                  <div style={{ backgroundColor: `${C.gold}0f`, border: `1px solid ${C.gold}40`, borderRadius: "12px", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px", color: C.t1, fontSize: "13.5px", fontWeight: 700 }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      {citoyenCree.nom}
+                    </span>
+                    <button onClick={() => { setCreCitoyenId(""); setCreCitoyenRecherche(""); }} className="tap" style={{ background: "none", border: "none", color: C.t3, fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>Changer</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ position: "relative" }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      <input value={creCitoyenRecherche} onChange={e => setCreCitoyenRecherche(e.target.value)} placeholder="Rechercher un nom ou un téléphone…" style={{ ...inputStyle(C), paddingLeft: "38px" }}/>
+                    </div>
+                    {creCitoyenRecherche.trim() && (
+                      citoyensTrouves.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
+                          {citoyensTrouves.map(c => (
+                            <div key={c.id} onClick={() => { setCreCitoyenId(c.id); }} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 14px", cursor: "pointer" }}>
+                              <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: 700 }}>{c.nom}</div>
+                              <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>
+                                {c.phone}{typeof c.nb_rdv === "number" && ` · ${c.nb_rdv} rendez-vous`}{c.dernier_rdv && ` · Dernier : ${formatDateRdv(c.dernier_rdv)}`}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: "8px" }}>
+                          <p style={{ color: C.t1, fontSize: "13px", fontWeight: 700, margin: "0 0 4px" }}>Aucun citoyen trouvé</p>
+                          <p style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6, margin: 0 }}>
+                            Vérifiez le nom ou le numéro saisi. Un citoyen doit avoir une relation enregistrée avec votre établissement pour pouvoir faire l&apos;objet d&apos;un signalement.
+                          </p>
+                        </div>
+                      )
+                    )}
+                  </>
                 )}
               </div>
 
-              {creCitoyenId && (
-                <div>
-                  <label style={labelStyle(C)}>Rendez-vous concerné *</label>
-                  {loadingRdvsEligibles ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", color: C.t3, fontSize: "12.5px", padding: "10px 0" }}>
-                      <YelenLoader size={14}/> Chargement des rendez-vous…
-                    </div>
-                  ) : rdvsEligibles.length === 0 ? (
-                    <p style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6, backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px 14px" }}>
-                      Ce citoyen n&apos;a aucun rendez-vous déjà passé avec votre établissement. Un signalement doit documenter un fait précis survenu lors d&apos;un rendez-vous — impossible d&apos;en créer un sans RDV concerné.
-                    </p>
-                  ) : (
-                    <select value={creRdvId} onChange={e => setCreRdvId(e.target.value)} style={{ ...inputStyle(C), color: creRdvId ? C.t1 : C.t3 }}>
-                      <option value="">Sélectionner le rendez-vous…</option>
-                      {rdvsEligibles.map(r => (
-                        <option key={r.id} value={r.id}>{formatDateRdv(r.date_rdv)} à {r.heure_rdv?.slice(0, 5)} — {r.objet || "RDV général"}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              )}
-
               <div>
-                <label style={labelStyle(C)}>Motif du signalement *</label>
+                <label style={labelStyle(C)}>Pourquoi souhaitez-vous effectuer ce signalement ? *</label>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {MOTIFS_INSTITUTION.map(m => (
-                    <div key={m.value} onClick={() => setCreMotif(m.value)} className="tap" style={{ backgroundColor: creMotif === m.value ? C.redL : C.bgCard, border: `1px solid ${creMotif === m.value ? C.red + "50" : C.border}`, borderRadius: "12px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }}>
-                      <div style={{ width: "18px", height: "18px", borderRadius: "50%", flexShrink: 0, border: `2px solid ${creMotif === m.value ? C.red : C.border2}`, backgroundColor: creMotif === m.value ? C.red : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {creMotif === m.value && <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#fff" }}/>}
+                    <div key={m.value} onClick={() => setCreMotif(m.value)} className="tap" style={{ backgroundColor: creMotif === m.value ? `${C.gold}12` : C.bgCard, border: `1px solid ${creMotif === m.value ? C.gold : C.border}`, borderRadius: "12px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }}>
+                      <div style={{ width: "18px", height: "18px", borderRadius: "50%", flexShrink: 0, border: `2px solid ${creMotif === m.value ? C.gold : C.border2}`, backgroundColor: creMotif === m.value ? C.gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {creMotif === m.value && <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#000" }}/>}
                       </div>
                       <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: "13px", fontWeight: "600", color: creMotif === m.value ? C.red : C.t1, margin: "0 0 2px" }}>{m.label}</p>
+                        <p style={{ fontSize: "13px", fontWeight: "700", color: C.t1, margin: "0 0 2px" }}>{m.label}</p>
                         <p style={{ fontSize: "11px", color: C.t3, margin: 0 }}>{m.desc}</p>
                       </div>
                     </div>
@@ -666,94 +714,177 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                 </div>
               </div>
 
+              {creError && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "12px 16px", color: C.red, fontSize: "13px" }}>{creError}</div>}
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => { resetCreation(); setVue("liste"); }}>Annuler</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 1 }} disabled={!creCitoyenId || !creMotif} onClick={validerEtapeIdentification}>Continuer →</Button>
+              </div>
+            </div>
+          )}
+
+          {etapeCreation === "situation" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
               <div>
-                <label style={labelStyle(C)}>Description détaillée * <span style={{ color: C.t3, textTransform: "none", letterSpacing: 0, fontWeight: "500" }}>(min. 20 caractères)</span></label>
-                <textarea value={creDescription} onChange={e => setCreDescription(e.target.value)} rows={4} placeholder="Décrivez précisément les faits observés, avec les dates et circonstances…" style={{ ...inputStyle(C), resize: "none", lineHeight: 1.6 }}/>
-                <p style={{ fontSize: "11px", color: creDescription.length >= 20 ? C.green : C.t3, marginTop: "4px", textAlign: "right", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "4px" }}>
-                  {creDescription.length} caractères {creDescription.length >= 20
-                    ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    : `(${20 - creDescription.length} manquants)`}
-                </p>
+                <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: 800, margin: "0 0 3px" }}>Décrivez la situation</h3>
+                <p style={{ color: C.t2, fontSize: "12px", margin: 0 }}>Donnez uniquement les faits utiles à l&apos;examen du signalement.</p>
               </div>
 
               <div>
-                <label style={labelStyle(C)}>Preuve photo (optionnel)</label>
-                {creImagePreview ? (
-                  <div style={{ position: "relative", display: "inline-block" }}>
-                    {/* IMG-EXCEPTION: reason=creImagePreview vaut une URL blob: locale (URL.createObjectURL), non fetchable par l'optimiseur next/image | reviewed=2026-08-09 */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={creImagePreview} style={{ height: "80px", borderRadius: "8px", objectFit: "cover", border: `1px solid ${C.border}` }} alt=""/>
-                    <button onClick={() => { setCreImageFile(null); setCreImagePreview(null); }} style={{ position: "absolute", top: "-8px", right: "-8px", backgroundColor: C.red, border: "none", color: "#fff", width: "22px", height: "22px", borderRadius: "50%", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                <label style={labelStyle(C)}>Que s&apos;est-il passé ? * <span style={{ color: C.t3, textTransform: "none", letterSpacing: 0, fontWeight: "500" }}>(min. 20 caractères)</span></label>
+                <textarea value={creDescription} onChange={e => setCreDescription(e.target.value.slice(0, 1000))} rows={4} placeholder="Décrivez précisément la situation…" style={{ ...inputStyle(C), resize: "none", lineHeight: 1.6 }}/>
+                <p style={{ fontSize: "11px", color: creDescription.length >= 20 ? C.t3 : C.t3, marginTop: "4px", textAlign: "right" }}>{creDescription.length} / 1 000 caractères</p>
+              </div>
+
+              <div>
+                <label style={labelStyle(C)}>Quand la situation s&apos;est-elle produite ? *</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input type="date" value={creIncidentDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setCreIncidentDate(e.target.value)} style={{ ...inputStyle(C), flex: 1 }}/>
+                  <input type="time" value={creIncidentHeure} onChange={e => setCreIncidentHeure(e.target.value)} style={{ ...inputStyle(C), width: "120px" }}/>
+                </div>
+              </div>
+
+              <div>
+                <label style={labelStyle(C)}>Rendez-vous concerné</label>
+                {loadingRdvsEligibles ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", color: C.t3, fontSize: "12.5px", padding: "10px 0" }}>
+                    <YelenLoader size={14}/> Chargement des rendez-vous…
                   </div>
                 ) : (
-                  <button onClick={() => fileInputRef.current?.click()} style={{ width: "100%", backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "10px", padding: "18px", color: C.t3, fontSize: "12.5px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                    <span>Ajouter une capture d&apos;écran ou photo</span>
-                    <span style={{ fontSize: "10.5px", color: C.t3 }}>JPG, PNG — max 5MB</span>
+                  <select value={creRdvId} onChange={e => setCreRdvId(e.target.value)} style={{ ...inputStyle(C), color: creRdvId ? C.t1 : C.t3 }}>
+                    <option value="">Aucun rendez-vous spécifique</option>
+                    {rdvsEligibles.map(r => (
+                      <option key={r.id} value={r.id}>{formatDateRdv(r.date_rdv)} à {r.heure_rdv?.slice(0, 5)} — {r.objet || "RDV général"}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <label style={labelStyle(C)}>Ajouter un justificatif <span style={{ color: C.t3, textTransform: "none", letterSpacing: 0, fontWeight: "500" }}>(optionnel)</span></label>
+                <p style={{ color: C.t3, fontSize: "11.5px", margin: "0 0 8px" }}>Photos, documents ou autres éléments utiles à l&apos;examen.</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: creFichiers.length > 0 ? "10px" : 0 }}>
+                  {creFichiers.map((f, i) => (
+                    <div key={i} style={{ position: "relative" }}>
+                      {f.preview ? (
+                        // IMG-EXCEPTION: reason=preview vaut une URL blob: locale (URL.createObjectURL), non fetchable par l'optimiseur next/image | reviewed=2026-09-16
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={f.preview} style={{ height: "64px", width: "64px", borderRadius: "8px", objectFit: "cover", border: `1px solid ${C.border}` }} alt=""/>
+                      ) : (
+                        <div style={{ height: "64px", width: "64px", borderRadius: "8px", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: C.bg3 }}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        </div>
+                      )}
+                      <button onClick={() => retirerFichier(i)} style={{ position: "absolute", top: "-7px", right: "-7px", backgroundColor: C.t1, border: "none", color: C.bgCard, width: "20px", height: "20px", borderRadius: "50%", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                    </div>
+                  ))}
+                </div>
+                {creFichiers.length < MAX_PIECES_JOINTES && (
+                  <button onClick={() => fileInputRef.current?.click()} className="tap" style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "10px", padding: "10px 16px", color: C.t2, fontSize: "12.5px", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Ajouter un fichier
                   </button>
                 )}
-                <input ref={fileInputRef} type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; if (!file) return; setCreImageFile(file); setCreImagePreview(URL.createObjectURL(file)); }} style={{ display: "none" }}/>
+                <p style={{ color: C.t3, fontSize: "10.5px", marginTop: "8px" }}>Formats acceptés : PDF, JPG, PNG — Taille maximale : 10 MB</p>
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,application/pdf" multiple onChange={e => { ajouterFichiers(e.target.files); e.target.value = ""; }} style={{ display: "none" }}/>
               </div>
 
               {creError && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "12px 16px", color: C.red, fontSize: "13px" }}>{creError}</div>}
 
-              <button onClick={validerEtapeForm} className="tap" style={{ width: "100%", height: "40px", backgroundColor: C.red, border: "none", borderRadius: "12px", padding: "0 16px", color: "#fff", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}>
-                Continuer
-              </button>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setEtapeCreation("identification")}>Retour</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 1 }} onClick={validerEtapeSituation}>Continuer →</Button>
+              </div>
             </div>
           )}
 
           {etapeCreation === "verify" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <p style={{ color: C.t2, fontSize: "13px", margin: 0 }}>Vérifiez les informations avant l&apos;envoi définitif.</p>
+              <div>
+                <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: 800, margin: "0 0 3px" }}>Vérifiez votre signalement</h3>
+                <p style={{ color: C.t2, fontSize: "12px", margin: 0 }}>Dernière étape avant l&apos;envoi.</p>
+              </div>
               <Card tokens={toCardTokens(C)} padding="16px 18px" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div>
                   <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Citoyen</div>
                   <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>{citoyenCree?.nom}</div>
                 </div>
                 <div>
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Rendez-vous concerné</div>
-                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>
-                    {rdvCree ? `${formatDateRdv(rdvCree.date_rdv)} à ${rdvCree.heure_rdv?.slice(0, 5)} — ${rdvCree.objet || "RDV général"}` : "—"}
-                  </div>
-                </div>
-                <div>
                   <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Motif</div>
                   <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>{motifLabel(creMotif)}</div>
+                </div>
+                <div>
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Date</div>
+                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>{formatDateRdv(creIncidentDate)}{creIncidentHeure && ` · ${creIncidentHeure}`}</div>
+                </div>
+                <div>
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Rendez-vous concerné</div>
+                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>
+                    {rdvCree ? `${formatDateRdv(rdvCree.date_rdv)} à ${rdvCree.heure_rdv?.slice(0, 5)} — ${rdvCree.objet || "RDV général"}` : "Aucun rendez-vous spécifique"}
+                  </div>
                 </div>
                 <div>
                   <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Description</div>
                   <div style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6 }}>{creDescription}</div>
                 </div>
-                {creImagePreview && (
+                {creFichiers.length > 0 && (
                   <div>
-                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "6px" }}>Pièce jointe</div>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={creImagePreview} style={{ height: "70px", borderRadius: "8px", objectFit: "cover", border: `1px solid ${C.border}` }} alt=""/>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "6px" }}>Pièces jointes ({creFichiers.length})</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                      {creFichiers.map((f, i) => f.preview ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={i} src={f.preview} style={{ height: "56px", width: "56px", borderRadius: "8px", objectFit: "cover", border: `1px solid ${C.border}` }} alt=""/>
+                      ) : (
+                        <div key={i} style={{ color: C.t2, fontSize: "11px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "6px 10px" }}>{f.file.name}</div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </Card>
 
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                <input type="checkbox" checked={creConfirme} onChange={e => setCreConfirme(e.target.checked)} style={{ marginTop: "2px", accentColor: C.gold, width: "16px", height: "16px", flexShrink: 0 }}/>
+                <span style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6 }}>Je confirme que ce signalement décrit des faits réels et précis, au meilleur de ma connaissance.</span>
+              </label>
+
               {creError && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "12px 16px", color: C.red, fontSize: "13px" }}>{creError}</div>}
 
               <div style={{ display: "flex", gap: "10px" }}>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setEtapeCreation("form")}>Modifier</Button>
-                <button onClick={confirmerCreation} disabled={creSaving} className="tap" style={{ flex: 1, height: "40px", backgroundColor: creSaving ? C.bg3 : C.red, border: "none", borderRadius: "12px", padding: "0 16px", color: creSaving ? C.t3 : "#fff", fontSize: "13px", fontWeight: "700", cursor: creSaving ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                  {creSaving ? <><YelenLoader size={16} color="#fff"/> Envoi…</> : "Créer le signalement"}
-                </button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setEtapeCreation("situation")}>Retour</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 1 }} disabled={!creConfirme} loading={creSaving} onClick={confirmerCreation}>Envoyer le signalement</Button>
               </div>
             </div>
           )}
 
           {etapeCreation === "succes" && (
-            <div style={{ textAlign: "center", padding: "40px 10px" }}>
+            <div style={{ textAlign: "center", padding: "20px 10px 4px" }}>
               <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: C.greenL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               </div>
-              <p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 4px" }}>Signalement créé</p>
-              {creNumeroPublic && <p style={{ color: C.gold, fontSize: "14px", fontWeight: 700, fontFamily: "monospace", margin: "0 0 8px" }}>{creNumeroPublic}</p>}
-              <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 24px" }}>Notre équipe examinera ce signalement.</p>
-              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={() => { resetCreation(); setVue("liste"); }}>Retour à la liste</Button>
+              <p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 4px" }}>Signalement envoyé</p>
+              <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 20px", lineHeight: 1.6 }}>Votre signalement a bien été transmis à l&apos;équipe compétente pour examen.</p>
+              <Card tokens={toCardTokens(C)} padding="14px 16px" style={{ display: "flex", flexDirection: "column", gap: "10px", textAlign: "left", marginBottom: "20px" }}>
+                <div>
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Référence</div>
+                  <div style={{ color: C.gold, fontSize: "14px", fontWeight: 700, fontFamily: "monospace" }}>{creNumeroPublic}</div>
+                </div>
+                <div>
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Citoyen</div>
+                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700 }}>{citoyenCree?.nom}</div>
+                </div>
+                <div>
+                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Motif</div>
+                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700 }}>{motifLabel(creMotif)}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.gold }}/>
+                  <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>En cours d&apos;examen</span>
+                </div>
+              </Card>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => { resetCreation(); setVue("liste"); }}>Fermer</Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ flex: 1 }} onClick={() => { const id = creSignalementId; resetCreation(); setVue("liste"); if (id) setSelectedId(id); }}>Voir le signalement</Button>
+              </div>
             </div>
           )}
         </div>
@@ -974,6 +1105,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                         <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px", fontSize: "12.5px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Citoyen</span><span style={{ color: C.t1, fontWeight: 700 }}>{sig.citoyen_name || "—"}</span></div>
                           {sig.citoyen_phone && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Téléphone</span><span style={{ color: C.t1 }}>{sig.citoyen_phone}</span></div>}
+                          {sig.incident_date && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Date de l&apos;incident</span><span style={{ color: C.t1 }}>{formatDateRdv(sig.incident_date)}{sig.incident_heure && ` · ${sig.incident_heure.slice(0, 5)}`}</span></div>}
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Créé le</span><span style={{ color: C.t1 }}>{formatDateHeureSig(sig.created_at)}</span></div>
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Assigné à</span><span style={{ color: C.t1, fontWeight: 700 }}>{membreNom(sig.assigne_a_membre_id)}</span></div>
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Niveau</span><span style={{ color: C.t1 }}>{sig.escalade_niveau === "agent" ? "Agent" : sig.escalade_niveau === "superviseur" ? "Superviseur" : "Admin"}</span></div>

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   // ici volontairement, jamais héritée silencieusement d'un select("*").
   const { data: services, error: svcErr } = await sb
     .from("paid_services")
-    .select("id, institution_id, nom, prix, duree_minutes, description, is_active, created_at, categorie, champs_complementaires, taux_taxe, prix_promo, promo_actif, type_prestation, unite_prix, horaires, localisation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre")
+    .select("id, institution_id, nom, prix, duree_minutes, description, is_active, created_at, categorie, champs_complementaires, taux_taxe, prix_promo, promo_actif, type_prestation, unite_prix, horaires, localisation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre, nombre_unites")
     .eq("institution_id", authInstId).order("created_at", { ascending: false });
   if (svcErr) return NextResponse.json({ error: svcErr.message }, { status: 500 });
 
@@ -115,6 +115,9 @@ export async function POST(req: NextRequest) {
     video_url: typeof body?.video_url === "string" && body.video_url.trim() ? body.video_url.trim() : null,
     video_duree_secondes: typeof body?.video_duree_secondes === "number" && body.video_duree_secondes > 0 ? Math.round(body.video_duree_secondes) : null,
     equipements_chambre: equipementsChambreValides(body?.equipements_chambre),
+    // Chambres & prestations V2 (17/09/2026) — nombre d'unités physiques
+    // de ce type de chambre, jamais une disponibilité (voir migration).
+    nombre_unites: typeof body?.nombre_unites === "number" && body.nombre_unites > 0 ? Math.round(body.nombre_unites) : null,
   }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, service: data });
@@ -155,6 +158,7 @@ export async function PATCH(req: NextRequest) {
   if (typeof body?.video_url === "string" || body?.video_url === null) updates.video_url = body?.video_url?.trim() || null;
   if (typeof body?.video_duree_secondes === "number" || body?.video_duree_secondes === null) updates.video_duree_secondes = typeof body?.video_duree_secondes === "number" && body.video_duree_secondes > 0 ? Math.round(body.video_duree_secondes) : null;
   if (Array.isArray(body?.equipements_chambre) || body?.equipements_chambre === null) updates.equipements_chambre = equipementsChambreValides(body?.equipements_chambre);
+  if (typeof body?.nombre_unites === "number" || body?.nombre_unites === null) updates.nombre_unites = typeof body?.nombre_unites === "number" && body.nombre_unites > 0 ? Math.round(body.nombre_unites) : null;
 
   const { data, error } = await sb.from("paid_services").update(updates).eq("id", id).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -33,21 +33,6 @@ function ctrLabel(vues: number, clics: number): string {
   return `${((clics / vues) * 100).toFixed(1)}%`;
 }
 
-function actionBtnStyle(C: ThemeTokens, variant: "primaire" | "neutre" | "danger" | "attention" = "neutre", disabled = false): React.CSSProperties {
-  const palette = {
-    primaire: { bg: `linear-gradient(135deg,${C.gold},${C.goldD})`, border: "none", color: "#080812" },
-    neutre:   { bg: C.bgCard2, border: `1px solid ${C.border}`, color: C.t1 },
-    danger:   { bg: C.redL, border: `1px solid ${C.red}30`, color: C.red },
-    attention:{ bg: C.orangeL, border: `1px solid ${C.orange}30`, color: C.orange },
-  }[variant];
-  return {
-    background: palette.bg, border: palette.border, color: disabled ? C.t3 : palette.color,
-    fontWeight: 700, fontSize: "13px", padding: "11px 16px", borderRadius: "10px",
-    cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1,
-    display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", flex: 1, minWidth: "120px",
-  };
-}
-
 export function MesOffresOffreDetail({
   offre, vues, busy, onClose, onEdit, onShare, onPreview, onSuspendre, onRepublier, onArchiver, onSupprimer, onToast,
 }: {

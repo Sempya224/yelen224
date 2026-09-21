@@ -33,6 +33,8 @@ export type FrequenceBucket = { label: string; count: number; pct: number };
 export type RfmCle = "tres_recents" | "actifs" | "vip" | "a_risque" | "perdus";
 export type RfmSegment = { cle: RfmCle; label: string; count: number; description: string };
 export type EvolutionClientsPoint = { date: string; nouveaux: number; recurrents: number; perdus: number };
+export type RetentionSemaine = { semaine: number; label: string; pct: number | null };
+export type CohorteRetention = { cohorteLabel: string; taille: number; s1: number | null; s2: number | null; s3: number | null; s4: number | null };
 
 export type AnalyseClients = {
   clientsUniques: KpiMetric;
@@ -48,6 +50,9 @@ export type AnalyseClients = {
   topClients: ClientAnalyseStat[];
   satisfactionSerie: { date: string; note: number }[];
   commentairesRecents: { note: number; commentaire: string; date: string }[];
+  tauxRetour: RetentionSemaine[];
+  cohortes: CohorteRetention[];
+  intervalleMoyenVisites: number | null;
 };
 
 function deltaPct(actuel: number, precedent: number): number | null {
@@ -92,6 +97,7 @@ export async function calculerAnalyseClients(institutionId: string, fenetreJours
       clientsUniques: emptyKpi, nouveauxClients: emptyKpi, clientsRecurrents: emptyKpi,
       tauxFidelite: emptyKpi, frequenceMoyenne: emptyKpi, satisfaction: { valeur: null, delta: null, serie: [] },
       evolution: [], segments: [], fidelisation: [], rfm: [], topClients: [], satisfactionSerie: [], commentairesRecents: [],
+      tauxRetour: [], cohortes: [], intervalleMoyenVisites: null,
     };
   }
 
@@ -182,9 +188,9 @@ export async function calculerAnalyseClients(institutionId: string, fenetreJours
   // ── Fidélisation (histogramme fréquence) ──
   const buckets = [
     { label: "1 visite", test: (n: number) => n === 1 },
-    { label: "2-3 visites", test: (n: number) => n >= 2 && n <= 3 },
-    { label: "4-6 visites", test: (n: number) => n >= 4 && n <= 6 },
-    { label: "7+ visites", test: (n: number) => n >= 7 },
+    { label: "2 visites", test: (n: number) => n === 2 },
+    { label: "3-5 visites", test: (n: number) => n >= 3 && n <= 5 },
+    { label: "6+ visites", test: (n: number) => n >= 6 },
   ];
   const fidelisation: FrequenceBucket[] = buckets.map(b => {
     const count = clients.filter(c => b.test(c.nbRdv)).length;
@@ -209,6 +215,62 @@ export async function calculerAnalyseClients(institutionId: string, fenetreJours
   const satisfactionSerie = avisAll.slice(0, 30).reverse().map(a => ({ date: a.created_at.slice(0, 10), note: a.note }));
   const commentairesRecents = avisAll.filter(a => a.commentaire && a.commentaire.trim().length > 0).slice(0, 5).map(a => ({ note: a.note, commentaire: a.commentaire!, date: a.created_at }));
 
+  // ── Rétention par cohorte hebdomadaire (semaine de première visite) ──
+  // Fenêtres S1-S4 = semaines suivant la semaine de première visite. Une
+  // colonne reste `null` tant que sa fenêtre de 7 jours n'est pas
+  // entièrement écoulée — jamais un pourcentage calculé sur une fenêtre
+  // partielle (même discipline que satisfaction avec son seuil de 3 avis).
+  function lundiDeSemaine(iso: string): Date {
+    const d = new Date(iso);
+    const jour = d.getUTCDay();
+    const decalage = jour === 0 ? 6 : jour - 1;
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - decalage));
+  }
+  const MOIS_ABBR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+  function labelSemaine(lundi: Date): string {
+    const fin = new Date(lundi.getTime() + 6 * 86400000);
+    const m1 = MOIS_ABBR[lundi.getUTCMonth()], m2 = MOIS_ABBR[fin.getUTCMonth()];
+    return m1 === m2 ? `${lundi.getUTCDate()}–${fin.getUTCDate()} ${m1}` : `${lundi.getUTCDate()} ${m1} – ${fin.getUTCDate()} ${m2}`;
+  }
+  const cohortesMap: Record<string, { lundi: Date; citoyens: string[] }> = {};
+  clients.forEach(c => {
+    const lundi = lundiDeSemaine(c.premiereVisite);
+    const cle = lundi.toISOString().slice(0, 10);
+    if (!cohortesMap[cle]) cohortesMap[cle] = { lundi, citoyens: [] };
+    cohortesMap[cle].citoyens.push(c.citoyenId);
+  });
+  const cohortesTriees = Object.values(cohortesMap).sort((a, b) => a.lundi.getTime() - b.lundi.getTime()).slice(-8);
+  const cohortes: CohorteRetention[] = cohortesTriees.map(({ lundi, citoyens }) => {
+    const taille = citoyens.length;
+    const pctRevenusSemaine = (offset: number): number | null => {
+      const debutFenetre = new Date(lundi.getTime() + offset * 7 * 86400000);
+      const finFenetre = new Date(lundi.getTime() + (offset + 1) * 7 * 86400000);
+      if (maintenant < finFenetre) return null;
+      const revenus = citoyens.filter(cid => (parCitoyen[cid]?.dates ?? []).some(d => {
+        const t = new Date(d).getTime();
+        return t >= debutFenetre.getTime() && t < finFenetre.getTime();
+      })).length;
+      return Math.round((revenus / taille) * 1000) / 10;
+    };
+    return { cohorteLabel: labelSemaine(lundi), taille, s1: pctRevenusSemaine(1), s2: pctRevenusSemaine(2), s3: pctRevenusSemaine(3), s4: pctRevenusSemaine(4) };
+  });
+  const tauxRetour: RetentionSemaine[] = [1, 2, 3, 4].map(offset => {
+    let sommePonderee = 0, poidsTotal = 0;
+    cohortes.forEach(co => {
+      const val = offset === 1 ? co.s1 : offset === 2 ? co.s2 : offset === 3 ? co.s3 : co.s4;
+      if (val !== null) { sommePonderee += val * co.taille; poidsTotal += co.taille; }
+    });
+    return { semaine: offset, label: `Semaine ${offset}`, pct: poidsTotal > 0 ? Math.round((sommePonderee / poidsTotal) * 10) / 10 : null };
+  });
+
+  // ── Intervalle moyen entre deux visites consécutives (clients ≥2 visites) ──
+  const ecartsJours: number[] = [];
+  Object.values(parCitoyen).forEach(v => {
+    const dates = v.dates.slice().sort();
+    for (let i = 1; i < dates.length; i++) ecartsJours.push(joursDepuis(dates[i - 1], new Date(dates[i])));
+  });
+  const intervalleMoyenVisites = ecartsJours.length > 0 ? Math.round((ecartsJours.reduce((s, e) => s + e, 0) / ecartsJours.length) * 10) / 10 : null;
+
   return {
     clientsUniques: { valeur: citoyensCourant.size, delta: deltaPct(citoyensCourant.size, citoyensPrecedent.size), serie: [] },
     nouveauxClients: { valeur: nouveauxCourant.length, delta: deltaPct(nouveauxCourant.length, nouveauxPrecedent.length), serie: [] },
@@ -217,5 +279,6 @@ export async function calculerAnalyseClients(institutionId: string, fenetreJours
     frequenceMoyenne: { valeur: freqMoyenneCourant, delta: freqMoyennePrecedent > 0 ? Math.round((freqMoyenneCourant - freqMoyennePrecedent) * 10) / 10 : null, serie: [] },
     satisfaction: { valeur: satisfactionCourant, delta: satisfactionCourant !== null && satisfactionPrecedente !== null ? Math.round((satisfactionCourant - satisfactionPrecedente) * 10) / 10 : null, serie: [] },
     evolution, segments, fidelisation, rfm, topClients, satisfactionSerie, commentairesRecents,
+    tauxRetour, cohortes, intervalleMoyenVisites,
   };
 }

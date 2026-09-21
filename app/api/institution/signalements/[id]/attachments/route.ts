@@ -9,7 +9,7 @@ import { ajouterPieceJointe } from "@/lib/signalements";
 // tout nouveau signalement), bucket privé "signalements-preuves", jamais
 // une URL publique directe — GET ?download= renvoie une URL signée 60s.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-const MAX_PREUVE_SIZE = 5 * 1024 * 1024;
+const MAX_PREUVE_SIZE = 10 * 1024 * 1024;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const membre = await getAuthenticatedMembre(req);

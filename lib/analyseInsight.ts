@@ -73,3 +73,29 @@ export function genererInsightClients(c: AnalyseClients | null): string {
   }
   return "Aucune anomalie détectée sur votre clientèle — la répartition entre nouveaux, réguliers et fidèles reste équilibrée.";
 }
+
+// "Points d'attention" — liste d'observations (par opposition au conseil
+// unique de genererInsightClients ci-dessus), mêmes seuils déterministes,
+// zéro LLM. `cible` reste optionnel : seuls les cas où une vraie
+// destination existe (segment filtrable côté CRM) en portent une, jamais
+// un lien décoratif sans effet.
+export type PointAttention = { ton: "alerte" | "positif" | "info"; message: string; cible?: "clients-inactifs" | "clients-recurrents" | "nouveaux-clients" };
+
+export function genererPointsAttention(c: AnalyseClients): PointAttention[] {
+  const points: PointAttention[] = [];
+  const totalClients = c.segments.reduce((s, seg) => s + seg.count, 0);
+  if (totalClients === 0) return points;
+
+  const inactifs = c.segments.find(s => s.segment === "inactif")?.count ?? 0;
+  if (inactifs > 0) {
+    points.push({ ton: "alerte", message: `${inactifs} client${inactifs > 1 ? "s" : ""} ne ${inactifs > 1 ? "sont" : "est"} pas revenu${inactifs > 1 ? "s" : ""} depuis plus de 60 jours.`, cible: "clients-inactifs" });
+  }
+  if (c.clientsRecurrents.delta !== null && c.clientsRecurrents.delta >= 10) {
+    points.push({ ton: "positif", message: `Votre clientèle récurrente progresse de ${c.clientsRecurrents.delta}% sur la période — la part de clients qui reviennent plusieurs fois augmente.`, cible: "clients-recurrents" });
+  }
+  if (c.nouveauxClients.valeur !== null && c.clientsUniques.valeur !== null && c.clientsUniques.valeur > 0) {
+    const pctNouveaux = Math.round((c.nouveauxClients.valeur / c.clientsUniques.valeur) * 100);
+    if (pctNouveaux > 0) points.push({ ton: "info", message: `Les nouveaux clients représentent ${pctNouveaux}% de votre clientèle sur la période.`, cible: "nouveaux-clients" });
+  }
+  return points;
+}

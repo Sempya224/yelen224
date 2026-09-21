@@ -37,14 +37,27 @@ import { DemandeCommunauteOverlay } from "@/components/DemandeCommunauteOverlay"
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { AvatarInstitution, CategorieBadge } from "@/components/CommunautePostCard";
+import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 
 type PostInstitution = {
   id: string;
   categorie: string;
   contenu: string | null;
   images: string[] | null;
-  statut: "en_attente_validation" | "publiee" | "refusee";
+  statut: "en_attente_validation" | "publiee" | "refusee" | "planifiee";
   motif_refus: string | null;
+  // Timeline réelle (16/09/2026) — soumis_le toujours présent, valide_le
+  // uniquement défini par app/api/admin/posts/[id]/approuver. traite_le
+  // (nouveau, migration 20260916000012) posé sur LES DEUX décisions
+  // admin (approbation et refus) — seule source fiable d'une date de
+  // refus, jamais fabriquée avant son ajout.
+  soumis_le: string;
+  valide_le: string | null;
+  traite_le: string | null;
+  // Planification (16/09/2026, décision Bryan) — retarde uniquement
+  // l'entrée en file de modération, jamais la validation elle-même (voir
+  // job cron yelen-publications-planifiees).
+  scheduled_at: string | null;
   nb_partages: number;
   // Comptes réels ajoutés au Lot Community Pro (23/08/2026) — post_likes/
   // post_comments comptés côté route (voir communaute-posts/route.ts),
@@ -76,6 +89,55 @@ type AudienceData = { nb_abonnes: number; nouveaux_ce_mois: number; abonnes_perd
 // côté route depuis post_impressions/post_vues déjà comptés par post.
 type PerformanceData = { impressions_total: number; vues_total: number; portee: number };
 
+// Audience Intelligence (16/09/2026) — réponse de
+// /api/institution/communaute-audience, source unique de l'onglet Audience
+// au-delà du simple compteur. "Origine de l'audience" (profil/publications/
+// recherche/partages) volontairement absente : aucune table ne trace la
+// source d'une vue aujourd'hui, chantier d'instrumentation séparé.
+type Periode = "7j" | "30j" | "90j" | "12mois";
+type GrowthPoint = { date: string; abonnes: number; nouveaux: number; perdus: number };
+type DemographieBloc = { suffisant: boolean; localisation: { label: string; pct: number }[] | null; age: { label: string; pct: number }[] | null; genre: { label: string; pct: number }[] | null };
+type ActiviteBloc = { suffisant: boolean; par_jour: { jour: string; count: number }[]; par_heure: { heure: number; count: number }[] };
+type EngagementBloc = { atteinte: number; active: number; likes: number; commentaires: number; partages: number; ouvertures: number; taux_engagement: number | null };
+type NouvelAbonne = { citoyen_id: string; nom: string; suivi_depuis: string };
+type AudienceIntelligence = {
+  historique_disponible_depuis: string;
+  bornes: { debut: string; fin: string };
+  kpi: { abonnes_total: number; nouveaux_periode: number; perdus_periode: number; croissance_nette: number; croissance_pct: number | null; audience_active: number; audience_active_pct: number | null; portee: number | null };
+  croissance_serie: GrowthPoint[];
+  demographie: DemographieBloc;
+  activite: ActiviteBloc;
+  engagement: EngagementBloc;
+  nouveaux_abonnes: NouvelAbonne[];
+};
+
+// Présence Intelligence (16/09/2026) — réponse de
+// /api/institution/communaute-presence. "Apparitions" et "Sources de
+// découverte" hors périmètre V1 (même décision qu'Audience) : aucune
+// colonne "source" n'existe sur institution_vues/post_impressions.
+type PresenceCritere = { cle: string; label: string; ok: boolean; suggestion: string };
+type PresenceIntel = {
+  bornes: { debut: string; fin: string };
+  kpi: { vues_profil: number; visiteurs_uniques: number; apparitions: number | null; actions_total: number };
+  serie: { date: string; vues: number; visiteurs: number }[];
+  actions: { voir_profil: number; voir_publication: number; prendre_rdv: number; ouvrir_messagerie: number };
+  profil: { logo: string | null; secteur: string | null; adresse: string | null; ville: string | null; description: string | null; horaires: unknown } | null;
+  score_presence: { pct: number; criteres: PresenceCritere[] };
+};
+
+// Vue d'ensemble V2 (16/09/2026) — réponse de /api/institution/communaute-apercu.
+// Ne couvre que ce qui exige un horodatage événementiel ; Publications/
+// Meilleurs contenus/Publications récentes restent dérivés du prop `posts`
+// déjà chargé par le parent, jamais requêtés une 2e fois (voir en-tête de
+// la route).
+type ApercuIntel = {
+  bornes: { debut: string; fin: string };
+  kpi: { abonnes_total: number; abonnes_delta_periode: number; engagement_total: number; portee: number | null; visites: number };
+  activite_serie: { date: string; vues: number; interactions: number; abonnes: number }[];
+  audience_resume: { abonnes: number; delta_periode: number; audience_active: number };
+  score_presence: { pct: number; criteres: PresenceCritere[] };
+};
+
 type CommunauteStatut = "aucun" | "en_attente" | "approuve" | "refuse";
 type Demande = { id: string; statut: string; motif_refus: string | null; date_decision: string | null; created_at: string };
 
@@ -89,6 +151,7 @@ const STATUT_CFG = (C: ThemeTokens): Record<string, { label: string; color: stri
   en_attente_validation: { label: "En attente de validation", color: C.gold, bg: `${C.gold}15` },
   publiee: { label: "Publiée", color: C.green, bg: C.greenL },
   refusee: { label: "Refusée", color: C.red, bg: C.redL },
+  planifiee: { label: "Planifiée", color: C.blue, bg: C.blueL },
 });
 
 function fmt(d: string) {
@@ -652,6 +715,12 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
   const [texte, setTexte] = useState("");
   const [categorie, setCategorie] = useState<PostCategorie | null>(null);
   const [fichiers, setFichiers] = useState<File[]>([]);
+  // Planification (16/09/2026, décision Bryan) — ne contourne jamais la
+  // validation Yelen, retarde uniquement l'entrée en file de modération
+  // (voir app/api/institution/communaute-posts/route.ts).
+  const [planifier, setPlanifier] = useState(false);
+  const [datePlanif, setDatePlanif] = useState("");
+  const [heurePlanif, setHeurePlanif] = useState("");
 
   const showNotif = useCallback((type: "success" | "error", msg: string) => {
     setNotif({ type, msg });
@@ -674,7 +743,7 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
     setFichiers(prev => [...prev, ...nouveaux].slice(0, MAX_IMAGES));
   };
 
-  const resetForm = () => { setTexte(""); setCategorie(null); setFichiers([]); };
+  const resetForm = () => { setTexte(""); setCategorie(null); setFichiers([]); setPlanifier(false); setDatePlanif(""); setHeurePlanif(""); };
   const ouvrirComposer = () => { resetForm(); setComposerOuvert(true); };
   const fermerComposer = () => { setComposerOuvert(false); resetForm(); };
 
@@ -687,7 +756,9 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
     return data?.url ?? null;
   };
 
-  const peutPublier = (texte.trim() || fichiers.length > 0) && categorie && !saving;
+  const scheduledAtISO = planifier && datePlanif && heurePlanif ? new Date(`${datePlanif}T${heurePlanif}:00`) : null;
+  const planifValide = !planifier || (scheduledAtISO !== null && !isNaN(scheduledAtISO.getTime()) && scheduledAtISO.getTime() > Date.now());
+  const peutPublier = (texte.trim() || fichiers.length > 0) && categorie && !saving && planifValide;
 
   const handlePublier = async () => {
     if (!peutPublier) return;
@@ -699,12 +770,12 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
       const res = await fetch("/api/institution/communaute-posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contenu: texte.trim(), images, categorie }),
+        body: JSON.stringify({ contenu: texte.trim(), images, categorie, scheduled_at: scheduledAtISO ? scheduledAtISO.toISOString() : undefined }),
       });
       if (!res.ok) {
         showNotif("error", "Erreur lors de la publication.");
       } else {
-        showNotif("success", "Publication envoyée pour validation.");
+        showNotif("success", planifier ? "Publication planifiée." : "Publication envoyée pour validation.");
         fermerComposer();
         fetchData();
       }
@@ -751,16 +822,18 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
       </div>
 
       {subView === "apercu" && (
-        <VueEnsembleView C={C} posts={posts} audience={audience} canPublish={canPublish} onCreer={ouvrirComposer} onVoirPublications={() => setSubView("publications")} />
+        <VueEnsembleView C={C} instName={instName} posts={posts} canPublish={canPublish} onCreer={ouvrirComposer}
+          onVoirPublications={() => setSubView("publications")} onVoirPerformance={() => setSubView("performance")}
+          onVoirAudience={() => setSubView("audience")} onVoirPresence={() => setSubView("presence")} />
       )}
 
       {subView === "publications" && (
-        <PublicationsFeedView C={C} instName={instName} posts={posts} canPublish={canPublish} onCreer={ouvrirComposer} />
+        <PublicationsFeedView C={C} instName={instName} posts={posts} canPublish={canPublish} onCreer={ouvrirComposer} onVoirPerformance={() => setSubView("performance")} onDonneesChangees={fetchData} />
       )}
 
       {subView === "performance" && <PerformanceView C={C} instName={instName} posts={posts} performance={performance} canPublish={canPublish} onCreer={ouvrirComposer} />}
       {subView === "audience" && <AudienceView C={C} audience={audience} canPublish={canPublish} onCreer={ouvrirComposer} />}
-      {subView === "presence" && <PresenceView C={C} instName={instName} posts={posts} />}
+      {subView === "presence" && <PresenceView C={C} instName={instName} posts={posts} onVoirPublications={() => setSubView("publications")} />}
 
       {composerOuvert && (
         <div className="communaute-pro-composer-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={fermerComposer}>
@@ -849,6 +922,21 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
               })}
             </div>
 
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, margin: "0 0 10px" }}>Quand publier ?</div>
+            <div style={{ display: "flex", gap: "8px", marginBottom: planifier ? "12px" : "24px" }}>
+              <button onClick={() => setPlanifier(false)} className="tap" style={{ flex: 1, backgroundColor: !planifier ? C.gold : C.bg3, color: !planifier ? "#080812" : C.t2, border: "none", borderRadius: "10px", padding: "10px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Publier maintenant</button>
+              <button onClick={() => setPlanifier(true)} className="tap" style={{ flex: 1, backgroundColor: planifier ? C.gold : C.bg3, color: planifier ? "#080812" : C.t2, border: "none", borderRadius: "10px", padding: "10px", fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Planifier</button>
+            </div>
+            {planifier && (
+              <div style={{ marginBottom: "24px" }}>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+                  <input type="date" value={datePlanif} min={new Date().toISOString().slice(0, 10)} onChange={e => setDatePlanif(e.target.value)} style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px", color: C.t1, fontSize: "13px", fontFamily: "inherit" }} />
+                  <input type="time" value={heurePlanif} onChange={e => setHeurePlanif(e.target.value)} style={{ width: "120px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px", color: C.t1, fontSize: "13px", fontFamily: "inherit" }} />
+                </div>
+                <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.6, margin: 0 }}>Elle sera soumise à l&apos;équipe Yelen à cette date — la validation reste obligatoire avant diffusion, comme pour toute publication.</p>
+              </div>
+            )}
+
             <div style={{ borderTop: `1px solid ${C.border}`, margin: "0 0 16px" }} />
             <div style={{ display: "flex", gap: "10px" }}>
               <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={fermerComposer}>Annuler</Button>
@@ -862,7 +950,7 @@ function CommunauteProHub({ instId, instName, canPublish }: { instId: string; in
                 loading={saving}
                 onClick={handlePublier}
               >
-                Publier
+                {planifier ? "Planifier" : "Publier"}
               </Button>
             </div>
           </div>
@@ -904,41 +992,66 @@ const HUB_ICONS = {
   portee: (color: string) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z" /></svg>,
 };
 
-// Vue d'ensemble — KPI réels agrégés depuis les posts déjà chargés (aucune
-// nouvelle requête). "Ce qui fonctionne" dérivé par règles déterministes
-// (zéro LLM, même discipline que lib/postSuggestions.ts), affiché
-// seulement au-delà d'un échantillon minimal fiable (≥3 publiées pour la
-// meilleure catégorie, ≥3 avec/sans image pour la comparaison média) —
-// jamais un constat sur un échantillon trop faible, même principe que le
-// "délai moyen observé" des favoris citoyen.
-function VueEnsembleView({ C, posts, audience, canPublish, onCreer, onVoirPublications }: {
-  C: ThemeTokens; posts: PostInstitution[]; audience: AudienceData | null; canPublish: boolean; onCreer: () => void; onVoirPublications: () => void;
-}) {
-  const publiees = posts.filter(p => p.statut === "publiee");
-  const nbEnAttente = posts.filter(p => p.statut === "en_attente_validation").length;
-  const nbRefusees = posts.filter(p => p.statut === "refusee").length;
-  const totalPartages = posts.reduce((s, p) => s + p.nb_partages, 0);
-  const totalLikes = posts.reduce((s, p) => s + p.nb_likes, 0);
-  const totalCommentaires = posts.reduce((s, p) => s + p.nb_commentaires, 0);
+// Tuile KPI cliquable — même HubKpiCard, juste enveloppée d'un handler de
+// clic quand une destination existe (16/09/2026, brief CEO §2 : "Abonnés"
+// → Audience, "Publications" → Publications).
+function HubKpiLink({ onClick, children }: { onClick?: () => void; children: React.ReactNode }) {
+  if (!onClick) return <>{children}</>;
+  return <div onClick={onClick} className="tap" style={{ cursor: "pointer" }}>{children}</div>;
+}
 
-  const engagement = (p: PostInstitution) => p.nb_likes + p.nb_commentaires + p.nb_partages;
-  let topCategorieLabel: string | null = null;
-  if (publiees.length >= 3) {
-    const parCategorie = new Map<string, number>();
-    for (const p of publiees) parCategorie.set(p.categorie, (parCategorie.get(p.categorie) ?? 0) + engagement(p));
-    const meilleure = [...parCategorie.entries()].sort((a, b) => b[1] - a[1])[0];
-    if (meilleure && meilleure[1] > 0) topCategorieLabel = POST_CATEGORIE_LABELS[meilleure[0] as PostCategorie] ?? meilleure[0];
-  }
-  const avecImage = publiees.filter(p => (p.images?.length ?? 0) > 0);
-  const sansImage = publiees.filter(p => (p.images?.length ?? 0) === 0);
-  let imageGagne = false;
-  if (avecImage.length >= 3 && sansImage.length >= 3) {
-    const moyenne = (arr: PostInstitution[]) => arr.reduce((s, p) => s + engagement(p), 0) / arr.length;
-    imageGagne = moyenne(avecImage) > moyenne(sansImage);
-  }
-  const insights: string[] = [];
-  if (topCategorieLabel) insights.push(`Vos publications « ${topCategorieLabel} » génèrent le plus d'interactions.`);
-  if (imageGagne) insights.push("Les publications avec image reçoivent en moyenne plus d'interactions.");
+// Vue d'ensemble V2 (16/09/2026, brief CEO) — le cockpit de Yelen
+// Community ("comprendre + agir"), pas un 2e écran Performance. Publications/
+// Meilleurs contenus/Publications récentes restent dérivés du prop `posts`
+// déjà chargé par le parent (aucune nouvelle requête) ; Abonnés+delta,
+// Engagement/Portée/Visites sur la période, l'activité jour par jour et le
+// score de présence viennent de /api/institution/communaute-apercu (seules
+// données qui exigent un horodatage événementiel non disponible côté
+// client). "Ce qui fonctionne" reste dérivé par règles déterministes
+// (zéro LLM), affiché seulement au-delà d'un échantillon minimal fiable
+// (≥3 publiées) — jamais un constat sur un échantillon trop faible.
+const METRIQUES_ACTIVITE: { k: "publications" | "vues" | "interactions" | "abonnes"; l: string }[] = [
+  { k: "publications", l: "Publications" }, { k: "vues", l: "Vues" }, { k: "interactions", l: "Interactions" }, { k: "abonnes", l: "Abonnés" },
+];
+
+function VueEnsembleView({ C, instName, posts, canPublish, onCreer, onVoirPublications, onVoirPerformance, onVoirAudience, onVoirPresence }: {
+  C: ThemeTokens; instName?: string; posts: PostInstitution[]; canPublish: boolean; onCreer: () => void;
+  onVoirPublications: () => void; onVoirPerformance: () => void; onVoirAudience: () => void; onVoirPresence: () => void;
+}) {
+  const [periode, setPeriode] = useState<Periode>("30j");
+  const [data, setData] = useState<ApercuIntel | null>(null);
+  const [loadingIntel, setLoadingIntel] = useState(true);
+  const [erreur, setErreur] = useState(false);
+  const [rechargeCle, setRechargeCle] = useState(0);
+  const [metriqueActivite, setMetriqueActivite] = useState<"publications" | "vues" | "interactions" | "abonnes">("publications");
+  const [detailPost, setDetailPost] = useState<PostInstitution | null>(null);
+
+  const chargerApercu = useCallback(async (annuleRef: { current: boolean }) => {
+    setLoadingIntel(true);
+    setErreur(false);
+    try {
+      const res = await fetch(`/api/institution/communaute-apercu?periode=${periode}`);
+      if (!res.ok) throw new Error("http_error");
+      const j = await res.json();
+      if (annuleRef.current) return;
+      if (!j?.kpi) throw new Error("shape_error");
+      setData(j);
+    } catch {
+      if (!annuleRef.current) { setData(null); setErreur(true); }
+    } finally {
+      if (!annuleRef.current) setLoadingIntel(false);
+    }
+  }, [periode]);
+
+  useEffect(() => {
+    const annuleRef = { current: false };
+    chargerApercu(annuleRef);
+    return () => { annuleRef.current = true; };
+  }, [chargerApercu, rechargeCle]);
+
+  const publiees = posts.filter(p => p.statut === "publiee");
+  const nbEnAttente = posts.filter(p => p.statut === "en_attente_validation");
+  const engagementPost = (p: PostInstitution) => p.nb_likes + p.nb_commentaires + p.nb_partages;
 
   // État vide (23/08/2026, retour Bryan) — rien n'a encore été créé,
   // jamais un dashboard de tuiles à zéro. "Créer une publication" est le
@@ -955,54 +1068,218 @@ function VueEnsembleView({ C, posts, audience, canPublish, onCreer, onVoirPublic
     );
   }
 
+  if (loadingIntel) {
+    return <div style={{ display: "flex", justifyContent: "center", padding: "50px" }}><YelenLoader size={28} /></div>;
+  }
+  if (erreur || !data) {
+    return (
+      <Card tokens={toCardTokens(C)} padding="36px 20px" style={{ textAlign: "center" }}>
+        <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, marginBottom: "6px" }}>Impossible de charger les données.</div>
+        <div style={{ color: C.t2, fontSize: "12.5px", marginBottom: "18px" }}>Vérifiez votre connexion puis réessayez.</div>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => setRechargeCle(k => k + 1)}>Réessayer</Button>
+      </Card>
+    );
+  }
+
+  // Action à faire — ordre de priorité fixe, jamais une liste de tâches
+  // artificielle : au plus 1 action réellement disponible à la fois
+  // (16/09/2026, brief CEO §3).
+  const dernierEnAttente = [...nbEnAttente].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  const actionType: "validation" | "profil" | "ok" = dernierEnAttente ? "validation" : data.score_presence.pct < 100 ? "profil" : "ok";
+
+  const meilleurs = publiees.length >= 3
+    ? [...publiees].sort((a, b) => engagementPost(b) - engagementPost(a)).slice(0, 3)
+    : null;
+
+  const recentes = [...posts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 3);
+
+  // "Publications" ajoutée à la série de la route (vues/interactions/abonnés)
+  // à partir du prop `posts` déjà chargé, sur les mêmes dates — jamais
+  // requêté une 2e fois côté serveur.
+  const activiteAvecPublications = data.activite_serie.map(pt => ({
+    ...pt, publications: posts.filter(p => p.created_at.slice(0, 10) === pt.date).length,
+  }));
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
         <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>Votre présence en un coup d&apos;œil</div>
-        {canPublish && (
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={onCreer}>
-            + Nouvelle publication
-          </Button>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <select value={periode} onChange={e => setPeriode(e.target.value as Periode)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "8px 11px", color: C.t1, fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>
+            {PERIODE_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select>
+          {canPublish && (
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={onCreer}>
+              + Nouvelle publication
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* KPI */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "10px", marginBottom: "22px" }}>
+        <HubKpiLink onClick={onVoirAudience}>
+          <HubKpiCard C={C} label="ABONNÉS" icon={HUB_ICONS.abonnes(C.gold)} color={C.gold}
+            value={data.kpi.abonnes_total.toLocaleString("fr-FR")} sub={`${data.kpi.abonnes_delta_periode >= 0 ? "+" : ""}${data.kpi.abonnes_delta_periode} sur la période`} />
+        </HubKpiLink>
+        <HubKpiLink onClick={onVoirPublications}>
+          <HubKpiCard C={C} label="PUBLICATIONS" icon={HUB_ICONS.publications(C.green)} color={C.green}
+            value={String(publiees.length)} sub={`${publiees.length} publiée${publiees.length !== 1 ? "s" : ""} · ${nbEnAttente.length} en attente`} />
+        </HubKpiLink>
+        <HubKpiLink onClick={onVoirPerformance}>
+          <HubKpiCard C={C} label="ENGAGEMENT" icon={HUB_ICONS.coeur(C.red)} color={C.red}
+            value={data.kpi.engagement_total.toLocaleString("fr-FR")} sub="J'aime · commentaires · partages" />
+        </HubKpiLink>
+        <HubKpiCard C={C} label="PORTÉE" icon={HUB_ICONS.portee(C.blue)} color={C.blue}
+          value={data.kpi.portee !== null ? data.kpi.portee.toLocaleString("fr-FR") : "—"} sub={data.kpi.portee !== null ? "Citoyens touchés" : "Pas encore assez de données"} />
+        <HubKpiLink onClick={onVoirPresence}>
+          <HubKpiCard C={C} label="VISITES" icon={HUB_ICONS.vue(C.teal)} color={C.teal}
+            value={data.kpi.visites.toLocaleString("fr-FR")} sub="Visites de votre présence" />
+        </HubKpiLink>
+      </div>
+
+      {/* À faire maintenant */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>À faire maintenant</div>
+      <Card tokens={toCardTokens(C)} padding="16px 18px" style={{ marginBottom: "22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px", flexWrap: "wrap" }}>
+        {actionType === "validation" && (
+          <>
+            <div>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700, marginBottom: "3px" }}>Votre dernière publication attend sa validation.</div>
+              <div style={{ color: C.t2, fontSize: "12px" }}>Elle sera visible dans le fil communautaire après validation.</div>
+            </div>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setDetailPost(dernierEnAttente)}>Voir la publication →</Button>
+          </>
         )}
-      </div>
+        {actionType === "profil" && (
+          <>
+            <div>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700, marginBottom: "3px" }}>Votre présence peut encore être complétée.</div>
+              <div style={{ color: C.t2, fontSize: "12px" }}>Complétez votre profil pour donner davantage d&apos;informations aux citoyens.</div>
+            </div>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={onVoirPresence}>Compléter ma présence →</Button>
+          </>
+        )}
+        {actionType === "ok" && (
+          <div>
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700, marginBottom: "3px" }}>Tout est à jour</div>
+            <div style={{ color: C.t2, fontSize: "12px" }}>Votre présence et vos publications ne nécessitent aucune action.</div>
+          </div>
+        )}
+      </Card>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "10px", marginBottom: "24px" }}>
-        <HubKpiCard
-          C={C} label="ABONNÉS" icon={HUB_ICONS.abonnes(C.gold)} color={C.gold}
-          value={audience ? audience.nb_abonnes.toLocaleString("fr-FR") : "—"}
-          sub={audience ? `+${audience.nouveaux_ce_mois} ce mois` : undefined}
-        />
-        <HubKpiCard C={C} label="PUBLICATIONS PUBLIÉES" icon={HUB_ICONS.publications(C.green)} color={C.green} value={String(publiees.length)} />
-        <HubKpiCard C={C} label="EN ATTENTE" icon={HUB_ICONS.attente(C.gold)} color={C.gold} value={String(nbEnAttente)} />
-        <HubKpiCard C={C} label="J'AIME" icon={HUB_ICONS.coeur(C.red)} color={C.red} value={totalLikes.toLocaleString("fr-FR")} />
-        <HubKpiCard C={C} label="COMMENTAIRES" icon={HUB_ICONS.commentaire(C.blue)} color={C.blue} value={totalCommentaires.toLocaleString("fr-FR")} />
-        <HubKpiCard C={C} label="PARTAGES" icon={HUB_ICONS.partage(C.teal)} color={C.teal} value={totalPartages.toLocaleString("fr-FR")} />
-      </div>
+      {/* Votre activité */}
+      <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "22px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Votre activité</div>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            {METRIQUES_ACTIVITE.map(o => (
+              <button key={o.k} onClick={() => setMetriqueActivite(o.k)} className="tap" style={{ background: metriqueActivite === o.k ? C.gold : C.bg3, color: metriqueActivite === o.k ? "#080812" : C.t2, border: "none", borderRadius: "16px", padding: "5px 12px", fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>{o.l}</button>
+            ))}
+          </div>
+        </div>
+        <GrowthChart C={C} dates={activiteAvecPublications.map(s => s.date)} values={activiteAvecPublications.map(s => s[metriqueActivite])}
+          color={metriqueActivite === "abonnes" ? C.gold : metriqueActivite === "interactions" ? C.red : metriqueActivite === "vues" ? C.teal : C.green} />
+      </Card>
 
+      {/* Ce qui fonctionne */}
       <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, margin: "0 0 10px" }}>Ce qui fonctionne</div>
-      {insights.length > 0 ? (
+      {meilleurs ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
-          {insights.map((texte, i) => (
-            <Card key={i} tokens={toCardTokens(C)} padding="12px 14px" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12" /></svg>
-              <span style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5 }}>{texte}</span>
-            </Card>
-          ))}
+          {meilleurs.map((p, i) => {
+            const contenu = p.contenu ?? "";
+            const titre = contenu.split("\n")[0]?.slice(0, 60) || "Publication sans texte";
+            return (
+              <Card key={p.id} tokens={toCardTokens(C)} padding="12px 14px" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ width: "22px", height: "22px", borderRadius: "50%", backgroundColor: C.bg3, color: C.t2, fontSize: "11px", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{titre}</div>
+                  <div style={{ color: C.t3, fontSize: "11px" }}>{p.nb_vues} vues · {engagementPost(p)} interactions</div>
+                </div>
+              </Card>
+            );
+          })}
+          <button onClick={onVoirPerformance} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", padding: "4px 0 0", color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer" }}>
+            Voir toutes les performances
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
         </div>
       ) : (
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>
-          Publiez encore quelques contenus pour débloquer des tendances sur ce qui fonctionne le mieux auprès des citoyens Yelen.
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "20px" }}>
+          <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "12px" }}>
+            Nous avons besoin de quelques publications supplémentaires pour identifier les tendances. Continuez à publier : Yelen affichera progressivement ce qui fonctionne le mieux auprès de votre audience.
+          </div>
+          {canPublish && (
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={onCreer}>Créer une publication →</Button>
+          )}
         </Card>
       )}
 
-      {nbRefusees > 0 && (
-        <div style={{ color: C.t3, fontSize: "11.5px", marginBottom: "16px" }}>{nbRefusees} publication{nbRefusees > 1 ? "s" : ""} refusée{nbRefusees > 1 ? "s" : ""} — consultez le motif dans Publications.</div>
-      )}
+      {/* Votre audience / Votre présence */}
+      <div className="communaute-pro-apercu-mini" style={{ display: "grid", gridTemplateColumns: "1fr", gap: "14px", marginBottom: "22px" }}>
+        <style>{`@media(min-width:760px){.communaute-pro-apercu-mini{grid-template-columns:1fr 1fr!important}}`}</style>
+        <Card tokens={toCardTokens(C)} padding="18px">
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Votre audience</div>
+          <div style={{ color: C.t1, fontSize: "24px", fontWeight: 800 }}>{data.audience_resume.abonnes.toLocaleString("fr-FR")} abonné{data.audience_resume.abonnes !== 1 ? "s" : ""}</div>
+          <div style={{ color: C.t2, fontSize: "12px", marginBottom: "12px" }}>{data.audience_resume.delta_periode >= 0 ? "+" : ""}{data.audience_resume.delta_periode} sur la période</div>
+          <div style={{ color: C.t3, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", marginBottom: "3px" }}>Audience active</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, marginBottom: "14px" }}>{data.audience_resume.audience_active.toLocaleString("fr-FR")}</div>
+          <button onClick={onVoirAudience} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", padding: 0, color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer" }}>
+            Voir l&apos;audience <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
+        </Card>
+        <Card tokens={toCardTokens(C)} padding="18px">
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Votre présence</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+            <div style={{ fontSize: "20px", fontWeight: 800, color: C.t1 }}>{data.score_presence.pct}%</div>
+            <div style={{ flex: 1, height: "7px", borderRadius: "4px", backgroundColor: C.bg3, overflow: "hidden" }}>
+              <div style={{ width: `${data.score_presence.pct}%`, height: "100%", borderRadius: "4px", backgroundColor: data.score_presence.pct >= 70 ? C.green : C.gold }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: "14px" }}>
+            {data.score_presence.criteres.map(c => <CritereLigne key={c.cle} C={C} ok={c.ok} texte={c.label} />)}
+          </div>
+          <button onClick={onVoirPresence} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", padding: 0, color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer" }}>
+            Gérer ma présence <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
+        </Card>
+      </div>
 
-      <button onClick={onVoirPublications} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", padding: 0, color: C.gold, fontSize: "12.5px", fontWeight: 800, cursor: "pointer" }}>
+      {/* Publications récentes — pas de menu ••• Modifier/Dupliquer/
+          Supprimer : ces actions n'existent pas dans le métier actuel
+          (aucune route d'édition/suppression/duplication de post
+          institution), déjà décidé pour PublicationsFeedView. */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Publications récentes</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {recentes.map(p => {
+          const label = POST_CATEGORIE_LABELS[p.categorie as PostCategorie] || p.categorie;
+          const couleurCat = POST_CATEGORIE_COULEURS[p.categorie as PostCategorie];
+          const cfg = STATUT_CFG(C)[p.statut];
+          return (
+            <Card key={p.id} tokens={toCardTokens(C)} padding="12px 14px">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
+                {couleurCat && <span style={{ background: `${couleurCat}18`, color: couleurCat, fontSize: "9.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "20px" }}>{label}</span>}
+                <span style={{ backgroundColor: cfg.bg, color: cfg.color, fontSize: "9.5px", fontWeight: 700, padding: "2px 8px", borderRadius: "20px" }}>{cfg.label}</span>
+                <span style={{ marginLeft: "auto", color: C.t3, fontSize: "10.5px" }}>{fmt(p.created_at)}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "8px" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11px", fontWeight: 700 }}>{HUB_ICONS.vue(C.t3)}{p.nb_vues}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11px", fontWeight: 700 }}>{HUB_ICONS.coeur(C.t3)}{p.nb_likes}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11px", fontWeight: 700 }}>{HUB_ICONS.commentaire(C.t3)}{p.nb_commentaires}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11px", fontWeight: 700 }}>{HUB_ICONS.partage(C.t3)}{p.nb_partages}</span>
+              </div>
+              <button onClick={() => setDetailPost(p)} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.gold, fontSize: "11.5px", fontWeight: 800, cursor: "pointer" }}>Voir →</button>
+            </Card>
+          );
+        })}
+      </div>
+      <button onClick={onVoirPublications} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", padding: "12px 0 0", color: C.gold, fontSize: "12.5px", fontWeight: 800, cursor: "pointer" }}>
         Voir toutes les publications
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
       </button>
+
+      {detailPost && (
+        <PublicationDetailOverlay C={C} instName={instName} post={detailPost} onClose={() => setDetailPost(null)} />
+      )}
     </div>
   );
 }
@@ -1050,8 +1327,9 @@ function PubThumb({ C, images, categorie }: { C: ThemeTokens; images: string[]; 
 
 const STATUT_TABS: { key: "toutes" | PostInstitution["statut"]; label: string }[] = [
   { key: "toutes", label: "Toutes" },
-  { key: "publiee", label: "Publiées" },
+  { key: "planifiee", label: "Planifiées" },
   { key: "en_attente_validation", label: "En attente" },
+  { key: "publiee", label: "Publiées" },
   { key: "refusee", label: "Refusées" },
 ];
 
@@ -1070,25 +1348,93 @@ function debutPeriode(filtre: "7j" | "30j" | "annee"): Date {
   return d;
 }
 
+// Modale de confirmation générique — Supprimer/Annuler la soumission/
+// Annuler la programmation/Publier maintenant (16/09/2026). Jamais de
+// window.confirm dans ce projet, toujours une modale stylée maison.
+type ActionEnCours = { post: PostInstitution; type: "supprimer" | "annuler_soumission" | "annuler_programmation" | "publier_maintenant" };
+const ACTION_CFG: Record<ActionEnCours["type"], { titre: string; confirmLabel: string; danger: boolean }> = {
+  supprimer: { titre: "Supprimer cette publication ?", confirmLabel: "Supprimer", danger: true },
+  annuler_soumission: { titre: "Annuler cette soumission ?", confirmLabel: "Annuler la soumission", danger: true },
+  annuler_programmation: { titre: "Annuler cette programmation ?", confirmLabel: "Annuler la programmation", danger: true },
+  publier_maintenant: { titre: "Publier maintenant ?", confirmLabel: "Publier maintenant", danger: false },
+};
+
+function texteConfirmation(action: ActionEnCours): string {
+  const { post, type } = action;
+  if (type === "supprimer") {
+    const interactions = post.nb_likes + post.nb_commentaires;
+    return post.statut === "publiee" && interactions > 0
+      ? `Cette publication est visible dans Yelen Community et a déjà reçu ${interactions} interaction${interactions > 1 ? "s" : ""} (j'aime, commentaires) — les supprimer définitivement avec la publication ?`
+      : "Cette action est définitive.";
+  }
+  if (type === "annuler_soumission") return "Cette publication ne sera plus examinée par l'équipe Yelen.";
+  if (type === "annuler_programmation") return "Cette publication planifiée sera supprimée et ne sera jamais soumise à l'équipe Yelen.";
+  return "Elle sera immédiatement soumise à l'équipe Yelen pour validation, sans attendre la date programmée. Elle ne sera visible qu'après son accord.";
+}
+
+function ActionConfirmModal({ C, action, saving, erreur, onConfirm, onClose }: { C: ThemeTokens; action: ActionEnCours; saving: boolean; erreur: string; onConfirm: () => void; onClose: () => void }) {
+  const cfg = ACTION_CFG[action.type];
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1400, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "18px", padding: "22px", maxWidth: "380px", width: "100%" }}>
+        <h3 style={{ color: C.t1, fontSize: "15px", fontWeight: 800, margin: "0 0 8px" }}>{cfg.titre}</h3>
+        <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 18px" }}>{texteConfirmation(action)}</p>
+        {erreur && <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 12px", color: C.red, fontSize: "12px", marginBottom: "14px" }}>{erreur}</div>}
+        <div style={{ display: "flex", gap: "10px" }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={onClose}>Retour</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant={cfg.danger ? "danger" : "primary"} size="md" style={{ flex: 1 }} loading={saving} onClick={onConfirm}>{cfg.confirmLabel}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function fmtDateHeurePlanif(d: string) {
+  const date = new Date(d);
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + " à " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
 // Publications — centre de gestion du contenu de l'établissement
-// (23/08/2026, refonte complète, retour Bryan : "voici toute ma présence
-// éditoriale Yelen", pas "voici mon post"). Statuts réels uniquement
-// (STATUT_TABS ci-dessus, aucun "Brouillon"/"Programmée"/"Archivée"
-// inventé — le backend n'a que en_attente_validation/publiee/refusee).
-// Recherche/filtres 100% client (posts déjà tous chargés), aucun nouvel
-// appel réseau. Actions réelles uniquement : "Voir la publication" ouvre
-// un aperçu lecture seule (PublicationDetailOverlay) — pas de menu
-// "•••" Modifier/Dupliquer/Archiver/Supprimer, ces actions n'existent
-// pas dans le métier actuel (pas de route d'édition/suppression/
-// duplication de post institution) et ne doivent pas être inventées.
-function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
-  C: ThemeTokens; instName?: string; posts: PostInstitution[]; canPublish: boolean; onCreer: () => void;
+// (23/08/2026, refonte complète ; 16/09/2026, ajout planification/
+// suppression, décision Bryan). Statuts réels uniquement (STATUT_TABS
+// ci-dessus). Recherche/filtres 100% client (posts déjà tous chargés).
+// Actions par statut, jamais une action impossible affichée : en_attente
+// → Annuler la soumission ; planifiee → Publier maintenant/Annuler la
+// programmation ; publiee/refusee → Supprimer. "Publier maintenant" ne
+// rend jamais visible immédiatement (voir communaute-posts/[id]/
+// publier-maintenant/route.ts) — la validation Yelen reste obligatoire.
+function PublicationsFeedView({ C, instName, posts, canPublish, onCreer, onVoirPerformance, onDonneesChangees }: {
+  C: ThemeTokens; instName?: string; posts: PostInstitution[]; canPublish: boolean; onCreer: () => void; onVoirPerformance: () => void; onDonneesChangees: () => void;
 }) {
   const [statutFiltre, setStatutFiltre] = useState<"toutes" | PostInstitution["statut"]>("toutes");
   const [recherche, setRecherche] = useState("");
   const [categorieFiltre, setCategorieFiltre] = useState<string>("toutes");
   const [dateFiltre, setDateFiltre] = useState<"toutes" | "7j" | "30j" | "annee">("toutes");
   const [detailPost, setDetailPost] = useState<PostInstitution | null>(null);
+  const [menuOuvertId, setMenuOuvertId] = useState<string | null>(null);
+  const [actionEnCours, setActionEnCours] = useState<ActionEnCours | null>(null);
+  const [actionSaving, setActionSaving] = useState(false);
+  const [actionErreur, setActionErreur] = useState("");
+
+  async function confirmerAction() {
+    if (!actionEnCours) return;
+    setActionSaving(true);
+    setActionErreur("");
+    try {
+      const { post, type } = actionEnCours;
+      const res = type === "publier_maintenant"
+        ? await fetch(`/api/institution/communaute-posts/${post.id}/publier-maintenant`, { method: "POST" })
+        : await fetch(`/api/institution/communaute-posts/${post.id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || (json && json.ok === false)) { setActionErreur(json?.error || "Une erreur est survenue."); setActionSaving(false); return; }
+      setActionEnCours(null);
+      setActionSaving(false);
+      onDonneesChangees();
+    } catch {
+      setActionErreur("Une erreur est survenue.");
+      setActionSaving(false);
+    }
+  }
 
   const filtresActifs = statutFiltre !== "toutes" || recherche.trim() !== "" || categorieFiltre !== "toutes" || dateFiltre !== "toutes";
   const reinitialiser = () => { setStatutFiltre("toutes"); setRecherche(""); setCategorieFiltre("toutes"); setDateFiltre("toutes"); };
@@ -1184,7 +1530,7 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-        <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Publications récentes</span>
+        <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Vos publications</span>
         <span style={{ color: C.t3, fontSize: "11.5px" }}>{postsFiltres.length} publication{postsFiltres.length !== 1 ? "s" : ""}</span>
       </div>
 
@@ -1214,7 +1560,7 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
                       {couleurCat && <span style={{ background: `${couleurCat}18`, color: couleurCat, fontSize: "10px", fontWeight: 800, padding: "3px 9px", borderRadius: "20px" }}>{label}</span>}
                       <StatutDot C={C} statut={p.statut} />
                     </div>
-                    <span style={{ color: C.t3, fontSize: "11px", flexShrink: 0 }}>{fmt(p.created_at)}</span>
+                    <span style={{ color: C.t3, fontSize: "11px", flexShrink: 0 }}>{p.statut === "planifiee" && p.scheduled_at ? `Prévue le ${fmtDateHeurePlanif(p.scheduled_at)}` : fmt(p.created_at)}</span>
                   </div>
 
                   <div style={{ color: C.t2, fontSize: "11.5px" }}>{instName || "Votre établissement"}</div>
@@ -1230,11 +1576,13 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
                     </div>
                   )}
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>{HUB_ICONS.vue(C.t3)}{p.nb_vues}</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>{HUB_ICONS.coeur(C.t3)}{p.nb_likes}</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>{HUB_ICONS.commentaire(C.t3)}{p.nb_commentaires}</span>
-                  </div>
+                  {p.statut !== "planifiee" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>{HUB_ICONS.vue(C.t3)}{p.nb_vues}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>{HUB_ICONS.coeur(C.t3)}{p.nb_likes}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>{HUB_ICONS.commentaire(C.t3)}{p.nb_commentaires}</span>
+                    </div>
+                  )}
 
                   {p.statut === "refusee" && p.motif_refus && (
                     <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "8px 10px" }}>
@@ -1242,9 +1590,39 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
                     </div>
                   )}
 
-                  <button onClick={() => setDetailPost(p)} className="tap" style={{ alignSelf: "flex-start", background: "none", border: "none", padding: 0, color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer" }}>
-                    Voir la publication
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+                    <button onClick={() => setDetailPost(p)} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer" }}>
+                      Voir la publication
+                    </button>
+                    <div style={{ position: "relative" }}>
+                      <button onClick={() => setMenuOuvertId(menuOuvertId === p.id ? null : p.id)} aria-label="Actions" className="tap" style={{ width: "26px", height: "26px", borderRadius: "8px", background: "none", border: `1px solid ${C.border}`, color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
+                      </button>
+                      {menuOuvertId === p.id && (
+                        <>
+                          <div onClick={() => setMenuOuvertId(null)} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
+                          <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 11, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: "200px", overflow: "hidden" }}>
+                            <button onClick={() => { setDetailPost(p); setMenuOuvertId(null); }} className="tap" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 14px", color: C.t1, fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>Voir la publication</button>
+                            {p.statut !== "planifiee" && (
+                              <button onClick={() => { onVoirPerformance(); setMenuOuvertId(null); }} className="tap" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "10px 14px", color: C.t1, fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>Voir les statistiques</button>
+                            )}
+                            {p.statut === "en_attente_validation" && (
+                              <button onClick={() => { setActionEnCours({ post: p, type: "annuler_soumission" }); setMenuOuvertId(null); }} className="tap" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "10px 14px", color: C.red, fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>Annuler la soumission</button>
+                            )}
+                            {p.statut === "planifiee" && (
+                              <>
+                                <button onClick={() => { setActionEnCours({ post: p, type: "publier_maintenant" }); setMenuOuvertId(null); }} className="tap" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "10px 14px", color: C.t1, fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>Publier maintenant</button>
+                                <button onClick={() => { setActionEnCours({ post: p, type: "annuler_programmation" }); setMenuOuvertId(null); }} className="tap" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "10px 14px", color: C.red, fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>Annuler la programmation</button>
+                              </>
+                            )}
+                            {(p.statut === "publiee" || p.statut === "refusee") && (
+                              <button onClick={() => { setActionEnCours({ post: p, type: "supprimer" }); setMenuOuvertId(null); }} className="tap" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "10px 14px", color: C.red, fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>Supprimer</button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </Card>
             );
@@ -1255,80 +1633,178 @@ function PublicationsFeedView({ C, instName, posts, canPublish, onCreer }: {
       {detailPost && (
         <PublicationDetailOverlay C={C} instName={instName} post={detailPost} onClose={() => setDetailPost(null)} />
       )}
+
+      {actionEnCours && (
+        <ActionConfirmModal C={C} action={actionEnCours} saving={actionSaving} erreur={actionErreur}
+          onClose={() => { if (!actionSaving) { setActionEnCours(null); setActionErreur(""); } }} onConfirm={confirmerAction} />
+      )}
     </div>
   );
 }
 
 // Aperçu lecture seule d'une publication — ouvert depuis "Voir la
 // publication" (23/08/2026). Contenu non tronqué, toutes les images,
-// indicateurs réels déjà chargés — aucun nouvel appel réseau, aucune
-// action au-delà de fermer (pas de Modifier/Dupliquer/Archiver/Supprimer,
-// ces fonctionnalités n'existent pas dans le métier actuel).
+// indicateurs réels déjà chargés — aucun nouvel appel réseau. Aucune
+// action de gestion ICI (Publier maintenant/Annuler/Supprimer vivent dans
+// le menu ••• de PublicationsFeedView, pas dans cet aperçu) — Modifier/
+// Dupliquer restent hors périmètre (16/09/2026), aucune route n'existe.
+// Fiche desktop-first (16/09/2026, retour Bryan) — la fiche liste/citoyen
+// (2 colonnes ≥1024px) sert de référence : sur grand écran, la publication
+// mérite un vrai espace de lecture (média à gauche, contexte + performance
+// dans une colonne fixe à droite) plutôt qu'un simple recentrage de la
+// pile mobile. En mobile, la structure reste la pile verticale d'origine.
+// Sans image, la colonne média disparaît — jamais une colonne vide en repli.
 function PublicationDetailOverlay({ C, instName, post, onClose }: { C: ThemeTokens; instName?: string; post: PostInstitution; onClose: () => void }) {
   const label = POST_CATEGORIE_LABELS[post.categorie as PostCategorie] || post.categorie;
   const couleurCat = POST_CATEGORIE_COULEURS[post.categorie as PostCategorie];
   const images = post.images ?? [];
+  const [imageActive, setImageActive] = useState(0);
+  const aDesMedias = images.length > 0;
+
+  const meta = (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px", flexWrap: "wrap" }}>
+        {couleurCat && <span style={{ background: `${couleurCat}18`, color: couleurCat, fontSize: "10.5px", fontWeight: 800, padding: "4px 10px", borderRadius: "20px" }}>{label}</span>}
+        <StatutDot C={C} statut={post.statut} />
+        <span style={{ marginLeft: "auto", color: C.t3, fontSize: "11.5px" }}>{fmt(post.created_at)}</span>
+      </div>
+
+      <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, marginBottom: "12px" }}>{instName || "Votre établissement"}</div>
+
+      {post.contenu && (
+        <p style={{ color: C.t1, fontSize: "13.5px", lineHeight: 1.65, whiteSpace: "pre-wrap", margin: "0 0 18px" }}>{post.contenu}</p>
+      )}
+
+      {post.statut === "planifiee" && post.scheduled_at && (
+        <div style={{ backgroundColor: `${C.blue}0f`, border: `1px solid ${C.blue}30`, borderRadius: "10px", padding: "12px 14px", marginBottom: "18px" }}>
+          <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700, margin: "0 0 4px" }}>📅 Publication planifiée</p>
+          <p style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.6, margin: "0 0 8px" }}>Elle sera soumise à l&apos;équipe Yelen le {fmtDateHeurePlanif(post.scheduled_at)}, puis examinée avant diffusion comme toute autre publication.</p>
+        </div>
+      )}
+
+      {post.statut === "en_attente_validation" && (
+        <div style={{ backgroundColor: `${C.gold}0f`, border: `1px solid ${C.gold}30`, borderRadius: "10px", padding: "12px 14px", marginBottom: "18px" }}>
+          <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700, margin: "0 0 4px" }}>🕐 Votre publication est en cours d&apos;examen.</p>
+          <p style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.6, margin: "0 0 8px" }}>Elle sera visible dans Yelen Community après validation par l&apos;équipe Yelen. Vous serez informé lorsque son statut changera.</p>
+          <p style={{ color: C.t3, fontSize: "11px", margin: 0 }}>Soumise le : {fmt(post.soumis_le)}</p>
+        </div>
+      )}
+
+      {post.statut === "refusee" && post.motif_refus && (
+        <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 12px", marginBottom: "18px" }}>
+          <p style={{ color: C.red, fontSize: "12.5px", fontWeight: 800, margin: "0 0 6px" }}>Publication refusée{post.traite_le ? ` — ${fmt(post.traite_le)}` : ""}</p>
+          <p style={{ color: C.red, fontSize: "11.5px", margin: 0 }}><strong>Motif du refus :</strong> {post.motif_refus}</p>
+        </div>
+      )}
+
+      {post.statut === "publiee" && (
+        <div style={{ marginBottom: "18px" }}>
+          <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>État</div>
+          <CritereLigne C={C} ok texte="Publication approuvée" />
+          <CritereLigne C={C} ok texte="Visible dans Yelen Community" />
+        </div>
+      )}
+
+      {post.statut !== "planifiee" && (
+        <>
+          <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "10px" }}>Performance</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))", gap: "8px", marginBottom: post.nb_impressions > 0 ? "8px" : "20px" }}>
+            <PerfMetric C={C} label="Impressions" value={post.nb_impressions} />
+            <PerfMetric C={C} label="Vues" value={post.nb_vues} />
+            <PerfMetric C={C} label="Portée" value={post.nb_portee} />
+            <PerfMetric C={C} label="J'aime" value={post.nb_likes} />
+            <PerfMetric C={C} label="Commentaires" value={post.nb_commentaires} />
+            <PerfMetric C={C} label="Partages" value={post.nb_partages} />
+          </div>
+          {post.nb_impressions > 0 && (
+            <div style={{ marginBottom: "20px" }}>
+              <span style={{ color: C.t2, fontSize: "11.5px" }}>Taux d&apos;engagement : </span>
+              <span style={{ color: C.t1, fontSize: "11.5px", fontWeight: 800 }}>
+                {(((post.nb_likes + post.nb_commentaires + post.nb_partages) / post.nb_impressions) * 100).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+              </span>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Activité — soumis_le réel dès l'entrée en file de modération
+          (jamais affiché pour une publication encore "planifiee", ce
+          timestamp ne représente alors qu'un défaut de colonne, pas une
+          vraie soumission). traite_le (migration 20260916000012) posé sur
+          LES DEUX décisions admin — seule source fiable d'une date de
+          refus, jamais fabriquée avant son ajout. */}
+      {post.statut !== "planifiee" && (
+        <>
+          <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "10px" }}>Activité</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.t3, marginTop: "5px", flexShrink: 0 }} />
+              <div>
+                <div style={{ color: C.t1, fontSize: "12px", fontWeight: 700 }}>Publication soumise</div>
+                <div style={{ color: C.t3, fontSize: "11px" }}>{fmt(post.soumis_le)}</div>
+              </div>
+            </div>
+            {post.statut === "publiee" && post.valide_le && (
+              <div style={{ display: "flex", gap: "10px" }}>
+                <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, marginTop: "5px", flexShrink: 0 }} />
+                <div>
+                  <div style={{ color: C.t1, fontSize: "12px", fontWeight: 700 }}>Publication validée et diffusée</div>
+                  <div style={{ color: C.t3, fontSize: "11px" }}>{fmt(post.valide_le)}</div>
+                </div>
+              </div>
+            )}
+            {post.statut === "refusee" && post.traite_le && (
+              <div style={{ display: "flex", gap: "10px" }}>
+                <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.red, marginTop: "5px", flexShrink: 0 }} />
+                <div>
+                  <div style={{ color: C.t1, fontSize: "12px", fontWeight: 700 }}>Publication refusée</div>
+                  <div style={{ color: C.t3, fontSize: "11px" }}>{fmt(post.traite_le)}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={onClose}>
+        Fermer
+      </Button>
+    </>
+  );
+
   return (
     <div className="communaute-pro-pubdetail-overlay" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1200, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <style>{`
         @media(min-width:1024px){
           .communaute-pro-pubdetail-overlay{align-items:center!important}
-          .communaute-pro-pubdetail-panel{max-width:600px!important;border-radius:20px!important;max-height:88svh!important}
+          .communaute-pro-pubdetail-panel{max-width:${aDesMedias ? "900px" : "600px"}!important;border-radius:20px!important;max-height:88svh!important}
           .communaute-pro-pubdetail-grip{display:none!important}
+          .communaute-pro-pubdetail-body{display:${aDesMedias ? "grid" : "block"}!important;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start}
+          .communaute-pro-pubdetail-media{position:sticky;top:0}
         }
       `}</style>
       <div onClick={e => e.stopPropagation()} className="communaute-pro-pubdetail-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "18px 20px 24px", width: "100%", maxWidth: "600px", maxHeight: "92svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none" }}>
         <div className="communaute-pro-pubdetail-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 16px" }} />
 
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px", flexWrap: "wrap" }}>
-          {couleurCat && <span style={{ background: `${couleurCat}18`, color: couleurCat, fontSize: "10.5px", fontWeight: 800, padding: "4px 10px", borderRadius: "20px" }}>{label}</span>}
-          <StatutDot C={C} statut={post.statut} />
-          <span style={{ marginLeft: "auto", color: C.t3, fontSize: "11.5px" }}>{fmt(post.created_at)}</span>
-        </div>
-
-        <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, marginBottom: "12px" }}>{instName || "Votre établissement"}</div>
-
-        {post.contenu && (
-          <p style={{ color: C.t1, fontSize: "13.5px", lineHeight: 1.65, whiteSpace: "pre-wrap", margin: `0 0 ${images.length > 0 ? "14px" : "18px"}` }}>{post.contenu}</p>
-        )}
-
-        {images.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "18px" }}>
-            {images.map((url, i) => (
-              <div key={i} style={{ position: "relative", width: "100%", borderRadius: "12px", overflow: "hidden", background: C.bg3 }}>
-                <Image src={url} alt="" width={800} height={600} style={{ width: "100%", height: "auto", display: "block" }} />
+        {aDesMedias ? (
+          <div className="communaute-pro-pubdetail-body">
+            <div className="communaute-pro-pubdetail-media" style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "18px" }}>
+              <div style={{ position: "relative", width: "100%", aspectRatio: "4/3", borderRadius: "14px", overflow: "hidden", background: C.bg3 }}>
+                <Image src={images[imageActive]} alt="" fill sizes="(max-width: 1024px) 100vw, 520px" style={{ objectFit: "cover" }} />
               </div>
-            ))}
+              {images.length > 1 && (
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {images.map((url, i) => (
+                    <button key={i} onClick={() => setImageActive(i)} className="tap" style={{ position: "relative", width: "56px", height: "56px", borderRadius: "8px", overflow: "hidden", border: `2px solid ${i === imageActive ? C.gold : "transparent"}`, padding: 0, cursor: "pointer", background: "none" }}>
+                      <Image src={url} alt="" fill sizes="56px" style={{ objectFit: "cover" }} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>{meta}</div>
           </div>
-        )}
-
-        {post.statut === "refusee" && post.motif_refus && (
-          <div style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 12px", marginBottom: "18px" }}>
-            <p style={{ color: C.red, fontSize: "11.5px", margin: 0 }}><strong>Motif du refus :</strong> {post.motif_refus}</p>
-          </div>
-        )}
-
-        <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "10px" }}>Performance</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))", gap: "8px", marginBottom: post.nb_impressions > 0 ? "8px" : "20px" }}>
-          <PerfMetric C={C} label="Impressions" value={post.nb_impressions} />
-          <PerfMetric C={C} label="Vues" value={post.nb_vues} />
-          <PerfMetric C={C} label="Portée" value={post.nb_portee} />
-          <PerfMetric C={C} label="J'aime" value={post.nb_likes} />
-          <PerfMetric C={C} label="Commentaires" value={post.nb_commentaires} />
-          <PerfMetric C={C} label="Partages" value={post.nb_partages} />
-        </div>
-        {post.nb_impressions > 0 && (
-          <div style={{ marginBottom: "20px" }}>
-            <span style={{ color: C.t2, fontSize: "11.5px" }}>Taux d&apos;engagement : </span>
-            <span style={{ color: C.t1, fontSize: "11.5px", fontWeight: 800 }}>
-              {(((post.nb_likes + post.nb_commentaires + post.nb_partages) / post.nb_impressions) * 100).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-            </span>
-          </div>
-        )}
-
-        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={onClose}>
-          Fermer
-        </Button>
+        ) : meta}
       </div>
     </div>
   );
@@ -1526,7 +2002,124 @@ function PerformanceView({ C, instName, posts, performance, canPublish, onCreer 
 // existé (lot Performance) — citoyens distincts ayant réellement ouvert
 // une publication depuis le 1er du mois, plus juste "qui est abonné" mais
 // "qui consulte vraiment". Plus aucun stub sur cet onglet.
+const PERIODE_OPTIONS: { key: Periode; label: string }[] = [
+  { key: "7j", label: "7 derniers jours" },
+  { key: "30j", label: "30 derniers jours" },
+  { key: "90j", label: "90 derniers jours" },
+  { key: "12mois", label: "12 derniers mois" },
+];
+
+function fmtCourt(d: string) { return new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }); }
+function fmtRelatifAbonne(d: string): string {
+  const date = new Date(d);
+  const heures = (Date.now() - date.getTime()) / 3600000;
+  if (heures < 1) return "À l'instant";
+  if (heures < 24) return `Il y a ${Math.round(heures)} h`;
+  if (heures < 48) return "Hier";
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+
+// Barre horizontale label + track + %, réutilisée pour localisation/âge/genre
+// (16/09/2026) — jamais de camembert (une seule vraie librairie de charts
+// dans le projet : aucune, tout est du SVG/CSS manuel, voir en-tête de
+// fichier SignalementsTab.tsx).
+function BarRow({ C, label, pct, color }: { C: ThemeTokens; label: string; pct: number; color?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+      <span style={{ color: C.t2, fontSize: "12px", width: "92px", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <div style={{ flex: 1, height: "8px", borderRadius: "4px", backgroundColor: C.bg3, overflow: "hidden" }}>
+        <div style={{ width: `${Math.max(2, pct)}%`, height: "100%", borderRadius: "4px", backgroundColor: color ?? C.gold }} />
+      </div>
+      <span style={{ color: C.t1, fontSize: "12px", fontWeight: 700, width: "32px", textAlign: "right", flexShrink: 0 }}>{pct}%</span>
+    </div>
+  );
+}
+
+function DonneesInsuffisantes({ C, texte }: { C: ThemeTokens; texte: string }) {
+  return (
+    <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6, padding: "6px 0" }}>
+      {texte} <strong style={{ color: C.t1 }}>Continuez à publier pour débloquer ces insights.</strong>
+    </div>
+  );
+}
+
+// Courbe de croissance — polyline SVG manuelle (même recette que
+// SigSparkline de SignalementsTab.tsx, non partagée entre fichiers par
+// convention du projet), viewBox fixe + vectorEffect pour un trait fin
+// quel que soit l'étirement horizontal.
+// Empty state dédié (16/09/2026, retour Bryan) — distinct d'une simple
+// ligne de texte : une zone de graphique jamais laissée blanche sans
+// explication, même logique que CommunityEmptyScreen mais assez compacte
+// pour tenir dans la Card "Croissance" plutôt qu'un écran plein.
+function GrowthChartEmpty({ C }: { C: ThemeTokens }) {
+  return (
+    <div style={{ textAlign: "center", padding: "34px 16px" }}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={`${C.gold}80`} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 12px" }}>
+        <polyline points="3 17 9 11 13 15 21 6" /><polyline points="15 6 21 6 21 12" />
+      </svg>
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Votre croissance apparaîtra ici</div>
+      <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6, maxWidth: "320px", margin: "0 auto" }}>Nous commencerons à suivre l&apos;évolution de votre audience dès que de nouveaux abonnements seront enregistrés.</div>
+    </div>
+  );
+}
+
+// Générique (16/09/2026) — agnostique de la métrique/forme de la série,
+// réutilisé par Audience (abonnés/nouveaux/perdus) et Présence
+// (vues/visiteurs) plutôt que dupliqué : l'appelant extrait déjà
+// `dates`/`values` de sa propre série typée.
+function GrowthChart({ C, dates, values, color }: { C: ThemeTokens; dates: string[]; values: number[]; color: string }) {
+  if (dates.length < 2) return <GrowthChartEmpty C={C} />;
+  const max = Math.max(...values, 1);
+  const w = 100, h = 40;
+  const points = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w;
+    const y = h - (v / max) * (h - 4) - 2;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height: "150px", display: "block" }}>
+        <polyline points={points} fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", color: C.t3, fontSize: "10.5px", marginTop: "6px" }}>
+        <span>{fmtCourt(dates[0])}</span>
+        <span>{fmtCourt(dates[Math.floor(dates.length / 2)])}</span>
+        <span>{fmtCourt(dates[dates.length - 1])}</span>
+      </div>
+    </div>
+  );
+}
+
+function HeuresChart({ C, data }: { C: ThemeTokens; data: { heure: number; count: number }[] }) {
+  const max = Math.max(...data.map(d => d.count), 1);
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: "2px", height: "70px" }}>
+        {data.map(d => (
+          <div key={d.heure} title={`${d.heure}h`} style={{ flex: 1, height: `${Math.max(4, (d.count / max) * 100)}%`, backgroundColor: `${C.gold}cc`, borderRadius: "2px 2px 0 0" }} />
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", color: C.t3, fontSize: "10px", marginTop: "4px" }}>
+        <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
+      </div>
+    </div>
+  );
+}
+
+// Audience Intelligence (16/09/2026, brief CEO) — taille → croissance →
+// profil → activité → engagement, plutôt qu'un simple compteur d'abonnés.
+// Fetch dédié (période sélectionnable), découplé du chargement initial du
+// hub : le prop `audience` (déjà chargé par le parent) sert uniquement à
+// décider si l'onglet est vide avant même d'appeler ce nouvel endpoint.
 function AudienceView({ C, audience, canPublish, onCreer }: { C: ThemeTokens; audience: AudienceData | null; canPublish: boolean; onCreer: () => void }) {
+  const [periode, setPeriode] = useState<Periode>("30j");
+  const [data, setData] = useState<AudienceIntelligence | null>(null);
+  const [loadingIntel, setLoadingIntel] = useState(true);
+  const [erreur, setErreur] = useState(false);
+  const [rechargeCle, setRechargeCle] = useState(0);
+  const [metrique, setMetrique] = useState<"abonnes" | "nouveaux" | "perdus">("abonnes");
+  const [voirTousAbonnes, setVoirTousAbonnes] = useState(false);
+
   // État vide (23/08/2026, retour Bryan) — aucune fonctionnalité "découvrir
   // comment développer votre présence" n'existe aujourd'hui, donc pas de
   // CTA fabriqué pour ça : la seule action réelle disponible est publier.
@@ -1535,6 +2128,40 @@ function AudienceView({ C, audience, canPublish, onCreer }: { C: ThemeTokens; au
     && audience.nouveaux_ce_mois === 0
     && audience.abonnes_perdus_ce_mois === 0
     && audience.audience_active_ce_mois === 0;
+
+  // 3 états distincts (16/09/2026, retour Bryan) — DATA/NO DATA/ERROR ne
+  // doivent jamais se confondre. Avant ce correctif, un échec réseau
+  // laissait `data` à null indéfiniment et l'écran restait bloqué sur le
+  // loader, jamais un vrai état d'erreur avec action de reprise.
+  // `async` + `await`/`try`/`catch` obligatoire ici (pas une chaîne
+  // `.then()` synchrone) — même forme exacte que chargerListe/chargerDetail
+  // de SignalementsTab.tsx, seule celle-ci échappe à la règle
+  // react-hooks/set-state-in-effect quand la fonction est invoquée depuis
+  // le corps d'un effet.
+  const chargerAudience = useCallback(async (annuleRef: { current: boolean }) => {
+    if (estVide) { setLoadingIntel(false); return; }
+    setLoadingIntel(true);
+    setErreur(false);
+    try {
+      const res = await fetch(`/api/institution/communaute-audience?periode=${periode}`);
+      if (!res.ok) throw new Error("http_error");
+      const j = await res.json();
+      if (annuleRef.current) return;
+      if (!j?.kpi) throw new Error("shape_error");
+      setData(j);
+    } catch {
+      if (!annuleRef.current) { setData(null); setErreur(true); }
+    } finally {
+      if (!annuleRef.current) setLoadingIntel(false);
+    }
+  }, [periode, estVide]);
+
+  useEffect(() => {
+    const annuleRef = { current: false };
+    chargerAudience(annuleRef);
+    return () => { annuleRef.current = true; };
+  }, [chargerAudience, rechargeCle]);
+
   if (estVide) {
     return (
       <CommunityEmptyScreen
@@ -1547,88 +2174,438 @@ function AudienceView({ C, audience, canPublish, onCreer }: { C: ThemeTokens; au
     );
   }
 
+  if (loadingIntel) {
+    return <div style={{ display: "flex", justifyContent: "center", padding: "50px" }}><YelenLoader size={28} /></div>;
+  }
+
+  if (erreur || !data) {
+    return (
+      <Card tokens={toCardTokens(C)} padding="36px 20px" style={{ textAlign: "center" }}>
+        <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, marginBottom: "6px" }}>Impossible de charger les données d&apos;audience.</div>
+        <div style={{ color: C.t2, fontSize: "12.5px", marginBottom: "18px" }}>Les données n&apos;ont pas pu être récupérées.</div>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => setRechargeCle(k => k + 1)}>Réessayer</Button>
+      </Card>
+    );
+  }
+
+  // Bornes réellement utilisées côté serveur (data.bornes) plutôt qu'une
+  // horloge cliente recalculée ici (évite un Date.now() impur en rendu,
+  // règle react-hooks/purity du React Compiler).
+  const historiqueLimite = new Date(data.historique_disponible_depuis).getTime() > new Date(data.bornes.debut).getTime();
+
   return (
     <div>
-      <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, marginBottom: "14px" }}>Audience</div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "10px" }}>
-        <HubKpiCard
-          C={C} label="ABONNÉS" icon={HUB_ICONS.abonnes(C.gold)} color={C.gold}
-          value={audience ? audience.nb_abonnes.toLocaleString("fr-FR") : "—"}
-          sub={audience ? `+${audience.nouveaux_ce_mois} ce mois` : undefined}
-        />
-        <HubKpiCard
-          C={C} label="NOUVEAUX ABONNÉS CE MOIS" icon={HUB_ICONS.abonnes(C.green)} color={C.green}
-          value={audience ? String(audience.nouveaux_ce_mois) : "—"}
-        />
-        <HubKpiCard
-          C={C} label="ABONNÉS PERDUS CE MOIS" icon={HUB_ICONS.abonnesPerdus(C.red)} color={C.red}
-          value={audience ? String(audience.abonnes_perdus_ce_mois) : "—"}
-        />
-        <HubKpiCard
-          C={C} label="AUDIENCE ACTIVE CE MOIS" icon={HUB_ICONS.vue(C.purple)} color={C.purple}
-          value={audience ? String(audience.audience_active_ce_mois) : "—"}
-          sub="A réellement ouvert une publication"
-        />
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "18px" }}>
+        <div>
+          <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "4px" }}>Audience</div>
+          <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5, maxWidth: "440px" }}>Comprenez qui suit votre établissement et comment votre audience évolue sur Yelen.</div>
+        </div>
+        <select value={periode} onChange={e => setPeriode(e.target.value as Periode)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "9px 12px", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
+          {PERIODE_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+        </select>
       </div>
+
+      {/* KPI */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "10px", marginBottom: "26px" }}>
+        <HubKpiCard C={C} label="ABONNÉS" icon={HUB_ICONS.abonnes(C.gold)} color={C.gold}
+          value={data.kpi.abonnes_total.toLocaleString("fr-FR")} sub={`+${data.kpi.nouveaux_periode} sur la période`} />
+        <HubKpiCard C={C} label="CROISSANCE" icon={HUB_ICONS.impressions(C.green)} color={C.green}
+          value={`${data.kpi.croissance_nette >= 0 ? "+" : ""}${data.kpi.croissance_nette}`}
+          sub={data.kpi.croissance_pct !== null ? `${data.kpi.croissance_pct >= 0 ? "+" : ""}${data.kpi.croissance_pct.toFixed(0)} % · évolution nette` : "Nouvelle audience"} />
+        <HubKpiCard C={C} label="AUDIENCE ACTIVE" icon={HUB_ICONS.vue(C.purple)} color={C.purple}
+          value={String(data.kpi.audience_active)}
+          sub={data.kpi.audience_active_pct !== null ? `${data.kpi.audience_active_pct} % des abonnés` : "A consulté ou interagi"} />
+        <HubKpiCard C={C} label="PORTÉE" icon={HUB_ICONS.portee(C.blue)} color={C.blue}
+          value={data.kpi.portee !== null ? data.kpi.portee.toLocaleString("fr-FR") : "—"}
+          sub={data.kpi.portee !== null ? "Citoyens touchés sur la période" : "Pas encore assez de données"} />
+      </div>
+
+      {/* Croissance */}
+      <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "22px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Croissance de votre audience</div>
+          <div style={{ display: "flex", gap: "6px" }}>
+            {([{ k: "abonnes" as const, l: "Abonnés" }, { k: "nouveaux" as const, l: "Nouveaux" }, { k: "perdus" as const, l: "Perdus" }]).map(o => (
+              <button key={o.k} onClick={() => setMetrique(o.k)} className="tap" style={{ background: metrique === o.k ? C.gold : C.bg3, color: metrique === o.k ? "#080812" : C.t2, border: "none", borderRadius: "16px", padding: "5px 12px", fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>{o.l}</button>
+            ))}
+          </div>
+        </div>
+        <GrowthChart C={C} dates={data.croissance_serie.map(s => s.date)} values={data.croissance_serie.map(s => s[metrique])}
+          color={metrique === "perdus" ? C.red : metrique === "nouveaux" ? C.green : C.gold} />
+        {historiqueLimite && (
+          <div style={{ color: C.t3, fontSize: "10.5px", marginTop: "10px" }}>Historique disponible depuis le {new Date(data.historique_disponible_depuis).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}.</div>
+        )}
+      </Card>
+
+      {/* Votre audience — démographie */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Votre audience</div>
+      <div style={{ color: C.t2, fontSize: "12px", marginBottom: "14px" }}>Découvrez les principales caractéristiques des personnes qui suivent votre établissement.</div>
+      {!data.demographie.suffisant ? (
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "22px" }}>
+          <DonneesInsuffisantes C={C} texte="Votre audience est encore trop petite pour afficher des tendances fiables." />
+        </Card>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: "14px", marginBottom: "22px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px">
+            <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", marginBottom: "12px" }}>Localisation</div>
+            {data.demographie.localisation ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {data.demographie.localisation.map(l => <BarRow key={l.label} C={C} label={l.label} pct={l.pct} />)}
+              </div>
+            ) : <span style={{ color: C.t3, fontSize: "11.5px" }}>Pas assez de données de localisation.</span>}
+          </Card>
+          <Card tokens={toCardTokens(C)} padding="16px">
+            <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", marginBottom: "12px" }}>Tranches d&apos;âge</div>
+            {data.demographie.age ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {data.demographie.age.map(l => <BarRow key={l.label} C={C} label={l.label} pct={l.pct} color={C.blue} />)}
+              </div>
+            ) : <span style={{ color: C.t3, fontSize: "11.5px" }}>Pas assez de données d&apos;âge.</span>}
+          </Card>
+          <Card tokens={toCardTokens(C)} padding="16px">
+            <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", marginBottom: "12px" }}>Genre</div>
+            {data.demographie.genre ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {data.demographie.genre.map(l => <BarRow key={l.label} C={C} label={l.label} pct={l.pct} color={C.teal} />)}
+              </div>
+            ) : <span style={{ color: C.t3, fontSize: "11.5px" }}>Pas assez de données de genre.</span>}
+          </Card>
+        </div>
+      )}
+
+      {/* Activité de l'audience */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Quand votre audience est active</div>
+      {!data.activite.suffisant ? (
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "22px" }}>
+          <DonneesInsuffisantes C={C} texte="Pas encore assez d'activité pour identifier vos meilleurs moments de publication." />
+        </Card>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "14px", marginBottom: "22px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px">
+            <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", marginBottom: "12px" }}>Jours</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
+              {(() => {
+                const max = Math.max(...data.activite.par_jour.map(j => j.count), 1);
+                return data.activite.par_jour.map(j => <BarRow key={j.jour} C={C} label={j.jour} pct={Math.round((j.count / max) * 100)} color={C.gold} />);
+              })()}
+            </div>
+          </Card>
+          <Card tokens={toCardTokens(C)} padding="16px">
+            <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", marginBottom: "12px" }}>Horaires les plus actifs</div>
+            <HeuresChart C={C} data={data.activite.par_heure} />
+          </Card>
+        </div>
+      )}
+
+      {/* Origine de l'audience — hors périmètre V1, décision Bryan
+          16/09/2026 : aucune table ne trace la source d'une vue
+          aujourd'hui, instrumentation à faire dans un chantier séparé
+          (touche aussi le code citoyen app/page.tsx). */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Comment votre audience vous découvre</div>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "22px", color: C.t2, fontSize: "12px", lineHeight: 1.6 }}>
+        Bientôt disponible — cette section nécessite un suivi plus fin de l&apos;origine des visites, en cours de préparation.
+      </Card>
+
+      {/* Engagement */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Engagement de votre audience</div>
+      <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "22px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: "14px", marginBottom: "16px" }}>
+          <PerfMetric C={C} label="Audience atteinte" value={data.engagement.atteinte} />
+          <PerfMetric C={C} label="Audience active" value={data.engagement.active} />
+          <PerfMetric C={C} label="Ont aimé" value={data.engagement.likes} />
+          <PerfMetric C={C} label="Ont commenté" value={data.engagement.commentaires} />
+          <PerfMetric C={C} label="Ont partagé" value={data.engagement.partages} />
+          <PerfMetric C={C} label="Ont ouvert une publication" value={data.engagement.ouvertures} />
+        </div>
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: "14px" }}>
+          <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", marginBottom: "4px" }}>Taux d&apos;engagement</div>
+          {data.engagement.taux_engagement !== null ? (
+            <>
+              <div style={{ color: C.t1, fontSize: "22px", fontWeight: 800 }}>{data.engagement.taux_engagement.toFixed(0)} %</div>
+              <div style={{ color: C.t2, fontSize: "11.5px" }}>des personnes atteintes ont effectué au moins une interaction.</div>
+            </>
+          ) : (
+            <div style={{ color: C.t3, fontSize: "12px" }}>Pas encore assez de données sur la période.</div>
+          )}
+        </div>
+      </Card>
+
+      {/* Nouveaux abonnés */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Nouveaux abonnés</div>
+      {data.nouveaux_abonnes.length === 0 ? (
+        <Card tokens={toCardTokens(C)} padding="16px" style={{ color: C.t2, fontSize: "12px" }}>Aucun nouvel abonné pour le moment.</Card>
+      ) : (
+        <Card tokens={toCardTokens(C)} padding="8px">
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {(voirTousAbonnes ? data.nouveaux_abonnes : data.nouveaux_abonnes.slice(0, 5)).map((a, i) => (
+              <div key={a.citoyen_id + i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 8px", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                <div style={{ width: "34px", height: "34px", borderRadius: "50%", backgroundColor: C.bg3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: C.t2 }}>
+                  {HUB_ICONS.abonnes(C.t2)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700 }}>{a.nom}</div>
+                  <div style={{ color: C.t3, fontSize: "11px" }}>A suivi votre établissement</div>
+                </div>
+                <div style={{ color: C.t3, fontSize: "11px", flexShrink: 0 }}>{fmtRelatifAbonne(a.suivi_depuis)}</div>
+              </div>
+            ))}
+          </div>
+          {data.nouveaux_abonnes.length > 5 && !voirTousAbonnes && (
+            <button onClick={() => setVoirTousAbonnes(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", padding: "10px 8px 4px", color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer" }}>
+              Voir toute l&apos;audience ({data.nouveaux_abonnes.length})
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+            </button>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
 
-// Présence — aperçu de ce qu'un citoyen verrait (identité + publications
-// publiées uniquement), aucune donnée nouvelle. 2 colonnes ≥1024px
-// (aperçu identité + liste), 1 colonne en mobile.
-function PresenceView({ C, instName, posts }: { C: ThemeTokens; instName?: string; posts: PostInstitution[] }) {
-  const publiees = posts.filter(p => p.statut === "publiee");
-  const nom = instName || "Votre établissement";
+function CritereLigne({ C, ok, texte }: { C: ThemeTokens; ok: boolean; texte: string }) {
   return (
-    <div className="communaute-pro-presence" style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px", alignItems: "start" }}>
-      <style>{`@media(min-width:1024px){.communaute-pro-presence{grid-template-columns:340px 1fr!important}}`}</style>
+    <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "6px 0" }}>
+      {ok ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12" /></svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="9" /></svg>
+      )}
+      <span style={{ color: ok ? C.t1 : C.t2, fontSize: "12.5px", fontWeight: ok ? 700 : 500 }}>{texte}</span>
+    </div>
+  );
+}
 
-      <Card tokens={toCardTokens(C)} padding="20px">
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
-          <AvatarInstitution nom={nom} logo={null} taille={52} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nom}</div>
-            <div style={{ color: C.t3, fontSize: "11.5px" }}>Présence Yelen Community</div>
+// Présence Intelligence (16/09/2026, brief CEO) — visibilité → évolution →
+// découverte (stub) → actions des citoyens → aperçu profil + score →
+// publications visibles → recommandations. Distinct d'Audience ("qui vous
+// suit") : Présence répond à "comment les citoyens vous découvrent et que
+// font-ils ensuite". Fetch dédié (période sélectionnable), même squelette
+// 3 états (chargement/erreur+retry/données) qu'AudienceView.
+const PERIODE_OPTIONS_PRESENCE = PERIODE_OPTIONS;
+
+function PresenceView({ C, instName, posts, onVoirPublications }: { C: ThemeTokens; instName?: string; posts: PostInstitution[]; onVoirPublications: () => void }) {
+  const [periode, setPeriode] = useState<Periode>("30j");
+  const [data, setData] = useState<PresenceIntel | null>(null);
+  const [loadingIntel, setLoadingIntel] = useState(true);
+  const [erreur, setErreur] = useState(false);
+  const [rechargeCle, setRechargeCle] = useState(0);
+  const [metrique, setMetrique] = useState<"vues" | "visiteurs">("vues");
+  const [detailPost, setDetailPost] = useState<PostInstitution | null>(null);
+
+  // `async` + `await`/`try`/`catch` obligatoire (voir commentaire équivalent
+  // dans AudienceView::chargerAudience) — même forme que
+  // chargerListe/chargerDetail de SignalementsTab.tsx.
+  const chargerPresence = useCallback(async (annuleRef: { current: boolean }) => {
+    setLoadingIntel(true);
+    setErreur(false);
+    try {
+      const res = await fetch(`/api/institution/communaute-presence?periode=${periode}`);
+      if (!res.ok) throw new Error("http_error");
+      const j = await res.json();
+      if (annuleRef.current) return;
+      if (!j?.kpi) throw new Error("shape_error");
+      setData(j);
+    } catch {
+      if (!annuleRef.current) { setData(null); setErreur(true); }
+    } finally {
+      if (!annuleRef.current) setLoadingIntel(false);
+    }
+  }, [periode]);
+
+  useEffect(() => {
+    const annuleRef = { current: false };
+    chargerPresence(annuleRef);
+    return () => { annuleRef.current = true; };
+  }, [chargerPresence, rechargeCle]);
+
+  const nom = instName || "Votre établissement";
+  const publiees = posts.filter(p => p.statut === "publiee").slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  if (loadingIntel) {
+    return <div style={{ display: "flex", justifyContent: "center", padding: "50px" }}><YelenLoader size={28} /></div>;
+  }
+  if (erreur || !data) {
+    return (
+      <Card tokens={toCardTokens(C)} padding="36px 20px" style={{ textAlign: "center" }}>
+        <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, marginBottom: "6px" }}>Impossible de charger les données.</div>
+        <div style={{ color: C.t2, fontSize: "12.5px", marginBottom: "18px" }}>Vérifiez votre connexion puis réessayez.</div>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => setRechargeCle(k => k + 1)}>Réessayer</Button>
+      </Card>
+    );
+  }
+
+  const auncuneActivite = data.kpi.vues_profil === 0 && data.kpi.actions_total === 0 && publiees.length === 0;
+  if (auncuneActivite) {
+    return (
+      <CommunityEmptyScreen
+        C={C}
+        illustration={<IllustrationPresence color={C.gold} />}
+        titre="Votre visibilité commencera à apparaître ici"
+        texte="Nous suivrons les visites et interactions dès que des citoyens commenceront à consulter votre présence sur Yelen."
+      />
+    );
+  }
+
+  const secteurLabel = data.profil?.secteur ? SECTEUR_LABELS[data.profil.secteur] ?? data.profil.secteur : null;
+  const horairesOk = data.score_presence.criteres.find(c => c.cle === "horaires")?.ok ?? false;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
+        <div>
+          <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "4px" }}>Présence</div>
+          <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5, maxWidth: "440px" }}>Découvrez comment votre établissement apparaît aux citoyens sur Yelen et mesurez sa visibilité.</div>
+        </div>
+        <select value={periode} onChange={e => setPeriode(e.target.value as Periode)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "9px 12px", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
+          {PERIODE_OPTIONS_PRESENCE.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+        </select>
+      </div>
+
+      {/* Visibilité */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Votre visibilité sur Yelen</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "10px", marginBottom: "26px" }}>
+        <HubKpiCard C={C} label="VUES DU PROFIL" icon={HUB_ICONS.vue(C.gold)} color={C.gold}
+          value={data.kpi.vues_profil.toLocaleString("fr-FR")} sub="Citoyens ayant consulté votre fiche" />
+        <HubKpiCard C={C} label="VISITEURS UNIQUES" icon={HUB_ICONS.abonnes(C.blue)} color={C.blue}
+          value={data.kpi.visiteurs_uniques.toLocaleString("fr-FR")} sub="Personnes distinctes sur la période" />
+        <HubKpiCard C={C} label="APPARITIONS" icon={HUB_ICONS.impressions(C.teal)} color={C.teal}
+          value="—" sub="Pas encore disponible" />
+        <HubKpiCard C={C} label="ACTIONS" icon={HUB_ICONS.portee(C.green)} color={C.green}
+          value={data.kpi.actions_total.toLocaleString("fr-FR")} sub="Interactions depuis votre présence" />
+      </div>
+
+      {/* Évolution */}
+      <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "22px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Évolution de votre visibilité</div>
+          <div style={{ display: "flex", gap: "6px" }}>
+            {([{ k: "vues" as const, l: "Vues" }, { k: "visiteurs" as const, l: "Visiteurs" }]).map(o => (
+              <button key={o.k} onClick={() => setMetrique(o.k)} className="tap" style={{ background: metrique === o.k ? C.gold : C.bg3, color: metrique === o.k ? "#080812" : C.t2, border: "none", borderRadius: "16px", padding: "5px 12px", fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>{o.l}</button>
+            ))}
           </div>
         </div>
-        <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.7 }}>
-          C&apos;est ce que voit un citoyen Yelen qui découvre votre établissement dans le fil communautaire : {publiees.length} publication{publiees.length !== 1 ? "s" : ""} visible{publiees.length !== 1 ? "s" : ""}.
+        <GrowthChart C={C} dates={data.serie.map(s => s.date)} values={data.serie.map(s => s[metrique])} color={metrique === "visiteurs" ? C.blue : C.gold} />
+      </Card>
+
+      {/* Découverte — hors périmètre V1, même décision que "Origine de
+          l'audience" (16/09/2026) : aucune table ne trace la source d'une
+          vue aujourd'hui. */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Comment les citoyens vous découvrent</div>
+      <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "22px", color: C.t2, fontSize: "12px", lineHeight: 1.6 }}>
+        Bientôt disponible — cette section nécessite un suivi plus fin de l&apos;origine des visites, en cours de préparation.
+      </Card>
+
+      {/* Actions des citoyens */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Ce que les citoyens font depuis votre présence</div>
+      <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "22px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: "14px" }}>
+          <PerfMetric C={C} label="Voir le profil" value={data.actions.voir_profil} />
+          <PerfMetric C={C} label="Voir une publication" value={data.actions.voir_publication} />
+          <PerfMetric C={C} label="Prendre rendez-vous" value={data.actions.prendre_rdv} />
+          <PerfMetric C={C} label="Ouvrir la messagerie" value={data.actions.ouvrir_messagerie} />
         </div>
       </Card>
 
-      <div>
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Publications visibles dans le fil</div>
-        {publiees.length === 0 ? (
-          <Card tokens={toCardTokens(C)} padding="0">
-            <CommunityEmptyScreen
-              C={C}
-              illustration={<IllustrationPresence color={C.gold} />}
-              titre="Présentez votre activité à la communauté Yelen"
-              texte="Vos prochaines publications apparaîtront ici dès qu'elles seront validées — c'est ce que verra un citoyen qui découvre votre établissement."
-            />
-          </Card>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {publiees.slice(0, 6).map(p => {
-              const label = POST_CATEGORIE_LABELS[p.categorie as PostCategorie] || p.categorie;
-              const couleurCat = POST_CATEGORIE_COULEURS[p.categorie as PostCategorie];
-              const contenu = p.contenu ?? "";
-              const apercu = contenu.length > 90 ? contenu.slice(0, 90).trimEnd() + "…" : contenu;
-              return (
-                <Card key={p.id} tokens={toCardTokens(C)} padding="12px 14px">
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                    {couleurCat && <span style={{ background: `${couleurCat}18`, color: couleurCat, fontSize: "9.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "20px" }}>{label}</span>}
-                    <span style={{ marginLeft: "auto", color: C.t3, fontSize: "10.5px" }}>{fmt(p.created_at)}</span>
-                  </div>
-                  {apercu && <div style={{ color: C.t1, fontSize: "12px", lineHeight: 1.5 }}>{apercu}</div>}
-                </Card>
-              );
-            })}
+      {/* Aperçu profil + score */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Votre présence telle qu&apos;elle apparaît aux citoyens</div>
+      <div className="communaute-pro-presence" style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px", alignItems: "start", marginBottom: "22px" }}>
+        <style>{`@media(min-width:1024px){.communaute-pro-presence{grid-template-columns:1fr 320px!important}}`}</style>
+
+        <Card tokens={toCardTokens(C)} padding="20px">
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
+            <AvatarInstitution nom={nom} logo={data.profil?.logo ?? null} taille={52} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nom}</div>
+              <div style={{ color: C.t3, fontSize: "11.5px" }}>{secteurLabel ?? "Établissement"}{data.profil?.ville ? ` · ${data.profil.ville}` : ""}</div>
+            </div>
           </div>
+          {data.profil?.description && <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 12px" }}>{data.profil.description}</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
+            {data.profil?.adresse && (
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: C.t2, fontSize: "12px" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
+                {data.profil.adresse}
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: C.t2, fontSize: "12px" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" /></svg>
+              {horairesOk ? "Horaires renseignés" : "Horaires non renseignés"}
+            </div>
+          </div>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", height: "36px", padding: "0 18px", borderRadius: "10px", backgroundColor: C.gold, color: "#080812", fontSize: "12.5px", fontWeight: 800 }}>
+            Prendre rendez-vous
+          </div>
+          <div style={{ color: C.t3, fontSize: "10px", marginTop: "8px" }}>Aperçu — c&apos;est ce que voit un citoyen sur votre fiche Yelen.</div>
+        </Card>
+
+        <Card tokens={toCardTokens(C)} padding="18px">
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>Qualité de votre présence</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
+            <div style={{ fontSize: "24px", fontWeight: 800, color: C.t1 }}>{data.score_presence.pct}%</div>
+            <div style={{ flex: 1, height: "8px", borderRadius: "4px", backgroundColor: C.bg3, overflow: "hidden" }}>
+              <div style={{ width: `${data.score_presence.pct}%`, height: "100%", borderRadius: "4px", backgroundColor: data.score_presence.pct >= 70 ? C.green : C.gold }} />
+            </div>
+          </div>
+          {data.score_presence.criteres.map(c => <CritereLigne key={c.cle} C={C} ok={c.ok} texte={c.label} />)}
+        </Card>
+      </div>
+
+      {/* Publications visibles */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Ce que les citoyens voient</div>
+        {publiees.length > 3 && (
+          <button onClick={onVoirPublications} className="tap" style={{ display: "flex", alignItems: "center", gap: "5px", background: "none", border: "none", padding: 0, color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer" }}>
+            Voir toutes les publications
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
         )}
       </div>
+      {publiees.length === 0 ? (
+        <Card tokens={toCardTokens(C)} padding="0" style={{ marginBottom: "22px" }}>
+          <CommunityEmptyScreen
+            C={C}
+            illustration={<IllustrationPresence color={C.gold} />}
+            titre="Présentez votre activité à la communauté Yelen"
+            texte="Vos prochaines publications apparaîtront ici dès qu'elles seront validées — c'est ce que verra un citoyen qui découvre votre établissement."
+          />
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "22px" }}>
+          {publiees.slice(0, 3).map(p => {
+            const label = POST_CATEGORIE_LABELS[p.categorie as PostCategorie] || p.categorie;
+            const couleurCat = POST_CATEGORIE_COULEURS[p.categorie as PostCategorie];
+            const contenu = p.contenu ?? "";
+            const apercu = contenu.length > 90 ? contenu.slice(0, 90).trimEnd() + "…" : contenu;
+            return (
+              <Card key={p.id} tokens={toCardTokens(C)} padding="12px 14px">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  {couleurCat && <span style={{ background: `${couleurCat}18`, color: couleurCat, fontSize: "9.5px", fontWeight: 800, padding: "2px 8px", borderRadius: "20px" }}>{label}</span>}
+                  <span style={{ marginLeft: "auto", color: C.t3, fontSize: "10.5px" }}>{fmt(p.created_at)}</span>
+                </div>
+                {apercu && <div style={{ color: C.t1, fontSize: "12px", lineHeight: 1.5, marginBottom: "8px" }}>{apercu}</div>}
+                <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "6px" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11px", fontWeight: 700 }}>{HUB_ICONS.vue(C.t3)}{p.nb_vues}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11px", fontWeight: 700 }}>{HUB_ICONS.coeur(C.t3)}{p.nb_likes}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t3, fontSize: "11px", fontWeight: 700 }}>{HUB_ICONS.commentaire(C.t3)}{p.nb_commentaires}</span>
+                </div>
+                <button onClick={() => setDetailPost(p)} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.gold, fontSize: "11.5px", fontWeight: 800, cursor: "pointer" }}>Voir la publication →</button>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Recommandations */}
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Pour améliorer votre présence</div>
+      <Card tokens={toCardTokens(C)} padding="16px 18px">
+        {data.score_presence.criteres.map(c => (
+          <CritereLigne key={c.cle} C={C} ok={c.ok} texte={c.ok ? `${c.label} complet` : c.suggestion} />
+        ))}
+      </Card>
+
+      {detailPost && (
+        <PublicationDetailOverlay C={C} instName={instName} post={detailPost} onClose={() => setDetailPost(null)} />
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { extraireIpClient, logSecurite } from "@/lib/edgeSecurity";
+import { logSecurite } from "@/lib/edgeSecurity";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Auth Security — module central anti-abus (brief CEO 28/08/2026, niveau

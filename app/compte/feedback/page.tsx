@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { Inter } from "next/font/google";
 import { supabase } from "@/lib/supabase";
@@ -119,7 +120,7 @@ export default function FeedbackPage() {
           )}
 
           <p style={{ fontSize: "12.5px", color: C.textSubtle, lineHeight: 1.6, marginBottom: "18px" }}>
-            Pour d&apos;autres soucis comme le spam ou les arnaques, obtenez de l&apos;aide ou contactez le support depuis le <a href="/compte/aide" style={{ color: "#F5A623", fontWeight: 600, textDecoration: "none" }}>Centre d&apos;aide</a>.
+            Pour d&apos;autres soucis comme le spam ou les arnaques, obtenez de l&apos;aide ou contactez le support depuis le <Link href="/compte/aide" style={{ color: "#F5A623", fontWeight: 600, textDecoration: "none" }}>Centre d&apos;aide</Link>.
           </p>
 
           <textarea
@@ -179,7 +180,7 @@ export default function FeedbackPage() {
           )}
 
           <p style={{ fontSize: "11px", color: C.textFaint, textAlign: "center", lineHeight: 1.6, marginTop: "24px" }}>
-            En envoyant, vous autorisez Yelen à consulter les informations techniques associées pour vous aider à résoudre ce problème. <a href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none" }}>En savoir plus</a>
+            En envoyant, vous autorisez Yelen à consulter les informations techniques associées pour vous aider à résoudre ce problème. <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none" }}>En savoir plus</Link>
           </p>
         </div>
       </div>
@@ -238,7 +239,7 @@ export default function FeedbackPage() {
             </div>
 
             <p style={{ fontSize: "12px", color: C.textFaint, lineHeight: 1.6, textAlign: "center", marginBottom: "20px" }}>
-              Pour d&apos;autres soucis comme le spam ou les arnaques, obtenez de l&apos;aide ou contactez le support depuis le <a href="/compte/aide" style={{ color: "#F5A623", fontWeight: 600, textDecoration: "none" }}>Centre d&apos;aide</a>.
+              Pour d&apos;autres soucis comme le spam ou les arnaques, obtenez de l&apos;aide ou contactez le support depuis le <Link href="/compte/aide" style={{ color: "#F5A623", fontWeight: 600, textDecoration: "none" }}>Centre d&apos;aide</Link>.
             </p>
 
             <button

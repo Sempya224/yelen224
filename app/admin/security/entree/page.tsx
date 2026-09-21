@@ -120,7 +120,7 @@ export default function AdminSecurityEntree() {
       {loading ? (
         <p style={{ color: '#666', fontSize: 13 }}>Chargement…</p>
       ) : credentials.length === 0 ? (
-        <p style={{ color: '#666', fontSize: 13 }}>Aucun appareil enregistré — le lien secret reste l'unique accès.</p>
+        <p style={{ color: '#666', fontSize: 13 }}>Aucun appareil enregistré — le lien secret reste l&apos;unique accès.</p>
       ) : (
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {credentials.map(c => (
