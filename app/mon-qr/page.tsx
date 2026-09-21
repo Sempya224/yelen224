@@ -205,14 +205,19 @@ export default function MonQRPage() {
   async function telechargerRecu(bookingId: string) {
     const recu = recusMap[bookingId];
     if (!recu) return;
+    // Fenêtre ouverte de façon synchrone dans la pile du clic — un window.open()
+    // déclenché après un await est bloqué silencieusement par les bloqueurs de
+    // popup (Safari iOS notamment) : rien ne se passe, aucune erreur visible.
+    const fenetre = window.open("", "_blank");
     setTelechargement(bookingId);
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) { setError("Session expirée, reconnectez-vous."); setTelechargement(null); return; }
+    if (!session?.access_token) { setError("Session expirée, reconnectez-vous."); setTelechargement(null); fenetre?.close(); return; }
     const res = await fetch(`/api/citoyen/recus/${recu.id}/pdf`, { headers: { Authorization: `Bearer ${session.access_token}` } });
     const json = await res.json().catch(() => null);
     setTelechargement(null);
-    if (!res.ok || !json?.signedUrl) { setError(json?.error || "Reçu indisponible"); return; }
-    window.open(json.signedUrl, "_blank");
+    if (!res.ok || !json?.signedUrl) { setError(json?.error || "Reçu indisponible"); fenetre?.close(); return; }
+    if (fenetre) fenetre.location.href = json.signedUrl;
+    else window.open(json.signedUrl, "_blank");
   }
 
   // Extrait en fonction nommée (au lieu d'un Promise.all inline dans

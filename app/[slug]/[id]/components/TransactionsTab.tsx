@@ -141,6 +141,17 @@ export function TransactionsTab({ instId }: { instId: string }) {
 
   useEffect(() => { load(); }, [instId]);
 
+  // Fenêtre ouverte de façon synchrone dans la pile du clic — un window.open()
+  // déclenché après un await est bloqué silencieusement par les bloqueurs de
+  // popup (Safari iOS notamment) : rien ne se passe, aucune erreur visible.
+  async function voirRecu(recuId: string) {
+    const fenetre = window.open("", "_blank");
+    const res = await fetch(`/api/institution/recus/${recuId}/pdf`);
+    const j = await res.json().catch(() => null);
+    if (j?.signedUrl) { if (fenetre) fenetre.location.href = j.signedUrl; else window.open(j.signedUrl, "_blank"); }
+    else fenetre?.close();
+  }
+
   const reversees = useMemo(() => calculerReversees(transactions), [transactions]);
 
   const agentsDisponibles = useMemo(() => Array.from(new Set(transactions.map(t => t.membre_nom).filter(Boolean))).sort(), [transactions]);
@@ -325,7 +336,7 @@ export function TransactionsTab({ instId }: { instId: string }) {
 
                 <div style={{ marginTop: "8px" }}>
                   {t.recu_id && (
-                    <a href={`/api/institution/recus/${t.recu_id}/pdf`} onClick={async (e) => { e.preventDefault(); e.stopPropagation(); const res = await fetch(`/api/institution/recus/${t.recu_id}/pdf`); const j = await res.json().catch(() => null); if (j?.signedUrl) window.open(j.signedUrl, "_blank"); }} className="tap" style={{ color: C.gold, fontSize: "11px", fontWeight: "800", cursor: "pointer", textDecoration: "none" }}>
+                    <a href={`/api/institution/recus/${t.recu_id}/pdf`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); void voirRecu(t.recu_id!); }} className="tap" style={{ color: C.gold, fontSize: "11px", fontWeight: "800", cursor: "pointer", textDecoration: "none" }}>
                       Voir le reçu
                     </a>
                   )}
@@ -430,7 +441,7 @@ export function TransactionsTab({ instId }: { instId: string }) {
               <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1 }} onClick={() => setDetailOuvert(null)}>Fermer</Button>
               {detailOuvert.recu_id && (
                 <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ flex: 1, color: C.gold, border: `1px solid ${C.gold}30`, backgroundColor: `${C.gold}12` }}
-                  onClick={async () => { const res = await fetch(`/api/institution/recus/${detailOuvert.recu_id}/pdf`); const j = await res.json().catch(() => null); if (j?.signedUrl) window.open(j.signedUrl, "_blank"); }}>
+                  onClick={() => void voirRecu(detailOuvert.recu_id!)}>
                   Voir le reçu
                 </Button>
               )}

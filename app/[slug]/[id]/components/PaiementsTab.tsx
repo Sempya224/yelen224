@@ -198,12 +198,17 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
   // d'URL publique directe sur le bucket privé "recus-paiement".
   async function telechargerRecu(p: Paiement) {
     if (!p.recu_id) return;
+    // Fenêtre ouverte de façon synchrone dans la pile du clic — un window.open()
+    // déclenché après un await est bloqué silencieusement par les bloqueurs de
+    // popup (Safari iOS notamment) : rien ne se passe, aucune erreur visible.
+    const fenetre = window.open("", "_blank");
     setTelechargement(p.id);
     const res = await fetch(`/api/institution/recus/${p.recu_id}/pdf`);
     const j = await res.json().catch(() => null);
     setTelechargement(null);
-    if (!res.ok || !j?.signedUrl) { onToast(j?.error || "Reçu indisponible", C.red); return; }
-    window.open(j.signedUrl, "_blank");
+    if (!res.ok || !j?.signedUrl) { onToast(j?.error || "Reçu indisponible", C.red); fenetre?.close(); return; }
+    if (fenetre) fenetre.location.href = j.signedUrl;
+    else window.open(j.signedUrl, "_blank");
   }
 
   const load = async () => {
