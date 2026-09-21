@@ -3,13 +3,15 @@ import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
-import { STATUTS_PROJET } from "@/lib/projetsNotes";
+import { STATUTS_PROJET, PRIORITES_PROJET, SANTES_PROJET } from "@/lib/projetsNotes";
 
 // Contourne RLS via service role — projets n'a aucune policy publique
 // (migration 20260720000001), accès exclusivement via cette route.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 const STATUT_VALUES = STATUTS_PROJET.map((s) => s.value);
+const PRIORITE_VALUES = PRIORITES_PROJET.map((p) => p.value);
+const SANTE_VALUES = SANTES_PROJET.map((s) => s.value);
 
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
@@ -21,7 +23,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await sb
     .from("projets")
-    .select("id,nom,description,responsable_membre_id,date_debut,date_fin_prevue,statut,cree_par_membre_id,created_at,updated_at")
+    .select("id,nom,description,responsable_membre_id,date_debut,date_fin_prevue,statut,priorite,sante,cree_par_membre_id,created_at,updated_at")
     .eq("institution_id", authInstId)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -43,6 +45,7 @@ export async function POST(req: NextRequest) {
   const dateDebut = typeof body?.date_debut === "string" ? body.date_debut : null;
   const dateFinPrevue = typeof body?.date_fin_prevue === "string" ? body.date_fin_prevue : null;
   const statut = STATUT_VALUES.includes(body?.statut) ? body.statut : "a_venir";
+  const priorite = PRIORITE_VALUES.includes(body?.priorite) ? body.priorite : "normale";
   const responsableMembreId = typeof body?.responsable_membre_id === "string" ? body.responsable_membre_id : null;
 
   if (responsableMembreId) {
@@ -52,7 +55,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await sb
     .from("projets")
-    .insert({ institution_id: authInstId, nom: nom.trim(), description, responsable_membre_id: responsableMembreId, date_debut: dateDebut, date_fin_prevue: dateFinPrevue, statut, cree_par_membre_id: membre.membreId })
+    .insert({ institution_id: authInstId, nom: nom.trim(), description, responsable_membre_id: responsableMembreId, date_debut: dateDebut, date_fin_prevue: dateFinPrevue, statut, priorite, cree_par_membre_id: membre.membreId })
     .select("id")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -98,6 +101,10 @@ export async function PATCH(req: NextRequest) {
   if (typeof body?.date_debut === "string" || body?.date_debut === null) updates.date_debut = body.date_debut;
   if (typeof body?.date_fin_prevue === "string" || body?.date_fin_prevue === null) updates.date_fin_prevue = body.date_fin_prevue;
   if (STATUT_VALUES.includes(body?.statut)) updates.statut = body.statut;
+  if (PRIORITE_VALUES.includes(body?.priorite)) updates.priorite = body.priorite;
+  // sante : jamais calculée, renseignée explicitement (ou effacée avec
+  // null = "non renseignée") — item 10 du brief.
+  if (SANTE_VALUES.includes(body?.sante) || body?.sante === null) updates.sante = body.sante;
   if (typeof body?.responsable_membre_id === "string" || body?.responsable_membre_id === null) {
     if (typeof body.responsable_membre_id === "string") {
       const { data: membreExists } = await sb.from("institution_membres").select("id").eq("institution_id", authInstId).eq("id", body.responsable_membre_id).maybeSingle();

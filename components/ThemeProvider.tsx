@@ -37,11 +37,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
+  // Lecture localStorage/matchMedia (indisponibles côté serveur) puis premier
+  // rendu client réel — ne peut pas être calculé pendant le rendu, geste
+  // volontairement laissé tel quel (composant partagé par tout le produit,
+  // pas de changement de timing d'hydratation pendant le gel sécurité).
   useEffect(() => {
     // Valeurs historiques : seulement 'light'|'dark' (override manuel) ou
     // rien (= système). 'system' est une valeur explicite ajoutée ici.
     const stored = localStorage.getItem(STORAGE_KEY);
     const initialMode: ThemeMode = stored === 'light' || stored === 'dark' ? stored : 'system';
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setModeState(initialMode);
     setTheme(initialMode === 'system' ? getSystemTheme() : initialMode);
     setMounted(true);

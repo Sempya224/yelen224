@@ -62,7 +62,7 @@ function CardGrille({ inst, C, categorieById }: { inst: Institution; C: typeof T
   const cta = ctaPourInstitution(inst);
   const idType = typeIdentite(inst);
   return (
-    <div onClick={() => router.push(`/institution/${inst.id}`)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", flexDirection: "column", background: C.cardBg, borderRadius: "16px", overflow: "hidden", position: "relative" }}>
+    <div onClick={() => router.push(`/institution/${inst.id}?source=yelen_search`)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", flexDirection: "column", background: C.cardBg, borderRadius: "16px", overflow: "hidden", position: "relative" }}>
       <div style={{ padding: "12px 12px 6px", display: "flex", justifyContent: "center" }}>
         <InstitutionLogo inst={inst} size={50} categorieById={categorieById} circular={idType === "profession"}/>
       </div>
@@ -90,7 +90,7 @@ function CardGrille({ inst, C, categorieById }: { inst: Institution; C: typeof T
               <span style={{ color: "#080812", fontSize: "10px", fontWeight: "900" }}>{cta.label}</span>
             </a>
           ) : (
-            <a href={`/institution/${inst.id}`} onClick={e => e.stopPropagation()} style={{ width: "100%", padding: "7px", background: C.borderCard, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
+            <a href={`/institution/${inst.id}?source=yelen_search`} onClick={e => e.stopPropagation()} style={{ width: "100%", padding: "7px", background: C.borderCard, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
               <span style={{ color: C.text, fontSize: "10px", fontWeight: "900" }}>Voir la fiche</span>
             </a>
           )}
@@ -170,7 +170,7 @@ function Rail({ titre, sousTitre, institutions, C, t2, categorieById, citoyenGeo
         <div style={{ display: "flex", gap: "10px", padding: "0 16px", width: "max-content" }}>
           {affichees.map(inst => (
             <div key={inst.id} style={{ width: "260px", flexShrink: 0 }}>
-              <CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => router.push(`/institution/${inst.id}`)} categorieById={categorieById} hideCover={hideCover}/>
+              <CarteInstitutionCard inst={inst} C={C} t2={t2} citoyenGeoloc={citoyenGeoloc} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => router.push(`/institution/${inst.id}?source=yelen_search`)} categorieById={categorieById} hideCover={hideCover}/>
             </div>
           ))}
         </div>
@@ -260,7 +260,7 @@ function RailPopulaire({ institutions, C, t2, categorieById, favorisIdsSet, onTo
             <div key={i} style={{ width: "300px", flexShrink: 0, display: "flex", flexDirection: "column" }}>
               {colonne.map((inst, j) => (
                 <div key={inst.id} style={{ borderTop: j > 0 ? `1px solid ${C.borderCard}` : "none" }}>
-                  <LignePopulaire inst={inst} C={C} t2={t2} categorieById={categorieById} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => router.push(`/institution/${inst.id}`)} onVoirPlusDescription={onVoirPlusDescription}/>
+                  <LignePopulaire inst={inst} C={C} t2={t2} categorieById={categorieById} estFavori={favorisIdsSet.has(inst.id)} onToggleFavori={e => { e.stopPropagation(); onToggleFavori(inst); }} onSelect={() => router.push(`/institution/${inst.id}?source=yelen_search`)} onVoirPlusDescription={onVoirPlusDescription}/>
                 </div>
               ))}
             </div>
@@ -356,7 +356,7 @@ function SheetDescription({ inst, C, t2, categorieById, onClose }: {
             "Établissements" (app/messagerie/citoyen) est scopée par RDV
             (une conversation par rendez-vous) — impossible à ouvrir pour une
             institution qui n'a pas encore de RDV avec ce citoyen. */}
-        <a href={`/institution/${inst.id}?question=1`} onClick={e => e.stopPropagation()} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "18px", padding: "13px", background: "#F5A623", borderRadius: "12px", textDecoration: "none" }}>
+        <a href={`/institution/${inst.id}?question=1&source=yelen_search`} onClick={e => e.stopPropagation()} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "18px", padding: "13px", background: "#F5A623", borderRadius: "12px", textDecoration: "none" }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
           <span style={{ color: "#080812", fontSize: "13px", fontWeight: "900" }}>Poser une question</span>
         </a>
@@ -1815,7 +1815,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
               const cta = ctaPourInstitution(inst);
               const idType = typeIdentite(inst);
               return (
-                <div key={inst.id} onClick={() => router.push(`/institution/${inst.id}`)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", gap: "12px", background: C.cardBg, borderRadius: "16px", padding: "14px", position: "relative", overflow: "hidden" }}>
+                <div key={inst.id} onClick={() => router.push(`/institution/${inst.id}?source=yelen_search`)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", gap: "12px", background: C.cardBg, borderRadius: "16px", padding: "14px", position: "relative", overflow: "hidden" }}>
                   <InstitutionLogo inst={inst} size={54} categorieById={categorieById} circular={idType === "profession"}/>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "6px", marginBottom: "4px" }}>
@@ -1866,7 +1866,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
                           <span style={{ color: "#080812", fontSize: "10px", fontWeight: "900" }}>{cta.label}</span>
                         </a>
                       ) : (
-                        <a href={`/institution/${inst.id}`} onClick={e => e.stopPropagation()} style={{ padding: "6px 12px", background: C.borderCard, borderRadius: "8px", display: "flex", alignItems: "center", textDecoration: "none" }}>
+                        <a href={`/institution/${inst.id}?source=yelen_search`} onClick={e => e.stopPropagation()} style={{ padding: "6px 12px", background: C.borderCard, borderRadius: "8px", display: "flex", alignItems: "center", textDecoration: "none" }}>
                           <span style={{ color: C.text, fontSize: "10px", fontWeight: "900" }}>Voir la fiche</span>
                         </a>
                       )}

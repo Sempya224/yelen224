@@ -63,12 +63,15 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   // carte gradient ci-dessous si aucune photo n'a été uploadée.
   const photoCard = (withLogo: boolean) => (
     <div style={{ width: "1200px", height: "630px", display: "flex", position: "relative", fontFamily: "sans-serif" }}>
-      <img src={offre!.image_url!} width={1200} height={630} style={{ position: "absolute", top: 0, left: 0, objectFit: "cover" }}/>
+      {/* IMG-EXCEPTION: reason=next/og ImageResponse (satori) ne supporte pas next/image | reviewed=2026-09-18 */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={offre!.image_url!} width={1200} height={630} alt="" style={{ position: "absolute", top: 0, left: 0, objectFit: "cover" }}/>
       <div style={{ position: "absolute", top: 0, left: 0, width: "1200px", height: "630px", display: "flex", background: "linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.8) 100%)" }}/>
       <div style={{ position: "absolute", left: 60, right: 60, bottom: 50, display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           {withLogo && offre?.partenaire_logo ? (
-            <img src={offre.partenaire_logo} width={80} height={80} style={{ borderRadius: 18, objectFit: "cover", border: "3px solid #F5A623" }}/>
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={offre.partenaire_logo} width={80} height={80} alt="" style={{ borderRadius: 18, objectFit: "cover", border: "3px solid #F5A623" }}/>
           ) : (
             <div style={{ width: 80, height: 80, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center", background: "#F5A623", color: "#000", fontSize: 30, fontWeight: 900 }}>{initials}</div>
           )}
@@ -85,7 +88,8 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   const card = (withLogo: boolean) => (
     <div style={{ width: "1200px", height: "630px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 22, background: gradient, fontFamily: "sans-serif" }}>
       {withLogo && offre?.partenaire_logo ? (
-        <img src={offre.partenaire_logo} width={150} height={150} style={{ borderRadius: 32, objectFit: "cover", border: "6px solid rgba(255,255,255,0.9)" }} />
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={offre.partenaire_logo} width={150} height={150} alt="" style={{ borderRadius: 32, objectFit: "cover", border: "6px solid rgba(255,255,255,0.9)" }} />
       ) : (
         <div style={{ width: 150, height: 150, borderRadius: 32, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.2)", border: "6px solid rgba(255,255,255,0.9)", color: "#fff", fontSize: 54, fontWeight: 900 }}>
           {initials}

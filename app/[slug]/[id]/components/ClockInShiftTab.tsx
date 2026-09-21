@@ -319,10 +319,7 @@ export function ClockInShiftTab({ instId, instSlug, onToast, access, active = tr
 // (app/clock/[slug]/page.tsx), écran de connexion Identifiant+PIN, pas le
 // dashboard.
 function clockPortalUrl(instSlug: string): string {
-  // TEMP-TEST 10/09/2026 (Bryan) : lien local (IP réseau) pour scanner le QR
-  // depuis un téléphone et tester /clock/[slug] contre le serveur dev local.
-  // À RETIRER après test — remettre `${APP_URL}/clock/${instSlug}`.
-  return `http://192.168.1.222:3000/clock/${instSlug}`;
+  return `${APP_URL}/clock/${instSlug}`;
 }
 
 function PortailEmployeModal({ C, instSlug, onClose }: { C: ThemeTokens; instSlug: string; onClose: () => void }) {

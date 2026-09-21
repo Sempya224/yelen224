@@ -45,7 +45,7 @@ const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 const lignes = [];
 const log = (s = "") => { lignes.push(s); console.log(s); };
 let pass = 0, fail = 0;
-const verdict = (ok, label) => { ok ? pass++ : fail++; log(`${ok ? "✅ PASS" : "❌ FAIL"} — ${label}`); };
+const verdict = (ok, label) => { if (ok) pass++; else fail++; log(`${ok ? "✅ PASS" : "❌ FAIL"} — ${label}`); };
 
 async function jwtAdmin({ adminId, email, role, nom, mfaEnabled = true, secret = ADMIN_JWT_SECRET }) {
   const key = new TextEncoder().encode(secret);

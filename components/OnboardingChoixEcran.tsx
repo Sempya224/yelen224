@@ -32,7 +32,10 @@ export function OnboardingChoixEcran({ titre, sousTitre, options, onSauvegarder,
   const t1   = isDark ? "#FFFFFF" : "#000000";
   const t2   = isDark ? "#8E8E93" : "#6C6C70";
 
-  const [userId, setUserId] = useState<string | null>(null);
+  const [userId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return localStorage.getItem(YELEN224_USER_ID_KEY); } catch { return null; }
+  });
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [autreActif, setAutreActif] = useState(false);
   const [autreTexte, setAutreTexte] = useState("");
@@ -40,12 +43,8 @@ export function OnboardingChoixEcran({ titre, sousTitre, options, onSauvegarder,
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    let id: string | null = null;
-    try { id = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
-    if (!id) { router.replace("/inscription"); return; }
-    setUserId(id);
-  }, [router]);
+    if (!userId) router.replace("/inscription");
+  }, [userId, router]);
 
   function toggle(id: string) {
     setSelection(prev => {

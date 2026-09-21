@@ -62,6 +62,19 @@ export const TAB_KEYS = [
   // Module Collaboration (Lot A, 16/09/2026) — espace interne membre <->
   // membre, distinct de "messagerie" (citoyen <-> institution).
   "collaboration",
+  // "Yelen Business" (17/09/2026, schéma à 4 sections repris de Bryan le
+  // même jour) — 3e menu du panneau Compte, ouvert via l'item "Plus" :
+  // relation commerciale institution <-> Yelen (compte/contrat, forfait,
+  // frais/commission de la plateforme, documents Yelen, support dédié),
+  // distincte des écrans Finance ci-dessus qui gèrent l'argent des clients
+  // de l'institution. Même palier d'accès que le groupe Finance (admin +
+  // comptable uniquement) — écrans à l'état vide pour l'instant (aucune
+  // ActionKey/route encore). "yelen-frais"/"yelen-commission" fusionnées en
+  // une seule entrée "yelen-frais-commissions" (retour Bryan), "yelen-paiement"
+  // renommée "yelen-paiements" (cohérence avec le pluriel du reste du menu).
+  "yelen-compte", "yelen-contrat", "yelen-forfait", "yelen-paiements",
+  "yelen-transactions", "yelen-reconciliation", "yelen-frais-commissions",
+  "yelen-facturation", "yelen-documents", "yelen-support",
 ] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
 
@@ -89,6 +102,9 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     partenariat: "full", "mes-offres": "full", "clock-in-shift": "full",
     "parametres-securite": "full", "parametres-notifications": "full", "parametres-support": "full", "parametres-legal": "full",
     collaboration: "full",
+    "yelen-compte": "full", "yelen-contrat": "full", "yelen-forfait": "full", "yelen-paiements": "full",
+    "yelen-transactions": "full", "yelen-reconciliation": "full", "yelen-frais-commissions": "full",
+    "yelen-facturation": "full", "yelen-documents": "full", "yelen-support": "full",
   },
   // Front office pur (retour Bryan 13/09/2026) : l'agent d'accueil n'a plus
   // aucun onglet en lecture seule — un accès "read" qu'il ne peut pas
@@ -110,6 +126,9 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     partenariat: "none", "mes-offres": "none", "clock-in-shift": "none",
     "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
     collaboration: "full",
+    "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
+    "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
+    "yelen-facturation": "none", "yelen-documents": "none", "yelen-support": "none",
   },
   // Menu strictement financier — décision CEO 22/07/2026 : le comptable
   // n'est plus lecteur des écrans des autres rôles (communication, analyse,
@@ -126,6 +145,9 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     partenariat: "none", "mes-offres": "none", "clock-in-shift": "none",
     "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
     collaboration: "full",
+    "yelen-compte": "full", "yelen-contrat": "full", "yelen-forfait": "full", "yelen-paiements": "full",
+    "yelen-transactions": "full", "yelen-reconciliation": "full", "yelen-frais-commissions": "full",
+    "yelen-facturation": "full", "yelen-documents": "full", "yelen-support": "full",
   },
   superviseur: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
@@ -139,6 +161,9 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     partenariat: "full", "mes-offres": "full", "clock-in-shift": "read",
     "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
     collaboration: "full",
+    "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
+    "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
+    "yelen-facturation": "none", "yelen-documents": "none", "yelen-support": "none",
   },
   dirigeant: {
     accueil: "full", rdv: "read", disponibilites: "none", services: "none",
@@ -152,6 +177,17 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     partenariat: "read", "mes-offres": "read", "clock-in-shift": "read",
     "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
     collaboration: "full",
+    "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
+    "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
+    // "yelen-documents" passé à "read" pour le dirigeant (retour Bryan
+    // 18/09/2026, écran Documents Yelen : "Administrateur/Dirigeant →
+    // consultation complète") — seule exception au palier Finance uniforme
+    // (admin+comptable) posé le 17/09/2026 pour toute la section Yelen
+    // Business. Cohérent avec le reste du rôle dirigeant ici (read sur
+    // profil-responsable/documents/avis-reputation/rdv-historique/equipe/
+    // journal/partenariat/mes-offres/clock-in-shift) — "lecture seule sur
+    // le sensible", jamais un pilotage opérationnel.
+    "yelen-facturation": "none", "yelen-documents": "read", "yelen-support": "none",
   },
 };
 
@@ -193,7 +229,47 @@ export type ActionKey =
   // route, jamais seulement par le rôle. "moderate" (supprimer/modérer le
   // message d'un AUTRE membre) hors périmètre — non demandé, non construit.
   | "collaboration.send" | "collaboration.create_group" | "collaboration.manage_group"
-  | "collaboration.edit_message" | "collaboration.delete_message" | "collaboration.upload_file";
+  | "collaboration.edit_message" | "collaboration.delete_message" | "collaboration.upload_file"
+  // Yelen Business → Transactions (18/09/2026) — registre financier du
+  // compte institution <-> Yelen, distinct de "paiements.rembourser"
+  // (remboursement CLIENT de l'institution). TAB_MATRIX["yelen-transactions"]
+  // limite déjà l'onglet à admin/comptable ; ces clés existent pour
+  // distinguer, DANS ces 2 rôles, ce qui est vraiment sensible (référence
+  // brute du prestataire de paiement, action de remboursement) de ce qui
+  // ne l'est pas (consulter la liste, l'export).
+  | "yelen_transactions.voir" | "yelen_transactions.voir_details_financiers"
+  | "yelen_transactions.exporter" | "yelen_transactions.voir_references_prestataire"
+  | "yelen_transactions.gerer_remboursements"
+  // Yelen Business → Réconciliation (18/09/2026) — écran distinct de
+  // Transactions (rapprocher Yelen vs prestataire, pas juste consulter
+  // l'historique) : protection délibérément plus étroite, en particulier
+  // "cloturer_periode" (retour Bryan §16 : "réservée à un rôle autorisé").
+  | "yelen_reconciliation.voir" | "yelen_reconciliation.voir_ecarts"
+  | "yelen_reconciliation.confirmer_correspondance" | "yelen_reconciliation.exclure_transaction"
+  | "yelen_reconciliation.marquer_ecart_resolu" | "yelen_reconciliation.cloturer_periode"
+  | "yelen_reconciliation.exporter_rapport"
+  // Yelen Business → Frais & commissions (18/09/2026) — lecture seule
+  // (les conditions tarifaires restent déterminées par Yelen, jamais
+  // modifiables côté établissement, retour Bryan §16), donc pas de clé
+  // d'écriture ici contrairement à Réconciliation.
+  | "yelen_frais.voir" | "yelen_frais.voir_conditions_tarifaires"
+  | "yelen_frais.exporter" | "yelen_frais.voir_commissions_yelen" | "yelen_frais.voir_frais_prestataires"
+  // Yelen Business → Facturation (18/09/2026) — "gerer_forfait" gate
+  // uniquement le raccourci CTA affiché sur CET écran (le vrai accès à
+  // l'onglet Forfait reste TAB_MATRIX["yelen-forfait"]) : retour Bryan
+  // explicite §17, ne jamais l'accorder automatiquement à un rôle qui
+  // peut seulement consulter les factures.
+  | "yelen_facturation.voir" | "yelen_facturation.voir_factures"
+  | "yelen_facturation.telecharger_factures" | "yelen_facturation.voir_informations_facturation"
+  | "yelen_facturation.exporter_historique" | "yelen_facturation.effectuer_paiement"
+  | "yelen_facturation.gerer_forfait"
+  // Yelen Business → Documents Yelen (18/09/2026) — coffre documentaire
+  // agrégeant les pièces des autres écrans Yelen Business. Split demandé
+  // §15 : comptable voit les documents financiers mais pas les contrats
+  // (hors de son périmètre habituel, cf. TAB_MATRIX.comptable déjà "none"
+  // sur "yelen-contrat").
+  | "yelen_documents.voir" | "yelen_documents.voir_documents_financiers"
+  | "yelen_documents.voir_contrats" | "yelen_documents.telecharger" | "yelen_documents.exporter";
 
 const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   "equipe.write": { admin: true },
@@ -305,6 +381,59 @@ const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   "collaboration.edit_message": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
   "collaboration.delete_message": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
   "collaboration.upload_file": { admin: true, agent: true, comptable: true, superviseur: true, dirigeant: true },
+  // Voir la liste + le détail non sensible : les 2 rôles déjà admis sur
+  // l'onglet (TAB_MATRIX["yelen-transactions"]).
+  "yelen_transactions.voir": { admin: true, comptable: true },
+  "yelen_transactions.voir_details_financiers": { admin: true, comptable: true },
+  "yelen_transactions.exporter": { admin: true, comptable: true },
+  // Référence brute du prestataire (ex. OM-XXXXXXXX) et gestion des
+  // remboursements : réservées admin, même logique que
+  // rdv.delete_historique/signalements.reopen (action à plus fort impact
+  // ou donnée plus sensible que la simple lecture de la liste).
+  "yelen_transactions.voir_references_prestataire": { admin: true },
+  "yelen_transactions.gerer_remboursements": { admin: true },
+  // Réconciliation — consultation ouverte à admin+comptable (même palier
+  // que Transactions), mais toute action qui modifie l'état d'un
+  // rapprochement ou clôture une période reste admin seul : une clôture
+  // verrouille une période entière, un niveau d'impact au-dessus d'un
+  // simple remboursement individuel.
+  "yelen_reconciliation.voir": { admin: true, comptable: true },
+  "yelen_reconciliation.voir_ecarts": { admin: true, comptable: true },
+  "yelen_reconciliation.exporter_rapport": { admin: true, comptable: true },
+  "yelen_reconciliation.confirmer_correspondance": { admin: true },
+  "yelen_reconciliation.exclure_transaction": { admin: true },
+  "yelen_reconciliation.marquer_ecart_resolu": { admin: true },
+  "yelen_reconciliation.cloturer_periode": { admin: true },
+  // Frais & commissions — même palier que Transactions/Réconciliation
+  // pour la consultation (admin+comptable) ; "voir_commissions_yelen"/
+  // "voir_frais_prestataires" réservés admin, même logique que les
+  // références prestataire brutes sur Transactions (donnée plus fine que
+  // le total déjà visible via voir_frais).
+  "yelen_frais.voir": { admin: true, comptable: true },
+  "yelen_frais.voir_conditions_tarifaires": { admin: true, comptable: true },
+  "yelen_frais.exporter": { admin: true, comptable: true },
+  "yelen_frais.voir_commissions_yelen": { admin: true },
+  "yelen_frais.voir_frais_prestataires": { admin: true },
+  // Facturation — consultation ouverte à admin+comptable (même palier que
+  // les autres écrans Yelen Business) ; "effectuer_paiement" et
+  // "gerer_forfait" restent admin seul — agir sur l'argent ou changer de
+  // forfait est d'un impact supérieur à consulter/exporter des factures.
+  "yelen_facturation.voir": { admin: true, comptable: true },
+  "yelen_facturation.voir_factures": { admin: true, comptable: true },
+  "yelen_facturation.telecharger_factures": { admin: true, comptable: true },
+  "yelen_facturation.voir_informations_facturation": { admin: true, comptable: true },
+  "yelen_facturation.exporter_historique": { admin: true, comptable: true },
+  "yelen_facturation.effectuer_paiement": { admin: true },
+  "yelen_facturation.gerer_forfait": { admin: true },
+  // Documents Yelen — admin et dirigeant en "consultation complète"
+  // (dirigeant lecture seule, cf. TAB_MATRIX ci-dessus) ; comptable
+  // limité aux documents financiers, jamais les contrats. Export en
+  // masse réservé admin+comptable (le dirigeant lit, ne pilote pas).
+  "yelen_documents.voir": { admin: true, comptable: true, dirigeant: true },
+  "yelen_documents.voir_documents_financiers": { admin: true, comptable: true, dirigeant: true },
+  "yelen_documents.voir_contrats": { admin: true, dirigeant: true },
+  "yelen_documents.telecharger": { admin: true, comptable: true, dirigeant: true },
+  "yelen_documents.exporter": { admin: true, comptable: true },
 };
 
 // Rôles personnalisés — restriction d'un rôle de base (16/09/2026, choix

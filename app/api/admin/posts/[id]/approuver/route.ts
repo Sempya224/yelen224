@@ -21,7 +21,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const { error } = await supabaseAdmin
       .from('posts')
-      .update({ statut: 'publiee', valide_le: new Date().toISOString(), valide_par_admin_id: admin.adminId as string, motif_refus: null })
+      .update({ statut: 'publiee', valide_le: new Date().toISOString(), traite_le: new Date().toISOString(), valide_par_admin_id: admin.adminId as string, motif_refus: null })
       .eq('id', id)
     if (error) throw error
 

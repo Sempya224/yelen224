@@ -53,7 +53,14 @@ export function AuthSecurityBlockedScreen({
   onExpire?: () => void;
 }) {
   const [restant, setRestant] = useState(retryAfterS);
-  useEffect(() => setRestant(retryAfterS), [retryAfterS]);
+  // Resynchronise le décompte quand le parent transmet un nouveau
+  // retryAfterS (nouvelle porte) — ajustement pendant le rendu plutôt qu'un
+  // effet dédié (pattern React "Adjusting state when a prop changes").
+  const [retryAfterSAnterieur, setRetryAfterSAnterieur] = useState(retryAfterS);
+  if (retryAfterS !== retryAfterSAnterieur) {
+    setRetryAfterSAnterieur(retryAfterS);
+    setRestant(retryAfterS);
+  }
 
   useEffect(() => {
     if (state !== "blocked" || restant <= 0) return;

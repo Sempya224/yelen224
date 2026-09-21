@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await sb
     .from("posts")
-    .select("id, categorie, contenu, images, statut, motif_refus, nb_partages, created_at")
+    .select("id, categorie, contenu, images, statut, motif_refus, nb_partages, soumis_le, valide_le, traite_le, scheduled_at, created_at")
     .eq("institution_auteur_id", membre.institutionId)
     .eq("auteur_type", "institution")
     .order("created_at", { ascending: false });
@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Corps de requête invalide" }, { status: 400 });
 
-  const { contenu, images, categorie } = body as { contenu?: string; images?: string[]; categorie?: string };
+  const { contenu, images, categorie, scheduled_at } = body as { contenu?: string; images?: string[]; categorie?: string; scheduled_at?: string };
   const contenuPropre = typeof contenu === "string" ? contenu.trim() : "";
   const imagesPropres = Array.isArray(images) ? images.filter(u => typeof u === "string" && u).slice(0, MAX_IMAGES) : [];
   if (!contenuPropre && imagesPropres.length === 0) {
@@ -151,6 +151,17 @@ export async function POST(req: NextRequest) {
   }
   if (typeof categorie !== "string" || !POST_CATEGORIES.includes(categorie as (typeof POST_CATEGORIES)[number])) {
     return NextResponse.json({ error: "Choisissez une catégorie pour votre publication" }, { status: 400 });
+  }
+  // Planification (16/09/2026, décision Bryan) : retarde uniquement l'entrée
+  // dans la file de modération (voir job cron yelen-publications-planifiees),
+  // jamais un passage direct à 'publiee' — la validation Yelen reste
+  // obligatoire pour toute publication, planifiée ou non.
+  let scheduledAtPropre: string | null = null;
+  if (typeof scheduled_at === "string" && scheduled_at) {
+    const d = new Date(scheduled_at);
+    if (isNaN(d.getTime())) return NextResponse.json({ error: "Date de planification invalide" }, { status: 400 });
+    if (d.getTime() <= Date.now()) return NextResponse.json({ error: "La date de planification doit être dans le futur" }, { status: 400 });
+    scheduledAtPropre = d.toISOString();
   }
 
   const { data: institution, error: instErr } = await sb
@@ -172,7 +183,8 @@ export async function POST(req: NextRequest) {
       author_membre_depuis: institution.created_at,
       contenu: contenuPropre || null,
       images: imagesPropres,
-      statut: "en_attente_validation",
+      statut: scheduledAtPropre ? "planifiee" : "en_attente_validation",
+      scheduled_at: scheduledAtPropre,
     })
     .select()
     .single();

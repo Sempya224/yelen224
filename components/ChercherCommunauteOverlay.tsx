@@ -166,7 +166,7 @@ function LigneRecente({ item, onOuvrir, onRetirer, t1, t3 }: { item: RechercheRe
 
 export default function ChercherCommunauteOverlay({
   onClose, onApplyCategorie, onOpenInstitution, onOpenProfessionnel, renderPost,
-  isDark, bg, card, card2, t1, t2, t3, brd,
+  bg, card2, t1, t2, t3, brd,
 }: {
   onClose: () => void;
   onApplyCategorie: (categorie: string) => void;

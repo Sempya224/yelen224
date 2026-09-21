@@ -26,10 +26,12 @@ type Historique = { id: string; date_rdv: string; heure_rdv: string; objet: stri
 type Avis = { id: string; note: number; commentaire: string; reponse_institution: string | null; reponse_le: string | null; created_at: string };
 type Signalement = { titre: string; motif: string; statut: string; created_at: string };
 type Tache = { id: string; titre: string; statut: string; created_at: string };
+type FacturesResume = { total: number; payees: number; en_attente: number; a_encaisser: number };
 type Client = {
   id: string; nom: string; phone: string; nb_rdv: number;
   dernier_rdv: string; dernier_statut: string; premiere_visite: string; est_nouveau: boolean;
   note: string; historique: Historique[]; avis: Avis[]; signalements: Signalement[]; taches: Tache[];
+  factures_resume?: FacturesResume;
 };
 type TimelineItem = { id: string; date: string; label: string; sublabel?: string; color: string; bg: string };
 type AccesEntree = { id: string; membre_nom: string; action: string; created_at: string };
@@ -117,14 +119,16 @@ function stColor(statut: string, C: ThemeTokens): { c: string; bg: string; l: st
   }
 }
 
-export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuvrirMessagerie, initialClientId, onInitialClientConsumed }: { instId: string; onToast: (msg: string, color?: string) => void; isAdmin: boolean; access?: "full" | "read"; onOuvrirMessagerie?: (citoyenId: string) => void; initialClientId?: string | null; onInitialClientConsumed?: () => void }) {
+type TriClients = "recents" | "fideles" | "nouveaux" | "occasionnels" | "a_reactiver";
+
+export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuvrirMessagerie, onVoirFacturation, initialClientId, onInitialClientConsumed, initialSortBy, onInitialSortByConsumed, initialSearch, onInitialSearchConsumed }: { instId: string; onToast: (msg: string, color?: string) => void; isAdmin: boolean; access?: "full" | "read"; onOuvrirMessagerie?: (citoyenId: string) => void; onVoirFacturation?: () => void; initialClientId?: string | null; onInitialClientConsumed?: () => void; initialSortBy?: TriClients | null; onInitialSortByConsumed?: () => void; initialSearch?: string | null; onInitialSearchConsumed?: () => void }) {
   const readOnly = access === "read";
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"recents" | "fideles" | "nouveaux">("recents");
+  const [sortBy, setSortBy] = useState<TriClients>("recents");
   const [selected, setSelected] = useState<Client | null>(null);
   const [acces, setAcces] = useState<AccesEntree[]>([]);
   const [, setAccesLoading] = useState(false);
@@ -162,6 +166,23 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
     onInitialClientConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialClientId, clients]);
+
+  // Arrivée depuis "Mes clients" du Centre d'Analyse (Voir le segment /
+  // Voir tous les clients / recherche) — même pattern de consommation que
+  // initialClientId ci-dessus.
+  useEffect(() => {
+    if (!initialSortBy) return;
+    setSortBy(initialSortBy);
+    onInitialSortByConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSortBy]);
+
+  useEffect(() => {
+    if (initialSearch === undefined || initialSearch === null) return;
+    setSearch(initialSearch);
+    onInitialSearchConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSearch]);
 
   // Hydratation de la fiche détail — la liste ne charge plus que le résumé
   // (voir app/api/institution/clients/route.ts, correctif 09/09/2026 : "Mes
@@ -227,6 +248,11 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
       .sort((a, b) => {
         if (sortBy === "fideles") return b.nb_rdv - a.nb_rdv;
         if (sortBy === "nouveaux") return (b.est_nouveau ? 1 : 0) - (a.est_nouveau ? 1 : 0);
+        if (sortBy === "occasionnels") {
+          const estOcc = (c: Client) => c.nb_rdv >= 2 && c.nb_rdv <= 5 ? 1 : 0;
+          return estOcc(b) - estOcc(a);
+        }
+        if (sortBy === "a_reactiver") return new Date(a.dernier_rdv).getTime() - new Date(b.dernier_rdv).getTime();
         return new Date(b.dernier_rdv).getTime() - new Date(a.dernier_rdv).getTime();
       });
   }, [clients, search, sortBy]);
@@ -402,7 +428,7 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
       </Card>
 
       <div style={{ display: "flex", gap: "6px", marginBottom: "14px" }}>
-        {([{ key: "recents", label: "Récents" }, { key: "fideles", label: "Fidèles" }, { key: "nouveaux", label: "Nouveaux" }] as const).map(s => (
+        {([{ key: "recents", label: "Récents" }, { key: "fideles", label: "Fidèles" }, { key: "nouveaux", label: "Nouveaux" }, { key: "occasionnels", label: "Occasionnels" }, { key: "a_reactiver", label: "À réactiver" }] as const).map(s => (
           <button key={s.key} onClick={() => setSortBy(s.key)} className="tap" style={{ flex: 1, backgroundColor: sortBy === s.key ? `${C.purple}20` : C.bgCard, border: `1px solid ${sortBy === s.key ? C.purple + "40" : C.border}`, borderRadius: "10px", padding: "8px", color: sortBy === s.key ? C.purple : C.t2, fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>{s.label}</button>
         ))}
       </div>
@@ -668,6 +694,28 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
                     )}
                   </div>
                 </div>
+
+                {selected.factures_resume && (
+                  <div style={{ marginBottom: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                      <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px" }}>Factures</div>
+                      {onVoirFacturation && (
+                        <button onClick={onVoirFacturation} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "800", cursor: "pointer", padding: 0 }}>Voir toutes les factures</button>
+                      )}
+                    </div>
+                    {selected.factures_resume.total === 0 ? (
+                      <div style={{ color: C.t3, fontSize: "11.5px" }}>Aucune facture pour ce client.</div>
+                    ) : (
+                      <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "10px 12px" }}>
+                        <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>{selected.factures_resume.total} facture{selected.factures_resume.total > 1 ? "s" : ""}</div>
+                        <div style={{ color: C.t3, fontSize: "11px" }}>{selected.factures_resume.payees} payée{selected.factures_resume.payees > 1 ? "s" : ""} · {selected.factures_resume.en_attente} en attente</div>
+                        {selected.factures_resume.a_encaisser > 0 && (
+                          <div style={{ color: C.orange, fontSize: "12px", fontWeight: "800", marginTop: "4px" }}>{formatPrix(selected.factures_resume.a_encaisser)} à encaisser</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

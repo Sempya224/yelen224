@@ -187,7 +187,26 @@
       "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, CPU, WorkingSet | Format-Table -AutoSize\")",
       "Bash(echo \"---exit:$?\")",
       "Bash(ls -la eslint.config.* .eslintrc*)",
-      "Bash(grep -n \"set-state-in-effect\\\\|react-hooks\\\\|react-compiler\" eslint.config.* .eslintrc*)"
+      "Bash(grep -n \"set-state-in-effect\\\\|react-hooks\\\\|react-compiler\" eslint.config.* .eslintrc*)",
+      "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Select-Object Id,CPU,StartTime\" 2>&1)",
+      "Bash(gh --version)",
+      "Bash(gh api *)",
+      "Bash(npm list *)",
+      "Bash(sort -u -t- -k2,2n -k3,3n)",
+      "PowerShell(gh api *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(winget install *)",
+      "PowerShell(gh *)",
+      "PowerShell($p = Get-ChildItem -Path \"$env:LOCALAPPDATA\\\\Programs\\\\GitHub CLI\",\"C:\\\\Program Files\\\\GitHub CLI\" -Filter gh.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName; $p)",
+      "PowerShell(gh auth *)",
+      "PowerShell(gh pr *)",
+      "PowerShell($env:PATH += \";C:\\\\Program Files\\\\GitHub CLI\"; gh pr view 1 --repo Sempya224/yelen224 --json number,title,state,mergeable,reviewDecision,statusCheckRollup,url)",
+      "PowerShell($env:PATH += \";C:\\\\Program Files\\\\GitHub CLI\"; gh pr view 1 --repo Sempya224/yelen224 --json mergeable,mergeStateStatus,reviewDecision,latestReviews,reviewRequests)",
+      "Bash(npm ci *)",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(npm outdated *)",
+      "Bash(gh pr *)"
     ]
   }
 }

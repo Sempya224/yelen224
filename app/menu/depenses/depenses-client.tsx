@@ -220,7 +220,6 @@ export function DepensesClient() {
     if (!id) { router.replace("/inscription"); return; }
     // Lecture d'un système externe (localStorage) au montage, seule source
     // possible de l'id citoyen ici (même pattern justifié qu'app/recherche/shared.tsx).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUserId(id);
     void (async () => { setLoading(true); await charger(id); setLoading(false); })();
   }, [router, charger]);
@@ -234,7 +233,6 @@ export function DepensesClient() {
     // Ouvre le sheet correspondant depuis un paramètre d'URL externe
     // (CTA d'une notification) au chargement — même justification que
     // l'effet de lecture localStorage ci-dessus.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (depenseId) {
       const l = lignes.find((x) => x.id === depenseId);
       if (l) setDetail(l);
@@ -280,7 +278,6 @@ export function DepensesClient() {
   useEffect(() => {
     if (!objectifDetail) return;
     const frais = objectifs.find((o) => o.id === objectifDetail.id);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (frais) setObjectifDetail(frais);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objectifs]);

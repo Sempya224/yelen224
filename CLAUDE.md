@@ -31,12 +31,20 @@ Claude/CC   : propose, diagnostique, écrit le code — n'exécute JAMAIS
               de SQL ou commande terminal directement sans validation explicite
 
 ⚠️ **Règle explicite : JAMAIS de `git commit`/`git push` sans ordre
-explicite de Bryan pour CE commit précis.** `main` est en CI/CD Netlify
-(voir /stack) : un commit non demandé part immédiatement en production.
-Une validation donnée pour une tâche (ex. "corrige X") ne vaut pas
-autorisation de commit — Bryan commit lui-même quand il est prêt. Ne
-jamais committer "pour rendre service" après une modification, même
-petite.
+explicite de Bryan pour CE commit précis.** Une validation donnée pour
+une tâche (ex. "corrige X") ne vaut pas autorisation de commit — Bryan
+commit lui-même quand il est prêt. Ne jamais committer "pour rendre
+service" après une modification, même petite.
+⚠️ **`main` est protégée sur GitHub depuis au moins le 18/09/2026** (confirmé
+en pratique ce jour-là, un `git push origin main` direct a été rejeté :
+`GH013: Cannot update this protected ref`) : push direct impossible,
+passage obligatoire par une PR avec le check CI `build-and-typecheck`
+vert **et** au moins une review approuvée (Bryan s'auto-approuve, seul
+développeur). Netlify déploie séparément (deploy preview par PR, prod sur
+merge dans `main`) — voir /stack. La note historique "un commit non
+demandé part immédiatement en production" ne reflète donc plus le
+fonctionnement réel de `main`, seulement celui d'une éventuelle branche
+non protégée.
 
 ⚠️ **Règle explicite : JAMAIS d'outil Agent (sous-agent, y compris ceux
 lancés automatiquement par un skill comme `/code-review`) sans demander
@@ -48,7 +56,7 @@ soi une autorisation : demander avant, ou faire la revue directement
 avec Read/Grep/Bash. Violé 2 fois le 30/08/2026 avant d'être formalisé ici.
 
 ## /stack — STACK TECHNIQUE
-Frontend    : Next.js 16.2.1 (App Router) + TypeScript strict
+Frontend    : Next.js 16.3.5 (App Router) + TypeScript strict
 Backend     : Supabase (PostgreSQL + Auth + Realtime + Storage)
 Styling     : Tailwind CSS
 Déploiement : Netlify (CI/CD via GitHub)
@@ -835,6 +843,16 @@ déployée **en même temps que** le code du Lot 1, pas avant seule) →
 (documents lifecycle + events). `20260805000011` (cron daily_attendance)
 requiert aussi `supabase functions deploy clock-in-daily-attendance`.
 
+**Confirmées exécutées et vérifiées colonne par colonne le 18/09/2026** :
+`20260916000010` (signalements incident_date/heure), `20260916000011`
+(backfill citoyen_abonnement_events, pur backfill de données), `20260916000012`
+(posts planification), `20260916000013` (cron posts planifiés, job id 15),
+`20260917000001` (paid_services nombre_unites), `20260917000002`
+(acquisition_events), `20260918000001` (facturation_clients_v3). Les deux
+dernières se sont révélées déjà en base au moment de rejouer le SQL (un
+rejeu antérieur non documenté avait déjà tout créé) — vérifié identique à
+la migration avant de les considérer closes.
+
 **Buckets Storage privés — vérifiés 15/09/2026** (`SELECT id,name,public
 FROM storage.buckets`, GAP-11-01 clos) : les 7 buckets attendus
 (`documents-citoyens`, `documents-employes`, `signalements-preuves`,
@@ -857,6 +875,15 @@ mention contraire)** :
 
 **Autres actions ponctuelles** : `npm install pdfkit @types/pdfkit`
 (export Journal d'activité), `npm install` sur toute machine/CI hors
-session courante, bump mineur `next` 16.2.1→16.3.0 (corrige 9
-vulnérabilités npm audit), déploiement Cloudflare (voir
+session courante, déploiement Cloudflare (voir
 /mission-securite-geo-restriction).
+
+**Fait le 18/09/2026** : upgrade `next` 16.2.1→16.3.5 exécuté (pas juste
+16.3.0 comme envisagé plus tôt — advisory GitHub `GHSA-2xp9-vwfh-vxw4`
+vérifié directement par Bryan, `16.3.5` au-dessus du correctif `16.3.3`),
+`.github/dependabot.yml` ajouté (npm + github-actions, PRs minor/patch
+groupées). **Reste à faire par Bryan** : l'onglet Dependabot GitHub
+(`github.com/Sempya224/yelen224/security/dependabot`) signale **34
+vulnérabilités actives sur `main`** (2 critical/17 high/13 moderate/2
+low) — écart non réconcilié avec le décompte `npm audit` local, jamais
+investigué en détail, chantier dédié à prévoir.

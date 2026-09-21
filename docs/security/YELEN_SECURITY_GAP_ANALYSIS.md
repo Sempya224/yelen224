@@ -36,14 +36,14 @@ de ce premier lot.
 | GAP-04-01 | OTP institution `DEV_OTP='123456'` en dur, sans garde `NODE_ENV`, dans le code de production | **High** | 🟢 VERIFIED — corrigé Lot 1.1, voir journal de remédiation |
 | GAP-06-02 | `institution_otp` a eu des policies `anon` sans restriction (lecture/insertion/suppression libres du code OTP) entre le 09/07 et le 08/08/2026 — corrigé en migration, application en prod non confirmée | **High** | 🟢 VERIFIED — 0 policy + RLS actif confirmé par Bryan 14/08/2026 (deny-by-default, service_role uniquement), voir clôture finale |
 | GAP-16-01 | Aucun header Content-Security-Policy configuré nulle part (middleware ni netlify.toml) | **Medium-High** | 🟠 IN PROGRESS — CSP Report-Only déployée Lot 1.1, pas encore en mode bloquant |
-| GAP-14-01 | 8 vulnérabilités npm en production (2 moderate, 6 high), dont `next` lui-même | **Medium-High** | 🟠 IN PROGRESS — 5/10 corrigées Lot 1.1 (`ws`/`js-yaml`), reste 5 : analyse détaillée faite 13/08 (`--force` volontairement non exécuté), chantier dédié testable à planifier |
+| GAP-14-01 | `next@16.2.1` (installé) concerné par une longue liste de CVE de la plage `9.3.4-canary.0 - 16.3.2`, dont 2 RCE non authentifiées **critiques** — une sur serveurs Windows-hébergés (sans impact Netlify/Linux), une via l'API d'optimisation d'image pour les fichiers **AVIF** (`sharp@0.34.5` confirmé installé et actif, précondition réunie) ; corrigé en `16.3.3`, Next recommande `16.3.3`+ (advisories août 2026) (revérifié 18/09/2026, phase de gel sécurité pré-push) | **Critical** | 🟢 **UPGRADE EXÉCUTÉ 18/09/2026** — `next@16.3.5` confirmé dans `package.json`/`package-lock.json`/`node_modules`, `npm ci` + `tsc --noEmit` + `npm run build` propres, mergé via PR `chore/securisation-accumulation-18-09-2026`. `npm audit` post-upgrade pas encore rejoué explicitement ; **découverte annexe** : l'onglet Dependabot GitHub signale 34 vulnérabilités (2 critical/17 high/13 moderate/2 low) sur `main` — écart non réconcilié avec le décompte `npm audit` local, à investiguer dans un chantier dédié |
 | GAP-06-03 | Doublon de migration au même horodatage (`20260711000002`, deux fichiers créant `institution_responsables`) | **Medium** | 🟢 VERIFIED — `institutions.langue` confirmée `jsonb` par Bryan 14/08/2026, `institution_responsable_et_fix_langue.sql` est la migration réellement exécutée, l'autre fichier est un brouillon obsolète |
 | GAP-06-04 | Fonction `SECURITY DEFINER` `appliquer_recuperations_dues()` sans paramètre, privilèges `EXECUTE` réels non confirmés | **Medium** | 🟢 VERIFIED & CORRIGÉ — `anon` avait bien `EXECUTE` (confirmé `true` 14/08/2026), `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated` exécuté par Bryan, revérifié `false` |
 | GAP-10-01 | Rate limiting basé sur des `Map` en mémoire locale à l'instance serverless — efficacité réelle sur Netlify Functions non garantie | **Medium** | 🟠 IN PROGRESS — solution `authSecurity.ts` complète pour les 5 flux + 2 bugs réels trouvés et corrigés en la testant (03/09 : succès comptés comme échecs ; 12/09 : contournement du compteur via `trouve`/`code_envoye`), 13 tests vitest verts, `tsc` exit 0. **Toujours non commité, non déployé** — voir section "MISE À JOUR — 12/09/2026" en fin de document |
 | GAP-04-02 | OTP citoyen/institution : code unique partagé (`*_OTP_FALLBACK`) tant qu'aucun fournisseur SMS n'est branché, aucun garde `NODE_ENV` | **Medium** | ⚫ EXCEPTION APPROVED — **TEMPORARY ACCEPTED GAP** (13/08, DEC-2026-08-13-04), décision explicite de Bryan de ne pas bloquer |
 | GAP-04-03 | 2FA admin optionnelle par compte, non imposée globalement | **Medium** | ✅ **Chantier MFA Admin clôturé** (validation CEO 13/08) — gate implémenté (`middleware.ts` + `login/route.ts`), `tsc`/`build` propres. Amélioration future notée (régénération de session après activation 2FA), hors périmètre. |
-| GAP-14-02 | Aucun CI/CD (`.github/workflows/` absent) — zéro test/scan automatisé | **Medium** | 🟠 IN PROGRESS — workflow minimal préparé Lot 1.1, activation de la protection de branche restant à Bryan |
-| GAP-14-03 | Branch protection / revue de PR GitHub — état réel non vérifiable en local | **Low-Medium** | 🟡 NEEDS REVIEW |
+| GAP-14-02 | Aucun CI/CD (`.github/workflows/` absent) — zéro test/scan automatisé | **Medium** | 🟢 **VERIFIED 18/09/2026** — `build-and-typecheck` confirmé actif comme "required status check" (push direct sur `main` réellement rejeté par GitHub, `GH013: Cannot update this protected ref`) — plus une hypothèse, un vrai push l'a déclenché |
+| GAP-14-03 | Branch protection / revue de PR GitHub — état réel non vérifiable en local | **Low-Medium** | 🟢 **VERIFIED 18/09/2026** — confirmé réel : `main` exige une PR + 1 review approuvée + le check `build-and-typecheck` vert, plus de push direct possible même pour committer sur son propre repo |
 | GAP-08-01 | Vérification d'auth citoyen dupliquée localement par route (pas de fonction centrale unique, contrairement à institution/admin/employé) | **Low** | 🟢 CORRIGÉ 31/08/2026 — centralisé dans `lib/citoyenAuth.ts` (`verifierCitoyenToken`), les 44 routes concernées basculées, zéro changement de comportement externe. `tsc --noEmit` exit 0. **Non commité, non retesté en conditions réelles** — voir section "LOT 4 (suite)" |
 | GAP-06-06 | `documents_institution.examine_par` — fichier de migration périmé (référence `admins` au lieu de `admin_users`), base réelle correcte (trouvé pendant l'audit Trust Model, 16/08/2026) | Low (doc seulement) | 🟢 VERIFIED 16/08/2026 — base saine, ne bloque plus le Lot 2, correction cosmétique du fichier source recommandée |
 | GAP-06-07 | `admin_logs` n'a aucun trigger d'immuabilité, contrairement à `journal_activite`/`signalement_events` — modifiable/supprimable sans trace même par `service_role` (trouvé pendant l'audit Trust Model, 16/08/2026) | **Medium** | 🟢 VERIFIED & CORRIGÉ 30/08/2026 — trigger `admin_logs_immuable` livré (Mission 2 Hardening Admin, point 8), migration `20260830000003` confirmée exécutée en base par Bryan (DEC-2026-08-30-11). Statut mis à jour ici le 31/08, resté à tort 🟡 dans ce tableau depuis le 16/08. |
@@ -67,6 +67,7 @@ de ce premier lot.
 | GAP-05-04 | Audit "accès direct par URL" (rôles institution) — 3 routes `/api/institution/**` sans aucun `can()`/`canAccessTab()` malgré un `TAB_MATRIX` restrictif : `messages/route.ts` (GET, `messagerie:"none"` pour comptable/dirigeant — lisait l'intégralité des conversations citoyen-institution), `security-status/route.ts` (GET, `parametres-securite` admin-only — exposait recovery email/phone, IP réelles + user-agents des appareils "remember me", labels de passkeys à tout membre authentifié), `qr-provenance/route.ts` (GET, exposition triviale d'un compteur agrégé seulement) (trouvé par sous-agent fork dédié, vérifié manuellement fichier par fichier avant correction, 16/09/2026) | **High** (messages/security-status), Low (qr-provenance) | 🟢 CORRIGÉ 16/09/2026 — `canAccessTab(membre.role, ...)` ajouté en tête des 3 handlers ; `MessagerieTab.tsx`/`SecuriteCompteTab.tsx` gagnent aussi un état `forbidden` côté client (écran "réservé" au lieu d'un vide silencieux sur 403). `tsc` exit 0. **Non commité, non testé en conditions réelles** |
 | GAP-05-05 | Audit "accès direct par URL" — **incomplet**, budget du fork épuisé avant de couvrir tous les onglets institution. Restent non vérifiés : `disponibilites`, `services`, `analyse/*`, `signalements/*`, `documents-citoyen/*`, `clock-in/*`, `transactions`, `rapports/*`, `offres/*`, `partenariat`, `documents-financiers`, `documents-travail` — même classe de bug potentielle que GAP-05-04 (route API sans `can()`/`canAccessTab()` alors que `TAB_MATRIX` restreint l'onglet correspondant pour certains rôles) (16/09/2026) | **Unknown** — présumé faible (les routes déjà vérifiées cette session et les sessions précédentes suivent majoritairement le bon pattern), mais non confirmé | 🔴 NOT STARTED — deuxième passage à planifier sur la liste ci-dessus avant de considérer l'audit RBAC institution comme clos |
 | GAP-05-06 | Régression introduite par le correctif GAP-05-04 lui-même : `security-status/route.ts` a été bloqué en bloc derrière `canAccessTab(role, "parametres-securite")`, cassant `TotpSection.tsx` (self-scope, utilisé par les 5 rôles depuis `ProfilTab.tsx` pour gérer LEUR PROPRE 2FA) pour les 4 rôles non-admin — trouvé en relisant le fichier avant de le réutiliser dans Yelen Security Activation (16/09/2026) | **High** (régression fonctionnelle immédiate pour 4 rôles sur 5, introduite le jour même) | 🟢 CORRIGÉ 16/09/2026 — split explicite : `totp_enabled`/`totp_backup_codes_remaining` du membre appelant toujours renvoyés quel que soit le rôle ; `recovery_email`/`recovery_phone`/`webauthn_credentials` institution-wide/`remember_devices` (IP réelles) restent admin-only. `tsc` exit 0. **Non commité, non testé en conditions réelles** |
+| GAP-17-01 | `acquisition_events` — insert **navigateur → Supabase direct** (`lib/acquisitionEvents.ts`, client `anon`, hors de toute route `/api/` Yelen), policy INSERT ouverte à `anon`/`authenticated` (`with_check: citoyen_id IS NULL OR citoyen_id = auth.uid()`, correcte sur l'usurpation d'identité) mais **aucune validation que `institution_id` existe réellement** et **aucun rate limiting applicatif** — ce trafic ne traverse jamais `middleware.ts`/`edgeSecurity.ts` (origine `*.supabase.co`, pas Netlify). Un visiteur non authentifié peut donc flooder la table et fausser arbitrairement les statistiques d'acquisition de n'importe quelle institution (y compris concurrente) à volume illimité (trouvé en vérifiant le SQL RLS/policies/grants demandé par Bryan avant premier push, 18/09/2026) | **Medium** (pollution de données analytics/DoS de table, **pas** de fuite de données — SELECT/UPDATE/DELETE sans policy = refusés par défaut, RLS activé confirmé par Bryan en SQL Editor) | 🔴 NOT STARTED — documenté seulement à la demande de Bryan, aucune correction engagée (hors périmètre du gel produit en cours). Pistes pour plus tard : passer l'insert par une route API avec vérification `institution_id` + throttle par `visiteur_id`/IP, ou contrainte FK + rate limit côté Supabase Edge Function |
 | GAP-08-05 | **Yelen Security Activation** (nouvelle fonctionnalité, pas une faille) — MFA (TOTP ou Passkey) obligatoire 24h après la première connexion d'un membre (`institution_membres.relation_confirmee_le` comme ancre, aucune nouvelle colonne), sous peine de blocage du dashboard. Décision explicite (échange 16/09/2026) : uniquement un point de contrôle serveur (`GET /api/institution/auth/security-activation-status`) + un blocage côté client (`SecurityActivationGate`) dans `layout.tsx` — **pas** une garde appliquée sur les ~90 routes `/api/institution/**`. L'utilisateur ayant lui-même cité le principe OWASP "ne pas reposer les contrôles de sécurité uniquement sur le frontend", ce choix de périmètre doit rester une décision assumée, pas un oubli | **Medium** (aujourd'hui contournable en appelant les routes API directement après échéance dépassée, sans passer par le dashboard) | ⚫ EXCEPTION APPROVED (périmètre initial) — 🔴 NOT STARTED pour l'application serveur généralisée. Prochaine étape si prioritaire : gate explicite dans les routes de données les plus sensibles (rdv, mes-clients, paiements, equipe), ou centralisation dans un point d'entrée partagé |
 
 **Aucune vulnérabilité "Critical" confirmée dans ce Lot 1.** Aucun secret
@@ -3476,3 +3477,186 @@ Aucune raison de penser qu'ils sont à risque plus qu'un autre (le
 pattern correct domine largement sur l'échantillon déjà vérifié), mais
 non confirmé — à traiter dans un second passage avant de clore
 définitivement ce chantier RBAC.
+
+---
+
+## LOT 6 — Security Freeze / gel produit pré-premier-push (18/09/2026)
+
+Déclenché par une décision stratégique de Bryan : geler le produit (zéro
+nouvelle fonctionnalité/redesign/logique métier) pour préparer une
+première mise en production sécurisée de l'état actuel — **pas** le
+lancement commercial final (visé février 2027, voir mémoire projet
+`project_security_first_deploy_2027`). Domaine fonctionnel conservé :
+`yelen224.netlify.app` (décision explicite, pas de bascule vers
+`yelen224.com` pour l'instant malgré le texte des pages légales).
+
+**Vérifié propre (pas de nouvelle action requise)** :
+- Audit complet `localhost`/`127.0.0.1`/`0.0.0.0` sur tout le repo — zéro
+  occurrence en code produit (uniquement scripts de dev `scripts/verify-*.mjs`,
+  README, tests). Shift Clock In et YELEN Accueil Agent utilisent tous
+  les deux `lib/config.ts::APP_URL` pour générer leurs liens/QR.
+- Secrets : aucun `.env` jamais commité (historique complet vérifié),
+  aucune clé/token/JWT en dur trouvé en code, diff en attente (32
+  fichiers modifiés + ~30 nouveaux non commités à cette date) scanné
+  sans résultat.
+- Comptes démo/privilégiés : aucun trouvé (seuls des `placeholder=` sur
+  des inputs de login).
+- Routes debug/test/seed exposées publiquement : aucune (`app/api/internal/geo-bypass`
+  est la seule route "interne", déjà protégée par token comparé en temps
+  constant, voir `/mission-securite-geo-restriction` dans CLAUDE.md).
+- **GAP-07-01 (isolation tenant `/api/qr/validate`) reconfirmé committé**
+  dans le code actuel (`git diff HEAD` vide sur ce fichier, dernier
+  commit le touchant : `06cea14`) — le statut "non commité" affiché plus
+  haut dans ce document (13/09/2026) est obsolète, la correction est
+  réellement en production actuelle. Reste non testé avec deux comptes
+  institution réels distincts (inchangé).
+
+**Nouveau trouvé** : GAP-17-01 (`acquisition_events`, voir tableau
+récapitulatif) — table analytics avec insert public sans validation
+`institution_id` ni rate limiting applicatif. Documenté à la demande de
+Bryan, correction explicitement hors périmètre du gel en cours.
+
+**npm audit (GAP-14-01)** — écart significatif avec le statut affiché
+depuis le 13/08/2026 (8 vulnérabilités, 5/10 corrigées) : la liste réelle
+au 18/09/2026 est bien plus sévère — `next@16.2.1` (version installée)
+est dans la plage affectée par une longue série de CVE dont 2 RCE non
+authentifiées critiques (Windows-hébergé, sans impact ici ; API
+d'optimisation d'image via AVIF, `sharp` confirmé installé donc
+applicable). Bryan a vérifié directement l'advisory GitHub
+(`GHSA-2xp9-vwfh-vxw4`) : affecté `<16.3.3`, corrigé `16.3.3`, et a donné
+le **GO explicite pour l'upgrade vers `next@16.3.5`** (au-dessus du
+correctif, confirmé sûr) le 18/09/2026 — exécution et nouveau `npm audit`
+à faire immédiatement après.
+
+**Validation technique (état du jour, avant l'upgrade next)** :
+- `npx tsc --noEmit` → 0 erreur.
+- `npm run build` → succès, 383 pages générées, exit 0.
+- `npm run lint` → **69 erreurs / 77 warnings** restantes après correction
+  de 5 occurrences de `react-hooks/set-state-in-effect`
+  (`ConnexionWatcher.tsx`, `OnboardingChoixEcran.tsx` — vraies corrections,
+  lecture déplacée en initialiseur paresseux de `useState` ;
+  `AuthSecurityBlockedScreen.tsx` — pattern React officiel "Adjusting
+  state when a prop changes", ajustement pendant le rendu ;
+  `CarteMap.tsx`/`ThemeProvider.tsx` — `eslint-disable-next-line` justifié,
+  cas irréductible sans effet pour un flag "monté côté client" SSR-safe,
+  refactor jugé trop risqué sur `ThemeProvider` pendant un gel sans outil
+  navigateur pour vérifier l'absence de flash). 43 occurrences du même
+  rule restent dans le reste du code (beaucoup dans les composants
+  `Yelen*Tab.tsx`/`CentreAnalyseTab.tsx`/`CommunauteProTab.tsx`/`FacturationTab.tsx`
+  récemment réécrits), plus `no-img-element` réapparu (13 occurrences —
+  régression par rapport à la migration "97→0" déjà close, probablement
+  via les nouveaux composants `Yelen*Tab.tsx`), `no-unused-vars` (25),
+  `exhaustive-deps` (16). Aucune de ces erreurs ne bloque le build.
+  **Décision en attente de Bryan** : dette documentée ici, correction
+  au cas par cas ou déférée après le push.
+
+**Toujours bloqué sur une action externe** :
+- GitHub Push Protection — pas d'outil `gh` disponible dans cet
+  environnement, à activer par Bryan (`Settings → Code security and
+  analysis`).
+- RLS/policies/grants sur les tables créées après le 16/08/2026 —
+  requêtes fournies à Bryan, résultat pour `acquisition_events` reçu et
+  documenté ci-dessus (GAP-17-01) ; `facturation_clients_v3` et
+  `posts_planification` n'existent pas encore en base (migrations non
+  trackées en git à cette date, probablement pas encore appliquées).
+- Tests réels sur device (Shift Clock In, YELEN Accueil) et scénario
+  isolation A/B avec deux comptes institution réels : non faisables
+  depuis cet environnement.
+
+Aucun commit, aucun push effectué dans cette session. `npm install
+next@16.3.5` proposé mais pas encore exécuté au moment de la rédaction
+de cette entrée.
+
+## MISE À JOUR — 18/09/2026 (suite) : upgrade next exécuté, CI/branch protection réellement testées, PR mergée
+
+Session directement enchaînée sur celle ci-dessus — objectif : sécuriser
+l'accumulation de chantiers (mi-août → 18/09) sur GitHub, sans viser de
+déploiement commercial. A fait remonter plusieurs découvertes réelles,
+pas seulement exécuté ce qui était prévu.
+
+**Migrations exécutées et vérifiées colonne par colonne par Bryan**
+(les 7 étaient non trackées jusque-là, contrairement à la note du
+18/09/2026 ci-dessus qui supposait `facturation_clients_v3`/
+`posts_planification` "probablement pas encore appliquées" — correction :
+elles le sont, désormais) : `20260916000010_signalements_incident_date`,
+`20260916000011_backfill_citoyen_abonnement_events`,
+`20260916000012_posts_planification`, `20260916000013_cron_posts_planifies`,
+`20260917000001_paid_services_nombre_unites`,
+`20260917000002_acquisition_events`, `20260918000001_facturation_clients_v3`.
+`acquisition_events` et `facturation_clients_v3` se sont révélées déjà
+en base au moment de rejouer le SQL (colonnes/policies/index/trigger
+vérifiés identiques à la migration) — un rejeu partiel antérieur, non
+documenté, avait déjà tout créé.
+
+**GAP-14-02/03 passent de "supposé"/"à vérifier" à réellement testé** :
+`main` protégée sur GitHub avec required status check
+`build-and-typecheck` — découvert en pratique (pas en lisant les
+réglages) via un `git push origin main` réellement rejeté
+(`GH013: Cannot update this protected ref` + "1 approving review
+required"). CLAUDE.md décrivait jusqu'ici `main` comme push-direct =
+déploiement immédiat : **cette hypothèse est maintenant fausse**, corrigé
+dans CLAUDE.md. Workflow réel désormais : branche → PR → check CI vert →
+review (même solo, Bryan s'auto-approuve) → merge.
+
+**2 vrais bugs CI trouvés et corrigés en poussant pour de vrai** (aucun
+des deux n'était visible par `tsc`/`npm run build` en local, `.env.local`
+masquant le premier, absence de test CI antérieur masquant le second) :
+1. `package-lock.json` désynchronisé de `package.json` de deux façons
+   successives — `@swc/helpers` manquant, puis (après un premier correctif
+   incomplet n'ayant committé que le lockfile) `package.json` resté figé
+   à `next@16.2.1` dans l'historique git alors que le lockfile référençait
+   déjà `16.3.5`. La vraie mise à jour faite "hier" par Bryan n'avait
+   jamais été committée, seulement appliquée dans le répertoire de travail
+   local — piège à retenir : un `npm install` local qui semble tout
+   régler ne garantit rien sur ce qui est réellement committé.
+2. `npm run build` échoue en CI (jamais en local, `.env.local` fournissant
+   toujours de vraies valeurs) : ~250 routes API instancient leur client
+   Supabase/leurs secrets JWT/VAPID **au niveau module** plutôt que dans
+   le handler — Next.js exécute ce code pendant "Collecting page data"
+   même sans requête réelle. Reproduit en local en déplaçant `.env.local`
+   : l'échec se déplace d'un fichier au suivant (URL Supabase manquante,
+   puis clé VAPID mal formée — `web-push` valide un format 65 octets, pas
+   juste une présence). Corrigé au niveau du job CI (`ci.yml`), pas
+   fichier par fichier — un `env:` de valeurs 100% factices/jetables
+   (aucun appel réseau réel pendant un build) couvrant toutes les
+   variables de `.env.local`. **Piège à retenir pour l'avenir** : toute
+   nouvelle variable d'environnement lue au niveau module dans une route
+   doit aussi être ajoutée à ce bloc `env:` de `ci.yml`, sinon le build CI
+   recasse pour une raison sans rapport avec le vrai changement.
+3. (Hors CI, trouvé par le vrai `npm run build`) Bug fonctionnel réel dans
+   `RapportsTab.tsx` (`DonutCategories`) : refactor inachevé d'un
+   accumulateur mutable vers des sommes préfixes immuables — la boucle de
+   rendu utilisait encore l'ancienne variable `cumule`, jamais déclarée.
+   Corrigé (`cumules[i].start`).
+
+**Dependabot** : `.github/dependabot.yml` ajouté (npm + github-actions,
+groupes minor/patch par écosystème, major toujours séparée) — commit
+isolé, mergé avant le reste. En l'ouvrant, GitHub a révélé **34 alertes de
+sécurité actives sur `main`** (2 critical/17 high/13 moderate/2 low,
+`github.com/Sempya224/yelen224/security/dependabot`) — distinct du
+`npm audit` local (GAP-14-01) et pas encore réconcilié avec lui. Signalé
+à Bryan, aucune action corrective prise dans cette session.
+
+**Méthodologie — fiabilité des commentaires PR automatiques** : sur
+cette PR, un outil d'analyse automatique (commentaires façon revue de
+code) a produit 3 diagnostics successifs sur les échecs CI. Les deux
+premiers pointaient un état de commit déjà dépassé au moment où ils ont
+été lus (SHA visible dans les URLs citées, non recoupé avant de croire
+l'analyse) — un temps perdu à comprendre pourquoi le correctif déjà
+poussé ne collait pas avec l'erreur décrite. Le troisième était exact
+(fichier et cause réels), mais son "recommended fix" (corriger un seul
+fichier) aurait juste déplacé l'échec au suivant parmi les ~250 fichiers
+partageant le même pattern — vérifié en reproduisant le build en local
+plutôt qu'en appliquant le correctif suggéré tel quel. **Retenir** :
+toujours vérifier le SHA commenté contre `git log` avant d'agir sur une
+analyse automatique, et reproduire en local quand c'est possible plutôt
+que de faire confiance à la causalité proposée telle quelle.
+
+**État en fin de session** : PR `chore/securisation-accumulation-18-09-2026`
+(9 commits) avec tous les checks verts (`build-and-typecheck`,
+`dependency-audit`, Netlify deploy preview, header/redirect rules) —
+merge restant à la charge de Bryan (auto-approbation requise par la
+branch protection). Les ~101 fichiers de la "grosse" accumulation
+(nouveaux modules Yelen Business, Centre d'Analyse Acquisition,
+Communauté Pro) restent non commités à ce stade, volontairement laissés
+pour un chantier de sécurisation séparé.

@@ -4,10 +4,11 @@ import createNextIntlPlugin from "next-intl/plugin";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  // 192.168.1.222 = carte Wi-Fi de cette même machine (confirmé via
+  // ipconfig le 18/09/2026, pas un appareil tiers) — Next.js bloque par
+  // défaut le HMR cross-origin dès que le dev server est atteint via
+  // cette IP plutôt que localhost.
   allowedDevOrigins: ["192.168.1.222"],
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   // Migration next/image (audit CEO 08/08/2026) — domaines distants réels
   // utilisés par le produit : Storage Supabase (logos/avatars/bannières/
   // annonces/offres/documents), miniatures YouTube, photos stock Pexels

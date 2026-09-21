@@ -47,12 +47,15 @@ export default async function Image({ params }: { params: Promise<{ id: string }
       return new ImageResponse(
         (
           <div style={{ width: "1200px", height: "630px", display: "flex", position: "relative", fontFamily: "sans-serif" }}>
-            <img src={inst.banniere} width={1200} height={630} style={{ position: "absolute", top: 0, left: 0, objectFit: "cover" }} />
+            {/* IMG-EXCEPTION: reason=next/og ImageResponse (satori) ne supporte pas next/image | reviewed=2026-09-18 */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={inst.banniere} width={1200} height={630} alt="" style={{ position: "absolute", top: 0, left: 0, objectFit: "cover" }} />
             <div style={{ position: "absolute", top: 0, left: 0, width: "1200px", height: "630px", display: "flex", background: "linear-gradient(180deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.75) 100%)" }} />
             <div style={{ position: "absolute", left: 60, right: 60, bottom: 50, display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
                 {inst.logo ? (
-                  <img src={inst.logo} width={92} height={92} style={{ borderRadius: 20, objectFit: "cover", border: `3px solid ${GOLD}` }} />
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={inst.logo} width={92} height={92} alt="" style={{ borderRadius: 20, objectFit: "cover", border: `3px solid ${GOLD}` }} />
                 ) : (
                   <div style={{ width: 92, height: 92, borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", background: GOLD, color: "#000", fontSize: 34, fontWeight: 900 }}>
                     {initials}
@@ -87,7 +90,8 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   const goldCard = (withLogo: boolean) => (
     <div style={{ width: "1200px", height: "630px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, background: `linear-gradient(135deg, ${GOLD} 0%, #C9791A 100%)`, fontFamily: "sans-serif" }}>
       {withLogo && inst?.logo ? (
-        <img src={inst.logo} width={180} height={180} style={{ borderRadius: 36, objectFit: "cover", border: "6px solid rgba(255,255,255,0.85)" }} />
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={inst.logo} width={180} height={180} alt="" style={{ borderRadius: 36, objectFit: "cover", border: "6px solid rgba(255,255,255,0.85)" }} />
       ) : (
         <div style={{ width: 180, height: 180, borderRadius: 36, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.18)", border: "6px solid rgba(255,255,255,0.85)", color: "#fff", fontSize: 64, fontWeight: 900 }}>
           {initials}

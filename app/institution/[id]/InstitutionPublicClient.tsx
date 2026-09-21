@@ -14,6 +14,9 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { EcranContenuIntrouvable } from "@/components/EcranContenuIntrouvable";
 import { urlExterneSure } from "@/lib/urlValidation";
 import { construireLienPartageInstitution, extraireIdDepuisParamInstitution } from "@/lib/institutionSlug";
+import { detecterSourceAcquisition } from "@/lib/acquisitionSource";
+import { enregistrerEvenementAcquisition } from "@/lib/acquisitionEvents";
+import { APP_URL } from "@/lib/config";
 import { deriverCapacites, deciderCta, CTA_LABELS, type CtaAction } from "@/lib/prestataireCapacites";
 import { EQUIPEMENTS_ETABLISSEMENT, EQUIPEMENTS_CHAMBRE } from "@/lib/hotelEquipements";
 
@@ -359,6 +362,17 @@ function InstitutionProfilePageInner() {
       try { sessionStorage.setItem("yelen224_provenance", "qr"); } catch {}
     }
   }, [searchParams]);
+
+  // Centre d'Analyse → Acquisition (nouvel onglet) — un event "profile_view"
+  // par montage réel de la fiche, source résolue une seule fois à
+  // l'arrivée (jamais re-déclenché si searchParams change ensuite, ex.
+  // ouverture d'un onglet interne qui touche l'URL). Nouveau/récurrent
+  // dérivé à l'agrégation (lib/analyseAcquisition.ts), pas ici.
+  useEffect(() => {
+    const source = detecterSourceAcquisition(searchParams.get("source"), typeof document !== "undefined" ? document.referrer || null : null, APP_URL);
+    enregistrerEvenementAcquisition(id, "profile_view", source);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const [inst, setInst]         = useState<Institution | null>(null);
   // CTA V1 (17/08/2026) — paid_services actifs, non inclus dans le
@@ -877,7 +891,10 @@ function InstitutionProfilePageInner() {
     // l'ajout/retrait des favoris (retour CEO 24/07/2026).
     else {
       setToast(wasFavori ? "Retiré des favoris" : "Ajouté aux favoris");
-      if (!wasFavori) void notifierAjoutFavori();
+      if (!wasFavori) {
+        void notifierAjoutFavori();
+        enregistrerEvenementAcquisition(id, "favori_ajoute", detecterSourceAcquisition(searchParams.get("source"), typeof document !== "undefined" ? document.referrer || null : null, APP_URL));
+      }
     }
   };
 
@@ -901,7 +918,8 @@ function InstitutionProfilePageInner() {
   // presse-papiers avec confirmation via le toast déjà existant.
   async function handlePartager() {
     const lienPartage = inst?.slug ? construireLienPartageInstitution(inst.slug, id) : id;
-    const url = `${window.location.origin}/institution/${lienPartage}`;
+    const url = `${window.location.origin}/institution/${lienPartage}?source=share`;
+    enregistrerEvenementAcquisition(id, "profile_share", "share");
     if (navigator.share) {
       try { await navigator.share({ title: inst?.name, url }); } catch {}
     } else {
@@ -1060,6 +1078,13 @@ function InstitutionProfilePageInner() {
       case "whatsapp": return whatsappUrl ?? "#";
       case "phone": return `tel:${inst.phone}`;
     }
+  };
+  // Centre d'Analyse → Acquisition — "appointment_started" (clic RDV) vs
+  // "contact_started" (phone/WhatsApp/website), source résolue une seule
+  // fois par clic à partir du même ?source= que le profile_view initial.
+  const trackerCtaClic = (action: CtaAction) => {
+    const source = detecterSourceAcquisition(searchParams.get("source"), typeof document !== "undefined" ? document.referrer || null : null, APP_URL);
+    enregistrerEvenementAcquisition(id, action === "rdv" ? "appointment_started" : "contact_started", source);
   };
 
   const inputBg   = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
@@ -1223,17 +1248,17 @@ function InstitutionProfilePageInner() {
           <>
             <div style={{ display: "grid", gridTemplateColumns: ctaQuickSecondary ? "1fr 1fr" : "1fr", gap: "10px", marginBottom: "10px" }}>
               {ctaDecision.principal.action === "rdv" ? (
-                <Link href={ctaHref("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+                <Link href={ctaHref("rdv")} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
                   <Icons.Cal /> {ctaDecision.principal.label}
                 </Link>
               ) : (
-                <a href={ctaHref(ctaDecision.principal.action)} target={ctaDecision.principal.action === "phone" ? undefined : "_blank"} rel={ctaDecision.principal.action === "phone" ? undefined : "noreferrer"} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+                <a href={ctaHref(ctaDecision.principal.action)} onClick={() => trackerCtaClic(ctaDecision.principal!.action)} target={ctaDecision.principal.action === "phone" ? undefined : "_blank"} rel={ctaDecision.principal.action === "phone" ? undefined : "noreferrer"} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
                   {ctaDecision.principal.action === "website" ? <Icons.Globe /> : ctaDecision.principal.action === "whatsapp" ? <Icons.Whatsapp /> : <Icons.Phone />}
                   {" "}{ctaDecision.principal.label}
                 </a>
               )}
               {ctaQuickSecondary && (
-                <a href={ctaHref(ctaQuickSecondary)} target={ctaQuickSecondary === "phone" ? undefined : "_blank"} rel={ctaQuickSecondary === "phone" ? undefined : "noreferrer"} className="tap" style={ctaQuickSecondary === "whatsapp"
+                <a href={ctaHref(ctaQuickSecondary)} onClick={() => trackerCtaClic(ctaQuickSecondary)} target={ctaQuickSecondary === "phone" ? undefined : "_blank"} rel={ctaQuickSecondary === "phone" ? undefined : "noreferrer"} className="tap" style={ctaQuickSecondary === "whatsapp"
                   ? { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "transparent", border: `1px solid ${inputBord}`, color: "#22c55e", fontWeight: "700", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none" }
                   : { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontWeight: "700", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none" }}>
                   {ctaQuickSecondary === "whatsapp" ? <Icons.Whatsapp /> : <Icons.Phone />} {CTA_LABELS[ctaQuickSecondary]}
@@ -1242,7 +1267,7 @@ function InstitutionProfilePageInner() {
             </div>
 
             {ctaPhoneSeparement && (
-              <a href={`tel:${inst.phone}`} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", textDecoration: "none", marginBottom: "6px" }}>
+              <a href={`tel:${inst.phone}`} onClick={() => trackerCtaClic("phone")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", textDecoration: "none", marginBottom: "6px" }}>
                 <Icons.Phone />
                 <span style={{ color: "#22c55e" }}>{inst.phone}</span>
                 <span style={{ color: C.textSubtle, fontSize: "11px" }}>· Appeler</span>
@@ -1393,7 +1418,7 @@ function InstitutionProfilePageInner() {
                   </div>
                 )}
                 {inst.phone && (
-                  <a href={`tel:${inst.phone}`} style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
+                  <a href={`tel:${inst.phone}`} onClick={() => trackerCtaClic("phone")} style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
                     <div style={{ width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17v-.08z"/></svg>
                     </div>
@@ -1404,7 +1429,7 @@ function InstitutionProfilePageInner() {
                   </a>
                 )}
                 {inst.whatsapp && (
-                  <a href={`https://wa.me/${inst.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
+                  <a href={`https://wa.me/${inst.whatsapp.replace(/\D/g, "")}`} onClick={() => trackerCtaClic("whatsapp")} target="_blank" rel="noreferrer" style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
                     <div style={{ width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <svg width="16" height="16" fill="#25D366" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.890-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
                     </div>
@@ -1426,7 +1451,7 @@ function InstitutionProfilePageInner() {
                   </a>
                 )}
                 {websiteHref && (
-                  <a href={websiteHref} target="_blank" rel="noreferrer" style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
+                  <a href={websiteHref} onClick={() => trackerCtaClic("website")} target="_blank" rel="noreferrer" style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
                     <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                     </div>
@@ -1523,8 +1548,8 @@ function InstitutionProfilePageInner() {
                   <button key={c.id} onClick={() => setChambreOuverte(c)} style={{ display: "block", width: "100%", textAlign: "left", backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", animation: `fadeUp 0.2s ease ${i * 0.03}s both`, cursor: "pointer", padding: 0 }} className="tap">
                     {c.photos.length > 0 && (
                       <div style={{ position: "relative" }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         {/* IMG-EXCEPTION: reason=galerie de cartes dynamique par institution, URL Storage publique stable, évite le layout shift next/image dans une grille auto-fill | reviewed=2026-08-20 */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={c.photos[0]} alt={c.nom} style={{ width: "100%", height: "120px", objectFit: "cover", display: "block" }}/>
                         {(c.photos.length > 1 || c.video_url) && (
                           <span style={{ position: "absolute", bottom: "8px", right: "8px", backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px" }}>
@@ -1552,7 +1577,7 @@ function InstitutionProfilePageInner() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {inst.services.map((s, i) => (
-                  <Link key={`${s}-${i}`} href={`/rdv/${inst.id}?service=${encodeURIComponent(s)}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 16px", textDecoration: "none", animation: `fadeUp 0.2s ease ${i * 0.03}s both` }} className="tap">
+                  <Link key={`${s}-${i}`} href={`/rdv/${inst.id}?service=${encodeURIComponent(s)}`} onClick={() => trackerCtaClic("rdv")} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 16px", textDecoration: "none", animation: `fadeUp 0.2s ease ${i * 0.03}s both` }} className="tap">
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: meta.color, flexShrink: 0 }}/>
                       <span style={{ color: C.text, fontSize: "14px", fontWeight: "600" }}>{s}</span>
@@ -1655,7 +1680,7 @@ function InstitutionProfilePageInner() {
                               </div>
                             </div>
                             {meta?.action && (
-                              <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(p.nom)}`} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "5px", marginTop: "10px", backgroundColor: "#F5A623", borderRadius: "20px", padding: "7px 14px", color: "#080812", fontSize: "11.5px", fontWeight: "800", textDecoration: "none" }}>
+                              <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(p.nom)}`} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "5px", marginTop: "10px", backgroundColor: "#F5A623", borderRadius: "20px", padding: "7px 14px", color: "#080812", fontSize: "11.5px", fontWeight: "800", textDecoration: "none" }}>
                                 {meta.action}
                                 <Icons.Chevron/>
                               </Link>
@@ -2017,7 +2042,7 @@ function InstitutionProfilePageInner() {
                 <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}>{Icons.Star(false)}</div>
                 <p style={{ color: C.text, fontSize: "14px", fontWeight: "700", margin: "0 0 6px" }}>Aucun avis pour le moment</p>
                 <p style={{ color: C.textSubtle, fontSize: "12px", margin: "0 0 16px" }}>Prenez rendez-vous pour être le premier à laisser un avis.</p>
-                <Link href={`/rdv/${inst.id}`} style={{ display: "inline-block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "13px", padding: "10px 20px", borderRadius: "12px", textDecoration: "none" }}>Prendre rendez-vous</Link>
+                <Link href={`/rdv/${inst.id}`} onClick={() => trackerCtaClic("rdv")} style={{ display: "inline-block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "700", fontSize: "13px", padding: "10px 20px", borderRadius: "12px", textDecoration: "none" }}>Prendre rendez-vous</Link>
               </div>
             )}
           </div>
@@ -2222,7 +2247,7 @@ function InstitutionProfilePageInner() {
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "22px", textAlign: "center" }}>
                 <p style={{ color: C.text, fontSize: "14px", fontWeight: "700", margin: "0 0 8px" }}>Vous avez déjà posé 2 questions à cet établissement</p>
                 <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 18px" }}>Prenez rendez-vous pour continuer à échanger directement avec l&apos;établissement.</p>
-                <Link href={`/rdv/${inst?.id}`} style={{ display: "inline-block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", textDecoration: "none" }}>Prendre rendez-vous</Link>
+                <Link href={`/rdv/${inst?.id}`} onClick={() => trackerCtaClic("rdv")} style={{ display: "inline-block", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "13px", padding: "12px 24px", borderRadius: "12px", textDecoration: "none" }}>Prendre rendez-vous</Link>
               </div>
             ) : (
               <>
@@ -2362,8 +2387,8 @@ function InstitutionProfilePageInner() {
             <div style={{ padding: "16px 16px 110px" }}>
               {apercu.length > 0 && (
                 <button onClick={() => setGalerieOuverte(true)} className="tap" style={{ display: "grid", gridTemplateColumns: apercu.length === 1 ? "1fr" : "1.4fr 1fr", gap: "6px", width: "100%", border: "none", padding: 0, cursor: "pointer", borderRadius: "16px", overflow: "hidden", marginBottom: "18px" }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   {/* IMG-EXCEPTION: reason=aperçu galerie chambre, URL Storage publique stable | reviewed=2026-08-20 */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={c.photos[0]} alt={c.nom} style={{ width: "100%", height: "220px", objectFit: "cover", display: "block" }}/>
                   {apercu.length > 1 && (
                     <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: "6px" }}>
@@ -2378,8 +2403,8 @@ function InstitutionProfilePageInner() {
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>
                               </div>
                             ) : (
-                              // eslint-disable-next-line @next/next/no-img-element
                               // IMG-EXCEPTION: reason=aperçu galerie chambre, URL Storage publique stable | reviewed=2026-08-20
+                              // eslint-disable-next-line @next/next/no-img-element
                               <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
                             )}
                             {dernier && (
@@ -2423,7 +2448,7 @@ function InstitutionProfilePageInner() {
             </div>
 
             <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderTop: `1px solid ${C.borderCard}` }}>
-              <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(c.nom)}`} className="tap" style={{ display: "block", width: "100%", textAlign: "center", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "13px", fontSize: "14px", fontWeight: "800", textDecoration: "none" }}>
+              <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(c.nom)}`} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "block", width: "100%", textAlign: "center", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "13px", fontSize: "14px", fontWeight: "800", textDecoration: "none" }}>
                 Demander une réservation
               </Link>
             </div>
@@ -2449,8 +2474,8 @@ function InstitutionProfilePageInner() {
           <div style={{ padding: "12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
             {chambreOuverte.photos.map(url => (
               <button key={url} onClick={() => setMediaPleinEcran({ type: "photo", url })} className="tap" style={{ border: "none", padding: 0, cursor: "pointer", borderRadius: "10px", overflow: "hidden" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 {/* IMG-EXCEPTION: reason=galerie plein écran, URL Storage publique stable | reviewed=2026-08-20 */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={url} alt="" style={{ width: "100%", height: "160px", objectFit: "cover", display: "block" }}/>
               </button>
             ))}
@@ -2470,8 +2495,8 @@ function InstitutionProfilePageInner() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
           {mediaPleinEcran.type === "photo" ? (
-            // eslint-disable-next-line @next/next/no-img-element
             // IMG-EXCEPTION: reason=visionneuse plein écran, URL Storage publique stable | reviewed=2026-08-20
+            // eslint-disable-next-line @next/next/no-img-element
             <img src={mediaPleinEcran.url} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
           ) : (
             <video src={mediaPleinEcran.url} controls autoPlay onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%" }}/>
@@ -2571,7 +2596,7 @@ function InstitutionProfilePageInner() {
       {ctaDecision.principal && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 240, backgroundColor: C.cardBg, borderRadius: "22px 22px 0 0", boxShadow: isDark ? "0 -10px 32px rgba(0,0,0,0.55)" : "0 -10px 32px rgba(0,0,0,0.14)", padding: `14px 16px calc(14px + env(safe-area-inset-bottom))`, transform: `translateY(${ctaVisible ? "0" : "110%"})`, transition: "transform 0.3s ease" }}>
           {ctaDecision.principal.action === "rdv" ? (
-            <Link href={ctaHref("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+            <Link href={ctaHref("rdv")} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
               <Icons.Cal /> {ctaDecision.principal.label}
             </Link>
           ) : (

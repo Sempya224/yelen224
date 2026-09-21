@@ -392,7 +392,6 @@ export function MonAssistant({ userId }: { userId: string | null }) {
 
   useEffect(() => {
     setPanelHeight(expanded ? getMaxH() : COLLAPSED_H, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
 
   const onPointerDown = (e: React.PointerEvent) => {

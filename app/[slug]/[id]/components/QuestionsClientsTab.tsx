@@ -97,7 +97,7 @@ export function QuestionsClientsTab({ readOnly, onToast }: { readOnly: boolean; 
           const active = filtre === f.key;
           const count = f.key === "en_attente" ? nbEnAttente : f.key === "repondues" ? questions.length - nbEnAttente : questions.length;
           return (
-            <button key={f.key} onClick={() => setFiltre(f.key)} className="tap" style={{ backgroundColor: active ? `${C.gold}15` : C.bgCard, border: `1px solid ${active ? C.gold + "40" : C.border}`, borderRadius: "20px", padding: "7px 13px", color: active ? C.gold : C.t2, fontSize: "11.5px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
+            <button key={f.key} onClick={() => setFiltre(f.key)} className="tap" style={{ backgroundColor: active ? C.gold : C.bgCard, border: `1px solid ${active ? C.gold : C.border}`, borderRadius: "20px", padding: "7px 13px", color: active ? "#000" : C.t2, fontSize: "11.5px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
               {f.label} <span style={{ marginLeft: "4px", fontSize: "9.5px", opacity: 0.8 }}>{count}</span>
             </button>
           );

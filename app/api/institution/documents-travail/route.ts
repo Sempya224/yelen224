@@ -14,6 +14,11 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 
 const CATEGORIE_VALUES = CATEGORIES_DOCUMENT_TRAVAIL.map((c) => c.value);
 const SIGNED_URL_EXPIRES_IN = 60;
+// Aperçu (V3 Documents, 20/09/2026) : l'URL signée existante (60s) était
+// pensée pour un téléchargement ponctuel, pas pour rester ouverte dans un
+// visualiseur — fenêtre dédiée plus longue, sans toucher au téléchargement
+// classique (décision validée avec Bryan).
+const PREVIEW_URL_EXPIRES_IN = 300;
 
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
@@ -23,20 +28,30 @@ export async function GET(req: NextRequest) {
   }
   const authInstId = membre.institutionId;
 
-  const download = new URL(req.url).searchParams.get("download");
-  if (download) {
-    const { data: doc } = await sb.from("documents_travail").select("url").eq("id", download).eq("institution_id", authInstId).maybeSingle();
+  const { searchParams } = new URL(req.url);
+  const download = searchParams.get("download");
+  const preview = searchParams.get("preview");
+  if (download || preview) {
+    const targetId = download || preview;
+    const { data: doc } = await sb.from("documents_travail").select("url").eq("id", targetId!).eq("institution_id", authInstId).maybeSingle();
     if (!doc) return NextResponse.json({ error: "Document introuvable pour cette institution" }, { status: 404 });
-    const { data: signed, error: signErr } = await sb.storage.from("documents-travail").createSignedUrl(doc.url, SIGNED_URL_EXPIRES_IN);
+    const { data: signed, error: signErr } = await sb.storage.from("documents-travail").createSignedUrl(doc.url, preview ? PREVIEW_URL_EXPIRES_IN : SIGNED_URL_EXPIRES_IN);
     if (signErr || !signed) return NextResponse.json({ error: signErr?.message || "Erreur de génération d'URL" }, { status: 500 });
     return NextResponse.json({ url: signed.signedUrl });
   }
 
-  const { data, error } = await sb
+  // V3 Projets (20/09/2026, validé avec Bryan) — "même donnée, deux
+  // contextes" (item 11) : filtre additif, aucun changement pour les
+  // appelants existants (DocumentsSection.tsx n'envoie jamais ce paramètre).
+  const projetId = searchParams.get("projet_id");
+  let query = sb
     .from("documents_travail")
-    .select("id,nom,description,categorie,taille,type_mime,membre_id,uploaded_at")
+    .select("id,nom,description,categorie,taille,type_mime,membre_id,projet_id,uploaded_at")
     .eq("institution_id", authInstId)
     .order("uploaded_at", { ascending: false });
+  if (projetId) query = query.eq("projet_id", projetId);
+
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ documents: data ?? [] });
 }
@@ -56,10 +71,16 @@ export async function POST(req: NextRequest) {
   const nom = form.get("nom");
   const categorie = form.get("categorie");
   const description = form.get("description");
+  const projetIdRaw = form.get("projet_id");
+  const projetId = typeof projetIdRaw === "string" && projetIdRaw ? projetIdRaw : null;
 
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
   if (typeof categorie !== "string" || !CATEGORIE_VALUES.includes(categorie as (typeof CATEGORIE_VALUES)[number])) {
     return NextResponse.json({ error: "Catégorie invalide" }, { status: 400 });
+  }
+  if (projetId) {
+    const { data: projetExists } = await sb.from("projets").select("id").eq("institution_id", authInstId).eq("id", projetId).maybeSingle();
+    if (!projetExists) return NextResponse.json({ error: "Projet introuvable pour cette institution" }, { status: 404 });
   }
 
   const displayName = typeof nom === "string" && nom.trim() ? nom.trim() : file.name;
@@ -80,6 +101,7 @@ export async function POST(req: NextRequest) {
     taille: file.size,
     type_mime: verif.detectedType,
     membre_id: membre.membreId,
+    projet_id: projetId,
   }).select("id").single();
   if (insertErr) {
     await sb.storage.from("documents-travail").remove([path]);
@@ -94,6 +116,63 @@ export async function POST(req: NextRequest) {
     cibleTable: "documents_travail",
     cibleId: inserted.id,
     details: { nom: displayName },
+    req,
+  });
+
+  return NextResponse.json({ ok: true });
+}
+
+// V3 Documents (20/09/2026, validé avec Bryan) : jusqu'ici aucune route ne
+// permettait de corriger le nom/la catégorie/la description après upload
+// ("Modifier" du brief était impossible à honorer). Ajout minimal, même
+// patron que taches/route.ts::PATCH — jamais le fichier lui-même (rename
+// uniquement les métadonnées, le binaire en Storage reste inchangé).
+export async function PATCH(req: NextRequest) {
+  const membre = await getAuthenticatedMembre(req);
+  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (canAccessTab(membre.role, "espace-travail") === "none") {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
+  const authInstId = membre.institutionId;
+
+  const body = await req.json().catch(() => null);
+  const id = body?.id;
+  if (typeof id !== "string") return NextResponse.json({ error: "id requis" }, { status: 400 });
+
+  const { data: doc } = await sb.from("documents_travail").select("membre_id").eq("id", id).eq("institution_id", authInstId).maybeSingle();
+  if (!doc) return NextResponse.json({ error: "Document introuvable pour cette institution" }, { status: 404 });
+  // Permissions par rôle : même règle que DELETE — "chacun gère le sien".
+  if (membre.role !== "admin" && doc.membre_id !== membre.membreId) {
+    return NextResponse.json({ error: "Vous ne pouvez modifier que les documents que vous avez ajoutés" }, { status: 403 });
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (typeof body?.nom === "string" && body.nom.trim()) updates.nom = body.nom.trim();
+  if (typeof body?.categorie === "string") {
+    if (!CATEGORIE_VALUES.includes(body.categorie as (typeof CATEGORIE_VALUES)[number])) return NextResponse.json({ error: "Catégorie invalide" }, { status: 400 });
+    updates.categorie = body.categorie;
+  }
+  if (typeof body?.description === "string" || body?.description === null) updates.description = body.description;
+  if (typeof body?.projet_id === "string" || body?.projet_id === null) {
+    if (typeof body.projet_id === "string") {
+      const { data: projetExists } = await sb.from("projets").select("id").eq("institution_id", authInstId).eq("id", body.projet_id).maybeSingle();
+      if (!projetExists) return NextResponse.json({ error: "Projet introuvable pour cette institution" }, { status: 404 });
+    }
+    updates.projet_id = body.projet_id;
+  }
+  if (Object.keys(updates).length === 0) return NextResponse.json({ error: "Aucune modification fournie" }, { status: 400 });
+
+  const { data, error } = await sb.from("documents_travail").update(updates).eq("id", id).eq("institution_id", authInstId).select("id").maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Document introuvable pour cette institution" }, { status: 404 });
+
+  await enregistrerAction({
+    institutionId: authInstId,
+    membreId: membre.membreId,
+    membreNom: await getMembreNomPourJournal(membre.membreId),
+    action: "document_modifie",
+    cibleTable: "documents_travail",
+    cibleId: id,
     req,
   });
 

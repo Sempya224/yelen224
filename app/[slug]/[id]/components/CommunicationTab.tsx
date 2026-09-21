@@ -33,6 +33,22 @@ import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "./FormField";
 
+// Statistiques V2 (17/09/2026, brief CEO) — réponse de
+// /api/institution/annonces/stats. "Clics"/"Ouvertures"/"Sources de
+// découverte" hors périmètre (décision Bryan 17/09/2026) : nb_clics n'est
+// jamais incrémenté pour les annonces, aucune colonne "source" n'existe.
+type StatsPeriode = "7j" | "30j" | "90j" | "annee";
+type StatsKpiEntry = { valeur: number; delta_pct: number | null };
+type StatsAnnonceDetail = { id: string; titre: string; type: string; statut: string; vues: number; citoyens_touches: number; interactions: number; taux_interaction: number | null };
+type StatsData = {
+  bornes: { debut: string; fin: string };
+  kpi: { vues: StatsKpiEntry; citoyens_touches: StatsKpiEntry; interactions: StatsKpiEntry; annonces_actives: { valeur: number }; taux_interaction: { valeur: number | null; delta_pct: number | null } };
+  engagement: { likes: number; commentaires: number; partages: number };
+  serie: { date: string; vues: number; citoyens_touches: number; interactions: number }[];
+  annonces: StatsAnnonceDetail[];
+  echantillon_suffisant: boolean;
+};
+
 type Annonce = {
   id: string;
   titre: string;
@@ -63,6 +79,17 @@ const TYPES = (C: ThemeTokens) => [
   { id: "communique",  label: "Communiqué officiel",  color: C.gold,   desc: "Déclaration institutionnelle" },
 ];
 
+// Badge de type (17/09/2026, retour Bryan) — neutre par défaut comme dans
+// CollaborationTab.tsx, l'or plein Yelen réservé au seul type qui mérite
+// vraiment l'attention (Urgent = alerte citoyenne). `t.color` reste utilisé
+// tel quel ailleurs (sélection dans le picker, barres de répartition,
+// liseré de carte) : ce sont des usages de catégorisation, pas des cadres
+// de statut passifs.
+function typeBadgeStyle(typeId: string, C: ThemeTokens): { bg: string; border: string; color: string } {
+  if (typeId === "urgent") return { bg: C.gold, border: C.gold, color: "#080812" };
+  return { bg: C.bg3, border: C.border2, color: C.t2 };
+}
+
 const REGIONS = [
   "Conakry", "Boké", "Kindia", "Mamou", "Labé", "Faranah", "Kankan", "Nzérékoré",
   "France", "États-Unis", "Belgique", "Canada", "Royaume-Uni", "Allemagne", "Espagne", "Maroc", "Sénégal",
@@ -91,21 +118,30 @@ const TEMPLATES: Record<string, { titre: string; contenu: string }[]> = {
   ],
 };
 
+// Libellés alignés sur le repositionnement "canal d'information officiel"
+// (17/09/2026, brief CEO) — "Active"/"Programmée" plutôt que "Publiée"/
+// "Planifiée", cohérent avec le vocabulaire des KPI. Aucune valeur de
+// `statut` en base ne change, uniquement l'affichage.
+// Fonds neutres partout (17/09/2026, retour Bryan) — même traitement que
+// CollaborationTab.tsx : plus aucun cadre en fond teinté par défaut, la
+// vraie couleur Yelen (or plein) reste réservée à ce qui mérite vraiment
+// l'attention (ex. le bandeau d'expiration plus bas). Aucun de ces 5
+// statuts n'est un état d'erreur — rien ici ne justifie une couleur dédiée.
 const STATUT_CFG = (C: ThemeTokens): Record<string, { label: string; color: string; bg: string }> => ({
-  publiee:   { label: "Publiée",   color: C.green,  bg: C.greenL },
-  brouillon: { label: "Brouillon", color: C.gold,   bg: `${C.gold}15` },
-  planifiee: { label: "Planifiée", color: C.purple, bg: C.purpleL },
-  terminee:  { label: "Terminée",  color: C.t3,     bg: C.bg3 },
-  archivee:  { label: "Archivée",  color: C.t3,     bg: C.bg3 },
+  publiee:   { label: "Active",     color: C.t2, bg: C.bg3 },
+  brouillon: { label: "Brouillon",  color: C.t2, bg: C.bg3 },
+  planifiee: { label: "Programmée", color: C.t2, bg: C.bg3 },
+  terminee:  { label: "Terminée",   color: C.t3, bg: C.bg3 },
+  archivee:  { label: "Archivée",   color: C.t3, bg: C.bg3 },
 });
 
 const STATUT_FILTRES = [
-  { key: "tous", label: "Tous" },
-  { key: "brouillon", label: "Brouillon" },
-  { key: "planifiee", label: "Planifiée" },
-  { key: "publiee", label: "Publiée" },
-  { key: "terminee", label: "Terminée" },
-  { key: "archivee", label: "Archivée" },
+  { key: "tous", label: "Toutes" },
+  { key: "brouillon", label: "Brouillons" },
+  { key: "planifiee", label: "Programmées" },
+  { key: "publiee", label: "Actives" },
+  { key: "terminee", label: "Terminées" },
+  { key: "archivee", label: "Archivées" },
 ];
 
 const FORMAT_LABELS: Record<string, string> = { image: "Image", carrousel: "Carrousel", pdf: "PDF", video: "Vidéo" };
@@ -129,10 +165,6 @@ function fmt(d: string) {
 function fmtCompact(n: number): string {
   if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; }
   return String(n);
-}
-function estDansLeMoisCourant(iso: string): boolean {
-  const d = new Date(iso), n = new Date();
-  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth();
 }
 
 const inputStyle = (C: ThemeTokens): React.CSSProperties => ({
@@ -230,6 +262,60 @@ function AnnonceImageCarousel({ images, height, dotActiveColor, dotInactiveColor
   );
 }
 
+// Tuile KPI avec comparaison réelle (17/09/2026) — jamais un % fabriqué :
+// deltaPct === null affiche "Pas encore assez de données" plutôt qu'un 0%
+// qui laisserait croire à une stagnation mesurée.
+function StatsKpiTile({ C, label, value, deltaPct, sub }: { C: ThemeTokens; label: string; value: string; deltaPct?: number | null; sub?: string }) {
+  return (
+    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
+      <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 8px" }}>{label}</p>
+      <p style={{ color: C.t1, fontSize: "24px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{value}</p>
+      {deltaPct !== undefined && (
+        deltaPct === null ? (
+          <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", margin: 0 }}>Pas encore assez de données</p>
+        ) : (
+          <p style={{ color: deltaPct >= 0 ? C.green : C.red, fontSize: "10.5px", fontWeight: "700", margin: 0 }}>{deltaPct >= 0 ? "+" : ""}{deltaPct.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} % vs période précédente</p>
+        )
+      )}
+      {sub && <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", margin: 0 }}>{sub}</p>}
+    </div>
+  );
+}
+
+// Graphique de tendance — même recette que GrowthChart de CommunauteProTab.tsx
+// (polyline SVG manuelle), dupliqué ici volontairement : Communication et
+// Yelen Community sont 2 fonctionnalités distinctes, pas de composant
+// partagé entre elles par convention du projet.
+function StatsTrendChart({ C, dates, values, color }: { C: ThemeTokens; dates: string[]; values: number[]; color: string }) {
+  if (dates.length < 2) {
+    return (
+      <div style={{ textAlign: "center", padding: "30px 16px" }}>
+        <p style={{ color: C.t1, fontSize: "13px", fontWeight: "800", margin: "0 0 4px" }}>Pas encore assez de données pour afficher une tendance</p>
+        <p style={{ color: C.t2, fontSize: "12px", margin: 0 }}>Les performances apparaîtront ici dès que vos annonces auront généré suffisamment de consultations.</p>
+      </div>
+    );
+  }
+  const max = Math.max(...values, 1);
+  const w = 100, h = 40;
+  const points = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w;
+    const y = h - (v / max) * (h - 4) - 2;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height: "150px", display: "block" }}>
+        <polyline points={points} fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", color: C.t3, fontSize: "10.5px", marginTop: "6px" }}>
+        <span>{fmt(dates[0])}</span>
+        <span>{fmt(dates[Math.floor(dates.length / 2)])}</span>
+        <span>{fmt(dates[dates.length - 1])}</span>
+      </div>
+    </div>
+  );
+}
+
 function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: boolean }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
@@ -244,6 +330,13 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
   const [formatFiltre, setFormatFiltre] = useState("tous");
   const [searchQ, setSearchQ] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [statsPeriode, setStatsPeriode] = useState<StatsPeriode>("30j");
+  const [statsData, setStatsData] = useState<StatsData | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsErreur, setStatsErreur] = useState(false);
+  const [statsRecharge, setStatsRecharge] = useState(0);
+  const [statsMetrique, setStatsMetrique] = useState<"vues" | "citoyens_touches" | "interactions">("vues");
+  const [statsDrawerId, setStatsDrawerId] = useState<string | null>(null);
   const [editAnnonce, setEditAnnonce] = useState<Annonce | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
@@ -261,6 +354,29 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
   const [previewAnnonce, setPreviewAnnonce] = useState<Annonce | null>(null);
   const [statsAnnonce, setStatsAnnonce] = useState<Annonce | null>(null);
   const [page, setPage] = useState(1);
+  // Capturé une fois au montage (pattern déjà utilisé par SignalementsTab.tsx)
+  // plutôt qu'un Date.now() direct dans le corps du composant — la règle
+  // react-hooks/purity du React Compiler interdit les appels impurs
+  // pendant le rendu, sauf via une valeur initiale de useState.
+  const [maintenantMs] = useState(() => Date.now());
+  // Notification d'expiration (17/09/2026, brief CEO §17) — état purement
+  // cosmétique (masquer une notif déjà vue), pas de statut serveur dédié :
+  // même prudence localStorage try/catch que partout ailleurs dans le
+  // projet (peut lever en navigation privée mobile).
+  const [expirationsMasquees, setExpirationsMasquees] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(`yelen224_annonces_expiration_vue_${instId}`);
+      setExpirationsMasquees(raw ? JSON.parse(raw) : []);
+    } catch { setExpirationsMasquees([]); }
+  }, [instId]);
+  const masquerExpiration = (id: string) => {
+    setExpirationsMasquees(prev => {
+      const next = [...prev, id];
+      try { window.localStorage.setItem(`yelen224_annonces_expiration_vue_${instId}`, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
 
   const [form, setForm] = useState({
     titre: "", contenu: "", type: "information", format: "image", date_expiration: "", date_publication: "",
@@ -281,6 +397,34 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
 
   useEffect(() => { queueMicrotask(() => fetchData()); }, [fetchData]);
   useEffect(() => { setPage(1); }, [statutFiltre, formatFiltre, searchQ]);
+
+  // Chargement paresseux (uniquement quand l'onglet Statistiques est actif)
+  // — `async`/`try`/`catch` obligatoire, pas une chaîne `.then()` directe
+  // dans l'effet (règle react-hooks/set-state-in-effect, voir
+  // CommunauteProTab.tsx::chargerAudience pour le même correctif).
+  const chargerStats = useCallback(async (annuleRef: { current: boolean }) => {
+    setStatsLoading(true);
+    setStatsErreur(false);
+    try {
+      const res = await fetch(`/api/institution/annonces/stats?periode=${statsPeriode}`);
+      if (!res.ok) throw new Error("http_error");
+      const j = await res.json();
+      if (annuleRef.current) return;
+      if (!j?.kpi) throw new Error("shape_error");
+      setStatsData(j);
+    } catch {
+      if (!annuleRef.current) { setStatsData(null); setStatsErreur(true); }
+    } finally {
+      if (!annuleRef.current) setStatsLoading(false);
+    }
+  }, [statsPeriode]);
+
+  useEffect(() => {
+    if (innerTab !== "stats") return;
+    const annuleRef = { current: false };
+    chargerStats(annuleRef);
+    return () => { annuleRef.current = true; };
+  }, [innerTab, chargerStats, statsRecharge]);
 
   const handleCover = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -317,6 +461,17 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
   const loadTemplate = (t: { titre: string; contenu: string }) => {
     setForm(prev => ({ ...prev, titre: t.titre, contenu: t.contenu }));
     setShowTemplates(false);
+  };
+
+  // Création rapide (17/09/2026, brief CEO §19) — réutilise TYPES/TEMPLATES
+  // déjà existants, aucune nouvelle donnée : présélectionne juste le type
+  // (+ le premier modèle correspondant quand il y en a un pertinent) pour
+  // sauter l'étape de choix du type.
+  const ouvrirCreationRapide = (typeId: string, template?: { titre: string; contenu: string }) => {
+    resetForm();
+    setForm(prev => ({ ...prev, type: typeId, titre: template?.titre ?? "", contenu: template?.contenu ?? "" }));
+    setInnerTab("creer");
+    setCreateMenuOpen(false);
   };
 
   const loadEditForm = (a: Annonce) => {
@@ -461,8 +616,11 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
   const paged = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
   const kpi = {
-    publiees: annonces.filter(a => a.statut === "publiee").length,
-    nouvellesCeMois: annonces.filter(a => estDansLeMoisCourant(a.created_at)).length,
+    // Corrigé (17/09/2026) : comptait auparavant a.statut === "publiee" brut,
+    // donc une annonce déjà expirée (date_expiration dépassée) restait
+    // comptée comme active — realStatut() est la même fonction qui pilote
+    // déjà les compteurs de filtres ci-dessous, désormais cohérente ici aussi.
+    actives: annonces.filter(a => realStatut(a) === "publiee").length,
     portee: annonces.reduce((acc, a) => acc + (a.portee || 0), 0),
     vues: annonces.reduce((acc, a) => acc + (a.nb_vues || 0), 0),
     likes: annonces.reduce((acc, a) => acc + (a.nb_likes || 0), 0),
@@ -471,6 +629,17 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
     clics: annonces.reduce((acc, a) => acc + (a.nb_clics || 0), 0),
   };
   const interactions = kpi.likes + kpi.commentaires + kpi.partages + kpi.clics;
+
+  // Annonces venant d'expirer (17/09/2026, §17) — "venant" = dans les 14
+  // derniers jours, pour éviter de rappeler indéfiniment une expiration
+  // ancienne. Exclut les annonces déjà archivées manuellement (l'action
+  // est alors déjà connue et traitée) et celles masquées par l'institution.
+  const QUATORZE_JOURS_MS = 14 * 24 * 3600 * 1000;
+  const annoncesRecemmentExpirees = annonces.filter(a => {
+    if (a.statut === "archivee" || !a.date_expiration || expirationsMasquees.includes(a.id)) return false;
+    const finMs = new Date(a.date_expiration).getTime();
+    return finMs < maintenantMs && maintenantMs - finMs <= QUATORZE_JOURS_MS;
+  });
 
   const getType = (id: string) => TYPES(C).find(t => t.id === id) || TYPES(C)[0];
 
@@ -542,14 +711,14 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               <div style={{ padding: "18px" }}>
                 {previewAnnonce.epingle && <div style={{ marginBottom: "8px" }}><span style={{ color: C.gold, fontSize: "10.5px", fontWeight: "700" }}>ANNONCE ÉPINGLÉE</span></div>}
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
-                  <div style={{ width: "34px", height: "34px", position: "relative", borderRadius: "9px", backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}25`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
-                    {institution?.logo ? <Image src={institution.logo} fill sizes="34px" style={{ objectFit: "cover" }} alt=""/> : <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>{institution?.name?.[0]?.toUpperCase() || "Y"}</span>}
+                  <div style={{ width: "34px", height: "34px", position: "relative", borderRadius: "9px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+                    {institution?.logo ? <Image src={institution.logo} fill sizes="34px" style={{ objectFit: "cover" }} alt=""/> : <span style={{ color: C.t2, fontSize: "13px", fontWeight: "800" }}>{institution?.name?.[0]?.toUpperCase() || "Y"}</span>}
                   </div>
                   <div style={{ flex: 1 }}>
                     <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", margin: 0 }}>{institution?.name || "Votre institution"}</p>
                     <p style={{ color: C.t3, fontSize: "10.5px", margin: "1px 0 0" }}>{fmt(previewAnnonce.created_at)}</p>
                   </div>
-                  <span style={{ backgroundColor: `${getType(previewAnnonce.type).color}18`, color: getType(previewAnnonce.type).color, fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{getType(previewAnnonce.type).label.toUpperCase()}</span>
+                  <span style={{ backgroundColor: typeBadgeStyle(previewAnnonce.type, C).bg, color: typeBadgeStyle(previewAnnonce.type, C).color, fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{getType(previewAnnonce.type).label.toUpperCase()}</span>
                 </div>
                 <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 8px", lineHeight: 1.35 }}>{previewAnnonce.titre}</h3>
                 <p style={{ color: C.t2, fontSize: "12.5px", margin: 0, lineHeight: 1.65 }}>{previewAnnonce.contenu}</p>
@@ -602,7 +771,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
             { id: "stats", label: "Statistiques" },
             ...(canPublish ? [{ id: "creer", label: editAnnonce ? "Modifier" : "Créer" }] : []),
           ].map(t => (
-            <button key={t.id} onClick={() => { if (t.id !== "creer") resetForm(); setInnerTab(t.id as "liste" | "creer" | "stats"); }} className="tap" style={{ backgroundColor: innerTab === t.id ? `${C.gold}12` : "transparent", border: "none", borderBottom: innerTab === t.id ? `2px solid ${C.gold}` : "2px solid transparent", color: innerTab === t.id ? C.gold : C.t3, fontSize: "12.5px", fontWeight: innerTab === t.id ? "700" : "500", padding: "10px 16px", cursor: "pointer" }}>
+            <button key={t.id} onClick={() => { if (t.id !== "creer") resetForm(); setInnerTab(t.id as "liste" | "creer" | "stats"); }} className="tap" style={{ backgroundColor: innerTab === t.id ? C.gold : "transparent", border: "none", borderRadius: innerTab === t.id ? "10px" : 0, color: innerTab === t.id ? "#080812" : C.t3, fontSize: "12.5px", fontWeight: innerTab === t.id ? "700" : "500", padding: "10px 16px", cursor: "pointer" }}>
               {t.label}
             </button>
           ))}
@@ -621,6 +790,9 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                 <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", minWidth: "200px", overflow: "hidden" }}>
                   <button onClick={() => { resetForm(); setInnerTab("creer"); setCreateMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Nouvelle annonce</button>
                   <div style={{ height: "1px", backgroundColor: C.border }}/>
+                  <button onClick={() => ouvrirCreationRapide("information", TEMPLATES.information[0])} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Fermeture / horaire exceptionnel</button>
+                  <button onClick={() => ouvrirCreationRapide("offre", TEMPLATES.offre[0])} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Nouvelle promotion</button>
+                  <div style={{ height: "1px", backgroundColor: C.border }}/>
                   <button onClick={() => { setPickerMode("dupliquer"); setCreateMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Dupliquer une annonce</button>
                   <div style={{ height: "1px", backgroundColor: C.border }}/>
                   <button onClick={() => { setPickerMode("brouillon"); setCreateMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Reprendre un brouillon</button>
@@ -633,35 +805,56 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
 
       {innerTab === "liste" && (
         <div>
+          {annoncesRecemmentExpirees.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+              {annoncesRecemmentExpirees.map(a => (
+                <div key={a.id} style={{ backgroundColor: `${C.gold}0f`, border: `1px solid ${C.gold}30`, borderRadius: "12px", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+                  <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: 600, margin: 0, flex: 1, minWidth: "200px" }}>
+                    Votre annonce « {a.titre} » est arrivée à expiration.
+                  </p>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setStatsAnnonce(a)}>Voir les statistiques</Button>
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => handleDuplicate(a)}>Republier</Button>
+                    <button onClick={() => masquerExpiration(a.id)} aria-label="Masquer" className="tap" style={{ width: "24px", height: "24px", borderRadius: "50%", background: "none", border: "none", color: C.t3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", marginBottom: "22px" }}>
             <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
               </div>
-              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Annonces publiées</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{kpi.publiees}</p>
-              <p style={{ color: kpi.nouvellesCeMois > 0 ? C.green : C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>{kpi.nouvellesCeMois > 0 ? `+${kpi.nouvellesCeMois} ce mois` : "Aucune ce mois-ci"}</p>
+              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Annonces actives</p>
+              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{kpi.actives}</p>
+              <p style={{ color: C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>{kpi.actives > 0 ? "Visibles actuellement sur votre fiche" : "Aucune annonce publiée"}</p>
             </div>
 
             <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: `${C.blue}15`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               </div>
-              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Audience atteinte</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: 0, lineHeight: 1 }}>{fmtCompact(kpi.portee)}</p>
+              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Citoyens atteints</p>
+              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(kpi.portee)}</p>
+              <p style={{ color: C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>Toutes annonces confondues</p>
             </div>
 
             <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: `${C.teal}15`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <IconVoir color={C.teal}/>
+              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
+                <IconVoir color={C.t2}/>
               </div>
               <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Vues</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: 0, lineHeight: 1 }}>{fmtCompact(kpi.vues)}</p>
+              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(kpi.vues)}</p>
+              <p style={{ color: C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>Consultations de vos annonces</p>
             </div>
 
             <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: `${C.purple}15`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.purple} strokeWidth="2" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               </div>
               <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Interactions</p>
               <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(interactions)}</p>
@@ -679,7 +872,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               const active = statutFiltre === s.key;
               const count = s.key === "tous" ? annonces.length : annonces.filter(a => realStatut(a) === s.key).length;
               return (
-                <button key={s.key} onClick={() => setStatutFiltre(s.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? `${C.gold}15` : C.bgCard, border: `1px solid ${active ? C.gold + "40" : C.border}`, borderRadius: "20px", padding: "7px 13px", color: active ? C.gold : C.t2, fontSize: "11.5px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
+                <button key={s.key} onClick={() => setStatutFiltre(s.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? C.gold : C.bgCard, border: `1px solid ${active ? C.gold : C.border}`, borderRadius: "20px", padding: "7px 13px", color: active ? "#080812" : C.t2, fontSize: "11.5px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
                   {s.label} <span style={{ marginLeft: "4px", fontSize: "9.5px", opacity: 0.8 }}>{count}</span>
                 </button>
               );
@@ -689,7 +882,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
             {FORMAT_FILTRES.map(f => {
               const active = formatFiltre === f.key;
               return (
-                <button key={f.key} onClick={() => setFormatFiltre(f.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? `${C.blue}15` : C.bgCard, border: `1px solid ${active ? C.blue + "40" : C.border}`, borderRadius: "20px", padding: "6px 12px", color: active ? C.blue : C.t3, fontSize: "11px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
+                <button key={f.key} onClick={() => setFormatFiltre(f.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? C.gold : C.bgCard, border: `1px solid ${active ? C.gold : C.border}`, borderRadius: "20px", padding: "6px 12px", color: active ? "#080812" : C.t3, fontSize: "11px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
                   {f.label}
                 </button>
               );
@@ -715,7 +908,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
 
                       <div style={{ flex: 1, minWidth: "220px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px", flexWrap: "wrap" }}>
-                          <span style={{ backgroundColor: `${t.color}18`, border: `1px solid ${t.color}44`, color: t.color, fontSize: "9.5px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{t.label.toUpperCase()}</span>
+                          <span style={{ backgroundColor: typeBadgeStyle(annonce.type, C).bg, border: `1px solid ${typeBadgeStyle(annonce.type, C).border}`, color: typeBadgeStyle(annonce.type, C).color, fontSize: "9.5px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{t.label.toUpperCase()}</span>
                           <span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "9.5px", fontWeight: "700", padding: "3px 9px", borderRadius: "20px" }}>{statCfg.label}</span>
                           {annonce.regions_cibles && annonce.regions_cibles.length > 0 && <span style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t3, fontSize: "9.5px", fontWeight: "600", padding: "3px 9px", borderRadius: "20px" }}>{annonce.regions_cibles.length} région{annonce.regions_cibles.length > 1 ? "s" : ""}</span>}
                         </div>
@@ -784,76 +977,214 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
 
       {innerTab === "stats" && (
         <div style={{ animation: "fadeUp 0.2s ease" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "14px", marginBottom: "18px" }}>
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "18px" }}>
-              <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 14px" }}>Top annonces par portée</h3>
-              {[...annonces].sort((a, b) => (b.portee || 0) - (a.portee || 0)).slice(0, 5).map((a, i) => (
-                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 0", borderBottom: i < 4 ? `1px solid ${C.border}` : "none" }}>
-                  <span style={{ width: "22px", height: "22px", borderRadius: "50%", backgroundColor: i === 0 ? `${C.gold}20` : C.bg3, color: i === 0 ? C.gold : C.t3, fontSize: "10px", fontWeight: "800", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: "600", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.titre}</p>
-                    <p style={{ color: C.t3, fontSize: "10.5px", margin: 0 }}>{fmt(a.created_at)}</p>
-                  </div>
-                  <span style={{ color: C.blue, fontSize: "12.5px", fontWeight: "700", flexShrink: 0 }}>{a.portee || 0}</span>
+          {annonces.length === 0 ? (
+            <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "16px", padding: "48px 20px", textAlign: "center" }}>
+              <p style={{ color: C.t1, fontSize: "15px", fontWeight: "700", margin: "0 0 8px" }}>Commencez à mesurer votre présence</p>
+              <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 20px" }}>Créez votre première annonce pour informer vos clients et commencer à mesurer sa portée.</p>
+              {canPublish && <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 22px" }} onClick={() => { resetForm(); setInnerTab("creer"); }}>+ Créer une annonce</Button>}
+            </div>
+          ) : statsLoading ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "50px" }}><YelenLoader size={32}/></div>
+          ) : statsErreur || !statsData ? (
+            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "36px 20px", textAlign: "center" }}>
+              <p style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 6px" }}>Impossible de charger les statistiques.</p>
+              <p style={{ color: C.t2, fontSize: "12.5px", margin: "0 0 18px" }}>Vérifiez votre connexion puis réessayez.</p>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => setStatsRecharge(k => k + 1)}>Réessayer</Button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "18px" }}>
+                <div>
+                  <h3 style={{ color: C.t1, fontSize: "15px", fontWeight: "800", margin: "0 0 4px" }}>Statistiques</h3>
+                  <p style={{ color: C.t2, fontSize: "12px", margin: 0, maxWidth: "440px", lineHeight: 1.5 }}>Mesurez la portée de vos annonces et comprenez comment les citoyens interagissent avec les informations publiées par votre établissement.</p>
                 </div>
-              ))}
-              {annonces.length === 0 && <p style={{ color: C.t2, fontSize: "13px" }}>Aucune donnée</p>}
-            </div>
+                <select value={statsPeriode} onChange={e => setStatsPeriode(e.target.value as StatsPeriode)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "9px 12px", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>
+                  <option value="7j">7 derniers jours</option>
+                  <option value="30j">30 derniers jours</option>
+                  <option value="90j">90 derniers jours</option>
+                  <option value="annee">Cette année</option>
+                </select>
+              </div>
 
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "18px" }}>
-              <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 14px" }}>Répartition par type</h3>
-              {TYPES(C).map(t => {
-                const count = annonces.filter(a => a.type === t.id).length;
-                const pct = annonces.length > 0 ? Math.round((count / annonces.length) * 100) : 0;
-                return (
-                  <div key={t.id} style={{ marginBottom: "10px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                      <span style={{ color: C.t2, fontSize: "11.5px" }}>{t.label}</span>
-                      <span style={{ color: t.color, fontSize: "11.5px", fontWeight: "700" }}>{count} ({pct}%)</span>
-                    </div>
-                    <div style={{ height: "5px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", borderRadius: "3px", backgroundColor: t.color, width: `${pct}%`, transition: "width 0.5s ease" }}/>
-                    </div>
+              {/* KPI */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px", marginBottom: "18px" }}>
+                <StatsKpiTile C={C} label="Vues" value={statsData.kpi.vues.valeur.toLocaleString("fr-FR")} deltaPct={statsData.kpi.vues.delta_pct}/>
+                <StatsKpiTile C={C} label="Citoyens touchés" value={statsData.kpi.citoyens_touches.valeur.toLocaleString("fr-FR")} deltaPct={statsData.kpi.citoyens_touches.delta_pct}/>
+                <StatsKpiTile C={C} label="Interactions" value={statsData.kpi.interactions.valeur.toLocaleString("fr-FR")} deltaPct={statsData.kpi.interactions.delta_pct}/>
+                <StatsKpiTile C={C} label="Annonces actives" value={String(statsData.kpi.annonces_actives.valeur)} sub="Visibles actuellement sur votre fiche"/>
+                <StatsKpiTile C={C} label="Taux d'interaction"
+                  value={statsData.kpi.taux_interaction.valeur !== null ? `${statsData.kpi.taux_interaction.valeur.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %` : "—"}
+                  deltaPct={statsData.kpi.taux_interaction.valeur !== null ? statsData.kpi.taux_interaction.delta_pct : undefined}
+                  sub={statsData.kpi.taux_interaction.valeur === null ? "Pas encore assez de données" : undefined}/>
+              </div>
+
+              {/* Évolution */}
+              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px", marginBottom: "18px" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+                  <div>
+                    <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 2px" }}>Évolution de vos performances</h3>
+                    <p style={{ color: C.t2, fontSize: "11.5px", margin: 0 }}>Suivez comment vos annonces sont vues et utilisées au fil du temps.</p>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", overflow: "hidden" }}>
-            <div style={{ padding: "16px 18px", borderBottom: `1px solid ${C.border}` }}>
-              <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: 0 }}>Détail de toutes les annonces</h3>
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Titre", "Type", "Statut", "Portée", "Vues", "Interactions", "Créée le"].map(h => (
-                      <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    {([{ k: "vues" as const, l: "Vues" }, { k: "citoyens_touches" as const, l: "Citoyens touchés" }, { k: "interactions" as const, l: "Interactions" }]).map(o => (
+                      <button key={o.k} onClick={() => setStatsMetrique(o.k)} className="tap" style={{ backgroundColor: statsMetrique === o.k ? C.gold : C.bg3, color: statsMetrique === o.k ? "#080812" : C.t2, border: "none", borderRadius: "16px", padding: "5px 12px", fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>{o.l}</button>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {annonces.map((a, i) => {
-                    const t = getType(a.type);
-                    const statCfg = STATUT_CFG(C)[realStatut(a)];
+                  </div>
+                </div>
+                <StatsTrendChart C={C} dates={statsData.serie.map(s => s.date)} values={statsData.serie.map(s => s[statsMetrique])} color={C.gold}/>
+              </div>
+
+              {/* Engagement */}
+              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px", marginBottom: "18px" }}>
+                <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 4px" }}>Comment les citoyens réagissent</h3>
+                <p style={{ color: C.t2, fontSize: "11.5px", margin: "0 0 16px" }}>Distingue ce qui est simplement vu de ce qui suscite une vraie réaction.</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "14px" }}>
+                  <div style={{ textAlign: "center" }}><p style={{ color: C.t1, fontSize: "20px", fontWeight: 800, margin: "0 0 4px" }}>{statsData.engagement.likes}</p><p style={{ color: C.t3, fontSize: "10.5px", margin: 0 }}>J&apos;aime</p></div>
+                  <div style={{ textAlign: "center" }}><p style={{ color: C.t1, fontSize: "20px", fontWeight: 800, margin: "0 0 4px" }}>{statsData.engagement.commentaires}</p><p style={{ color: C.t3, fontSize: "10.5px", margin: 0 }}>Commentaires</p></div>
+                  <div style={{ textAlign: "center" }}><p style={{ color: C.t1, fontSize: "20px", fontWeight: 800, margin: "0 0 4px" }}>{statsData.engagement.partages}</p><p style={{ color: C.t3, fontSize: "10.5px", margin: 0 }}>Partages</p></div>
+                </div>
+              </div>
+
+              {/* Insights — règles déterministes, zéro LLM, jamais sur un
+                  échantillon trop faible (même discipline que
+                  VueEnsembleView de CommunauteProTab.tsx). */}
+              <div style={{ marginBottom: "18px" }}>
+                <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 10px" }}>Ce que vos statistiques montrent</h3>
+                {(() => {
+                  const insights: string[] = [];
+                  if (statsData.echantillon_suffisant && statsData.kpi.vues.valeur > 0) {
+                    const top = [...statsData.annonces].filter(a => a.vues > 0).sort((a, b) => b.vues - a.vues)[0];
+                    if (top) {
+                      const part = Math.round((top.vues / statsData.kpi.vues.valeur) * 100);
+                      if (part >= 30) insights.push(`« ${top.titre} » a généré ${part} % des vues de vos annonces sur cette période.`);
+                    }
+                  }
+                  if (statsData.kpi.citoyens_touches.delta_pct !== null && statsData.kpi.citoyens_touches.delta_pct > 0) {
+                    insights.push(`Votre audience progresse : vos annonces ont touché ${statsData.kpi.citoyens_touches.delta_pct.toFixed(0)} % de citoyens en plus que sur la période précédente.`);
+                  }
+                  if (insights.length === 0) {
                     return (
-                      <tr key={a.id} style={{ borderBottom: i < annonces.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                        <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.epingle ? "★ " : ""}{a.titre}</td>
-                        <td style={{ padding: "11px 14px" }}><span style={{ backgroundColor: `${t.color}18`, color: t.color, fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>{t.label}</span></td>
-                        <td style={{ padding: "11px 14px", color: statCfg?.color, fontSize: "11.5px", fontWeight: "700" }}>{statCfg?.label}</td>
-                        <td style={{ padding: "11px 14px", color: C.blue, fontSize: "12.5px", fontWeight: "700" }}>{a.portee || 0}</td>
-                        <td style={{ padding: "11px 14px", color: C.teal, fontSize: "12.5px", fontWeight: "700" }}>{a.nb_vues || 0}</td>
-                        <td style={{ padding: "11px 14px", color: C.purple, fontSize: "12.5px", fontWeight: "700" }}>{a.nb_likes + a.nb_commentaires + a.nb_partages}</td>
-                        <td style={{ padding: "11px 14px", color: C.t3, fontSize: "11.5px" }}>{fmt(a.created_at)}</td>
-                      </tr>
+                      <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", color: C.t2, fontSize: "12.5px", lineHeight: 1.6 }}>
+                        Encore trop peu de données. Publiez quelques annonces pour que Yelen puisse identifier les tendances de votre audience.
+                      </div>
                     );
-                  })}
-                </tbody>
-              </table>
-              {annonces.length === 0 && <p style={{ color: C.t2, fontSize: "13px", padding: "20px", textAlign: "center" }}>Aucune annonce créée</p>}
-            </div>
-          </div>
+                  }
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      {insights.map((texte, i) => (
+                        <div key={i} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+                          <span style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5 }}>{texte}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Top annonces — masqué tant que l'échantillon est trop
+                  faible, jamais un classement sur 1-2 annonces. */}
+              {statsData.echantillon_suffisant && statsData.annonces.filter(a => a.vues > 0).length >= 3 && (
+                <div style={{ marginBottom: "18px" }}>
+                  <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 10px" }}>Vos annonces les plus performantes</h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px" }}>
+                    {([
+                      { titre: "Plus vues", tri: (a: StatsAnnonceDetail, b: StatsAnnonceDetail) => b.vues - a.vues, valeur: (a: StatsAnnonceDetail) => `${a.vues} vues` },
+                      { titre: "Plus d'interactions", tri: (a: StatsAnnonceDetail, b: StatsAnnonceDetail) => b.interactions - a.interactions, valeur: (a: StatsAnnonceDetail) => `${a.interactions} interactions` },
+                      { titre: "Meilleur taux d'interaction", tri: (a: StatsAnnonceDetail, b: StatsAnnonceDetail) => (b.taux_interaction ?? 0) - (a.taux_interaction ?? 0), valeur: (a: StatsAnnonceDetail) => a.taux_interaction !== null ? `${a.taux_interaction.toFixed(1)} %` : "—" },
+                    ]).map(col => (
+                      <div key={col.titre} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
+                        <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", margin: "0 0 10px" }}>{col.titre}</p>
+                        {[...statsData.annonces].filter(a => a.vues > 0).sort(col.tri).slice(0, 3).map((a, i) => (
+                          <div key={a.id} onClick={() => setStatsDrawerId(a.id)} className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 0", cursor: "pointer" }}>
+                            <span style={{ color: C.t3, fontSize: "10px", fontWeight: 800, width: "14px", flexShrink: 0 }}>{i + 1}</span>
+                            <span style={{ flex: 1, minWidth: 0, color: C.t1, fontSize: "12px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.titre}</span>
+                            <span style={{ color: C.t2, fontSize: "11px", fontWeight: 700, flexShrink: 0 }}>{col.valeur(a)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Performance de vos annonces */}
+              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", overflow: "hidden" }}>
+                <div style={{ padding: "16px 18px", borderBottom: `1px solid ${C.border}` }}>
+                  <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: 0 }}>Performance de vos annonces</h3>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        {["Annonce", "Type", "Vues", "Citoyens touchés", "Interactions", "Taux d'interaction", "Statut"].map(h => (
+                          <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {statsData.annonces.map((a, i) => {
+                        const t = getType(a.type);
+                        const statCfg = STATUT_CFG(C)[a.statut] ?? STATUT_CFG(C).publiee;
+                        return (
+                          <tr key={a.id} onClick={() => setStatsDrawerId(a.id)} className="tap" style={{ borderBottom: i < statsData.annonces.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
+                            <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.titre}</td>
+                            <td style={{ padding: "11px 14px" }}><span style={{ backgroundColor: typeBadgeStyle(a.type, C).bg, color: typeBadgeStyle(a.type, C).color, fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>{t.label}</span></td>
+                            <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.vues}</td>
+                            <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.citoyens_touches}</td>
+                            <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.interactions}</td>
+                            <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.taux_interaction !== null ? `${a.taux_interaction.toFixed(1)} %` : "—"}</td>
+                            <td style={{ padding: "11px 14px" }}><span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>{statCfg.label}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Drawer détail — desktop-first (panneau latéral), contenu déjà
+              chargé (prop `annonces` + `statsData.annonces`), aucun nouvel
+              appel réseau. "Historique de performance"/évolution propre à
+              l'annonce volontairement absent de ce lot (aurait exigé un
+              nouvel appel par annonce) — seules les métriques de la
+              période sélectionnée globalement sont montrées ici. */}
+          {statsDrawerId && statsData && (() => {
+            const detail = statsData.annonces.find(a => a.id === statsDrawerId);
+            const full = annonces.find(a => a.id === statsDrawerId);
+            if (!detail || !full) return null;
+            const statCfg = STATUT_CFG(C)[detail.statut] ?? STATUT_CFG(C).publiee;
+            return (
+              <div onClick={() => setStatsDrawerId(null)} style={{ position: "fixed", inset: 0, zIndex: 700, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", justifyContent: "flex-end" }}>
+                <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: "420px", height: "100%", backgroundColor: C.bgCard, borderLeft: `1px solid ${C.border2}`, overflowY: "auto", padding: "22px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+                    <span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "10.5px", fontWeight: "700", padding: "3px 9px", borderRadius: "20px" }}>{statCfg.label}</span>
+                    <button onClick={() => setStatsDrawerId(null)} aria-label="Fermer" className="tap" style={{ width: "28px", height: "28px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", cursor: "pointer", color: C.t2 }}>×</button>
+                  </div>
+                  <h3 style={{ color: C.t1, fontSize: "16px", fontWeight: "800", margin: "0 0 12px" }}>{full.titre}</h3>
+                  <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, margin: "0 0 18px", whiteSpace: "pre-wrap" }}>{full.contenu}</p>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "18px", fontSize: "12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Créée le</span><span style={{ color: C.t1 }}>{fmt(full.created_at)}</span></div>
+                    {full.date_publication && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Publiée le</span><span style={{ color: C.t1 }}>{fmt(full.date_publication)}</span></div>}
+                    {full.date_expiration && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Visible jusqu&apos;au</span><span style={{ color: C.t1 }}>{fmt(full.date_expiration)}</span></div>}
+                  </div>
+
+                  <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", margin: "0 0 10px" }}>Performance sur la période sélectionnée</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "10px", marginBottom: "20px" }}>
+                    <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}><p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 2px" }}>{detail.vues}</p><p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>Vues</p></div>
+                    <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}><p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 2px" }}>{detail.citoyens_touches}</p><p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>Citoyens touchés</p></div>
+                    <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}><p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 2px" }}>{detail.interactions}</p><p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>Interactions</p></div>
+                    <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}><p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 2px" }}>{detail.taux_interaction !== null ? `${detail.taux_interaction.toFixed(1)} %` : "—"}</p><p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>Taux d&apos;interaction</p></div>
+                  </div>
+
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setStatsDrawerId(null)}>Fermer</Button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -869,9 +1200,9 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               <label style={labelStyle(C)}>Type d&apos;annonce *</label>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                 {TYPES(C).map(t => (
-                  <div key={t.id} onClick={() => setForm(prev => ({ ...prev, type: t.id }))} className="tap" style={{ backgroundColor: form.type === t.id ? `${t.color}15` : C.bgCard, border: `2px solid ${form.type === t.id ? t.color : C.border}`, borderRadius: "10px", padding: "10px 12px", cursor: "pointer" }}>
-                    <p style={{ color: form.type === t.id ? t.color : C.t1, fontSize: "11.5px", fontWeight: "700", margin: "0 0 2px" }}>{t.label}</p>
-                    <p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>{t.desc}</p>
+                  <div key={t.id} onClick={() => setForm(prev => ({ ...prev, type: t.id }))} className="tap" style={{ backgroundColor: form.type === t.id ? C.gold : C.bgCard, border: `2px solid ${form.type === t.id ? C.gold : C.border}`, borderRadius: "10px", padding: "10px 12px", cursor: "pointer" }}>
+                    <p style={{ color: form.type === t.id ? "#080812" : C.t1, fontSize: "11.5px", fontWeight: "700", margin: "0 0 2px" }}>{t.label}</p>
+                    <p style={{ color: form.type === t.id ? "rgba(8,8,18,0.68)" : C.t3, fontSize: "10px", margin: 0 }}>{t.desc}</p>
                   </div>
                 ))}
               </div>
@@ -1093,7 +1424,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                       <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", margin: 0 }}>{institution?.name || "Votre institution"}</p>
                       <p style={{ color: C.t3, fontSize: "10.5px", margin: "1px 0 0" }}>{institution?.category} — Maintenant</p>
                     </div>
-                    <span style={{ backgroundColor: `${getType(form.type).color}18`, color: getType(form.type).color, fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{getType(form.type).label.toUpperCase()}</span>
+                    <span style={{ backgroundColor: typeBadgeStyle(form.type, C).bg, color: typeBadgeStyle(form.type, C).color, fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{getType(form.type).label.toUpperCase()}</span>
                   </div>
                   {form.titre && <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 8px", lineHeight: 1.35 }}>{form.titre}</h3>}
                   {form.contenu && <p style={{ color: C.t2, fontSize: "12.5px", margin: "0 0 12px", lineHeight: 1.65 }}>{form.contenu.slice(0, 220)}{form.contenu.length > 220 ? "…" : ""}</p>}
@@ -1125,7 +1456,7 @@ export function CommunicationTab({ instId, canPublishAnnonce = true }: { instId:
   return (
     <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
       <h1 className="yelen-h2" style={{ color: C.t1, marginBottom: "6px" }}>Communication</h1>
-      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Diffusez des annonces, informations et campagnes auprès de votre audience.</p>
+      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Tenez vos clients informés des actualités et informations importantes de votre établissement.</p>
 
       <AnnoncesSection instId={instId} canPublish={canPublishAnnonce}/>
     </div>

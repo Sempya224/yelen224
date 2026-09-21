@@ -269,7 +269,13 @@ function DonutCategories({ categories, selected, onSelect, C }: {
   const CIRC = 2 * Math.PI * R;
   const total = categories.reduce((s, c) => s + c.montant, 0);
   const couleurs = CATEGORIE_COULEURS(C);
-  let cumule = 0;
+  // Sommes cumulées calculées sans mutation (react-hooks/immutability) —
+  // même résultat numérique qu'un accumulateur `let`, via des sommes préfixes.
+  const cumules = categories.reduce<{ frac: number; start: number }[]>((acc, c) => {
+    const frac = total > 0 ? c.montant / total : 0;
+    const start = acc.length > 0 ? acc[acc.length - 1].start + acc[acc.length - 1].frac : 0;
+    return [...acc, { frac, start }];
+  }, []);
 
   return (
     <Card tokens={toCardTokens(C)} padding="18px">
@@ -284,8 +290,7 @@ function DonutCategories({ categories, selected, onSelect, C }: {
             {categories.map((c, i) => {
               const frac = total > 0 ? c.montant / total : 0;
               const dash = frac * CIRC;
-              const offset = -(cumule * CIRC);
-              cumule += frac;
+              const offset = -(cumules[i].start * CIRC);
               const estSelectionne = selected === c.categorie;
               const estAttenue = selected !== null && !estSelectionne;
               return (

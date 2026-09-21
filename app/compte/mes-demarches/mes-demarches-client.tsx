@@ -566,7 +566,6 @@ export function MesDemarchesClient() {
     // Réinitialise la liste de résultats affichée dès que la recherche
     // devient trop courte (système externe : la requête Supabase
     // débattue ci-dessous, même pattern justifié qu'app/recherche/shared.tsx).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (q.length < 2) { setInstitutionResultats([]); return; }
     const t = setTimeout(async () => {
       const { data } = await supabase.from("institutions").select("id,name,secteur").ilike("name", `%${q}%`).limit(8);
@@ -578,7 +577,6 @@ export function MesDemarchesClient() {
   useEffect(() => {
     // Réinitialise l'onglet historique à chaque changement de démarche
     // sélectionnée, avant de recharger depuis Supabase (système externe).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistoriqueOuvert(false);
     if (!detail) { setHistorique([]); return; }
     void (async () => {
@@ -610,7 +608,6 @@ export function MesDemarchesClient() {
     const d = demarches.find((x) => x.id === id);
     // Ouvre le sheet de détail depuis un paramètre d'URL externe
     // (?id=, deep link) au montage — même justification que ci-dessus.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (d) { setDetail(d); setEditionActive(false); }
   }, [demarches, searchParams]);
 

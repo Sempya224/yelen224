@@ -115,10 +115,6 @@ function sessionEstValide(row: SessionRow | null): boolean {
   return new Date(row.expires_at).getTime() >= Date.now();
 }
 
-async function sessionValide(sid: string): Promise<boolean> {
-  return sessionEstValide(await chargerSession(sid));
-}
-
 // Fenêtre de réauthentification récente (moteur de réauth pour actions
 // sensibles, 16/09/2026) — mirroring lib/adminAuth.ts::REAUTH_WINDOW_MS.
 // Une action sensible exige que reauth_at date de moins de 10 minutes ;

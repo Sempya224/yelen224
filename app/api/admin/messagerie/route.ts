@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
     // apparaissent — au plus une par institution (contrainte en base). Les
     // fermées, potentiellement plusieurs par institution au fil du temps,
     // ne sont listées que via ?statut=fermee (retour Bryan 21/08/2026).
-    let entreesInstitution = conversationsAvecMessages
+    const entreesInstitution = conversationsAvecMessages
       .filter(c => filtreStatut ? c.statut === filtreStatut : c.statut !== 'fermee')
       .map(c => ({
         type: 'institution' as const, id: c.id, nom: iMap.get(c.institution_id) ?? 'Institution',

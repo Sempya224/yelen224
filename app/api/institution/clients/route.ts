@@ -38,7 +38,12 @@ function buildNom(u: { nom: string | null; prenom: string | null; phone: string 
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (canAccessTab(membre.role, "mes-clients") === "none") {
+  // Facturation clients V3 (18/09/2026) : le comptable n'a pas l'onglet
+  // "Mes clients" (TAB_MATRIX.comptable = "none") mais doit pouvoir
+  // rechercher un client existant pour lui créer une facture — accès
+  // élargi ici uniquement pour ce besoin précis, pas un accès CRM complet.
+  const accesFacturation = can(membre.role, "facturation.write", membre.accesRestreints);
+  if (canAccessTab(membre.role, "mes-clients", membre.accesRestreints) === "none" && !accesFacturation) {
     return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
   }
   const authInstId = membre.institutionId;
@@ -127,7 +132,7 @@ async function chargerDetailClient(authInstId: string, citoyenId: string) {
   if (rdvErr) return NextResponse.json({ error: rdvErr.message }, { status: 500 });
   if (!rdvRaw?.length) return NextResponse.json({ error: "Client introuvable pour cette institution" }, { status: 404 });
 
-  const [{ data: usersD }, { data: notesD }, { data: avisD }, { data: signalementsD }, { data: bookingsD }, { data: tachesD }, { data: partageD }] = await Promise.all([
+  const [{ data: usersD }, { data: notesD }, { data: avisD }, { data: signalementsD }, { data: bookingsD }, { data: tachesD }, { data: partageD }, { data: facturesD }] = await Promise.all([
     sb.from("users").select("id,nom,prenom,phone").eq("id", citoyenId).maybeSingle(),
     sb.from("notes_clients").select("note").eq("institution_id", authInstId).eq("citoyen_id", citoyenId).maybeSingle(),
     // brouillon=false — un avis non publié (Lot G, chantier Avis + Favoris
@@ -145,6 +150,9 @@ async function chargerDetailClient(authInstId: string, citoyenId: string) {
     // comportement qu'avant ce lot pour un citoyen qui n'a jamais réglé
     // ses préférences.
     sb.from("citoyen_prefs_partage").select("partage_historique_rdv,partage_historique_services").eq("citoyen_id", citoyenId).maybeSingle(),
+    // Facturation clients V3 (18/09/2026) — résumé pour le lien croisé
+    // fiche client -> Facturation clients.
+    sb.from("factures").select("statut,montant_ttc,montant_paye").eq("institution_id", authInstId).eq("citoyen_id", citoyenId),
   ]);
 
   const u = usersD as { nom: string | null; prenom: string | null; phone: string | null } | null;
@@ -202,6 +210,13 @@ async function chargerDetailClient(authInstId: string, citoyenId: string) {
     avis: (avisD ?? []).map((a) => ({ id: a.id, note: a.note, commentaire: a.commentaire, reponse_institution: a.reponse_institution, reponse_le: a.reponse_le, created_at: a.created_at })),
     signalements: (signalementsD ?? []).map((s) => ({ titre: s.titre, motif: s.motif, statut: s.statut, created_at: s.created_at })),
     taches: (tachesD ?? []).map((t) => ({ id: t.id, titre: t.titre, statut: t.statut, created_at: t.created_at })),
+    factures_resume: (() => {
+      const liste = (facturesD ?? []) as { statut: string; montant_ttc: number; montant_paye: number }[];
+      const payees = liste.filter((f) => f.statut === "payee" || f.statut === "emise").length;
+      const enAttente = liste.filter((f) => f.statut !== "payee" && f.statut !== "emise" && f.statut !== "annulee" && f.statut !== "brouillon").length;
+      const aEncaisser = liste.filter((f) => f.statut !== "annulee" && f.statut !== "brouillon").reduce((s, f) => s + Math.max(0, f.montant_ttc - f.montant_paye), 0);
+      return { total: liste.length, payees, en_attente: enAttente, a_encaisser: aEncaisser };
+    })(),
   };
 
   return NextResponse.json({ client });

@@ -30,7 +30,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
-import { MEMBRE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, TAB_KEYS, canAccessTab, isMembreRole, DOMAINE_KEYS, permissionsDuRole, type MembreRole, type TabKey, type DomaineKey } from "@/lib/institutionPermissions";
+import { MEMBRE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, TAB_KEYS, canAccessTab, isMembreRole, DOMAINE_KEYS, permissionsDuRole, type MembreRole, type DomaineKey } from "@/lib/institutionPermissions";
 import { YelenLoader } from "@/components/YelenLoader";
 import { generateBrandedQR } from "@/lib/qrBrand";
 import { FormField } from "./FormField";
@@ -304,7 +304,6 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   const invitations = membres.filter(estInvitationEnAttente);
   const membresActifs = membres.filter(m => m.actif && !estInvitationEnAttente(m));
   const nouveauxCeMois = membres.filter(m => m.created_at.slice(0, 7) === debutMois).length;
-  const administrateurs = membres.filter(m => m.role === "admin").length;
   const doitChangerPin = membres.filter(m => m.doit_changer_pin).length;
   const derniereConnexionGlobale = membres.reduce<string | null>((acc, m) => {
     if (!m.derniere_connexion) return acc;

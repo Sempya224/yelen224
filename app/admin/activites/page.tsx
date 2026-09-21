@@ -14,7 +14,6 @@
 // .../20260821000007.
 import { useCallback, useEffect, useState } from 'react'
 import { D } from '@/app/admin/adminTheme'
-import { Ic } from '@/app/admin/adminIcons'
 import { Badge, DataTable, SlidePanel, ToastContainer } from '@/app/admin/adminUiKit'
 import type { ToastItem } from '@/app/admin/adminTypes'
 import { YelenLoader } from '@/components/YelenLoader'

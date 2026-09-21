@@ -86,6 +86,10 @@ export function CheckInApp({ institutionNom, institutionLogo, institutionSlug, b
   // "scanner" sans repasser par onConnecte/onDeverrouille).
   const [rappelSessionVisible, setRappelSessionVisible] = useState(false);
 
+  // useRef n'a pas d'initialiseur paresseux — Date.now() est réévalué (et
+  // ignoré) à chaque rendu après le premier, geste laissé tel quel pour ne
+  // pas toucher au timing du verrou d'inactivité pendant le gel produit.
+  // eslint-disable-next-line react-hooks/purity
   const dernierActiviteRef = useRef(Date.now());
 
   const marquerActivite = useCallback(() => { dernierActiviteRef.current = Date.now(); }, []);

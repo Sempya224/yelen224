@@ -1,0 +1,16 @@
+-- Chambres & prestations V2 — distinction type de chambre / unités
+-- (17/09/2026, brief CEO). Décision Bryan 17/09/2026 : cette V2 reste un
+-- polish de l'architecture existante, sans moteur de réservation par
+-- dates (blocage réel documenté dans
+-- docs/ui/YELEN_HOTEL_SERVICES_V2_AUDIT.md §I, toujours vrai — aucune
+-- colonne date_arrivee/date_depart/room_units nulle part dans le projet).
+-- `nombre_unites` permet donc de dire "4 chambres de ce type" sans
+-- prétendre savoir combien sont disponibles à une date donnée (ça
+-- resterait une donnée inventée sans le moteur par dates).
+--
+-- Nullable, hôtel uniquement (comme les 5 colonnes de la migration
+-- 20260821000010) — zéro impact sur les 14 autres secteurs qui
+-- n'utilisent jamais cette colonne. NULL sur les chambres déjà créées
+-- avant ce lot = traité comme 1 unité côté UI, jamais une valeur
+-- inventée écrite en base rétroactivement.
+ALTER TABLE paid_services ADD COLUMN IF NOT EXISTS nombre_unites integer NULL CHECK (nombre_unites IS NULL OR nombre_unites > 0);

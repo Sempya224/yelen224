@@ -61,6 +61,14 @@ type PaidService = {
   type_prestation: TypePrestation | null; unite_prix: string | null; horaires: Horaire[] | null; localisation: string | null;
   est_chambre: boolean; photos: string[]; video_url: string | null; video_duree_secondes: number | null;
   equipements_chambre: string[] | null;
+  // Chambres & prestations V2 (17/09/2026) — nombre d'unités physiques de
+  // ce type de chambre. Jamais une disponibilité : aucun moteur de
+  // réservation par dates n'existe (voir migration
+  // 20260917000001_paid_services_nombre_unites.sql), donc "combien sont
+  // libres aujourd'hui" resterait une donnée inventée. NULL sur les
+  // chambres créées avant ce lot → traité comme 1 côté affichage,
+  // jamais réécrit en base rétroactivement.
+  nombre_unites: number | null;
 };
 
 const MAX_PHOTOS_CHAMBRE = 5;
@@ -108,7 +116,7 @@ function Toast({ msg, color, onDismiss }: { msg: string; color: string; onDismis
 // avoir un vrai prix + une vraie photo, contrairement à l'ancienne
 // "Chambres" (Offre générale, institutions.services, sans photo).
 function ChambreForm({ onSave, onCancel, saving, initial }: {
-  onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[] }) => Promise<void>;
+  onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number }) => Promise<void>;
   onCancel: () => void; saving: boolean; initial?: PaidService | null;
 }) {
   const { theme } = useTheme();
@@ -116,6 +124,7 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
   const [nom, setNom] = useState(initial?.nom ?? "");
   const [desc, setDesc] = useState(initial?.description ?? "");
   const [prix, setPrix] = useState(initial ? String(initial.prix) : "");
+  const [nombreUnites, setNombreUnites] = useState(String(initial?.nombre_unites ?? 1));
   const [photos, setPhotos] = useState<string[]>(initial?.photos ?? []);
   const [videoUrl, setVideoUrl] = useState(initial?.video_url ?? "");
   const [videoDuree, setVideoDuree] = useState<number | null>(initial?.video_duree_secondes ?? null);
@@ -170,11 +179,12 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
 
   async function submit() {
     setErr("");
-    if (!nom.trim()) { setErr("Le nom de la chambre est obligatoire"); return; }
+    if (!nom.trim()) { setErr("Le nom du type de chambre est obligatoire"); return; }
+    if (!nombreUnites || isNaN(+nombreUnites) || +nombreUnites <= 0) { setErr("Entrez un nombre de chambres valide"); return; }
     if (!prix || isNaN(+prix) || +prix <= 0) { setErr(`Entrez un prix par nuit valide en ${DEVISE_LABEL}`); return; }
     if (!desc.trim()) { setErr("La description est obligatoire"); return; }
     if (photos.length === 0) { setErr("Au moins une photo est obligatoire"); return; }
-    await onSave({ nom: nom.trim(), description: desc.trim(), prix: +prix, photos, video_url: videoUrl || null, video_duree_secondes: videoUrl ? videoDuree : null, equipements_chambre: equipements });
+    await onSave({ nom: nom.trim(), description: desc.trim(), prix: +prix, photos, video_url: videoUrl || null, video_duree_secondes: videoUrl ? videoDuree : null, equipements_chambre: equipements, nombre_unites: Math.round(+nombreUnites) });
   }
 
   const inputStyle: React.CSSProperties = { width: "100%", backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px", fontSize: "14px", color: C.t1, fontFamily: "inherit" };
@@ -188,8 +198,8 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
             {photos.map((url, i) => (
               <div key={url} style={{ position: "relative", borderRadius: "12px", overflow: "hidden", aspectRatio: "1/1" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 {/* IMG-EXCEPTION: reason=galerie de vignettes en cours d'édition, URLs Storage publiques déjà stables | reviewed=2026-08-20 */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={url} alt={`Photo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
                 <button onClick={() => setPhotos(p => p.filter((_, idx) => idx !== i))} className="tap" style={{ position: "absolute", top: "5px", right: "5px", width: "22px", height: "22px", borderRadius: "50%", backgroundColor: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", fontSize: "11px" }}>✕</button>
               </div>
@@ -226,10 +236,17 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
             </label>
           )}
         </div>
-        <div>
-          <label style={labelStyle}>Nom de la chambre *</label>
-          <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : Chambre Deluxe, Suite familiale…" style={inputStyle}/>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "10px" }}>
+          <div>
+            <label style={labelStyle}>Nom du type de chambre *</label>
+            <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : Chambre Deluxe, Suite familiale…" style={inputStyle}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Nombre de chambres *</label>
+            <input type="number" min={1} value={nombreUnites} onChange={e => setNombreUnites(e.target.value)} placeholder="4" style={inputStyle}/>
+          </div>
         </div>
+        <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5, margin: "-6px 0 0" }}>Toutes les chambres de ce type partagent le même prix, la même description et les mêmes équipements.</p>
         <div>
           <label style={labelStyle}>Prix par nuit ({DEVISE_LABEL}) *</label>
           <input type="number" value={prix} onChange={e => setPrix(e.target.value)} placeholder="500000" style={inputStyle}/>
@@ -308,7 +325,7 @@ function FormOverlay({ title, onCancel, children }: { title: string; onCancel: (
 }
 
 function ChambreFormSheet({ target, onSave, onCancel, saving }: {
-  target: "new" | PaidService; onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[] }) => Promise<void>;
+  target: "new" | PaidService; onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number }) => Promise<void>;
   onCancel: () => void; saving: boolean;
 }) {
   return (
@@ -327,8 +344,8 @@ function ChambreCard({ chambre, resaCount, onEdit, onToggleActive, onDelete, tog
     <Card tokens={toCardTokens(C)} noPadding style={{ border: `1.5px solid ${chambre.is_active ? C.border2 : C.border}`, opacity: chambre.is_active ? 1 : 0.6 }}>
       {chambre.photos.length > 0 && (
         <div style={{ position: "relative" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* IMG-EXCEPTION: reason=galerie de cartes dynamique, URL Storage publique stable, pas de <Image> pour éviter le layout shift dans une grille auto-fill | reviewed=2026-08-20 */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={chambre.photos[0]} alt={chambre.nom} style={{ width: "100%", height: "140px", objectFit: "cover", display: "block" }}/>
           <div style={{ position: "absolute", bottom: "8px", right: "8px", display: "flex", gap: "5px" }}>
             {chambre.photos.length > 1 && <span style={{ backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px" }}>📷 {chambre.photos.length}</span>}
@@ -337,19 +354,21 @@ function ChambreCard({ chambre, resaCount, onEdit, onToggleActive, onDelete, tog
         </div>
       )}
       <div style={{ padding: "12px 14px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "6px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "4px" }}>
           <div style={{ color: C.t1, fontSize: "14.5px", fontWeight: "800" }}>{chambre.nom}</div>
           <div onClick={onToggleActive} className="tap" style={{ width: "40px", height: "23px", borderRadius: "13px", backgroundColor: chambre.is_active ? C.gold : C.bg3, position: "relative", cursor: "pointer", flexShrink: 0, opacity: toggling ? 0.5 : 1, transition: "background-color 0.3s" }}>
             <div style={{ position: "absolute", top: "3px", left: chambre.is_active ? "20px" : "3px", width: "17px", height: "17px", borderRadius: "50%", backgroundColor: chambre.is_active ? "#000" : C.t3, transition: "left 0.25s ease" }}/>
           </div>
         </div>
+        <div style={{ color: C.t3, fontSize: "11.5px", fontWeight: "700", marginBottom: "6px" }}>{chambre.nombre_unites ?? 1} chambre{(chambre.nombre_unites ?? 1) > 1 ? "s" : ""} de ce type</div>
         <div style={{ color: C.gold, fontSize: "13px", fontWeight: "800", marginBottom: "6px" }}>{formatPrix(chambre.prix)} / nuit</div>
         {chambre.description && <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, marginBottom: "8px" }}>{chambre.description}</div>}
+        {!chambre.is_active && <div style={{ color: C.t3, fontSize: "10.5px", fontStyle: "italic", marginBottom: "8px" }}>Non visible sur votre fiche publique — historique conservé.</div>}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
           <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700" }}>{resaCount} réservation{resaCount > 1 ? "s" : ""}</span>
           <div style={{ display: "flex", gap: "6px" }}>
             <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={onEdit}>Modifier</Button>
-            <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" onClick={onDelete}>Supprimer</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="danger-ghost" size="sm" onClick={onDelete}>Supprimer</Button>
           </div>
         </div>
       </div>
@@ -549,7 +568,7 @@ function PrestationCard({ service, resaCount, onEdit, onToggleActive, onDelete, 
   );
 }
 
-export function ServicesHotelTab({ instId }: { instId: string }) {
+export function ServicesHotelTab({}: { instId: string }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const [services, setServices] = useState<PaidService[]>([]);
@@ -564,6 +583,7 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
   const [toggling, setToggling] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; color: string } | null>(null);
   const [confirmSupprimer, setConfirmSupprimer] = useState<PaidService | null>(null);
+  const [ajouterMenuOpen, setAjouterMenuOpen] = useState(false);
   // "Chambres" en premier : inventaire obligatoire d'un hôtel, avant les
   // prestations facultatives (retour Bryan 20/08/2026).
   const [subTab, setSubTab] = useState<"chambres" | "prestations" | "reservations">("chambres");
@@ -605,10 +625,10 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
   // une colonne obligatoire côté route (partagée par tous les secteurs,
   // jamais assouplie) — 1440 = 24h, valeur technique invisible du
   // formulaire.
-  async function handleSaveChambre(d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[] }) {
+  async function handleSaveChambre(d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number }) {
     setSaving(true);
     const isEdit = chambreFormTarget && chambreFormTarget !== "new";
-    const body = { nom: d.nom, description: d.description, prix: d.prix, photos: d.photos, video_url: d.video_url, video_duree_secondes: d.video_duree_secondes, equipements_chambre: d.equipements_chambre, duree_minutes: 1440, unite_prix: "par nuit", est_chambre: true, categorie: null, type_prestation: null, horaires: null, localisation: null };
+    const body = { nom: d.nom, description: d.description, prix: d.prix, photos: d.photos, video_url: d.video_url, video_duree_secondes: d.video_duree_secondes, equipements_chambre: d.equipements_chambre, nombre_unites: d.nombre_unites, duree_minutes: 1440, unite_prix: "par nuit", est_chambre: true, categorie: null, type_prestation: null, horaires: null, localisation: null };
     const res = await fetch("/api/institution/services", {
       method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
@@ -660,18 +680,41 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
     .concat(prestations.some(s => !s.categorie) ? [{ famille: "Autres prestations", items: prestations.filter(s => !s.categorie) }] : []);
   const allBookingsSorted = [...bookings].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+  // KPI — uniquement des compteurs réellement calculables (17/09/2026).
+  // Volontairement absent : "disponibles aujourd'hui"/"arrivées" — sans
+  // moteur de réservation par dates, ce serait une donnée inventée (voir
+  // en-tête de fichier).
+  const totalUnites = chambres.reduce((s, c) => s + (c.nombre_unites ?? 1), 0);
+  const prestationsActives = prestations.filter(p => p.is_active).length;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const reservationsAVenir = bookings.filter(b => b.date_rdv >= todayStr).length;
+  const reservationsAujourdhui = bookings.filter(b => b.date_rdv === todayStr).length;
+
   return (
     <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
       {toast && <Toast msg={toast.msg} color={toast.color} onDismiss={() => setToast(null)}/>}
       {chambreFormTarget && <ChambreFormSheet target={chambreFormTarget} onSave={handleSaveChambre} onCancel={() => setChambreFormTarget(null)} saving={saving}/>}
       {prestationFormTarget && <PrestationFormSheet target={prestationFormTarget} onSave={handleSavePrestation} onCancel={() => setPrestationFormTarget(null)} saving={saving} familles={familles}/>}
+      <ConfirmModal
+        open={!!confirmSupprimer}
+        onClose={() => setConfirmSupprimer(null)}
+        onConfirm={() => { if (confirmSupprimer) return handleDelete(confirmSupprimer); }}
+        tokens={toUiTokens(C)}
+        level={1}
+        danger
+        title={confirmSupprimer?.est_chambre ? "Supprimer cette chambre ?" : "Supprimer cette prestation ?"}
+        description="Préférez Désactiver si vous voulez seulement la retirer temporairement de votre fiche publique."
+        consequences={["Cette action supprime définitivement la fiche et son historique.", "Utilisez plutôt le bouton Activer/Désactiver pour la retirer sans rien perdre."]}
+        reversible={false}
+        confirmLabel="Supprimer"
+      />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", marginBottom: "18px", flexWrap: "wrap" }}>
         <div>
           <h1 className="yelen-h1" style={{ color: C.t1, marginBottom: "6px" }}>Chambres et services</h1>
-          <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5 }}>Vos chambres (obligatoire) et les prestations facultatives que vous proposez — visible sur votre fiche publique.</p>
+          <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5 }}>Gérez les chambres et prestations proposées par votre hôtel sur Yelen.</p>
         </div>
-        {subTab === "prestations" ? (
+        <div style={{ position: "relative" }}>
           <Button
             tokens={toUiTokens(C)}
             className="tap"
@@ -679,23 +722,39 @@ export function ServicesHotelTab({ instId }: { instId: string }) {
             size="sm"
             style={{ whiteSpace: "nowrap" }}
             icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
-            onClick={() => setPrestationFormTarget("new")}
+            onClick={() => setAjouterMenuOpen(o => !o)}
           >
-            Ajouter une prestation
+            Ajouter
           </Button>
-        ) : subTab === "chambres" ? (
-          <Button
-            tokens={toUiTokens(C)}
-            className="tap"
-            variant="primary"
-            size="sm"
-            style={{ whiteSpace: "nowrap" }}
-            icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
-            onClick={() => setChambreFormTarget("new")}
-          >
-            Ajouter une chambre
-          </Button>
-        ) : null}
+          {ajouterMenuOpen && (
+            <>
+              <div onClick={() => setAjouterMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 500 }}/>
+              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", minWidth: "200px", overflow: "hidden" }}>
+                <button onClick={() => { setChambreFormTarget("new"); setAjouterMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Ajouter une chambre</button>
+                <div style={{ height: "1px", backgroundColor: C.border }}/>
+                <button onClick={() => { setPrestationFormTarget("new"); setAjouterMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Ajouter une prestation</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", marginBottom: "18px" }}>
+        <Card tokens={toCardTokens(C)} padding="14px 16px">
+          <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Chambres</p>
+          <p style={{ color: C.t1, fontSize: "22px", fontWeight: "800", margin: "0 0 4px", lineHeight: 1 }}>{totalUnites}</p>
+          <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", margin: 0 }}>{chambres.length} type{chambres.length !== 1 ? "s" : ""} de chambre{chambres.length !== 1 ? "s" : ""}</p>
+        </Card>
+        <Card tokens={toCardTokens(C)} padding="14px 16px">
+          <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Prestations actives</p>
+          <p style={{ color: C.t1, fontSize: "22px", fontWeight: "800", margin: "0 0 4px", lineHeight: 1 }}>{prestationsActives}</p>
+          <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", margin: 0 }}>{prestations.length} au total</p>
+        </Card>
+        <Card tokens={toCardTokens(C)} padding="14px 16px">
+          <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Réservations à venir</p>
+          <p style={{ color: C.t1, fontSize: "22px", fontWeight: "800", margin: "0 0 4px", lineHeight: 1 }}>{reservationsAVenir}</p>
+          <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", margin: 0 }}>{reservationsAujourdhui} aujourd&apos;hui</p>
+        </Card>
       </div>
 
       <div style={{ display: "flex", gap: "6px", marginBottom: "16px", backgroundColor: C.bgCard2, borderRadius: "18px", padding: "4px", border: `1px solid ${C.border}` }}>
