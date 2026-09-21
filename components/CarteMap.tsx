@@ -314,6 +314,56 @@ function BoutonMaPosition({ position, statut, demarrerSuivi }: {
   );
 }
 
+// Attribution OpenStreetMap compacte et repliable (retour Bryan 21/09/2026)
+// — remplace le contrôle Leaflet par défaut ("Leaflet | © OpenStreetMap",
+// trop visible, marque "Leaflet" sans intérêt pour l'utilisateur final) par
+// un petit bouton ⓘ discret ; la licence OSM exige de conserver
+// l'attribution, pas de la rendre illisible en permanence — un lien
+// cliquable vers la page de licence officielle suffit, tant qu'il reste
+// accessible en un tap. `attributionControl={false}` sur <MapContainer>
+// ci-dessous supprime le contrôle par défaut ; ce composant le remplace.
+function CompactAttribution() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label="Attribution de la carte"
+        aria-expanded={open}
+        className="tap"
+        style={{ position: 'absolute', left: '10px', bottom: '10px', zIndex: 900, width: '26px', height: '26px', borderRadius: '50%', background: 'rgba(255,255,255,0.92)', border: '1px solid rgba(0,0,0,0.12)', boxShadow: '0 2px 8px rgba(0,0,0,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#374151', fontSize: '13px', fontWeight: 700, fontStyle: 'italic', fontFamily: 'Georgia, serif', padding: 0 }}
+      >
+        i
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', left: '10px', bottom: '44px', zIndex: 900, background: '#fff', borderRadius: '12px', padding: '10px 12px', boxShadow: '0 6px 20px rgba(0,0,0,0.22)', display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '240px' }}>
+          <span style={{ fontSize: '11px', color: '#374151', fontWeight: 600, lineHeight: 1.4 }}>
+            Données cartographiques ©{' '}
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" style={{ color: GOLD, fontWeight: 800, textDecoration: 'underline' }}>
+              contributeurs OpenStreetMap
+            </a>
+          </span>
+          <button onClick={() => setOpen(false)} aria-label="Fermer l'attribution" className="tap" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#9ca3af', flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+// Crédit Yelen (retour Bryan 21/09/2026, "peut être à droite") — repère de
+// marque distinct de l'attribution légale OSM ci-dessus, jamais fusionné
+// avec elle (l'un est une obligation de licence, l'autre un simple crédit
+// produit) : coin opposé, texte non interactif, aucun lien avec la licence.
+function YelenCreditMark() {
+  return (
+    <div style={{ position: 'absolute', right: '10px', bottom: '10px', zIndex: 900, pointerEvents: 'none', background: 'rgba(255,255,255,0.8)', borderRadius: '8px', padding: '3px 8px' }}>
+      <span style={{ fontSize: '9.5px', color: '#6b7280', fontWeight: 700 }}>© 2026 Yelen</span>
+    </div>
+  )
+}
+
 export default function CarteMap({ institutions, selectedId = null, onSelect, onZoneChange }: {
   institutions: Institution[]
   selectedId?: string | null
@@ -342,8 +392,8 @@ export default function CarteMap({ institutions, selectedId = null, onSelect, on
         .yelen-pulse{animation:yelenPulse 2s ease-out infinite}
         @keyframes yelenSpin{to{transform:rotate(360deg)}}
       `}</style>
-      <MapContainer center={[9.6412, -13.5784]} zoom={12} style={{ height: '100%', width: '100%' }}>
-        <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <MapContainer center={[9.6412, -13.5784]} zoom={12} attributionControl={false} style={{ height: '100%', width: '100%' }}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         {/* Contour doré Yelen — forme EXACTE de la Guinée (décision CEO
             06/08/2026, mission carte citoyen), tracé depuis le vrai GeoJSON
             officiel (geoBoundaries ADM0, fourni par Bryan) en coordonnées
@@ -366,6 +416,8 @@ export default function CarteMap({ institutions, selectedId = null, onSelect, on
         ))}
         <UserLocationMarker position={maPosition}/>
         <BoutonMaPosition position={maPosition} statut={statutLocalisation} demarrerSuivi={demarrerSuivi}/>
+        <CompactAttribution/>
+        <YelenCreditMark/>
       </MapContainer>
     </div>
   )
