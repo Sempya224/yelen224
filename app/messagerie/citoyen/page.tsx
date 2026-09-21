@@ -45,12 +45,15 @@ import {
 } from "@/lib/supportTicketsConstants";
 
 type TabMsg = "yelen" | "etablissements";
+type TicketFiltre = "toutes" | "en_cours" | "resolues";
 type AnyMsg = { id: string; contenu: string | null; image_url: string | null; type: "texte" | "image"; cree_le: string; mine: boolean };
 
 type TicketListItem = {
   id: string; numero_public: string; categorie: SupportCategorie; sujet: string;
   statut: SupportStatut; agent_nom: string | null;
-  dernier_message: string | null; dernier_message_at: string | null; cree_le: string; non_lus: number;
+  dernier_message: string | null; dernier_message_at: string | null;
+  dernier_message_expediteur: "citoyen" | "agent" | null;
+  cree_le: string; non_lus: number;
 };
 type TicketMsg = { id: string; expediteur_type: "citoyen" | "agent"; agent_nom: string | null; contenu: string | null; image_url: string | null; type: "texte" | "image"; cree_le: string };
 type TicketRating = { note: number; raisons: string[]; commentaire: string | null; cree_le: string };
@@ -97,6 +100,26 @@ function estMemeJour(a: string, b: string): boolean {
   const da = new Date(a), db = new Date(b);
   return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
 }
+// Date contextuelle pour la liste des conversations (retour Bryan
+// 21/09/2026, écran "Support Yelen") : l'ancien affichage montrait
+// uniquement l'heure (ex. "01:39") pour toutes les conversations,
+// aujourd'hui comme il y a plusieurs mois — aucun repère temporel réel.
+function formatDateListe(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  if (estMemeJour(dateStr, now.toISOString())) return formatHeure(dateStr);
+  const hier = new Date(now); hier.setDate(hier.getDate() - 1);
+  if (estMemeJour(dateStr, hier.toISOString())) return "Hier";
+  const debutAujourdhui = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const debutJour = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffJours = Math.round((debutAujourdhui.getTime() - debutJour.getTime()) / 86400000);
+  if (diffJours > 0 && diffJours < 7) {
+    const jour = d.toLocaleDateString("fr-FR", { weekday: "short" });
+    return jour.charAt(0).toUpperCase() + jour.slice(1);
+  }
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+}
 function formatSeparateurJour(dateStr: string): string {
   const d = new Date(dateStr);
   const auj = new Date();
@@ -114,6 +137,16 @@ function statutTicketCouleur(statut: SupportStatut): { fg: string; dot: string }
   if (statut === "en_cours") return { fg: "#2563eb", dot: "#3b82f6" };
   if (statut === "resolu") return { fg: "#15803d", dot: "#22c55e" };
   return { fg: "#6C6C70", dot: "#6C6C70" };
+}
+// Tri de la liste (retour Bryan 21/09/2026) : les conversations actives
+// (rien à faire côté citoyen) passent avant celles où Yelen attend sa
+// réponse, elles-mêmes avant les conversations résolues/clôturées — le
+// tri par date reste préservé à l'intérieur de chaque groupe (tri stable
+// sur un tableau déjà trié par dernier_message_at décroissant côté API).
+function ticketPrioriteTri(t: TicketListItem): number {
+  if (t.statut === "resolu" || t.statut === "cloture") return 2;
+  if (t.statut === "en_cours" && t.dernier_message_expediteur === "agent") return 1;
+  return 0;
 }
 // Vocabulaire côté citoyen (retour Bryan 04/09/2026) — distinct de
 // SUPPORT_STATUT_LABELS (lib/supportTicketsConstants.ts, réutilisé par la
@@ -249,6 +282,18 @@ function MessagerieInner() {
   // 07/09/2026) — en attente d'un agent ou déjà en cours, jamais de
   // deuxième conversation en parallèle pour le même citoyen.
   const ticketActif = tickets.find(t => t.statut === "attente_agent" || t.statut === "en_cours") ?? null;
+  // Filtre liste (retour Bryan 21/09/2026) — "En cours" regroupe attente
+  // d'agent + conversation en cours (statuts non résolus côté citoyen),
+  // "Résolues" regroupe résolu + clôturé.
+  const [ticketFiltre, setTicketFiltre] = useState<TicketFiltre>("toutes");
+  const ticketsFiltres = tickets
+    .filter(t => {
+      if (ticketFiltre === "en_cours") return t.statut === "attente_agent" || t.statut === "en_cours";
+      if (ticketFiltre === "resolues") return t.statut === "resolu" || t.statut === "cloture";
+      return true;
+    })
+    .slice()
+    .sort((a, b) => ticketPrioriteTri(a) - ticketPrioriteTri(b));
 
   // Fin de conversation + évaluation (brief 04/09/2026) — evaluationPromptedIds
   // évite de rouvrir le sheet à chaque poll/realtime une fois que le citoyen
@@ -966,9 +1011,24 @@ function MessagerieInner() {
                 </Link>
               </div>
               <div style={{ color: t3, fontSize: 10.5, textAlign: "center", marginTop: 8, lineHeight: 1.5 }}>
-                Besoin d&apos;aide ? Parlez directement avec un agent Yelen.
+                Une question ou un problème ?<br/>Notre équipe est là pour vous aider.
               </div>
             </div>
+
+            {tickets.length > 0 && (
+              <div style={{ display: "flex", gap: 6, padding: "0 16px 12px" }}>
+                {([["toutes", "Toutes"], ["en_cours", "En cours"], ["resolues", "Résolues"]] as [TicketFiltre, string][]).map(([f, label]) => (
+                  <button key={f} onClick={() => setTicketFiltre(f)} className="tap" style={{
+                    flex: 1, height: 32, borderRadius: 8, border: "none",
+                    background: ticketFiltre === f ? gold : card2,
+                    color: ticketFiltre === f ? "#080812" : t2,
+                    fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                  }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {ticketsLoading ? (
               <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
@@ -988,9 +1048,13 @@ function MessagerieInner() {
                   <div style={{ color: t3, fontSize: 12.5, lineHeight: 1.6, maxWidth: 260, margin: "0 auto" }}>Écrivez-nous directement. Un agent Yelen vous répondra ici.</div>
                 </div>
               </div>
+            ) : ticketsFiltres.length === 0 ? (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: t3, fontSize: 12.5 }}>
+                Aucune conversation dans cette catégorie.
+              </div>
             ) : (
               <div>
-                {tickets.map(t => {
+                {ticketsFiltres.map(t => {
                   const activeRow = selectedTicketId === t.id;
                   const c = statutTicketCouleur(t.statut);
                   return (
@@ -998,8 +1062,11 @@ function MessagerieInner() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
                           <span style={{ color: t1, fontSize: 13.5, fontWeight: t.non_lus > 0 ? 800 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.sujet}</span>
-                          {t.dernier_message_at && <span style={{ color: t3, fontSize: 10.5, flexShrink: 0 }}>{formatHeure(t.dernier_message_at)}</span>}
+                          <span style={{ color: t3, fontSize: 10.5, flexShrink: 0 }}>{formatDateListe(t.dernier_message_at ?? t.cree_le)}</span>
                         </div>
+                        {t.dernier_message && (
+                          <div style={{ color: t.non_lus > 0 ? t2 : t3, fontSize: 12, fontWeight: t.non_lus > 0 ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{t.dernier_message}</div>
+                        )}
                         <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
                           <span style={{ width: 6, height: 6, borderRadius: 3, background: c.dot, flexShrink: 0 }}/>
                           <span style={{ color: c.fg, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{statutTicketLabelCitoyen(t.statut)}</span>
