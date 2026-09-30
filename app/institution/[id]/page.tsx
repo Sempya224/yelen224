@@ -14,12 +14,14 @@ type MetaRow = {
   description: string | null;
   ville: string | null;
   statut: string | null;
+  logo: string | null;
+  banniere: string | null;
 };
 
 async function getInstitutionMeta(id: string): Promise<MetaRow | null> {
   const { data } = await supabase
     .from("institutions")
-    .select("slug,name,secteur,category,description,ville,statut")
+    .select("slug,name,secteur,category,description,ville,statut,logo,banniere")
     .eq("id", id)
     .eq("statut", "validee")
     .maybeSingle();
@@ -46,6 +48,13 @@ export async function generateMetadata(
     ? inst.description.trim().slice(0, 160)
     : `${secteurLabel ? secteurLabel + " · " : ""}${inst.ville ?? ""} — Prenez rendez-vous en un clic sur Yelen224.`.trim();
   const url = `${APP_URL}/institution/${construireLienPartageInstitution(inst.slug, id!)}`;
+  // Aperçu de partage (retour Bryan 30/09/2026 : comparé à un lien YouTube,
+  // le partage Facebook d'une fiche institution n'affichait qu'un texte —
+  // openGraph.images était absent alors que `twitter.card:
+  // "summary_large_image"` était déjà déclaré, incohérent sans image
+  // réelle). Bannière prioritaire (format paysage adapté à une carte de
+  // partage), repli sur le logo si l'institution n'en a pas renseigné.
+  const ogImage = inst.banniere || inst.logo || null;
 
   return {
     title,
@@ -57,11 +66,13 @@ export async function generateMetadata(
       siteName: "Yelen224",
       type: "profile",
       locale: "fr_FR",
+      ...(ogImage ? { images: [{ url: ogImage, alt: inst.name }] } : {}),
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
+      ...(ogImage ? { images: [ogImage] } : {}),
     },
   };
 }
