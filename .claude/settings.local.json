@@ -235,7 +235,8 @@
       "Bash(find app/api/help -type f)",
       "Bash(find app/api/support -type f)",
       "Bash(echo \"TIMED OUT / FAILED with exit $?\")",
-      "Bash(echo \"grep exit: $?\")"
+      "Bash(echo \"grep exit: $?\")",
+      "Bash(gh run *)"
     ]
   }
 }
