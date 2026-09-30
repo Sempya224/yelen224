@@ -24,7 +24,7 @@ function Icon({ children, size = 20, color = "currentColor", strokeWidth = 2 }: 
     </svg>
   );
 }
-type IconProps = { size?: number; color?: string };
+type IconProps = { size?: number; color?: string; strokeWidth?: number };
 const IconMail = (p: IconProps) => <Icon {...p}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></Icon>;
 const IconBuilding = (p: IconProps) => <Icon {...p}><path d="M3 21h18" /><path d="M5 21V10M9 21V10M15 21V10M19 21V10" /><path d="M3 10l9-6 9 6" /></Icon>;
 const IconNewspaper = (p: IconProps) => <Icon {...p}><rect x="3" y="5" width="14" height="16" rx="1" /><path d="M17 8h4v11a2 2 0 0 1-2 2H7" /><path d="M7 9h6M7 12h6M7 15h4" /></Icon>;

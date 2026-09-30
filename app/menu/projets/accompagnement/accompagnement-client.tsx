@@ -332,7 +332,7 @@ export function AccompagnementClient() {
               <div style={{ color: t2, fontSize: "12.5px", marginBottom: "18px" }}>{resultats.length} résultat{resultats.length > 1 ? "s" : ""}{ville ? ` à ${ville}` : ""}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {resultats.map((inst) => (
-                  <CarteInstitutionCard key={inst.id} inst={inst} C={C} t2={t2} citoyenGeoloc={null} estFavori={favorisIds.has(inst.id)} onToggleFavori={(e) => { e.stopPropagation(); void toggleFavori(inst); }} onSelect={() => router.push(`/institution/${inst.id}?source=yelen_accompagnement`)} categorieById={categorieByIdMap}/>
+                  <CarteInstitutionCard key={inst.id} inst={inst} C={C as typeof T["dark"]} t2={t2} citoyenGeoloc={null} estFavori={favorisIds.has(inst.id)} onToggleFavori={(e) => { e.stopPropagation(); void toggleFavori(inst); }} onSelect={() => router.push(`/institution/${inst.id}?source=yelen_accompagnement`)} categorieById={categorieByIdMap}/>
                 ))}
               </div>
             </>

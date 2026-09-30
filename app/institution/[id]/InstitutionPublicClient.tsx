@@ -1270,8 +1270,9 @@ function InstitutionProfilePageInner() {
   // directement, déjà ce que fait le CTA "Prendre rendez-vous" partout
   // ailleurs sur cette fiche — rien à inventer de plus.
   const depuisAccompagnement = searchParams.get("source") === "yelen_accompagnement" && !accompagnementIgnore;
+  const instId = inst.id;
   function continuerDepuisAccompagnement() {
-    router.push(isHotel ? `/rdv/${inst.id}?sejour=1` : `/rdv/${inst.id}`);
+    router.push(isHotel ? `/rdv/${instId}?sejour=1` : `/rdv/${instId}`);
   }
   const banniereAccompagnement = depuisAccompagnement && (
     <div style={{ position: "absolute", left: "12px", right: "12px", bottom: "10px", zIndex: 5, background: "rgba(0,0,0,0.62)", backdropFilter: "blur(8px)", borderRadius: "14px", padding: "10px 10px 10px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
