@@ -27,6 +27,7 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { can, type MembreRole } from "@/lib/institutionPermissions";
 import { StatusDot } from "./YelenBusinessShared";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 import {
   FACTURE_STATUT_META, METHODES_PAIEMENT, METHODE_PAIEMENT_LABELS, estEnRetard, resteAPayer,
   type Facture, type FactureDetail, type FactureStatut, type MethodePaiement,
@@ -94,9 +95,12 @@ export function FacturationTab({ instId, onToast, isAdmin, membreRole, onVoirCli
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px", flexWrap: "wrap", gap: "10px" }}>
         <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Facturation clients</h1>
-        {peutCreer && (
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowWizard(true)}>+ Nouvelle facture</Button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <HelpCenterGuide tab="facturation" />
+          {peutCreer && (
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowWizard(true)}>+ Nouvelle facture</Button>
+          )}
+        </div>
       </div>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Suivez ce que vos clients doivent, ce qui a été payé et ce qui reste à encaisser.</p>
 

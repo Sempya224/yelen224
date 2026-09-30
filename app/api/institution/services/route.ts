@@ -15,6 +15,23 @@ function equipementsChambreValides(raw: unknown): string[] | null {
   return [...new Set(valides)];
 }
 
+// Fiche service structurée (chantier "Créer un service" V2, 25/09/2026) —
+// inclus/non_inclus : texte libre saisi par le prestataire, jamais une
+// liste pré-remplie. Plafond défensif (pas une règle produit) pour éviter
+// un payload abusif, même esprit que photos.slice(0,5) déjà en place.
+function listeTexteLibre(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const items = raw.filter((v): v is string => typeof v === "string" && v.trim() !== "").map(v => v.trim());
+  return [...new Set(items)].slice(0, 20);
+}
+
+const PUBLIC_CIBLE_VALEURS = ["individuel", "couple", "famille", "groupe"];
+function publicCibleValide(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const valides = raw.filter((v): v is string => typeof v === "string" && PUBLIC_CIBLE_VALEURS.includes(v));
+  return [...new Set(valides)];
+}
+
 // Contourne RLS via service role — paid_services n'a qu'une policy SELECT
 // anon limitée à is_active=true (migration 20260709000013, pensée pour la
 // fiche publique) et paid_bookings n'a aucune policy du tout (volontairement
@@ -40,7 +57,7 @@ export async function GET(req: NextRequest) {
   // ici volontairement, jamais héritée silencieusement d'un select("*").
   const { data: services, error: svcErr } = await sb
     .from("paid_services")
-    .select("id, institution_id, nom, prix, duree_minutes, description, is_active, created_at, categorie, champs_complementaires, taux_taxe, prix_promo, promo_actif, type_prestation, unite_prix, horaires, localisation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre, nombre_unites")
+    .select("id, institution_id, nom, prix, duree_minutes, description, is_active, created_at, categorie, champs_complementaires, taux_taxe, prix_promo, promo_actif, type_prestation, unite_prix, horaires, localisation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre, nombre_unites, description_courte, inclus, non_inclus, a_savoir, public_cible, capacite_max, capacite_adultes, capacite_enfants, superficie_m2")
     .eq("institution_id", authInstId).order("created_at", { ascending: false });
   if (svcErr) return NextResponse.json({ error: svcErr.message }, { status: 500 });
 
@@ -118,6 +135,17 @@ export async function POST(req: NextRequest) {
     // Chambres & prestations V2 (17/09/2026) — nombre d'unités physiques
     // de ce type de chambre, jamais une disponibilité (voir migration).
     nombre_unites: typeof body?.nombre_unites === "number" && body.nombre_unites > 0 ? Math.round(body.nombre_unites) : null,
+    // Fiche service structurée V2 (25/09/2026, migration 20260925000004).
+    description_courte: typeof body?.description_courte === "string" && body.description_courte.trim() ? body.description_courte.trim() : null,
+    inclus: listeTexteLibre(body?.inclus),
+    non_inclus: listeTexteLibre(body?.non_inclus),
+    a_savoir: typeof body?.a_savoir === "string" && body.a_savoir.trim() ? body.a_savoir.trim() : null,
+    public_cible: publicCibleValide(body?.public_cible),
+    // Fiche chambre structurée V2 (25/09/2026, migration 20260925000005).
+    capacite_max: typeof body?.capacite_max === "number" && body.capacite_max > 0 ? Math.round(body.capacite_max) : null,
+    capacite_adultes: typeof body?.capacite_adultes === "number" && body.capacite_adultes >= 0 ? Math.round(body.capacite_adultes) : null,
+    capacite_enfants: typeof body?.capacite_enfants === "number" && body.capacite_enfants >= 0 ? Math.round(body.capacite_enfants) : null,
+    superficie_m2: typeof body?.superficie_m2 === "number" && body.superficie_m2 > 0 ? body.superficie_m2 : null,
   }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, service: data });
@@ -159,6 +187,17 @@ export async function PATCH(req: NextRequest) {
   if (typeof body?.video_duree_secondes === "number" || body?.video_duree_secondes === null) updates.video_duree_secondes = typeof body?.video_duree_secondes === "number" && body.video_duree_secondes > 0 ? Math.round(body.video_duree_secondes) : null;
   if (Array.isArray(body?.equipements_chambre) || body?.equipements_chambre === null) updates.equipements_chambre = equipementsChambreValides(body?.equipements_chambre);
   if (typeof body?.nombre_unites === "number" || body?.nombre_unites === null) updates.nombre_unites = typeof body?.nombre_unites === "number" && body.nombre_unites > 0 ? Math.round(body.nombre_unites) : null;
+  // Fiche service structurée V2 (25/09/2026, migration 20260925000004).
+  if (typeof body?.description_courte === "string" || body?.description_courte === null) updates.description_courte = body?.description_courte?.trim() || null;
+  if (Array.isArray(body?.inclus)) updates.inclus = listeTexteLibre(body.inclus);
+  if (Array.isArray(body?.non_inclus)) updates.non_inclus = listeTexteLibre(body.non_inclus);
+  if (typeof body?.a_savoir === "string" || body?.a_savoir === null) updates.a_savoir = body?.a_savoir?.trim() || null;
+  if (Array.isArray(body?.public_cible)) updates.public_cible = publicCibleValide(body.public_cible);
+  // Fiche chambre structurée V2 (25/09/2026, migration 20260925000005).
+  if (typeof body?.capacite_max === "number" || body?.capacite_max === null) updates.capacite_max = typeof body?.capacite_max === "number" && body.capacite_max > 0 ? Math.round(body.capacite_max) : null;
+  if (typeof body?.capacite_adultes === "number" || body?.capacite_adultes === null) updates.capacite_adultes = typeof body?.capacite_adultes === "number" && body.capacite_adultes >= 0 ? Math.round(body.capacite_adultes) : null;
+  if (typeof body?.capacite_enfants === "number" || body?.capacite_enfants === null) updates.capacite_enfants = typeof body?.capacite_enfants === "number" && body.capacite_enfants >= 0 ? Math.round(body.capacite_enfants) : null;
+  if (typeof body?.superficie_m2 === "number" || body?.superficie_m2 === null) updates.superficie_m2 = typeof body?.superficie_m2 === "number" && body.superficie_m2 > 0 ? body.superficie_m2 : null;
 
   const { data, error } = await sb.from("paid_services").update(updates).eq("id", id).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

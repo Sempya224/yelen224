@@ -42,9 +42,14 @@ const PIN_REGEX = /^\d{4}$/;
 type Employe = { employeeId: string; role: string; nom: string; prenom: string; poste: string | null; departement: string | null };
 type InstInfo = { name: string; logo: string | null; ville: string | null };
 type ErrorCategory = "credentials" | "compte" | "general" | null;
-type PlanDuJour = { debut: string; fin: string; pauseMinutes: number; dureeMinutes: number };
+type PauseFenetre = { debut: string; fin: string; debutMin: number; finMin: number };
+type PlanDuJour = { debut: string; fin: string; pauseMinutes: number; dureeMinutes: number; pauseFenetre: PauseFenetre | null };
 type Semaine = { travailleesMinutes: number; prevuesMinutes: number; ecartMinutes: number };
 type AujourdHuiReel = { debut: string; fin: string; dureeMinutes: number };
+// Pause comme cycle réel (brief Bryan 21/09/2026) — reflète exactement
+// attendance_logs pause_debut/pause_fin du jour, jamais une reconstruction
+// approximative (voir /api/clock/auth/me pour le calcul serveur).
+type PauseAujourdhui = { debutReel: string; finReelle: string | null; enCours: boolean; declenchement: "auto" | "manuel" | null } | null;
 type Segment = { debut: string; fin: string };
 type ProfilData = {
   matricule: string; nom: string; prenom: string; poste: string | null;
@@ -53,6 +58,73 @@ type ProfilData = {
 };
 type ShiftJour = { date: string; jour: string; segments: Segment[] };
 type JourSemaineDetail = { date: string; jour: string; prevuesMinutes: number; travailleesMinutes: number };
+type HistoriqueJourPerso = {
+  id: string; date_jour: string; statut: string; heures_travaillees_minutes: number;
+  retard_minutes: number; premiere_entree: string | null; derniere_sortie: string | null; nombre_pointages: number;
+};
+
+// Offline + synchronisation (Phase 2 roadmap, voir docs/product/
+// YELEN_CLOCK_IN_ANALYSE_BENCHMARK_ROADMAP.md §5.5) — file d'attente locale
+// pour les pointages tentés sans réseau. localStorage plutôt qu'IndexedDB :
+// volume réel d'un employé donné (quelques pointages en attente au grand
+// maximum), IndexedDB serait une complexité asynchrone inutile ici.
+// clientToken réutilisé identique entre la tentative initiale et le(s)
+// rejeu(s) — voir migration 20260921000002_clock_in_attendance_logs_
+// client_token.sql — pour rester idempotent même quand la requête a en
+// réalité atteint le serveur mais que la réponse ne nous est jamais
+// revenue (pas seulement le cas "aucune requête n'est jamais partie").
+type PointageEnAttente = { clientToken: string; type: "entree_sortie" | "pause_debut" | "pause_fin"; qrPayload?: string; createdAt: number; latitude?: number; longitude?: number };
+const FILE_ATTENTE_KEY = "yelen224_employee_pointage_queue";
+
+function chargerFileAttente(): PointageEnAttente[] {
+  try {
+    const raw = localStorage.getItem(FILE_ATTENTE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function sauvegarderFileAttente(queue: PointageEnAttente[]) {
+  try {
+    localStorage.setItem(FILE_ATTENTE_KEY, JSON.stringify(queue));
+  } catch {
+    // Safari navigation privée notamment — dégradation silencieuse déjà la
+    // convention du projet (voir CLAUDE.md /pieges-techniques-connus).
+  }
+}
+
+// Géolocalisation (Phase 2 roadmap §5.6, voir docs/product/YELEN_CLOCK_IN_
+// ANALYSE_BENCHMARK_ROADMAP.md) — capture au moment du pointage, purement
+// indicative : jamais requise, jamais bloquante. Timeout court (3s, doublé
+// d'un setTimeout manuel en filet de sécurité) pour ne jamais faire
+// attendre un employé qui pointe sur la seule promesse d'un fix GPS ;
+// `maximumAge` généreux pour réutiliser un fix récent (ex. pause suivie
+// d'une reprise quelques minutes plus tard) sans re-solliciter le capteur.
+function obtenirPositionActuelle(): Promise<{ latitude: number; longitude: number } | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let reglee = false;
+    const resoudre = (v: { latitude: number; longitude: number } | null) => {
+      if (reglee) return;
+      reglee = true;
+      resolve(v);
+    };
+    setTimeout(() => resoudre(null), 3000);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resoudre({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      () => resoudre(null),
+      { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 },
+    );
+  });
+}
+
+function statutHistoriqueCouleur(s: string): string {
+  if (s === "Présent") return C.green;
+  if (s === "Retard") return C.gold;
+  if (s === "Absent") return C.red;
+  if (s === "Congé") return C.gray;
+  return C.dark2;
+}
 
 function formatHeure(iso: string): string {
   return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -135,6 +207,9 @@ export default function ClockPortalPage() {
   const [planDuJour, setPlanDuJour] = useState<PlanDuJour | null>(null);
   const [semaine, setSemaine] = useState<Semaine | null>(null);
   const [aujourdHuiReel, setAujourdHuiReel] = useState<AujourdHuiReel | null>(null);
+  const [pauseAujourdhui, setPauseAujourdhui] = useState<PauseAujourdhui>(null);
+  const [pauseLoading, setPauseLoading] = useState(false);
+  const [sheetRepriseAnticipee, setSheetRepriseAnticipee] = useState(false);
   const [shiftsParJour, setShiftsParJour] = useState<ShiftJour[]>([]);
   const [semaineDetail, setSemaineDetail] = useState<JourSemaineDetail[]>([]);
   const [vuePlanning, setVuePlanning] = useState(false);
@@ -145,6 +220,10 @@ export default function ClockPortalPage() {
   const [sheetHeures, setSheetHeures] = useState(false);
   const [sheetProfil, setSheetProfil] = useState(false);
   const [sheetFinAnticipee, setSheetFinAnticipee] = useState(false);
+  const [sheetHistorique, setSheetHistorique] = useState(false);
+  const [historiquePerso, setHistoriquePerso] = useState<HistoriqueJourPerso[]>([]);
+  const [loadingHistoriquePerso, setLoadingHistoriquePerso] = useState(false);
+  const [fileAttente, setFileAttente] = useState<PointageEnAttente[]>(() => chargerFileAttente());
   // Scan QR requis pour arrivée/départ (Pointer ma présence, Terminer mon
   // shift) — pas pour les pauses, décision Bryan 10/09/2026. Le QR scanné
   // est celui déjà affiché/imprimé par l'institution (ClockInShiftTab.tsx
@@ -166,6 +245,15 @@ export default function ClockPortalPage() {
     setSheetProfil(true);
     const res = await fetch("/api/clock/profil");
     if (res.ok) setProfilData(await res.json());
+  }, []);
+
+  const ouvrirHistorique = useCallback(async () => {
+    setSheetHistorique(true);
+    setLoadingHistoriquePerso(true);
+    const res = await fetch("/api/clock/historique");
+    const j = await res.json().catch(() => null);
+    setHistoriquePerso(res.ok ? (j?.records ?? []) : []);
+    setLoadingHistoriquePerso(false);
   }, []);
 
   async function changerPin() {
@@ -190,11 +278,16 @@ export default function ClockPortalPage() {
       if (!res.ok) { setPhase("connexion"); return; }
       const j = await res.json();
       setEmploye({ employeeId: j.employeeId, role: j.role, nom: j.nom, prenom: j.prenom, poste: j.poste ?? null, departement: j.departement ?? null });
-      setEnService(j.dernierStatut === "entree");
+      // "En service" = shift ouvert (une entree sans sortie encore) — reste
+      // vrai pendant une pause imbriquée (brief Bryan 21/09/2026, la pause
+      // n'est plus une sortie). pauseAujourdhui pilote la carte affichée à
+      // l'intérieur de ce shift ouvert (voir le calcul d'état plus bas).
+      setEnService(j.dernierStatut === "entree" || j.dernierStatut === "pause_debut" || j.dernierStatut === "pause_fin");
       setDernierHorodatage(j.horodatage ?? null);
       setPlanDuJour(j.planDuJour ?? null);
       setSemaine(j.semaine ?? null);
       setAujourdHuiReel(j.aujourdHuiReel ?? null);
+      setPauseAujourdhui(j.pauseAujourdhui ?? null);
       setShiftsParJour(j.shiftsParJour ?? []);
       setSemaineDetail(j.semaineDetail ?? []);
       setPhase("pointage");
@@ -260,21 +353,114 @@ export default function ClockPortalPage() {
     }
   }
 
-  async function pointer() {
-    setLoading(true); setError("");
+  function ajouterAFileAttente(item: PointageEnAttente) {
+    setFileAttente(prev => {
+      const next = [...prev, item];
+      sauvegarderFileAttente(next);
+      return next;
+    });
+  }
+
+  function retirerDeFileAttente(clientToken: string) {
+    setFileAttente(prev => {
+      const next = prev.filter(i => i.clientToken !== clientToken);
+      sauvegarderFileAttente(next);
+      return next;
+    });
+  }
+
+  // Rejoue la file en attente — relit localStorage directement (pas le
+  // state React) pour ne jamais dépendre d'une closure périmée capturée par
+  // le setInterval ci-dessous. S'arrête au premier échec réseau (on
+  // réessaiera au prochain déclenchement) ; une session expirée (401) est
+  // traitée comme un échec réseau — pas comme un rejet définitif — pour ne
+  // jamais perdre silencieusement un pointage à cause d'une reconnexion
+  // requise, distincte d'un vrai rejet métier (ex: employé désactivé).
+  const synchroniserFileAttente = useCallback(async () => {
+    const queue = chargerFileAttente();
+    let unSucces = false;
+    for (const item of queue) {
+      let res: Response;
+      try {
+        res = await fetch("/api/clock/pointage", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: item.type ?? "entree_sortie",
+            clientToken: item.clientToken,
+            ...(item.qrPayload ? { qr_payload: item.qrPayload } : {}),
+            ...(item.latitude !== undefined && item.longitude !== undefined ? { latitude: item.latitude, longitude: item.longitude } : {}),
+          }),
+        });
+      } catch {
+        break;
+      }
+      if (res.status === 401) break;
+      const j = await res.json().catch(() => null);
+      retirerDeFileAttente(item.clientToken);
+      if (res.ok) {
+        unSucces = true;
+      } else {
+        setError(j?.error || "Un pointage en attente n'a pas pu être synchronisé.");
+        setErrorCategory("general");
+      }
+    }
+    // Rechargement complet plutôt qu'une mise à jour champ par champ : une
+    // pause en attente rejouée change plusieurs valeurs à la fois
+    // (pauseAujourdhui, enService, dernierHorodatage) — /api/clock/auth/me
+    // reste la seule source de vérité pour ne jamais désynchroniser l'un
+    // de ces champs par rapport aux autres.
+    if (unSucces) await chargerStatut();
+  }, [chargerStatut]);
+
+  useEffect(() => {
+    if (phase !== "pointage") return;
+    queueMicrotask(() => synchroniserFileAttente());
+    const onOnline = () => synchroniserFileAttente();
+    window.addEventListener("online", onOnline);
+    const id = setInterval(() => { if (chargerFileAttente().length > 0) synchroniserFileAttente(); }, 20000);
+    return () => { window.removeEventListener("online", onOnline); clearInterval(id); };
+  }, [phase, synchroniserFileAttente]);
+
+  // Pause comme cycle réel (brief Bryan 21/09/2026) — jamais de QR
+  // (décision Bryan 10/09/2026, seule l'arrivée/le départ le requièrent),
+  // toujours suivi d'un rechargement complet du statut (chargerStatut)
+  // pour rester synchronisé avec pauseAujourdhui côté serveur.
+  async function declencherPause(type: "pause_debut" | "pause_fin") {
+    setPauseLoading(true); setError("");
+    const clientToken = crypto.randomUUID();
+    const position = type === "pause_debut" ? await obtenirPositionActuelle() : null;
     let res: Response;
     try {
-      res = await fetch("/api/clock/pointage", { method: "POST" });
+      res = await fetch("/api/clock/pointage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, clientToken, ...(position ? { latitude: position.latitude, longitude: position.longitude } : {}) }),
+      });
     } catch {
-      setLoading(false);
-      setError("Connexion impossible. Vérifiez votre réseau et réessayez.");
+      setPauseLoading(false);
+      ajouterAFileAttente({ clientToken, type, createdAt: Date.now(), ...(position ? { latitude: position.latitude, longitude: position.longitude } : {}) });
+      setError(type === "pause_debut"
+        ? "Pas de réseau — votre pause a été mise en attente, elle sera enregistrée dès que la connexion revient."
+        : "Pas de réseau — votre reprise a été mise en attente, elle sera enregistrée dès que la connexion revient.");
+      setErrorCategory("general");
       return;
     }
     const j = await res.json().catch(() => null);
-    setLoading(false);
+    setPauseLoading(false);
     if (!res.ok) { setError(j?.error || "Erreur de pointage"); return; }
-    setEnService(j.typeAction === "entree");
-    setDernierHorodatage(j.horodatage);
+    await chargerStatut();
+  }
+
+  // Reprise anticipée (brief §6) : confirmation obligatoire si l'employé
+  // clique "Reprendre le travail" avant la fin prévue de la pause. Pas de
+  // confirmation si aucune fenêtre programmée n'existe pour cet horaire
+  // (rien à anticiper) ou si la fin prévue est déjà dépassée.
+  function cliquerReprendre() {
+    const fenetre = planDuJour?.pauseFenetre;
+    if (fenetre) {
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      if (nowMin < fenetre.finMin) { setSheetRepriseAnticipee(true); return; }
+    }
+    declencherPause("pause_fin");
   }
 
   // stop() de html5-qrcode lève une exception SYNCHRONE quand le scan n'est
@@ -297,11 +483,13 @@ export default function ClockPortalPage() {
 
   async function traiterScanPointage(decodedText: string) {
     setScanValidation(true); setScanErreur("");
+    const clientToken = crypto.randomUUID();
+    const position = await obtenirPositionActuelle();
     try {
       const res = await fetch("/api/clock/pointage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ qr_payload: decodedText }),
+        body: JSON.stringify({ type: "entree_sortie", qr_payload: decodedText, clientToken, ...(position ? { latitude: position.latitude, longitude: position.longitude } : {}) }),
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) { setScanValidation(false); setScanErreur(j?.error || "QR invalide, réessayez."); return; }
@@ -310,8 +498,15 @@ export default function ClockPortalPage() {
       setScanValidation(false);
       fermerScanner();
     } catch {
+      // Le QR a bien été scanné/validé localement — seule la requête réseau
+      // a échoué. On met en file avec le même clientToken (rejeu idempotent
+      // plus tard) plutôt que de simplement afficher une erreur et perdre
+      // l'action.
+      ajouterAFileAttente({ clientToken, type: "entree_sortie", qrPayload: decodedText, createdAt: Date.now(), ...(position ? { latitude: position.latitude, longitude: position.longitude } : {}) });
       setScanValidation(false);
-      setScanErreur("Connexion impossible. Vérifiez votre réseau et réessayez.");
+      fermerScanner();
+      setError("Pas de réseau — votre pointage a été mis en attente, il sera envoyé automatiquement dès que la connexion revient.");
+      setErrorCategory("general");
     }
   }
 
@@ -514,6 +709,15 @@ export default function ClockPortalPage() {
             </div>
           </div>
 
+          {fileAttente.length > 0 && (
+            <button onClick={() => synchroniserFileAttente()} className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", textAlign: "left", padding: "10px 14px", borderRadius: "12px", border: `1px solid ${C.gold}40`, background: `${C.gold}12`, cursor: "pointer", marginBottom: "16px" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.goldD} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+              <span style={{ color: C.dark, fontSize: "11.5px", fontWeight: 700 }}>
+                {fileAttente.length === 1 ? "1 pointage en attente de connexion" : `${fileAttente.length} pointages en attente de connexion`} — touchez pour réessayer
+              </span>
+            </button>
+          )}
+
           <div style={{ position: "relative", marginBottom: "22px", paddingBottom: "18px" }}>
             <svg viewBox="0 0 340 60" preserveAspectRatio="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, width: "100%", height: "56px", opacity: 0.07, pointerEvents: "none" }}>
               <rect x="0" y="22" width="34" height="38" fill={C.dark2}/>
@@ -540,32 +744,46 @@ export default function ClockPortalPage() {
           {(() => {
             const nowMin = now.getHours() * 60 + now.getMinutes();
             const debutMin = planDuJour ? minutesDepuisMinuit(planDuJour.debut) : 0;
+            const pauseFenetre = planDuJour?.pauseFenetre ?? null;
 
-            // "en_pause" vs "termine" : pas de type dédié en base (décision
-            // d'architecture documentée dans la migration attendance_logs —
-            // une pause EST une sortie suivie d'une entree plus tard) —
-            // distinction faite ici par comparaison à l'heure de fin prévue,
-            // jamais une donnée inventée.
-            let etat: "en_service" | "en_pause" | "termine" | "a_venir" | "retard" | "aucun_shift";
-            if (enService) etat = "en_service";
-            else if (aujourdHuiReel) {
-              const sortie = dernierHorodatage ? new Date(dernierHorodatage) : null;
-              const sortieMin = sortie ? sortie.getHours() * 60 + sortie.getMinutes() : null;
-              const finPrevueMin = planDuJour ? minutesDepuisMinuit(planDuJour.fin) : null;
-              etat = (sortieMin !== null && finPrevueMin !== null && sortieMin < finPrevueMin) ? "en_pause" : "termine";
+            // Pause comme cycle réel (brief Bryan 21/09/2026) — "en_service"
+            // reste vrai pendant une pause imbriquée (attendance_logs
+            // pause_debut/pause_fin, plus une sortie/entree comme avant).
+            // pauseAujourdhui (calculé côté serveur, /api/clock/auth/me)
+            // pilote la distinction en_pause/reprise_attendue, jamais une
+            // comparaison locale approximative.
+            let etat: "en_service" | "en_pause" | "reprise_attendue" | "termine" | "a_venir" | "retard" | "aucun_shift";
+            if (enService) {
+              etat = pauseAujourdhui?.enCours
+                ? (pauseFenetre && nowMin > pauseFenetre.finMin ? "reprise_attendue" : "en_pause")
+                : "en_service";
             }
+            else if (aujourdHuiReel) etat = "termine";
             else if (!planDuJour) etat = "aucun_shift";
             else if (nowMin < debutMin) etat = "a_venir";
             else etat = "retard";
 
-            if (etat === "en_pause") {
-              const pauseMin = dernierHorodatage ? Math.max(0, Math.round((now.getTime() - new Date(dernierHorodatage).getTime()) / 60000)) : 0;
+            if (etat === "en_pause" || etat === "reprise_attendue") {
+              const debutPause = pauseAujourdhui ? new Date(pauseAujourdhui.debutReel) : null;
+              const pauseMin = debutPause ? Math.max(0, Math.round((now.getTime() - debutPause.getTime()) / 60000)) : 0;
+              const depassee = etat === "reprise_attendue";
+              const depassementMin = depassee && pauseFenetre ? Math.max(0, nowMin - pauseFenetre.finMin) : 0;
               return (
-                <div style={{ backgroundColor: C.white, boxShadow: "0 1px 4px rgba(28,20,0,0.05)", border: `1px solid ${C.border}`, borderRadius: "16px", padding: "20px 18px", marginBottom: "18px", textAlign: "center" }}>
-                  <div style={{ color: C.gold, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Pause en cours</div>
-                  <div style={{ color: C.dark, fontSize: "22px", fontWeight: 900, letterSpacing: "-0.3px", marginBottom: "16px" }}>{formatMinutes(pauseMin)}</div>
-                  <button onClick={pointer} disabled={loading} className="tap" style={{ width: "100%", padding: "15px", borderRadius: "999px", border: "none", background: C.gold, color: C.dark, fontWeight: 800, fontSize: "14.5px", cursor: loading ? "default" : "pointer", opacity: loading ? 0.75 : 1, boxShadow: `0 6px 16px ${C.gold}35`, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                    {loading ? <YelenLoader size={16} color={C.dark}/> : (
+                <div style={{ backgroundColor: C.white, boxShadow: "0 1px 4px rgba(28,20,0,0.05)", border: `1px solid ${depassee ? `${C.red}40` : C.border}`, borderRadius: "16px", padding: "20px 18px", marginBottom: "18px", textAlign: "center" }}>
+                  <div style={{ color: depassee ? C.red : C.gold, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>
+                    {depassee ? "Pause dépassée" : "Pause en cours"}
+                  </div>
+                  <div style={{ color: C.dark, fontSize: "22px", fontWeight: 900, letterSpacing: "-0.3px", marginBottom: "6px" }}>{formatMinutes(pauseMin)}</div>
+                  {pauseFenetre && (
+                    <div style={{ color: C.gray, fontSize: "11.5px", fontWeight: 600, marginBottom: "16px" }}>
+                      {depassee
+                        ? `Reprise prévue à ${pauseFenetre.fin} — dépassement de ${formatMinutes(depassementMin)}, reprise en attente`
+                        : `Pause prévue jusqu'à ${pauseFenetre.fin}`}
+                    </div>
+                  )}
+                  {!pauseFenetre && <div style={{ marginBottom: "16px" }}/>}
+                  <button onClick={cliquerReprendre} disabled={pauseLoading} className="tap" style={{ width: "100%", padding: "15px", borderRadius: "999px", border: "none", background: C.gold, color: C.dark, fontWeight: 800, fontSize: "14.5px", cursor: pauseLoading ? "default" : "pointer", opacity: pauseLoading ? 0.75 : 1, boxShadow: `0 6px 16px ${C.gold}35`, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                    {pauseLoading ? <YelenLoader size={16} color={C.dark}/> : (
                       <>
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
                         Reprendre le travail
@@ -598,25 +816,35 @@ export default function ClockPortalPage() {
 
             if (etat === "en_service") {
               // Temps travaillé = cumul du jour, pas seulement le segment en
-              // cours — sinon une reprise après pause repart visuellement de
-              // zéro alors que le total réel (aujourdHuiReel, déjà comptabilisé
-              // par la boucle serveur) inclut le(s) segment(s) précédent(s).
+              // cours — sinon une pause repart visuellement de zéro alors
+              // que le total réel (aujourdHuiReel, déjà comptabilisé côté
+              // serveur) inclut le temps déjà travaillé avant la pause.
               const segmentEnCoursMin = dernierHorodatage ? Math.max(0, Math.round((now.getTime() - new Date(dernierHorodatage).getTime()) / 60000)) : 0;
               const elapsedMin = (aujourdHuiReel?.dureeMinutes ?? 0) + segmentEnCoursMin;
               const dureePrevueMin = planDuJour?.dureeMinutes ?? null;
               const progressPct = dureePrevueMin ? Math.min(1, elapsedMin / dureePrevueMin) : 0;
               const R = 17, CIRC = 2 * Math.PI * R;
 
-              // 1er segment du jour (aucun aujourdHuiReel, donc aucune pause
-              // encore prise) : le bouton propose "Aller en pause", jamais
-              // besoin de garde-fou puisqu'il n'annonce pas la fin du shift.
-              // Après une reprise (2e segment ou plus), il devient "Terminer
-              // mon shift" et se bloque tant que l'heure de fin prévue n'est
-              // pas atteinte (voir sheetFinAnticipee).
-              const reprise = !!aujourdHuiReel;
               const finPrevueMin = planDuJour ? minutesDepuisMinuit(planDuJour.fin) : null;
               const finAtteinte = finPrevueMin === null || nowMin >= finPrevueMin;
+              // "C'est l'heure de votre pause" (brief §2) : shift ouvert,
+              // aucune pause encore prise ce shift (V1 = une seule), fenêtre
+              // programmée atteinte. Reste affiché même passé l'heure —
+              // jamais fabriqué automatiquement côté UI, seul le serveur
+              // (clock-in-pause-trigger) peut démarrer une pause auto.
+              const pauseDue = !pauseAujourdhui && !!pauseFenetre && nowMin >= pauseFenetre.debutMin;
+
               return (
+                <>
+                  {pauseDue && (
+                    <div style={{ backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}40`, borderRadius: "16px", padding: "16px 18px", marginBottom: "14px", textAlign: "center" }}>
+                      <div style={{ color: C.dark, fontSize: "14px", fontWeight: 800, marginBottom: "3px" }}>C&apos;est l&apos;heure de votre pause</div>
+                      <div style={{ color: C.gray, fontSize: "11.5px", fontWeight: 600, marginBottom: "12px" }}>Pause prévue : {pauseFenetre!.debut} – {pauseFenetre!.fin}</div>
+                      <button onClick={() => declencherPause("pause_debut")} disabled={pauseLoading} className="tap" style={{ width: "100%", padding: "13px", borderRadius: "999px", border: "none", background: C.gold, color: C.dark, fontWeight: 800, fontSize: "13.5px", cursor: pauseLoading ? "default" : "pointer", opacity: pauseLoading ? 0.75 : 1 }}>
+                        {pauseLoading ? <YelenLoader size={15} color={C.dark}/> : "Prendre ma pause"}
+                      </button>
+                    </div>
+                  )}
                 <div style={{ backgroundColor: C.white, boxShadow: "0 1px 4px rgba(28,20,0,0.05)", border: `1px solid ${C.border}`, borderRadius: "22px", padding: "22px 20px", marginBottom: "18px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
                     <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green }}/>
@@ -661,24 +889,29 @@ export default function ClockPortalPage() {
 
                   <button
                     onClick={() => {
-                      if (!reprise) { pointer(); return; }
                       if (!finAtteinte) { setSheetFinAnticipee(true); return; }
                       ouvrirScanner();
                     }}
                     disabled={loading} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "999px", border: "none", background: C.gold, color: C.dark, fontWeight: 800, fontSize: "15px", cursor: loading ? "default" : "pointer", opacity: loading ? 0.75 : 1, boxShadow: `0 6px 16px ${C.gold}35`, display: "flex", alignItems: "center", justifyContent: "center", gap: "9px" }}>
-                    {loading ? <YelenLoader size={17} color={C.dark}/> : reprise ? (
+                    {loading ? <YelenLoader size={17} color={C.dark}/> : (
                       <>
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                         Terminer mon shift
                       </>
-                    ) : (
-                      <>
-                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark} strokeWidth="2" strokeLinecap="round"><rect x="9" y="6" width="2.5" height="12" rx="1"/><rect x="14.5" y="6" width="2.5" height="12" rx="1"/></svg>
-                        Aller en pause
-                      </>
                     )}
                   </button>
+
+                  {/* V1 = une seule pause par shift — lien masqué une fois
+                      prise. Masqué aussi quand la bannière "C'est l'heure de
+                      votre pause" ci-dessus est déjà affichée (même action,
+                      pas de doublon — brief §12). */}
+                  {!pauseAujourdhui && !pauseDue && (
+                    <button onClick={() => declencherPause("pause_debut")} disabled={pauseLoading} className="tap" style={{ marginTop: "12px", width: "100%", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "12.5px", cursor: pauseLoading ? "default" : "pointer", padding: 0, textAlign: "center" }}>
+                      {pauseLoading ? "…" : "Prendre une pause"}
+                    </button>
+                  )}
                 </div>
+                </>
               );
             }
 
@@ -819,11 +1052,11 @@ export default function ClockPortalPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px", marginBottom: "20px" }}>
             {[
               { titre: "Mon planning", sous: "Mes prochains shifts", onClick: () => setVuePlanning(true), icone: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-              { titre: "Mes pauses", sous: "Gérer mes pauses", onClick: null, icone: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
-              { titre: "Mon historique", sous: "Mes pointages", onClick: null, icone: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
+              { titre: "Mes pauses", sous: "Bientôt disponible", onClick: null, icone: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
+              { titre: "Mon historique", sous: "Mes pointages", onClick: () => ouvrirHistorique(), icone: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
               { titre: "Mon profil", sous: "Infos & paramètres", onClick: () => ouvrirProfil(), icone: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
             ].map((item) => (
-              <button key={item.titre} disabled={!item.onClick} onClick={item.onClick ?? undefined} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "8px", padding: "10px 8px", borderRadius: "14px", border: `1px solid ${C.border}`, backgroundColor: C.white, cursor: item.onClick ? "pointer" : "default" }}>
+              <button key={item.titre} disabled={!item.onClick} onClick={item.onClick ?? undefined} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "8px", padding: "10px 8px", borderRadius: "14px", border: `1px solid ${C.border}`, backgroundColor: C.white, cursor: item.onClick ? "pointer" : "default", opacity: item.onClick ? 1 : 0.5 }}>
                 <div style={{ width: "26px", height: "26px", display: "flex", alignItems: "center", justifyContent: "center" }}>{item.icone}</div>
                 <div style={{ textAlign: "left" }}>
                   <div style={{ color: C.dark, fontSize: "10px", fontWeight: 800, lineHeight: 1.25 }}>{item.titre}</div>
@@ -1193,6 +1426,30 @@ export default function ClockPortalPage() {
         </div>
       )}
 
+      {/* Reprise anticipée (brief §6) — confirmation obligatoire avant de
+          clore une pause pas encore terminée, jamais une reprise silencieuse. */}
+      {sheetRepriseAnticipee && (
+        <div
+          onClick={() => setSheetRepriseAnticipee(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(28,20,0,0.45)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "eciSheetFade 0.2s ease" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: "480px", backgroundColor: C.white, borderRadius: "24px 24px 0 0", padding: "20px 22px calc(22px + env(safe-area-inset-bottom))", boxSizing: "border-box", animation: "eciSheetUp 0.25s cubic-bezier(0.22,1,0.36,1)" }}
+          >
+            <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.border, margin: "0 auto 18px" }}/>
+            <div style={{ fontSize: "17px", fontWeight: 900, color: C.dark, textAlign: "center", marginBottom: "6px" }}>Votre pause n&apos;est pas encore terminée</div>
+            <div style={{ color: C.gray, fontSize: "13px", fontWeight: 600, textAlign: "center", lineHeight: 1.5, marginBottom: "22px" }}>
+              Pause prévue jusqu&apos;à {planDuJour?.pauseFenetre?.fin ?? "—"}. Voulez-vous reprendre votre activité maintenant ?
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <button onClick={() => { setSheetRepriseAnticipee(false); declencherPause("pause_fin"); }} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "999px", border: "none", background: C.gold, color: C.dark, fontWeight: 800, fontSize: "14px", cursor: "pointer" }}>Reprendre</button>
+              <button onClick={() => setSheetRepriseAnticipee(false)} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "999px", border: `1px solid ${C.border}`, background: "none", color: C.dark2, fontWeight: 700, fontSize: "14px", cursor: "pointer" }}>Rester en pause</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {sheetHeures && (
         <div
           onClick={() => setSheetHeures(false)}
@@ -1251,6 +1508,50 @@ export default function ClockPortalPage() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {sheetHistorique && (
+        <div
+          onClick={() => setSheetHistorique(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(28,20,0,0.45)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "eciSheetFade 0.2s ease" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: "480px", backgroundColor: C.white, borderRadius: "24px 24px 0 0", padding: "20px 22px calc(22px + env(safe-area-inset-bottom))", maxHeight: "82svh", overflowY: "auto", boxSizing: "border-box", animation: "eciSheetUp 0.25s cubic-bezier(0.22,1,0.36,1)" }}
+          >
+            <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.border, margin: "0 auto 18px" }}/>
+
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "18px" }}>
+              <div style={{ fontSize: "21px", fontWeight: 900, color: C.dark, letterSpacing: "-0.3px" }}>Mon historique</div>
+              <button onClick={() => setSheetHistorique(false)} className="tap" style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", flexShrink: 0 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.gray} strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            {loadingHistoriquePerso ? (
+              <div style={{ display: "flex", justifyContent: "center", padding: "24px 0" }}><YelenLoader size={20} color={C.gold}/></div>
+            ) : historiquePerso.length === 0 ? (
+              <div style={{ color: C.gray, fontSize: "13px", textAlign: "center", padding: "24px 0" }}>Aucun pointage enregistré pour l&apos;instant.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {historiquePerso.map((h) => (
+                  <div key={h.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: `1px solid ${C.border}`, borderRadius: "14px", padding: "12px 14px" }}>
+                    <div>
+                      <div style={{ color: C.dark, fontSize: "13px", fontWeight: 800 }}>{formatDateCourte(h.date_jour)}</div>
+                      <div style={{ color: C.gray, fontSize: "10.5px", fontWeight: 600, marginTop: "1px" }}>
+                        {h.premiere_entree && h.derniere_sortie ? `${formatHeure(h.premiere_entree)} → ${formatHeure(h.derniere_sortie)}` : "Aucun pointage"}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ color: C.dark, fontSize: "12.5px", fontWeight: 700 }}>{formatDuree(h.heures_travaillees_minutes)}</div>
+                      <span style={{ color: statutHistoriqueCouleur(h.statut), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${statutHistoriqueCouleur(h.statut)}18`, padding: "2px 8px", borderRadius: "20px", marginTop: "3px", display: "inline-block" }}>{h.statut}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

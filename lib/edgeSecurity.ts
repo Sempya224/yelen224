@@ -76,6 +76,13 @@ const ENDPOINTS_SENSIBLES: { pattern: RegExp; max: number }[] = [
   { pattern: /^\/api\/citoyen\/recuperation$/, max: 10 },
   { pattern: /^\/admin\/login$/, max: 20 },
   { pattern: /^\/api\/admin\/auth\/login$/, max: 20 },
+  // Support Public Yelen (24/09/2026) — création anonyme sans compte,
+  // couche edge en plus du plafond applicatif par email
+  // (lib/supportTickets.ts::compterDemandesPubliquesRecentes).
+  { pattern: /^\/api\/support\/public\/tickets$/, max: 8 },
+  { pattern: /^\/api\/support\/public\/verify$/, max: 15 },
+  // Seuil plus haut : usage légitime répété (rafraîchir le fil de suivi).
+  { pattern: /^\/api\/support\/public\/suivi/, max: 40 },
 ];
 
 export function seuilEndpointSensible(pathname: string): number | null {

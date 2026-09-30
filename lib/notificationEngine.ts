@@ -136,6 +136,31 @@ export async function notifierReservation(ctx: RdvNotifContext): Promise<void> {
     `Nouvelle visite planifiée. ${ctx.citoyenPrenom} sera accueilli le ${formatDateLongue(ctx.dateRdv)} à ${formatHeureCourte(ctx.heureRdv)}. Cette visite est désormais intégrée à votre planning.`);
 }
 
+// ─── Réservation de chambre hôtel (25/09/2026) ──────────────────────────
+// Variante de notifierReservation sans aucune notion d'heure (n'a jamais
+// de sens pour un séjour) — dates d'arrivée/départ à la place. Fonction
+// séparée plutôt qu'une branche dans notifierReservation, même discipline
+// que tout le chantier Hôtel (composants/fonctions dédiés, zéro risque de
+// régression sur le flux RDV classique).
+export interface ChambreNotifContext {
+  rdvId: string;
+  citoyenId: string;
+  citoyenPrenom: string;
+  institutionId: string;
+  institutionNom: string;
+  dateArrivee: string; // "2026-10-12"
+  dateDepart: string;  // "2026-10-15"
+}
+
+export async function notifierReservationChambre(ctx: ChambreNotifContext): Promise<void> {
+  await inserer(ctx.citoyenId, "citoyen", ctx.rdvId, "reservation",
+    salutation(ctx.citoyenPrenom),
+    `Votre réservation chez ${ctx.institutionNom} est confirmée, du ${formatDateLongue(ctx.dateArrivee)} au ${formatDateLongue(ctx.dateDepart)}. Nous préparerons ce séjour avec vous jusqu'à votre arrivée.`);
+  await inserer(ctx.institutionId, "institution", ctx.rdvId, "reservation",
+    salutation(ctx.institutionNom),
+    `Nouvelle réservation de chambre. ${ctx.citoyenPrenom} séjournera du ${formatDateLongue(ctx.dateArrivee)} au ${formatDateLongue(ctx.dateDepart)}. Cette réservation est désormais intégrée à votre planning.`);
+}
+
 // ─── Phase 2 — 24 heures avant ──────────────────────────────────────────
 export async function notifierRappel24h(ctx: RdvNotifContext): Promise<void> {
   const heure = formatHeureCourte(ctx.heureRdv);

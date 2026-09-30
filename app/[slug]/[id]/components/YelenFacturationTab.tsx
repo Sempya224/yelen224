@@ -27,6 +27,7 @@ import type { InstCompte } from "@/lib/compteYelenDisplay";
 import { PLAN_LABELS } from "@/lib/compteYelenDisplay";
 import { can, type MembreRole } from "@/lib/institutionPermissions";
 import { Champ, ChampBientot } from "./YelenBusinessShared";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 const PERIODES = ["Aujourd'hui", "7 derniers jours", "30 derniers jours", "3 derniers mois", "12 derniers mois", "Personnalisée"] as const;
 const FILTRES_STATUT = ["Toutes", "Payées", "À payer", "En retard", "Annulées", "Remboursées"] as const;
@@ -82,9 +83,12 @@ export function YelenFacturationTab({ inst, onToast, membreRole, onVoirForfait }
           <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Facturation</div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "500px" }}>Gérez vos factures Yelen, vos échéances et votre historique de facturation.</p>
         </div>
-        {peutTelecharger && (
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => onToast("Bientôt disponible — aucun relevé n'est encore disponible pour votre compte.")}>Télécharger un relevé</Button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <HelpCenterGuide tab="yelen-facturation" />
+          {peutTelecharger && (
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => onToast("Bientôt disponible — aucun relevé n'est encore disponible pour votre compte.")}>Télécharger un relevé</Button>
+          )}
+        </div>
       </div>
       <div style={{ color: C.t3, fontSize: "11.5px", marginBottom: "18px" }}>{inst.name} · Compte Yelen</div>
 

@@ -1103,7 +1103,11 @@ function MessagerieInner() {
                     en_cours: { fg: "#15803d", titre: "Vous êtes maintenant en contact avec Yelen.", texte: ticketDetail.agent_nom ? `${ticketDetail.agent_nom} vous aide.` : "Un agent Yelen vous aide." },
                     resolu: { fg: "#2563eb", titre: "Votre problème est résolu", texte: "Répondez ici si vous avez encore besoin d'aide — nous reprendrons la conversation." },
                     cloture: { fg: t3, titre: "Conversation terminée", texte: "Merci d'avoir contacté Yelen. Vous pouvez nous écrire à tout moment si vous avez besoin d'aide." },
-                  }[ticketDetail.statut];
+                    // attente_verification (24/09/2026) n'existe que côté
+                    // visiteur public — un ticket citoyen ne l'atteint
+                    // jamais (obtenirTicketCitoyen ne le retourne jamais
+                    // dans cet état), cast documentant cette garantie.
+                  }[ticketDetail.statut as Exclude<typeof ticketDetail.statut, "attente_verification">];
                   const bannerKey = `${ticketDetail.id}:${ticketDetail.statut}`;
                   if (bannerDismissedKey === bannerKey) return null;
                   return (

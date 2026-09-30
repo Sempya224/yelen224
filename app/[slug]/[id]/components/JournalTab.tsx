@@ -16,6 +16,7 @@ import { scoreRisque, type RisqueJournal } from "@/lib/journalTaxonomie";
 import { YelenLoader } from "@/components/YelenLoader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 type Entree = {
   id: string; audit_id: string; membre_id: string | null; membre_nom: string; action: string;
@@ -515,7 +516,9 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
         <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Journal d&apos;activité</h1>
-        <div style={{ position: "relative" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <HelpCenterGuide tab="journal" />
+          <div style={{ position: "relative" }}>
           <Button
             tokens={toUiTokens(C)}
             className="tap"
@@ -551,6 +554,7 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
               </div>
             </>
           )}
+          </div>
         </div>
       </div>
       <p style={{ color: C.t2, fontSize: "13.5px", marginBottom: "14px" }}>Traçabilité complète : qui a fait quoi, et quand, pour toute l&apos;équipe.</p>
@@ -823,6 +827,28 @@ export function JournalTab({ instId, onToast, active = true }: { instId: string;
                 );
               })()}
             </div>
+
+            {/* Note T11-B — pourquoi ce niveau (jamais pour "vert", cas par
+                défaut qui n'a pas besoin d'être justifié). Exemples réels de
+                lib/journalTaxonomie.ts::scoreRisque(), présentés comme des
+                exemples ("peut notamment correspondre à"), jamais comme la
+                règle exacte ayant produit CETTE ligne — plusieurs règles
+                peuvent produire le même niveau, aucune logique de mapping
+                exact n'existe. */}
+            {(() => {
+              const risque = scoreRisque(selected.action, selected.niveau, selected.details || {});
+              if (risque === "vert") return null;
+              const texte = risque === "rouge"
+                ? "Un niveau critique peut notamment correspondre à une suppression définitive, un changement de rôle de membre, ou un accès refusé. C'est une alerte automatique du système, elle ne modifie aucun accès."
+                : "Un niveau à surveiller peut notamment correspondre à une désactivation de membre, un rendez-vous refusé ou annulé, ou une tentative de confirmation d'identité échouée. C'est une alerte automatique du système, elle ne modifie aucun accès.";
+              return (
+                <div style={{ backgroundColor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: "12px", padding: "12px 14px", marginBottom: "12px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.6 }}>{texte}</div>
+                </div>
+              );
+            })()}
+
             <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "12px" }}>
               {[
                 { label: "Référence", value: selected.audit_id },

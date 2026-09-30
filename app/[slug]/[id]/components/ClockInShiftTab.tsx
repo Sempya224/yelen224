@@ -212,6 +212,7 @@ export function ClockInShiftTab({ instId, instSlug, onToast, access, active = tr
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [showPortail, setShowPortail] = useState(false);
+  const [showZone, setShowZone] = useState(false);
 
   // silencieux=true pour le rafraîchissement d'arrière-plan (60s, "Live",
   // appelé par EmployesView/DepartementsView/HorairesView) — sans ça,
@@ -280,6 +281,20 @@ export function ClockInShiftTab({ instId, instSlug, onToast, access, active = tr
         </button>
       )}
 
+      {/* Zone de travail géolocalisée (Phase 2 roadmap §5.6) — un pointage
+          hors-zone se signale, il ne bloque jamais (décision Bryan
+          21/09/2026), voir migration 20260921000003_clock_in_work_zones.sql. */}
+      <button onClick={() => setShowZone(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: "14px", border: `1px solid ${C.border}`, background: C.bg3, cursor: "pointer", marginBottom: "16px" }}>
+        <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: C.bgCard, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Zone de travail géolocalisée</div>
+          <div style={{ color: C.t2, fontSize: "11.5px" }}>Signale les pointages hors-zone, sans jamais les bloquer</div>
+        </div>
+        <IconChevron C={C}/>
+      </button>
+
       <div style={{ display: "flex", gap: "6px", marginBottom: "18px", overflowX: "auto" }}>
         {vues.map(v => (
           <button key={v.key} onClick={() => setSubView(v.key)} className="tap" style={{
@@ -306,6 +321,7 @@ export function ClockInShiftTab({ instId, instSlug, onToast, access, active = tr
       )}
 
       {showPortail && instSlug && <PortailEmployeModal C={C} instSlug={instSlug} onClose={() => setShowPortail(false)}/>}
+      {showZone && <ZoneTravailModal C={C} readOnly={readOnly} onToast={onToast} onClose={() => setShowZone(false)}/>}
     </div>
   );
 }
@@ -395,6 +411,145 @@ function PortailEmployeModal({ C, instSlug, onClose }: { C: ThemeTokens; instSlu
               : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
           >{copied ? "Copié !" : "Copier"}</Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// ZONE DE TRAVAIL GÉOLOCALISÉE
+// ═══════════════════════════════════════════════════════════════════════
+// V1 une seule zone par institution (migration 20260921000003). Pas de
+// carte interactive dans ce premier lot (react-leaflet est déjà une
+// dépendance du projet mais l'ajouter ici serait un vrai chantier UI à
+// part) — saisie directe latitude/longitude + bouton "Utiliser ma position
+// actuelle" (géolocalisation du navigateur de l'admin qui configure la
+// zone, au moment où il est physiquement sur le lieu de travail).
+type ZoneTravail = { id: string; latitude: number; longitude: number; rayon_metres: number; actif: boolean; updated_at: string };
+
+function ZoneTravailModal({ C, readOnly, onToast, onClose }: { C: ThemeTokens; readOnly: boolean; onToast: (msg: string, color?: string) => void; onClose: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [zone, setZone] = useState<ZoneTravail | null>(null);
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
+  const [rayonMetres, setRayonMetres] = useState("150");
+  const [saving, setSaving] = useState(false);
+  const [localisationEnCours, setLocalisationEnCours] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const res = await fetch("/api/institution/clock-in/work-zones");
+      const j = await res.json().catch(() => null);
+      if (res.ok && j?.zone) {
+        setZone(j.zone);
+        setLatitude(String(j.zone.latitude));
+        setLongitude(String(j.zone.longitude));
+        setRayonMetres(String(j.zone.rayon_metres));
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  function utiliserPositionActuelle() {
+    if (!navigator.geolocation) { onToast("Géolocalisation non disponible sur ce navigateur.", C.red); return; }
+    setLocalisationEnCours(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLatitude(String(pos.coords.latitude));
+        setLongitude(String(pos.coords.longitude));
+        setLocalisationEnCours(false);
+      },
+      () => { setLocalisationEnCours(false); onToast("Position refusée ou indisponible.", C.red); },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }
+
+  async function enregistrer() {
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    const rayon = Number(rayonMetres);
+    if (Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(rayon)) { onToast("Coordonnées invalides.", C.red); return; }
+    setSaving(true);
+    const res = await fetch("/api/institution/clock-in/work-zones", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ latitude: lat, longitude: lng, rayonMetres: rayon }),
+    });
+    const j = await res.json().catch(() => null);
+    setSaving(false);
+    if (!res.ok) { onToast(j?.error || "Erreur d'enregistrement", C.red); return; }
+    onToast("Zone de travail enregistrée", C.green);
+    setZone(z => z ? { ...z, latitude: lat, longitude: lng, rayon_metres: rayon } : { id: j.id, latitude: lat, longitude: lng, rayon_metres: rayon, actif: true, updated_at: new Date().toISOString() });
+  }
+
+  async function basculerActif(actif: boolean) {
+    setSaving(true);
+    const res = await fetch("/api/institution/clock-in/work-zones", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actif }),
+    });
+    setSaving(false);
+    if (!res.ok) { onToast("Erreur de mise à jour", C.red); return; }
+    setZone(z => z ? { ...z, actif } : z);
+    onToast(actif ? "Zone activée" : "Zone désactivée", C.green);
+  }
+
+  return (
+    <div className="cis-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={onClose}>
+      <style>{`
+        @media (min-width: 1024px) {
+          .cis-fiche-overlay{align-items:center!important}
+          .cis-fiche-panel{max-width:440px!important;border-radius:20px!important;max-height:86svh!important}
+          .cis-fiche-grip{display:none!important}
+          .cis-fiche-close-x{display:flex!important}
+        }
+      `}</style>
+      <div onClick={e => e.stopPropagation()} className="cis-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "440px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
+        <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
+        <button onClick={onClose} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
+
+        <h2 style={{ color: C.t1, fontSize: "18px", fontWeight: 800, letterSpacing: "-0.3px", marginBottom: "6px" }}>Zone de travail</h2>
+        <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "18px" }}>
+          Un pointage effectué en dehors de ce rayon sera signalé dans le flux d&apos;activité — il ne sera jamais bloqué.
+        </p>
+
+        {loading ? (
+          <div style={{ display: "flex", justifyContent: "center", padding: "24px 0" }}><YelenLoader size={20}/></div>
+        ) : (
+          <>
+            {zone && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px", marginBottom: "14px" }}>
+                <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>Zone {zone.actif ? "active" : "désactivée"}</span>
+                {!readOnly && (
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={saving} onClick={() => basculerActif(!zone.actif)}>
+                    {zone.actif ? "Désactiver" : "Activer"}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {!readOnly && (
+              <>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth loading={localisationEnCours} style={{ marginBottom: "12px" }}
+                  icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>}
+                  onClick={utiliserPositionActuelle}>Utiliser ma position actuelle</Button>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
+                  <input value={latitude} onChange={e => setLatitude(e.target.value)} placeholder="Latitude" inputMode="decimal" style={inputStyle(C)}/>
+                  <input value={longitude} onChange={e => setLongitude(e.target.value)} placeholder="Longitude" inputMode="decimal" style={inputStyle(C)}/>
+                </div>
+                <div style={{ marginBottom: "16px" }}>
+                  <input value={rayonMetres} onChange={e => setRayonMetres(e.target.value.replace(/\D/g, ""))} placeholder="Rayon en mètres" inputMode="numeric" style={inputStyle(C)}/>
+                </div>
+
+                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth
+                  disabled={!latitude || !longitude || !rayonMetres} loading={saving} onClick={enregistrer}>
+                  {zone ? "Mettre à jour la zone" : "Définir la zone"}
+                </Button>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -976,8 +1131,20 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
   );
 }
 
-type HistoriqueJour = { id: string; date_jour: string; statut: PresenceStatut; heures_travaillees_minutes: number; retard_minutes: number; premiere_entree: string | null; derniere_sortie: string | null; nombre_pointages: number };
+type HistoriqueJour = { id: string; date_jour: string; statut: PresenceStatut; heures_travaillees_minutes: number; heures_supplementaires_minutes?: number; retard_minutes: number; premiere_entree: string | null; derniere_sortie: string | null; nombre_pointages: number; horsZone?: boolean | null };
 type EmployeeDocument = { id: string; label: string; type: string; type_mime: string | null; taille: number | null; created_at: string; signedUrl: string | null };
+type AuditLogEntry = {
+  id: string; audit_id: string; action_type: "ajout_pointage" | "correction_pointage" | "override_statut_jour";
+  nouvelle_valeur: Record<string, unknown> | null; raison: string; membre_nom: string; created_at: string;
+};
+
+const STATUTS_JOUR: PresenceStatut[] = ["Présent", "Retard", "Absent", "Congé", "Incomplet"];
+
+function libelleActionAudit(a: AuditLogEntry["action_type"]): string {
+  if (a === "ajout_pointage") return "Pointage ajouté";
+  if (a === "correction_pointage") return "Pointage corrigé";
+  return "Statut du jour modifié";
+}
 
 function DrawerSection({ C, titre, children }: { C: ThemeTokens; titre: string; children: React.ReactNode }) {
   return (
@@ -1014,6 +1181,17 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
   const [uploadLabel, setUploadLabel] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(true);
+  const [showAjoutPointage, setShowAjoutPointage] = useState(false);
+  const [corrTypeAction, setCorrTypeAction] = useState<"entree" | "sortie">("entree");
+  const [corrHorodatage, setCorrHorodatage] = useState("");
+  const [corrRaison, setCorrRaison] = useState("");
+  const [corrSaving, setCorrSaving] = useState(false);
+  const [jourEnCorrection, setJourEnCorrection] = useState<string | null>(null);
+  const [corrStatutJour, setCorrStatutJour] = useState<PresenceStatut>("Présent");
+  const [corrRaisonJour, setCorrRaisonJour] = useState("");
 
   const [modeEdition, setModeEdition] = useState(false);
   const [editNom, setEditNom] = useState(employe.nom);
@@ -1055,6 +1233,76 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
   }, [employe.id]);
 
   useEffect(() => { queueMicrotask(() => chargerDocuments()); }, [chargerDocuments]);
+
+  const chargerAuditLogs = useCallback(async () => {
+    setLoadingAuditLogs(true);
+    const res = await fetch(`/api/institution/clock-in/corrections?employeeId=${employe.id}`);
+    const j = await res.json().catch(() => null);
+    setAuditLogs(res.ok ? (j?.logs ?? []) : []);
+    setLoadingAuditLogs(false);
+  }, [employe.id]);
+
+  // Rappelée après chaque correction — l'effet ci-dessus ne réagit qu'à un
+  // changement d'employe.id, pas à une correction sur l'employé déjà ouvert.
+  const rechargerHistorique = useCallback(async () => {
+    const res = await fetch(`/api/institution/clock-in/attendance?employeeId=${employe.id}`);
+    const j = await res.json().catch(() => null);
+    if (res.ok) setHistorique(j?.records ?? []);
+  }, [employe.id]);
+
+  useEffect(() => { queueMicrotask(() => chargerAuditLogs()); }, [chargerAuditLogs]);
+
+  // Corrections — appelle la route existante app/api/institution/clock-in/corrections
+  // (immuabilité + audit déjà garantis côté API, voir cette route). Seuls
+  // ajout_pointage et override_statut_jour sont câblés ici :
+  // correction_pointage (corriger un pointage précis déjà enregistré)
+  // demanderait d'exposer les attendance_logs individuels par employé, pas
+  // seulement le résumé daily_attendance déjà chargé dans `historique` — hors
+  // périmètre de ce lot (toucherait un 3e fichier, attendance/route.ts).
+  async function ajouterPointageOublie() {
+    if (!corrHorodatage || !corrRaison.trim()) return;
+    setCorrSaving(true);
+    // `corrHorodatage` vient d'un <input type="datetime-local"> ("AAAA-MM-
+    // JJTHH:mm", sans fuseau). `new Date(corrHorodatage)` l'interpréterait
+    // dans le fuseau du NAVIGATEUR de l'admin qui corrige, pas celui de la
+    // Guinée — un admin connecté depuis un fuseau différent d'UTC+0
+    // enregistrerait un pointage décalé. La Guinée étant UTC+0 (même
+    // hypothèse que supabase/functions/clock-in-daily-attendance), les
+    // chiffres saisis sont directement traités comme de l'UTC.
+    const horodatageUtc = `${corrHorodatage}:00.000Z`;
+    const res = await fetch("/api/institution/clock-in/corrections", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "ajout_pointage", employeeId: employe.id, typeAction: corrTypeAction,
+        horodatage: horodatageUtc, raison: corrRaison.trim(),
+      }),
+    });
+    const j = await res.json().catch(() => null);
+    setCorrSaving(false);
+    if (!res.ok) { onToast(j?.error || "Le pointage n'a pas pu être ajouté.", C.red); return; }
+    setShowAjoutPointage(false); setCorrHorodatage(""); setCorrRaison("");
+    onToast("Pointage ajouté", C.green);
+    chargerAuditLogs();
+    rechargerHistorique();
+    onReload();
+  }
+
+  async function corrigerStatutJour(dailyAttendanceId: string) {
+    if (!corrRaisonJour.trim()) return;
+    setCorrSaving(true);
+    const res = await fetch("/api/institution/clock-in/corrections", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "override_statut_jour", dailyAttendanceId, statut: corrStatutJour, raison: corrRaisonJour.trim() }),
+    });
+    const j = await res.json().catch(() => null);
+    setCorrSaving(false);
+    if (!res.ok) { onToast(j?.error || "Le statut n'a pas pu être corrigé.", C.red); return; }
+    setJourEnCorrection(null); setCorrRaisonJour("");
+    onToast("Statut du jour corrigé", C.green);
+    chargerAuditLogs();
+    rechargerHistorique();
+    onReload();
+  }
 
   // Présence (30 derniers jours calculés, pas 60 — plus représentatif d'une
   // tendance récente qu'un historique complet pour ce mini-résumé).
@@ -1287,10 +1535,71 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {historique.slice(0, 7).map(h => (
-                <div key={h.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: C.bg3, borderRadius: "8px", padding: "8px 10px" }}>
-                  <span style={{ color: C.t2, fontSize: "11.5px" }}>{formatDate(h.date_jour)}</span>
-                  <span style={{ color: C.t3, fontSize: "11px" }}>{formatHeure(h.premiere_entree)} → {formatHeure(h.derniere_sortie)}</span>
-                  <span style={{ color: presenceStatutColor(h.statut, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${presenceStatutColor(h.statut, C)}15`, padding: "2px 8px", borderRadius: "20px" }}>{h.statut}</span>
+                <div key={h.id} style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px 10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ color: C.t2, fontSize: "11.5px" }}>{formatDate(h.date_jour)}</span>
+                    <span style={{ color: C.t3, fontSize: "11px" }}>{formatHeure(h.premiere_entree)} → {formatHeure(h.derniere_sortie)}</span>
+                    <span style={{ color: presenceStatutColor(h.statut, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${presenceStatutColor(h.statut, C)}15`, padding: "2px 8px", borderRadius: "20px" }}>{h.statut}</span>
+                  </div>
+                  {!!h.heures_supplementaires_minutes && h.heures_supplementaires_minutes > 0 && (
+                    <div style={{ color: C.blue, fontSize: "10px", fontWeight: 700, marginTop: "3px" }}>+{formatMinutes(h.heures_supplementaires_minutes)} heures sup.</div>
+                  )}
+                  {h.horsZone && (
+                    <div style={{ color: C.red, fontSize: "10px", fontWeight: 700, marginTop: "3px" }} title="Au moins un pointage de ce jour a eu lieu en dehors de la zone de travail définie">Pointage hors zone ce jour-là</div>
+                  )}
+                  {!readOnly && (jourEnCorrection === h.id ? (
+                    <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: `1px solid ${C.border}` }}>
+                      <select value={corrStatutJour} onChange={e => setCorrStatutJour(e.target.value as PresenceStatut)} style={{ ...inputStyle(C), marginBottom: "6px" }}>
+                        {STATUTS_JOUR.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <input value={corrRaisonJour} onChange={e => setCorrRaisonJour(e.target.value)} placeholder="Raison de la correction (obligatoire)" style={{ ...inputStyle(C), marginBottom: "8px" }}/>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setJourEnCorrection(null); setCorrRaisonJour(""); }}>Annuler</Button>
+                        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!corrRaisonJour.trim()} loading={corrSaving} onClick={() => corrigerStatutJour(h.id)}>Valider</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setJourEnCorrection(h.id); setCorrStatutJour(h.statut); setCorrRaisonJour(""); }} style={{ marginTop: "6px", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "11px", cursor: "pointer", padding: 0 }}>Corriger le statut de ce jour</button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!readOnly && (
+            showAjoutPointage ? (
+              <div style={{ marginTop: "10px", backgroundColor: C.bg3, borderRadius: "10px", padding: "12px" }}>
+                <select value={corrTypeAction} onChange={e => setCorrTypeAction(e.target.value as "entree" | "sortie")} style={{ ...inputStyle(C), marginBottom: "6px" }}>
+                  <option value="entree">Arrivée</option>
+                  <option value="sortie">Départ</option>
+                </select>
+                <input type="datetime-local" value={corrHorodatage} onChange={e => setCorrHorodatage(e.target.value)} style={{ ...inputStyle(C), marginBottom: "6px" }}/>
+                <input value={corrRaison} onChange={e => setCorrRaison(e.target.value)} placeholder="Raison (obligatoire, ex: oubli signalé par l'employé)" style={{ ...inputStyle(C), marginBottom: "8px" }}/>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setShowAjoutPointage(false); setCorrHorodatage(""); setCorrRaison(""); }}>Annuler</Button>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!corrHorodatage || !corrRaison.trim()} loading={corrSaving} onClick={ajouterPointageOublie}>Valider</Button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setShowAjoutPointage(true)} style={{ marginTop: "10px", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "12px", cursor: "pointer", padding: 0 }}>Ajouter un pointage oublié</button>
+            )
+          )}
+        </DrawerSection>
+
+        {/* ── Journal des corrections (audit trail, lecture seule) ── */}
+        <DrawerSection C={C} titre="Journal des corrections">
+          {loadingAuditLogs ? <YelenLoader size={14}/> : auditLogs.length === 0 ? (
+            <div style={{ color: C.t3, fontSize: "12px" }}>Aucune correction enregistrée pour cet employé.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {auditLogs.map(a => (
+                <div key={a.id} style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px 10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px" }}>
+                    <span style={{ color: C.t1, fontSize: "11.5px", fontWeight: 700 }}>{libelleActionAudit(a.action_type)}</span>
+                    <span style={{ color: C.t3, fontSize: "10px" }}>{formatDate(a.created_at.slice(0, 10))}</span>
+                  </div>
+                  <div style={{ color: C.t2, fontSize: "11px" }}>{a.raison}</div>
+                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>Par {a.membre_nom} · {a.audit_id}</div>
                 </div>
               ))}
             </div>
@@ -2349,15 +2658,24 @@ function HoraireDetailModal({ C, horaire, employesAffectes, tousLesEmployes, dep
 type PresenceStatut = "Présent" | "Retard" | "Absent" | "Congé" | "Incomplet";
 type PresenceRecord = {
   id: string; employee_id: string; statut: PresenceStatut;
-  heures_travaillees_minutes: number; retard_minutes: number; depart_anticipe_minutes: number;
+  heures_travaillees_minutes: number; heures_supplementaires_minutes?: number; retard_minutes: number; depart_anticipe_minutes: number;
   premiere_entree: string | null; derniere_sortie: string | null;
-  nombre_pointages: number; override_manuel: boolean;
+  nombre_pointages: number; override_manuel: boolean; horsZone?: boolean | null;
   employees: { nom: string; prenom: string; matricule: string; department_id: string | null; poste: string | null }
     | { nom: string; prenom: string; matricule: string; department_id: string | null; poste: string | null }[] | null;
 };
 type Kpis = { present: number; retard: number; absent: number; conge: number; incomplet: number; departsAnticipes: number };
-type JourReponse = { records: PresenceRecord[]; kpis: Kpis; conformite: number | null; heuresTravailleesMoyenne: number };
+type JourReponse = { records: PresenceRecord[]; kpis: Kpis; conformite: number | null; heuresTravailleesMoyenne: number; heuresSupplementairesTotal?: number; zoneConfiguree?: boolean; horsZoneCount?: number; dernierCalculAuto?: string | null };
 type PointDeTendance = { date: string; present: number; retard: number; absent: number; incomplet: number; conformite: number | null; heuresTravailleesMoyenne: number };
+type AggEmployePeriode = {
+  employeeId: string; nom: string; prenom: string; matricule: string;
+  present: number; retard: number; absent: number; conge: number; incomplet: number;
+  heuresTravailleesMinutes: number; heuresSupplementairesMinutes: number; retardMinutesTotal: number;
+};
+type RapportPeriode = {
+  dateDebut: string; dateFin: string; parEmploye: AggEmployePeriode[];
+  totaux: { present: number; retard: number; absent: number; conge: number; incomplet: number; heuresTravailleesMinutes: number; heuresSupplementairesMinutes: number };
+};
 
 function presenceStatutColor(s: PresenceStatut, C: ThemeTokens): string {
   if (s === "Présent") return C.green;
@@ -2471,6 +2789,12 @@ function PresencesView({ C, employees, onToast, active = true }: {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [maintenant, setMaintenant] = useState(Date.now());
 
+  const [rapportOuvert, setRapportOuvert] = useState(false);
+  const [rapportDebut, setRapportDebut] = useState(joursAvant(todayStr(), 30));
+  const [rapportFin, setRapportFin] = useState(todayStr());
+  const [rapportData, setRapportData] = useState<RapportPeriode | null>(null);
+  const [rapportLoading, setRapportLoading] = useState(false);
+
   const estAujourdhui = date === todayStr();
   const records = jour.records;
   const kpis = jour.kpis;
@@ -2484,6 +2808,10 @@ function PresencesView({ C, employees, onToast, active = true }: {
       kpis: j?.kpis ?? { present: 0, retard: 0, absent: 0, conge: 0, incomplet: 0, departsAnticipes: 0 },
       conformite: j?.conformite ?? null,
       heuresTravailleesMoyenne: j?.heuresTravailleesMoyenne ?? 0,
+      heuresSupplementairesTotal: j?.heuresSupplementairesTotal ?? 0,
+      zoneConfiguree: j?.zoneConfiguree ?? false,
+      horsZoneCount: j?.horsZoneCount ?? 0,
+      dernierCalculAuto: j?.dernierCalculAuto ?? null,
     };
   }, []);
 
@@ -2551,6 +2879,33 @@ function PresencesView({ C, employees, onToast, active = true }: {
     URL.revokeObjectURL(url);
   }
 
+  async function genererRapport() {
+    if (rapportDebut > rapportFin) { onToast("La date de début doit précéder la date de fin.", C.red); return; }
+    setRapportLoading(true);
+    const res = await fetch(`/api/institution/clock-in/attendance?dateDebut=${rapportDebut}&dateFin=${rapportFin}`);
+    const j = await res.json().catch(() => null);
+    setRapportLoading(false);
+    if (!res.ok) { onToast(j?.error || "Erreur de génération du rapport", C.red); return; }
+    setRapportData(j);
+  }
+
+  function exporterRapportCsv() {
+    if (!rapportData) return;
+    const lignes = [
+      ["Employé", "Matricule", "Présences", "Retards", "Absences", "Congés", "Incomplets", "Heures travaillées", "Heures sup."],
+      ...rapportData.parEmploye.map(a => [
+        `${a.prenom} ${a.nom}`, a.matricule, String(a.present), String(a.retard), String(a.absent), String(a.conge), String(a.incomplet),
+        formatMinutes(a.heuresTravailleesMinutes), formatMinutes(a.heuresSupplementairesMinutes),
+      ]),
+    ];
+    const csv = lignes.map(l => l.map(c => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `rapport-presences-${rapportDebut}-au-${rapportFin}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const employesActifs = employees.filter(e => e.statut === "actif");
   const recordParEmploye = new Map(records.map(r => [r.employee_id, r]));
   const pasEncorePointe = employesActifs.filter(e => {
@@ -2573,7 +2928,14 @@ function PresencesView({ C, employees, onToast, active = true }: {
     { label: "Incomplets", value: String(kpis.incomplet), delta: deltaEntre(kpis.incomplet, avantDernier?.incomplet), unite: "valeur", color: C.t3, icon: <IconAlertTriangle/>, serie: tendance.map(t => t.incomplet) },
     { label: "Temps moyen travaillé", value: formatMinutes(jour.heuresTravailleesMoyenne), delta: null, unite: "valeur", color: C.blue, icon: <IconHourglass/>, serie: tendance.map(t => t.heuresTravailleesMoyenne) },
     { label: "Conformité", value: jour.conformite === null ? "—" : `${jour.conformite}%`, delta: dernier?.conformite !== null && avantDernier?.conformite != null && dernier ? (dernier.conformite ?? 0) - avantDernier.conformite : null, unite: "pts", color: C.gold, icon: <IconShield/>, serie: tendance.map(t => t.conformite ?? 0) },
+    { label: "Heures sup. du jour", value: formatMinutes(jour.heuresSupplementairesTotal ?? 0), delta: null, unite: "valeur", color: C.blue, icon: <IconHourglass/>, serie: [] },
   ];
+  // Tuile "Hors zone" uniquement si une zone de travail est configurée —
+  // sinon la métrique n'a aucun sens et créerait du bruit (toujours 0),
+  // voir CLAUDE.md /pieges-techniques-connus (pas de badge de statut vide).
+  if (jour.zoneConfiguree) {
+    tuiles.push({ label: "Hors zone", value: String(jour.horsZoneCount ?? 0), delta: null, unite: "valeur", color: C.red, icon: <IconAlertTriangle/>, serie: [] });
+  }
 
   const employesSansCalcul = Math.max(0, employesActifs.length - records.length);
 
@@ -2593,12 +2955,31 @@ function PresencesView({ C, employees, onToast, active = true }: {
               {lastSync && <span style={{ color: C.t3, fontSize: "10.5px" }}>Dernière synchronisation : {ilYA(lastSync, maintenant)}</span>}
             </div>
           )}
+          {/* Fraîcheur du job pg_cron (Phase 1 roadmap §5.2) — distinct de
+              "Dernière synchronisation" ci-dessus (qui ne reflète que le
+              polling du dashboard, toujours récent). Ici : dernier calcul
+              RÉEL de daily_attendance, tous jours confondus pour
+              l'institution. Seuil de 30 min = 2x la cadence du job (15
+              min) + marge, pour ne signaler que les arrêts réels, pas la
+              gigue normale d'exécution. */}
+          {jour.dernierCalculAuto && (() => {
+            const calculDate = new Date(jour.dernierCalculAuto!);
+            const stale = Date.now() - calculDate.getTime() > 30 * 60 * 1000;
+            return (
+              <div style={{ marginTop: "4px" }}>
+                <span style={{ color: stale ? C.red : C.t3, fontSize: "10.5px", fontWeight: stale ? 800 : 400 }}>
+                  Dernier calcul automatique : {ilYA(calculDate, maintenant)}{stale ? " — le job semble à l'arrêt, à vérifier" : ""}
+                </span>
+              </div>
+            );
+          })()}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
           <button onClick={() => setDate(todayStr())} className="tap" style={{ backgroundColor: date === todayStr() ? C.gold : C.bg3, color: date === todayStr() ? "#000" : C.t2, border: `1px solid ${date === todayStr() ? C.gold : C.border}`, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Aujourd&apos;hui</button>
           <button onClick={() => setDate(joursAvant(todayStr(), 1))} className="tap" style={{ backgroundColor: date === joursAvant(todayStr(), 1) ? C.gold : C.bg3, color: date === joursAvant(todayStr(), 1) ? "#000" : C.t2, border: `1px solid ${date === joursAvant(todayStr(), 1) ? C.gold : C.border}`, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Hier</button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...inputStyle(C), width: "auto" }}/>
           <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant={rapportOuvert ? "primary" : "secondary"} size="sm" onClick={() => setRapportOuvert(o => !o)}>Rapport de période</Button>
           <Button
             tokens={toUiTokens(C)} className="tap"
             variant="secondary"
@@ -2610,6 +2991,51 @@ function PresencesView({ C, employees, onToast, active = true }: {
           </Button>
         </div>
       </div>
+
+      {rapportOuvert && (
+        <div style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: rapportData ? "14px" : 0 }}>
+            <input type="date" value={rapportDebut} onChange={e => setRapportDebut(e.target.value)} style={{ ...inputStyle(C), width: "auto" }}/>
+            <span style={{ color: C.t3, fontSize: "12px" }}>au</span>
+            <input type="date" value={rapportFin} onChange={e => setRapportFin(e.target.value)} style={{ ...inputStyle(C), width: "auto" }}/>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" loading={rapportLoading} onClick={genererRapport}>Générer</Button>
+            {rapportData && <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterRapportCsv}>Exporter</Button>}
+          </div>
+
+          {rapportData && (
+            rapportData.parEmploye.length === 0 ? (
+              <div style={{ color: C.t3, fontSize: "12px" }}>Aucune donnée de présence sur cette période.</div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <th style={{ textAlign: "left", padding: "6px 8px", color: C.t3, fontWeight: 700 }}>Employé</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", color: C.t3, fontWeight: 700 }}>Présents</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", color: C.t3, fontWeight: 700 }}>Retards</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", color: C.t3, fontWeight: 700 }}>Absents</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", color: C.t3, fontWeight: 700 }}>Heures travaillées</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", color: C.t3, fontWeight: 700 }}>Heures sup.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rapportData.parEmploye.map(a => (
+                      <tr key={a.employeeId} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "6px 8px", color: C.t1, fontWeight: 700 }}>{a.prenom} {a.nom}</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px", color: C.green }}>{a.present}</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px", color: C.orange }}>{a.retard}</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px", color: C.red }}>{a.absent}</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px", color: C.t2 }}>{formatMinutes(a.heuresTravailleesMinutes)}</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px", color: C.blue }}>{formatMinutes(a.heuresSupplementairesMinutes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ padding: "32px 16px", display: "flex", justifyContent: "center" }}><YelenLoader size={24}/></div>
@@ -2679,6 +3105,7 @@ function PresencesView({ C, employees, onToast, active = true }: {
                         <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
                           <span style={{ color: presenceStatutColor(r.statut, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${presenceStatutColor(r.statut, C)}15`, padding: "2px 8px", borderRadius: "20px" }}>{r.statut}</span>
                           {r.override_manuel && <span style={{ color: C.t3, fontSize: "9.5px", marginLeft: "6px" }}>· corrigé</span>}
+                          {r.horsZone && <span style={{ color: C.red, fontSize: "9.5px", fontWeight: 800, marginLeft: "6px" }} title="Un pointage de ce jour a eu lieu en dehors de la zone de travail définie">· hors zone</span>}
                         </td>
                         <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{formatHeure(r.premiere_entree)}</td>
                         <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{formatHeure(r.derniere_sortie)}</td>

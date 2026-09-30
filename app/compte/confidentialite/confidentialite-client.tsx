@@ -92,6 +92,17 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 }
 
+// Source unique d'accès aux documents légaux depuis cet écran (chantier
+// Légal & Confidentialité, Lot 3 Surface 3, 23/09/2026) — remplace les 2
+// liens "Lire les CGU"/"Lire la politique" qui vivaient auparavant dans
+// "Vos consentements", devenus redondants.
+const DOCUMENTS_LEGAUX: { label: string; href: string }[] = [
+  { label: "Conditions générales d'utilisation", href: "/cgu" },
+  { label: "Politique de confidentialité", href: "/confidentialite" },
+  { label: "Politique des cookies", href: "/politique-cookies" },
+  { label: "Mentions légales", href: "/mentions-legales" },
+];
+
 const CHAMPS_LABELS: { key: keyof ChampsVisibles; titre: string; description: string }[] = [
   { key: "nom_complet", titre: "Nom complet", description: "Votre prénom et nom visibles par les établissements." },
   { key: "photo", titre: "Photo", description: "Votre photo de profil visible par les établissements." },
@@ -364,6 +375,71 @@ export function ConfidentialiteClient() {
               </div>
             </div>
 
+            {/* Documents légaux — source unique d'accès aux documents
+                depuis cet écran (chantier Légal & Confidentialité, Lot 3
+                Surface 3, 23/09/2026). Tokens/composants propres à cet
+                écran (card/t1/t2/t3/brd), pas ceux d'Institution/Admin. */}
+            <Section titre="Documents légaux" t1={t1}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", overflow: "hidden" }}>
+                {DOCUMENTS_LEGAUX.map((item, i) => (
+                  <Link key={item.href} href={item.href} className="tap" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "13px 16px", borderBottom: i < DOCUMENTS_LEGAUX.length - 1 ? `1px solid ${brd}` : "none", textDecoration: "none" }}>
+                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: t2, flexShrink: 0 }}/>
+                    <span style={{ flex: 1, color: t1, fontSize: "14px", fontWeight: 700 }}>{item.label}</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t3} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  </Link>
+                ))}
+              </div>
+            </Section>
+
+            {/* Consentements */}
+            <Section titre="Consentements" t1={t1}>
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
+                <Row
+                  t1={t1} t2={t2}
+                  titre="Conditions d'utilisation"
+                  description={statut.cgu_acceptee_le ? `Acceptées — ${formatDate(statut.cgu_acceptee_le)}` : "Non acceptées"}
+                  right={statut.cgu_acceptee_le
+                    ? <span style={{ color: "#22c55e" }}><Ic.Check/></span>
+                    : <button disabled={busy === "consentement-cgu"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("cgu")}>{busy === "consentement-cgu" ? "Enregistrement…" : "Accepter"}</button>}
+                />
+                <div style={{ borderTop: `1px solid ${brd}` }}>
+                  <Row
+                    t1={t1} t2={t2}
+                    titre="Politique de confidentialité"
+                    description={statut.confidentialite_acceptee_le ? `Acceptée — ${formatDate(statut.confidentialite_acceptee_le)}` : "Non acceptée"}
+                    right={statut.confidentialite_acceptee_le
+                      ? <span style={{ color: "#22c55e" }}><Ic.Check/></span>
+                      : <button disabled={busy === "consentement-confidentialite"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("confidentialite")}>{busy === "consentement-confidentialite" ? "Enregistrement…" : "Accepter"}</button>}
+                  />
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
+                <Row
+                  t1={t1} t2={t2}
+                  titre="Communications Yelen"
+                  description="Recevoir les nouveautés Yelen."
+                  right={<Switch on={statut.communications_yelen} onToggle={() => majCommunication({ communicationsYelen: !statut.communications_yelen })}/>}
+                />
+                <div style={{ borderTop: `1px solid ${brd}` }}>
+                  <Row
+                    t1={t1} t2={t2}
+                    titre="Communications établissements"
+                    description="Recevoir les annonces publiées par les établissements que vous suivez."
+                    right={<Switch on={statut.communications_etablissements} onToggle={() => majCommunication({ communicationsEtablissements: !statut.communications_etablissements })}/>}
+                  />
+                </div>
+                <div style={{ borderTop: `1px solid ${brd}` }}>
+                  <Row
+                    t1={t1} t2={t2}
+                    titre="Personnalisation"
+                    description="Recevoir des recommandations adaptées à votre activité."
+                    right={<Switch on={statut.personnalisation} onToggle={() => majCommunication({ personnalisation: !statut.personnalisation })}/>}
+                  />
+                </div>
+              </div>
+            </Section>
+
             {/* Visibilité */}
             <Section titre="Visibilité" t1={t1}>
               <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
@@ -462,61 +538,8 @@ export function ConfidentialiteClient() {
               </div>
             </Section>
 
-            {/* Consentements */}
-            <Section titre="Consentements" t1={t1}>
-              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px" }}>
-                <Row
-                  t1={t1} t2={t2}
-                  titre="Conditions d'utilisation"
-                  description={statut.cgu_acceptee_le ? `Acceptées — ${formatDate(statut.cgu_acceptee_le)}` : "Non acceptées"}
-                  right={statut.cgu_acceptee_le
-                    ? <span style={{ color: "#22c55e" }}><Ic.Check/></span>
-                    : <button disabled={busy === "consentement-cgu"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("cgu")}>{busy === "consentement-cgu" ? "Enregistrement…" : "Accepter"}</button>}
-                />
-                <div style={{ borderTop: `1px solid ${brd}` }}>
-                  <Row
-                    t1={t1} t2={t2}
-                    titre="Politique de confidentialité"
-                    description={statut.confidentialite_acceptee_le ? `Acceptée — ${formatDate(statut.confidentialite_acceptee_le)}` : "Non acceptée"}
-                    right={statut.confidentialite_acceptee_le
-                      ? <span style={{ color: "#22c55e" }}><Ic.Check/></span>
-                      : <button disabled={busy === "consentement-confidentialite"} className="tap" style={btnPrimary} onClick={() => accepterConsentement("confidentialite")}>{busy === "consentement-confidentialite" ? "Enregistrement…" : "Accepter"}</button>}
-                  />
-                </div>
-                <div style={{ display: "flex", gap: "14px", marginTop: "10px", fontSize: "12px" }}>
-                  <Link href="/cgu" style={{ color: "#F5A623", textDecoration: "none", fontWeight: 700 }}>Lire les CGU</Link>
-                  <Link href="/confidentialite" style={{ color: "#F5A623", textDecoration: "none", fontWeight: 700 }}>Lire la politique</Link>
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginTop: "12px" }}>
-                <Row
-                  t1={t1} t2={t2}
-                  titre="Communications Yelen"
-                  description="Recevoir les nouveautés Yelen."
-                  right={<Switch on={statut.communications_yelen} onToggle={() => majCommunication({ communicationsYelen: !statut.communications_yelen })}/>}
-                />
-                <div style={{ borderTop: `1px solid ${brd}` }}>
-                  <Row
-                    t1={t1} t2={t2}
-                    titre="Communications établissements"
-                    description="Recevoir les annonces publiées par les établissements que vous suivez."
-                    right={<Switch on={statut.communications_etablissements} onToggle={() => majCommunication({ communicationsEtablissements: !statut.communications_etablissements })}/>}
-                  />
-                </div>
-                <div style={{ borderTop: `1px solid ${brd}` }}>
-                  <Row
-                    t1={t1} t2={t2}
-                    titre="Personnalisation"
-                    description="Recevoir des recommandations adaptées à votre activité."
-                    right={<Switch on={statut.personnalisation} onToggle={() => majCommunication({ personnalisation: !statut.personnalisation })}/>}
-                  />
-                </div>
-              </div>
-            </Section>
-
-            {/* Mes données */}
-            <Section titre="Mes données" t1={t1}>
+            {/* Vos données */}
+            <Section titre="Vos données" t1={t1}>
               <div style={{ backgroundColor: card, borderRadius: "16px", padding: "16px", marginBottom: "12px" }}>
                 <Row
                   t1={t1} t2={t2}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedEmployee } from "@/lib/employeeAuth";
+import { fenetrePauseProgrammee, type FenetrePause } from "@/lib/clockInPause";
 
 // Permet au portail /clock/[slug] de savoir, au chargement de la page, si
 // une session employé valide existe déjà (cookie yelen224_employee_session)
@@ -10,7 +11,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 
 type Segment = { debut: string; fin: string };
 type Assignation = { work_schedule_id: string; date_debut: string; date_fin: string | null };
-type Horaire = { pattern: Record<string, unknown>; pause: number };
+type Horaire = { pattern: Record<string, unknown>; pause: number; pauseHeureDebut: string | null };
 
 export async function GET(req: NextRequest) {
   const employee = await getAuthenticatedEmployee(req);
@@ -81,23 +82,24 @@ export async function GET(req: NextRequest) {
   const scheduleIds = Array.from(new Set(assignationsSemaine.map((a) => a.work_schedule_id)));
   const horairesParId = new Map<string, Horaire>();
   if (scheduleIds.length > 0) {
-    const { data: horaires } = await sb.from("work_schedules").select("id,pattern,pause_obligatoire_minutes").in("id", scheduleIds);
+    const { data: horaires } = await sb.from("work_schedules").select("id,pattern,pause_obligatoire_minutes,pause_heure_debut").in("id", scheduleIds);
     for (const h of horaires ?? []) {
-      horairesParId.set(h.id, { pattern: (h.pattern as Record<string, unknown>) ?? {}, pause: h.pause_obligatoire_minutes ?? 0 });
+      horairesParId.set(h.id, { pattern: (h.pattern as Record<string, unknown>) ?? {}, pause: h.pause_obligatoire_minutes ?? 0, pauseHeureDebut: h.pause_heure_debut ?? null });
     }
   }
 
   // Résout les segments réels programmés pour un jour donné (AAAA-MM-JJ) —
   // seule source de vérité, utilisée pour planDuJour, semaine et le
   // planning complet, pour ne jamais diverger entre les trois.
-  function segmentsDuJour(jourStr: string): { segments: Segment[]; pauseMinutes: number } | null {
+  function segmentsDuJour(jourStr: string): { segments: Segment[]; pauseMinutes: number; pauseFenetre: FenetrePause | null } | null {
     const jourNomKey = JOURS_SEMAINE[new Date(`${jourStr}T00:00:00Z`).getUTCDay()];
     const assignationJour = assignationsSemaine.find((a) => a.date_debut <= jourStr && (!a.date_fin || a.date_fin >= jourStr));
     const horaire = assignationJour ? horairesParId.get(assignationJour.work_schedule_id) : undefined;
     const jours = horaire?.pattern?.jours as Record<string, unknown> | undefined;
     const config = jours?.[jourNomKey] as { repos?: boolean; segments?: Segment[] } | undefined;
     if (!horaire || !config || config.repos === true || !config.segments || config.segments.length === 0) return null;
-    return { segments: config.segments, pauseMinutes: horaire.pause };
+    const pauseFenetre = fenetrePauseProgrammee({ repos: false, segments: config.segments }, horaire.pause, horaire.pauseHeureDebut);
+    return { segments: config.segments, pauseMinutes: horaire.pause, pauseFenetre };
   }
 
   function dureeMinutes(seg: Segment): number {
@@ -106,7 +108,7 @@ export async function GET(req: NextRequest) {
     return Math.max(0, (hF * 60 + mF) - (hD * 60 + mD));
   }
 
-  let planDuJour: { debut: string; fin: string; pauseMinutes: number; dureeMinutes: number } | null = null;
+  let planDuJour: { debut: string; fin: string; pauseMinutes: number; dureeMinutes: number; pauseFenetre: FenetrePause | null } | null = null;
   let prevuesMinutes = 0;
   const prevuesParJour = new Map<string, number>();
   const shiftsParJour: { date: string; jour: string; segments: Segment[] }[] = [];
@@ -126,7 +128,7 @@ export async function GET(req: NextRequest) {
       prevuesParJour.set(jourStr, dureeNette);
     }
     if (jourStr === aujourdHuiStr) {
-      planDuJour = { debut: resultat.segments[0].debut, fin: resultat.segments[resultat.segments.length - 1].fin, pauseMinutes: resultat.pauseMinutes, dureeMinutes: dureeNette };
+      planDuJour = { debut: resultat.segments[0].debut, fin: resultat.segments[resultat.segments.length - 1].fin, pauseMinutes: resultat.pauseMinutes, dureeMinutes: dureeNette, pauseFenetre: resultat.pauseFenetre };
     }
   }
 
@@ -137,7 +139,7 @@ export async function GET(req: NextRequest) {
   // (simplification assumée, cas rare).
   let logsSemaineQuery = sb
     .from("attendance_logs")
-    .select("id,type_action,horodatage")
+    .select("id,type_action,horodatage,methode")
     .eq("employee_id", employee.employeeId)
     .gte("horodatage", lundi.toISOString())
     .order("horodatage", { ascending: true });
@@ -151,14 +153,39 @@ export async function GET(req: NextRequest) {
   let aujourdHuiDerniereSortie: Date | null = null;
   let aujourdHuiDureeMinutes = 0;
   const travailleesParJour = new Map<string, number>();
+
+  // Pause imbriquée dans l'entree/sortie ouvert (brief Bryan 21/09/2026,
+  // voir lib/clockInPause.ts) — soustraite du temps travaillé du bracket
+  // qui la contient, même logique que supabase/functions/
+  // clock-in-daily-attendance, mais ici en LIVE (auth/me n'attend jamais
+  // le job 15 min) pour piloter la bannière "Aujourd'hui" du portail.
+  let pauseOuverteDepuis: Date | null = null;
+  let pauseMinutesDansBracketCourant = 0;
+  let aujourdHuiPauseDebut: string | null = null;
+  let aujourdHuiPauseFin: string | null = null;
+  let aujourdHuiPauseDeclenchement: "auto" | "manuel" | null = null;
+
   for (const log of logsSemaine ?? []) {
     const jourLog = log.horodatage.slice(0, 10);
     const estAujourdHui = jourLog === aujourdHuiStr;
     if (log.type_action === "entree") {
       ouvertDepuis = new Date(log.horodatage);
       if (estAujourdHui && !aujourdHuiPremiereEntree) aujourdHuiPremiereEntree = ouvertDepuis;
+    } else if (log.type_action === "pause_debut" && ouvertDepuis) {
+      pauseOuverteDepuis = new Date(log.horodatage);
+      if (estAujourdHui && !aujourdHuiPauseDebut) {
+        aujourdHuiPauseDebut = log.horodatage;
+        aujourdHuiPauseDeclenchement = log.methode === "auto" ? "auto" : "manuel";
+      }
+    } else if (log.type_action === "pause_fin" && pauseOuverteDepuis) {
+      const dureePauseMin = (new Date(log.horodatage).getTime() - pauseOuverteDepuis.getTime()) / 60000;
+      pauseMinutesDansBracketCourant += dureePauseMin;
+      if (estAujourdHui) aujourdHuiPauseFin = log.horodatage;
+      pauseOuverteDepuis = null;
     } else if (log.type_action === "sortie" && ouvertDepuis) {
-      const dureeMin = (new Date(log.horodatage).getTime() - ouvertDepuis.getTime()) / 60000;
+      const dureeBrute = (new Date(log.horodatage).getTime() - ouvertDepuis.getTime()) / 60000;
+      const dureeMin = Math.max(0, dureeBrute - pauseMinutesDansBracketCourant);
+      pauseMinutesDansBracketCourant = 0;
       travailleesMinutes += dureeMin;
       travailleesParJour.set(jourLog, (travailleesParJour.get(jourLog) ?? 0) + dureeMin);
       if (estAujourdHui) {
@@ -169,12 +196,20 @@ export async function GET(req: NextRequest) {
     }
   }
   if (ouvertDepuis) {
-    const liveMin = (maintenant.getTime() - ouvertDepuis.getTime()) / 60000;
+    // Si une pause est en cours, le temps "live" s'arrête à son début —
+    // ni le temps de pause écoulé, ni les minutes futures avant reprise,
+    // ne comptent comme travaillées.
+    const finPourCalcul = pauseOuverteDepuis ?? maintenant;
+    const liveMin = Math.max(0, (finPourCalcul.getTime() - ouvertDepuis.getTime()) / 60000 - pauseMinutesDansBracketCourant);
     travailleesMinutes += liveMin;
     travailleesParJour.set(aujourdHuiStr, (travailleesParJour.get(aujourdHuiStr) ?? 0) + liveMin);
   }
   travailleesMinutes = Math.round(travailleesMinutes);
   prevuesMinutes = Math.round(prevuesMinutes);
+
+  const pauseAujourdhui = aujourdHuiPauseDebut
+    ? { debutReel: aujourdHuiPauseDebut, finReelle: aujourdHuiPauseFin, enCours: !!pauseOuverteDepuis, declenchement: aujourdHuiPauseDeclenchement }
+    : null;
 
   const semaineDetail: { date: string; jour: string; prevuesMinutes: number; travailleesMinutes: number }[] = [];
   for (let i = 0; i < 7; i++) {
@@ -215,6 +250,7 @@ export async function GET(req: NextRequest) {
     horodatage: dernier?.horodatage ?? null,
     planDuJour,
     aujourdHuiReel,
+    pauseAujourdhui,
     semaine: { travailleesMinutes, prevuesMinutes, ecartMinutes: travailleesMinutes - prevuesMinutes },
     semaineDetail,
     shiftsParJour,

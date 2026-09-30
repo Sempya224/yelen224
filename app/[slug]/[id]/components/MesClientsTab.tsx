@@ -22,7 +22,9 @@ function HumanIcon({ color }: { color: string }) {
 }
 
 type Paiement = { service_nom: string; prix: number; statut: string };
-type Historique = { id: string; date_rdv: string; heure_rdv: string; objet: string | null; statut: string; notes: string | null; paiement: Paiement | null; presence_status: string | null; presence_confirmed_at: string | null };
+// date_depart : chambre hôtel uniquement (chantier "Vraie réservation
+// hôtel", 25/09/2026), null pour toute visite classique.
+type Historique = { id: string; date_rdv: string; heure_rdv: string; date_depart: string | null; objet: string | null; statut: string; notes: string | null; paiement: Paiement | null; presence_status: string | null; presence_confirmed_at: string | null };
 type Avis = { id: string; note: number; commentaire: string; reponse_institution: string | null; reponse_le: string | null; created_at: string };
 type Signalement = { titre: string; motif: string; statut: string; created_at: string };
 type Tache = { id: string; titre: string; statut: string; created_at: string };
@@ -279,7 +281,13 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
     for (const h of selected.historique) {
       if (prochaineEtape && h.id === prochaineEtape.id) continue;
       const sc = stColor(h.statut, C);
-      items.push({ id: `rdv-${h.id}`, date: `${h.date_rdv}T${h.heure_rdv || "00:00"}`, label: h.objet || "RDV général", sublabel: sc.l, color: sc.c, bg: sc.bg });
+      // Chambre hôtel (h.date_depart) — le label mentionne la date de
+      // départ, jamais juste l'arrivée seule (sinon incompréhensible pour
+      // un séjour multi-nuits).
+      const label = h.date_depart
+        ? `${h.objet || "Réservation"} — jusqu'au ${new Date(`${h.date_depart}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`
+        : h.objet || "RDV général";
+      items.push({ id: `rdv-${h.id}`, date: `${h.date_rdv}T${h.heure_rdv || "00:00"}`, label, sublabel: sc.l, color: sc.c, bg: sc.bg });
       if (h.presence_status === "present" && h.presence_confirmed_at) {
         items.push({ id: `presence-${h.id}`, date: h.presence_confirmed_at, label: "Présence confirmée", sublabel: "Arrivée enregistrée (QR)", color: C.teal, bg: C.tealL });
       }
@@ -541,7 +549,11 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <div style={{ flex: 1 }}>
                       <div style={{ color: C.gold, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px" }}>Prochaine étape</div>
-                      <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>{dayLabel(`${prochaineEtape.date_rdv}T${prochaineEtape.heure_rdv || "00:00"}`)} {prochaineEtape.heure_rdv ? `à ${prochaineEtape.heure_rdv}` : ""} — {prochaineEtape.objet || "RDV général"}</div>
+                      <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>
+                        {prochaineEtape.date_depart
+                          ? `Arrivée le ${new Date(`${prochaineEtape.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} → départ le ${new Date(`${prochaineEtape.date_depart}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} — ${prochaineEtape.objet || "Réservation"}`
+                          : `${dayLabel(`${prochaineEtape.date_rdv}T${prochaineEtape.heure_rdv || "00:00"}`)} ${prochaineEtape.heure_rdv ? `à ${prochaineEtape.heure_rdv}` : ""} — ${prochaineEtape.objet || "RDV général"}`}
+                      </div>
                     </div>
                   </div>
                 )}

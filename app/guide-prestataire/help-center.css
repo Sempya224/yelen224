@@ -1,0 +1,2179 @@
+/* Yelen Provider Help Center — tokens structurés (scaffolding, 22/09/2026).
+   Portée : scoped sous .hc uniquement, jamais globals.css/theme.ts.
+   Light-only V1 (architecture §9, §11.1) — variables nommées pour qu'un
+   futur dark mode public s'ajoute par un bloc @media supplémentaire, sans
+   réécrire les composants qui consomment ces variables. */
+
+.hc {
+  --hc-gold: #F5A623;
+  --hc-gold-ink: #1a1200;
+  --hc-bg: #FAF8F4;
+  --hc-surface: #FFFFFF;
+  --hc-border: #E7E1D6;
+  --hc-text: #211A0E;
+  --hc-text-muted: #6B6353;
+  --hc-radius-sm: 10px;
+  --hc-radius: 16px;
+  --hc-radius-lg: 22px;
+  /* Même couleur que le système de focus global (.yelen-focus-ring,
+     globals.css) — jamais une couleur propre au Help Center. */
+  --hc-focus: #F5A623;
+  --hc-header-h: 52px;
+
+  /* Même fond que le footer (--hc-surface) pour tout l'écran, y compris le
+     header — cohérence demandée plutôt que --hc-bg (blanc cassé) réservé
+     aux zones qui doivent se distinguer des cartes blanches posées dessus. */
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  min-height: 100vh;
+}
+
+/* Scrollbar navigateur : reste masquée par défaut (app/globals.css cache
+   toutes les scrollbars du site) — remplacée par le pouce custom
+   `.hc-scroll-progress` (ScrollProgress.tsx) pour éviter d'avoir deux
+   barres verticales à droite sur PC (retour Bryan 23/09/2026 : l'ancienne
+   version dorée/épaisse ci-dessus a été retirée au profit d'une seule
+   barre, le pouce gris). */
+
+.hc :focus-visible {
+  outline: 2.5px solid var(--hc-focus);
+  outline-offset: 2px;
+}
+
+.hc-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--hc-gold);
+  color: var(--hc-gold-ink);
+  padding: 12px 18px;
+  border-radius: 0 0 var(--hc-radius-sm) 0;
+  font-weight: 700;
+  text-decoration: none;
+}
+.hc-skip-link:focus {
+  left: 0;
+}
+
+.hc-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 20px 64px;
+  padding-top: var(--hc-header-h);
+}
+
+/* Les 64px de padding bas + les 40px de margin-top du footer (.hc-footer
+   plus bas) donnent 104px d'espace mort constant avant le footer — à
+   peine visible sur desktop, disproportionné sur un écran de téléphone
+   où le dernier contenu (souvent SupportCallout) se retrouve loin du
+   footer qui suit. Resserré uniquement sous 640px, desktop inchangé. */
+@media (max-width: 640px) {
+  .hc-shell {
+    padding-bottom: 28px;
+  }
+}
+
+/* Repère de scroll vertical (ScrollProgress.tsx) — pouce de scrollbar
+   proportionnel type DoorDash (retour visuel Bryan 23/09/2026) : pilule
+   grise fine, légèrement décollée du bord droit, fixe et toujours visible
+   sur PC. Sur mobile, `--masquee` fait disparaître le pouce après une
+   courte inactivité (géré en JS). */
+.hc-scroll-progress {
+  position: fixed;
+  top: var(--hc-header-h);
+  bottom: 0;
+  right: 5px;
+  width: 6px;
+  z-index: 41;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+.hc-scroll-progress--masquee {
+  opacity: 0;
+}
+
+.hc-scroll-progress__fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 32px;
+  border-radius: 999px;
+  background: rgba(33, 26, 14, 0.22);
+}
+
+.hc-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  min-height: var(--hc-header-h);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+}
+
+.hc-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--hc-text);
+}
+
+.hc-brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--hc-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.hc-brand-title {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  line-height: 1.1;
+}
+
+.hc-brand-sub {
+  display: block;
+  font-size: 8.5px;
+  color: var(--hc-text-muted);
+  letter-spacing: 0.8px;
+  font-weight: 600;
+}
+
+/* Sous 640px, le header cumule brand (icône + 2 lignes) + bouton support +
+   déclencheur menu : le libellé du sous-titre n'est plus indispensable
+   (déjà repris par le titre de page/hero) et sa suppression évite un
+   dépassement horizontal sur les écrans les plus étroits (iPhone SE
+   ~320px) une fois combiné au bouton support en pleine largeur. */
+@media (max-width: 640px) {
+  .hc-brand-sub {
+    display: none;
+  }
+}
+
+/* Institution authentifiée (30/09/2026, retour Bryan) — remplace .hc-brand
+   par "Retour au tableau de bord" + nom de l'institution, même traitement
+   que .legal-header-back-text/.legal-header-back-btn côté Centre légal. */
+.hc-brand--auth {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hc-back-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px 7px 8px;
+  border-radius: var(--hc-radius-sm);
+  border: 1.5px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hc-back-pill:hover {
+  border-color: var(--hc-gold);
+}
+
+.hc-back-pill svg {
+  flex-shrink: 0;
+}
+
+/* Compact sous ~440px (même seuil que .legal-header-back-text) — ne garde
+   que le chevron. */
+@media (max-width: 440px) {
+  .hc-back-pill-text {
+    display: none;
+  }
+}
+
+.hc-brand-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--hc-border);
+  flex-shrink: 0;
+}
+
+.hc-account-name {
+  color: var(--hc-text);
+  font-weight: 800;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.hc-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--hc-gold);
+  flex-shrink: 0;
+}
+
+.hc-header-search {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.hc-header-search .hc-search {
+  width: 100%;
+  max-width: 320px;
+}
+
+.hc-header-search .hc-search-input {
+  padding: 7px 6px 7px 14px;
+  font-size: 13px;
+}
+
+.hc-header-search .hc-search-submit {
+  width: 32px;
+  height: 32px;
+}
+
+/* Seuil aligné sur celui de la sidebar (1024px, plus bas) — la recherche du
+   header n'a de sens que là où le clavier/la souris desktop sont
+   confortables ; en dessous, chaque page catégorie/article affiche sa
+   propre recherche de repli en pleine largeur dans le contenu
+   (`.hc-search-inline-mobile`, jamais les deux en même temps — UX Lock
+   22/09/2026 §5). */
+@media (max-width: 1023.98px) {
+  .hc-header-search {
+    display: none;
+  }
+}
+
+.hc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.hc-contact-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--hc-radius-sm);
+  background: var(--hc-gold);
+  color: var(--hc-gold-ink);
+  font-weight: 700;
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.hc-contact-link svg {
+  flex-shrink: 0;
+}
+
+/* Sélecteur de langue (LanguageSwitcher.tsx) — pictogramme + cadre pilule,
+   façon DoorDash Business Support (retour Bryan 22/09/2026), positionné
+   juste avant l'icône support dans .hc-header-actions. */
+.hc-lang {
+  position: relative;
+}
+
+.hc-lang-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 10px 0 9px;
+  border-radius: 999px;
+  border: 1.5px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hc-lang-trigger:hover {
+  border-color: var(--hc-gold);
+}
+
+.hc-lang-trigger svg {
+  flex-shrink: 0;
+}
+
+.hc-lang-trigger-chevron {
+  transition: transform 0.15s ease;
+}
+
+.hc-lang-trigger[aria-expanded="true"] .hc-lang-trigger-chevron {
+  transform: rotate(180deg);
+}
+
+.hc-lang-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  min-width: 200px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius);
+  box-shadow: 0 12px 32px rgba(26, 18, 0, 0.16);
+}
+
+.hc-lang-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--hc-radius-sm);
+  background: transparent;
+  color: var(--hc-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hc-lang-option:hover:not(:disabled) {
+  background: var(--hc-bg);
+}
+
+.hc-lang-option:disabled {
+  cursor: not-allowed;
+  color: var(--hc-text-muted);
+}
+
+.hc-lang-option-check {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--hc-gold-ink);
+}
+
+.hc-lang-option-soon {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--hc-text-muted);
+  background: var(--hc-bg);
+  border: 1px solid var(--hc-border);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+/* Variante header uniquement (`hc-contact-link--header`, layout.tsx) —
+   la variante pleine largeur du menu mobile (`.hc-mobile-menu-footer
+   .hc-contact-link`, HeaderMobileMenu.tsx) reste inchangée, elle a toute
+   la place nécessaire dans l'overlay plein écran. Sous 640px, le bouton
+   du header passe en icône seule (texte toujours présent pour les
+   lecteurs d'écran, juste masqué visuellement) pour libérer la place
+   prise par le pictogramme casque déjà utilisé partout ailleurs sur
+   Yelen pour "contacter le support" (cohérence avec app/page.tsx). */
+@media (max-width: 640px) {
+  .hc-contact-link--header {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+  }
+  .hc-contact-link--header .hc-contact-link-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+/* Déclencheur du menu mobile (HeaderMobileMenu.tsx) — masqué dès que la
+   sidebar desktop reprend le relais (≥1024px, même seuil que `.hc-nav`
+   ci-dessous). */
+.hc-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--hc-radius-sm);
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Sous 640px, même traitement que .hc-contact-link--header juste au-dessus
+   : icône seule pour ne pas dépasser horizontalement une fois cumulé avec
+   le bouton support et le brand (iPhone SE ~320px, cas déjà documenté). Le
+   libellé reste dans le DOM pour les lecteurs d'écran, seulement masqué
+   visuellement — redondant avec aria-label mais cohérent avec le pattern
+   déjà établi ci-dessus. */
+@media (max-width: 640px) {
+  .hc-menu-trigger {
+    width: 36px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+  }
+  .hc-menu-trigger span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hc-menu-trigger {
+    display: none;
+  }
+}
+
+/* Recherche de repli dans le contenu (catégorie/article) — visible
+   uniquement sous le seuil desktop, jamais en double avec `.hc-header-search`
+   (UX Lock 22/09/2026 §5). */
+.hc-search-inline-mobile {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .hc-search-inline-mobile {
+    display: none;
+  }
+}
+
+/* Overlay plein écran des catégories (mobile) — convention reprise de
+   components/CitoyenMenu.tsx (fixed inset:0, colonne, liste scrollable),
+   piège de focus/Échap gérés en JS (HeaderMobileMenu.tsx). */
+.hc-mobile-menu {
+  position: fixed;
+  /* Longhands + fallback de hauteur explicite plutôt que le seul
+     raccourci `inset` — un container fixed sans hauteur explicite peut se
+     réduire à sa taille de contenu sur certains navigateurs mobiles plus
+     anciens, ce qui casse le calcul `flex: 1` de `.hc-mobile-menu-list`
+     juste en dessous (elle se retrouve avec 0px au lieu de l'espace
+     restant, d'où un panneau qui semble vide). */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 100;
+  background: var(--hc-surface);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 1024px) {
+  .hc-mobile-menu {
+    display: none;
+  }
+}
+
+.hc-mobile-menu-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--hc-border);
+}
+
+.hc-mobile-menu-title {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.hc-mobile-menu-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--hc-bg);
+  color: var(--hc-text);
+  cursor: pointer;
+}
+
+.hc-mobile-menu-list {
+  flex: 1;
+  /* Sans ce reset, la valeur initiale `min-height: auto` d'un enfant flex
+     peut l'empêcher de se réduire en dessous de sa taille de contenu dans
+     un container à hauteur contrainte — bug connu Safari/WebKit sur les
+     listes scrollables en colonne flex. */
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+
+.hc-mobile-menu-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 10px;
+  border-bottom: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-sm);
+  color: var(--hc-text);
+  text-decoration: none;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+/* État pressed/tap visible (§2 du brief) — feedback tactile immédiat,
+   indépendant du hover qui n'existe pas sur mobile. */
+.hc-mobile-menu-link:active {
+  background: var(--hc-bg);
+}
+
+/* Catégorie active distincte du survol/pressed par 2 signaux non colorés
+   en plus de la couleur, même logique que .hc-nav-link[aria-current]
+   (desktop) — jamais la couleur seule (§2/§6 du brief). */
+.hc-mobile-menu-link[aria-current="page"] {
+  background: var(--hc-bg);
+  border-left: 3px solid var(--hc-gold);
+  padding-left: 7px;
+  color: var(--hc-gold-ink);
+  font-weight: 800;
+}
+
+.hc-mobile-menu-chevron {
+  flex-shrink: 0;
+  color: var(--hc-text-muted);
+}
+
+.hc-mobile-menu-count {
+  color: var(--hc-text-muted);
+  font-weight: 500;
+}
+
+.hc-mobile-menu-footer {
+  flex-shrink: 0;
+  padding: 14px 18px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--hc-border);
+}
+
+.hc-mobile-menu-footer .hc-contact-link {
+  width: 100%;
+  justify-content: center;
+}
+
+.hc-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding-top: 28px;
+}
+
+/* Sidebar desktop — masquée sous 1024px : la navigation mobile passe
+   désormais entièrement par le menu overlay (HeaderMobileMenu.tsx), plus
+   par une pile de 9 liens empilée au-dessus du contenu (corrige le
+   problème bloquant relevé par l'audit UX/UI 22/09/2026, §4).
+   Carte visible (fond + bordure), pas juste des liens flottants sans
+   contour — retour Bryan 25/09/2026 : sans conteneur, la sidebar se
+   confondait avec le fond de page et passait inaperçue. */
+.hc-nav {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius);
+  padding: 14px;
+}
+
+.hc-nav__label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--hc-text-muted);
+  padding: 4px 14px 10px;
+}
+
+.hc-nav-link {
+  display: block;
+  padding: 10px 14px;
+  border-radius: var(--hc-radius-sm);
+  color: var(--hc-text);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+}
+
+.hc-nav-link:hover {
+  background: var(--hc-bg);
+  border-color: var(--hc-border);
+  border-left-color: var(--hc-border);
+}
+
+/* État actif distinct du survol par 2 signaux non colorés en plus de la
+   couleur (graisse + accent gauche plein), pas seulement une bordure dorée
+   (corrige B2.6 de l'audit UX/UI 22/09/2026). */
+.hc-nav-link[aria-current="page"] {
+  background: var(--hc-bg);
+  border-color: var(--hc-border);
+  border-left-color: var(--hc-gold);
+  color: var(--hc-gold-ink);
+  font-weight: 800;
+}
+
+.hc-main {
+  min-width: 0;
+}
+
+.hc-search {
+  position: relative;
+  max-width: 480px;
+}
+
+.hc-search-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1.5px solid var(--hc-border);
+  background: var(--hc-surface);
+}
+
+/* Cadre doré sur toute la pilule (champ + boutons) au focus, façon
+   DoorDash — un seul contour unifié, pas un anneau propre à l'input à
+   l'intérieur. Les enfants perdent leur outline individuel dans ce cas
+   précis pour ne jamais doubler le contour. */
+.hc-search-form:focus-within {
+  border-color: var(--hc-gold);
+  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.18);
+}
+
+.hc-search-form:focus-within :focus-visible {
+  outline: none;
+}
+
+.hc-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 8px 10px 16px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hc-text);
+  font-size: 14px;
+}
+
+/* Masque le bouton d'effacement natif (Chrome/Brave/Edge) pour ne garder
+   que .hc-search-clear — sinon les deux "X" s'affichent en double. */
+.hc-search-input::-webkit-search-cancel-button,
+.hc-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+/* Icône visuelle 20px conservée, mais cible cliquable élargie à 32px
+   (padding invisible) — se rapproche de la cible tactile recommandée sans
+   agrandir visuellement le bouton dans la pilule de recherche (audit
+   UX/UI 22/09/2026, section J). */
+.hc-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--hc-text-muted);
+  cursor: pointer;
+  margin-left: 2px;
+}
+
+.hc-search-clear svg {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  padding: 3px;
+  box-sizing: content-box;
+}
+
+.hc-search-clear:hover {
+  color: var(--hc-text);
+}
+
+.hc-search-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: var(--hc-gold-ink);
+  color: #fff;
+  cursor: pointer;
+}
+
+.hc-search-submit:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.hc-search-suggestions {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius);
+  box-shadow: 0 12px 32px rgba(26, 18, 0, 0.16);
+  padding: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.hc-search-suggestions ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hc-search-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--hc-radius-sm);
+  color: var(--hc-text);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hc-search-suggestion svg {
+  flex-shrink: 0;
+  color: var(--hc-text-muted);
+}
+
+.hc-search-suggestion:hover,
+.hc-search-suggestion:focus-visible {
+  background: var(--hc-bg);
+}
+
+/* Pied du dropdown de suggestions — seule porte d'entrée vers /recherche
+   (page avec filtre par catégorie) depuis la recherche en direct (retour
+   Bryan 23/09/2026, voir SearchForm.tsx). */
+.hc-search-suggestions-footer {
+  display: block;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-sm);
+  color: var(--hc-gold-ink);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hc-search-suggestions-footer:hover,
+.hc-search-suggestions-footer:focus-visible {
+  background: var(--hc-bg);
+}
+
+.hc-hero {
+  /* Fond léger Yelen (teinte pâle de --hc-gold), même famille que la
+     teinte rgba(245,166,35,0.08) déjà utilisée sur l'accueil citoyen
+     (app/page.tsx) — jamais une nouvelle couleur inventée. */
+  background: rgba(245, 166, 35, 0.08);
+  border: 1px solid rgba(245, 166, 35, 0.18);
+  border-radius: var(--hc-radius-lg);
+  padding: 32px 20px 28px;
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.hc-hero-eyebrow {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--hc-gold-ink);
+  opacity: 0.75;
+  margin: 0 0 10px;
+}
+
+.hc-hero-title {
+  font-size: 26px;
+  font-weight: 900;
+  color: var(--hc-gold-ink);
+  margin: 0 0 10px;
+  line-height: 1.15;
+}
+
+.hc-hero-sub {
+  font-size: 14px;
+  color: var(--hc-gold-ink);
+  opacity: 0.8;
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+
+.hc-hero .hc-search {
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+.hc-hero .hc-search-form {
+  box-shadow: 0 4px 14px rgba(26, 18, 0, 0.08);
+}
+
+@media (min-width: 640px) {
+  .hc-hero {
+    padding: 44px 40px 38px;
+  }
+  .hc-hero-title {
+    font-size: 34px;
+  }
+  .hc-hero-sub {
+    font-size: 15px;
+  }
+}
+
+.hc-card {
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius);
+  padding: 20px;
+}
+
+/* Grille "Catégories" de l'accueil (page.tsx) — reprenait .hc-card tel
+   quel, identique visuellement à une carte d'info statique (ex.
+   SupportCallout), sans aucun signal de "ceci est cliquable" (retour
+   Bryan 22/09/2026). Chevron + hover repris de .hc-article-row
+   (ArticleCard.tsx, déjà le même besoin résolu pour la liste
+   d'articles) plutôt qu'un nouveau traitement inventé. */
+.hc-category-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius);
+  padding: 20px;
+  text-decoration: none;
+  color: var(--hc-text);
+}
+
+.hc-category-card:hover,
+.hc-category-card:focus-visible {
+  border-color: var(--hc-gold);
+}
+
+.hc-category-card:hover .hc-category-card-title,
+.hc-category-card:focus-visible .hc-category-card-title {
+  color: var(--hc-gold-ink);
+}
+
+.hc-category-card-text {
+  min-width: 0;
+}
+
+.hc-category-card-title {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.hc-category-card-count {
+  color: var(--hc-text-muted);
+  font-size: 12.5px;
+}
+
+.hc-category-card-chevron {
+  flex-shrink: 0;
+  color: var(--hc-text-muted);
+}
+
+.hc-categories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+/* Bouton "Voir les X autres catégories"/"Voir moins" (retour Bryan
+   23/09/2026, brief "organisation de la page d'accueil du Help Center")
+   — pleine largeur et cible tactile généreuse sur mobile (§ "Comportement
+   responsive" du brief), mêmes tokens que .hc-cat-expander-trigger pour
+   rester dans le même langage visuel que le reste du Help Center. */
+.hc-categories-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: var(--hc-radius);
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-gold-ink);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hc-categories-more:hover,
+.hc-categories-more:focus-visible {
+  border-color: var(--hc-gold);
+}
+
+@media (min-width: 640px) {
+  .hc-categories-more {
+    width: auto;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 12px 24px;
+  }
+}
+
+/* Rangée de liste dense (UX Lock 22/09/2026 §5, §7) — remplace la carte
+   bordée par article : séparateur fin entre lignes plutôt qu'une carte
+   indépendante à chaque fois, cible de clic pleine largeur conservée pour
+   l'accessibilité tactile. */
+.hc-article-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 4px;
+  border-bottom: 1px solid var(--hc-border);
+  text-decoration: none;
+  color: var(--hc-text);
+}
+
+.hc-article-row:last-child {
+  border-bottom: none;
+}
+
+.hc-article-row:hover .hc-article-row-title,
+.hc-article-row:focus-visible .hc-article-row-title {
+  color: var(--hc-gold-ink);
+}
+
+.hc-article-row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.hc-article-row-title {
+  display: block;
+  font-weight: 700;
+  font-size: 14.5px;
+  margin-bottom: 3px;
+}
+
+.hc-article-row-resume {
+  display: block;
+  color: var(--hc-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hc-article-row-chevron {
+  flex-shrink: 0;
+  color: var(--hc-text-muted);
+}
+
+/* Variante compacte (panneau "Tous les articles", CategoryArticlesExpander)
+   — juste le titre, padding réduit, pas de résumé ni de chevron. */
+.hc-article-row--compact {
+  padding: 9px 0;
+}
+
+.hc-article-row--compact .hc-article-row-title {
+  margin-bottom: 0;
+  font-size: 14px;
+}
+
+/* Article actif dans le panneau "Tous les articles" (CategoryArticlesExpander)
+   — même convention que .hc-nav-link[aria-current="page"] : graisse +
+   accent gauche plein, jamais la couleur seule. */
+.hc-article-row[aria-current="page"] {
+  background: var(--hc-bg);
+  border-left: 3px solid var(--hc-gold);
+  padding-left: 1px;
+}
+
+.hc-article-row[aria-current="page"] .hc-article-row-title {
+  color: var(--hc-gold-ink);
+  font-weight: 800;
+}
+
+/* Ligne fil d'Ariane + déclencheur "Tous les articles" (retour Bryan
+   23/09/2026, inspiré DoorDash for Business) — coins carrés, même langage
+   visuel que .hc-breadcrumb-back juste au-dessus. */
+.hc-breadcrumb-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hc-cat-expander-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 0;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-gold-ink);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hc-cat-expander-trigger:hover,
+.hc-cat-expander-trigger:focus-visible {
+  border-color: var(--hc-gold);
+}
+
+/* Popover flottant (retour Bryan 23/09/2026) — position absolue ancrée à
+   `.hc-breadcrumb-row` (toute la ligne fil d'Ariane), jamais au bouton
+   déclencheur lui-même : sa position dans la ligne varie selon la longueur
+   du libellé "Retour à" de chaque page, ce qui faisait déraper le popover
+   hors écran (23/09/2026, retour Bryan). Ancré sur la ligne entière →
+   position stable à droite, quelle que soit la page, jamais dans le flux
+   normal (n'allonge plus la page). Largeur plafonnée pour rester
+   nettement détaché du bouton "Retour à" à gauche. Ombre portée en
+   remplacement de la bordure "carte encastrée" précédente, nécessaire
+   pour se détacher visuellement du contenu qu'il survole. */
+.hc-cat-expander-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(300px, calc(100vw - 32px));
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 14px 16px 4px;
+  border-radius: 0;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-bg);
+  box-shadow: 0 16px 32px rgba(20, 16, 6, 0.18);
+}
+
+.hc-cat-expander-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--hc-text-muted);
+}
+
+/* Fil d'Ariane (UX Lock 22/09/2026, §3) — navigation secondaire, jamais un
+   remplacement de la sidebar/du menu mobile. */
+.hc-breadcrumb {
+  margin-bottom: 4px;
+}
+
+.hc-breadcrumb-full {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.hc-breadcrumb-full li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hc-breadcrumb-full a {
+  color: var(--hc-text-muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.hc-breadcrumb-full a:hover {
+  color: var(--hc-gold-ink);
+}
+
+.hc-breadcrumb-full span[aria-current="page"] {
+  color: var(--hc-text);
+  font-weight: 700;
+}
+
+.hc-breadcrumb-sep {
+  color: var(--hc-text-muted);
+  opacity: 0.6;
+}
+
+/* Version mobile — un seul niveau de retour, jamais le fil complet (évite
+   toute chance de passer sur 2 lignes, UX Lock 22/09/2026 §3). Encadré en
+   pilule comme .hc-meta-pill (retour Bryan 23/09/2026) — un texte gris nu
+   se perdait visuellement en haut de page, le cadre le rend identifiable
+   comme un élément de navigation cliquable au premier coup d'œil. */
+.hc-breadcrumb-back-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.hc-breadcrumb-back-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--hc-text-muted);
+}
+
+.hc-breadcrumb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 0;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hc-breadcrumb-back:hover,
+.hc-breadcrumb-back:focus-visible {
+  border-color: var(--hc-gold);
+  color: var(--hc-gold-ink);
+}
+
+/* Bouton retour icône seule (retour Bryan 23/09/2026, page Recherche) —
+   renvoie à l'écran précédent (historique navigateur), pas une
+   destination fixe, donc pas de libellé de catégorie à afficher à côté. */
+.hc-back-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 0;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  cursor: pointer;
+}
+
+.hc-back-icon-button:hover,
+.hc-back-icon-button:focus-visible {
+  border-color: var(--hc-gold);
+  color: var(--hc-gold-ink);
+}
+
+/* Lien "Retour à {catégorie}" en bas d'article (retour Bryan 25/09/2026) —
+   flèche en icône SVG alignée avec le libellé (gap régulier), plutôt que
+   le glyphe "←" collé au texte sans espacement contrôlé. La flèche glisse
+   légèrement vers la gauche au survol, même principe que .hc-mobile-menu-link. */
+.hc-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hc-text);
+  text-decoration: none;
+}
+
+.hc-back-link svg {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.hc-back-link:hover svg,
+.hc-back-link:focus-visible svg {
+  transform: translateX(-3px);
+}
+
+.hc-back-link:hover,
+.hc-back-link:focus-visible {
+  color: var(--hc-gold-ink);
+}
+
+/* Filtre catégorie des résultats de recherche (retour Bryan 23/09/2026)
+   — chips compacts, scroll horizontal natif sur mobile (jamais de retour
+   à la ligne forcé, rendrait l'écran trop long), style outline inactif /
+   doré actif comme n'importe quel CTA Yelen (--hc-gold/--hc-gold-ink). */
+.hc-search-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 14px;
+  scrollbar-width: none;
+}
+
+.hc-search-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.hc-search-filter-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hc-search-filter-chip:hover,
+.hc-search-filter-chip:focus-visible {
+  border-color: var(--hc-gold);
+}
+
+.hc-search-filter-chip[data-active="true"] {
+  border-color: var(--hc-gold);
+  background: var(--hc-gold);
+  color: var(--hc-gold-ink);
+}
+
+.hc-search-filter-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--hc-text-muted);
+  font-size: 13.5px;
+}
+
+.hc-search-filter-reset {
+  margin-top: 12px;
+  min-height: 40px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-gold-ink);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hc-search-filter-reset:hover,
+.hc-search-filter-reset:focus-visible {
+  border-color: var(--hc-gold);
+}
+
+@media (min-width: 640px) {
+  .hc-breadcrumb-full {
+    display: flex;
+  }
+  .hc-breadcrumb-back-wrap {
+    display: none;
+  }
+}
+
+.hc-empty {
+  text-align: center;
+  padding: 48px 20px;
+  border: 1px dashed var(--hc-border);
+  border-radius: var(--hc-radius-lg);
+}
+
+/* Colonne de lecture éditoriale (refonte lecture article, 23/09/2026) —
+   remplace les cartes blanches par section par une page continue façon
+   Shopify Help Center. Capée en largeur mais pas centrée : la sidebar
+   desktop (.hc-nav) reste à gauche, un centrage horizontal indépendant
+   créerait un déséquilibre visuel avec elle. */
+.hc-article-shell {
+  max-width: 760px;
+}
+
+/* Sommaire de l'article (ArticleToc.tsx, retour Bryan 25/09/2026) — desktop
+   uniquement, jamais sur mobile (pas la place, la navigation mobile passe
+   déjà par le fil d'Ariane). Même convention que .hc-nav : caché par
+   défaut, réactivé dans le @media ≥1024px plus bas. */
+.hc-toc {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .hc-article-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 40px;
+  }
+
+  .hc-toc {
+    display: block;
+    width: 220px;
+    flex-shrink: 0;
+    position: sticky;
+    top: calc(var(--hc-header-h) + 24px);
+  }
+}
+
+.hc-toc__label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--hc-text-muted);
+  margin-bottom: 10px;
+}
+
+.hc-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 1.5px solid var(--hc-border);
+}
+
+.hc-toc a {
+  display: block;
+  padding: 6px 0 6px 14px;
+  margin-left: -1.5px;
+  border-left: 1.5px solid transparent;
+  color: var(--hc-text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.hc-toc a:hover,
+.hc-toc a:focus-visible {
+  color: var(--hc-text);
+  border-left-color: var(--hc-gold);
+}
+
+.hc-article-header {
+  margin: 12px 0 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--hc-border);
+}
+
+.hc-article-title {
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1.25;
+  margin: 12px 0 14px;
+  color: var(--hc-text);
+}
+
+@media (min-width: 640px) {
+  .hc-article-title {
+    font-size: 32px;
+  }
+}
+
+.hc-article-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.hc-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  color: var(--hc-text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* Corps de l'article — texte directement sur le fond de page, aucune carte.
+   Taille de base relevée (17px) par rapport au reste du Help Center pour
+   un vrai confort de lecture longue (mobile compris, jamais en dessous de
+   17px). */
+.hc-article-body {
+  color: var(--hc-text);
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.hc-article-body p {
+  margin: 0 0 22px;
+}
+
+.hc-article-body h2 {
+  margin: 40px 0 14px;
+  font-size: 23px;
+  line-height: 1.3;
+  font-weight: 800;
+  color: var(--hc-text);
+}
+
+.hc-article-body > div:first-child > h2:first-child {
+  margin-top: 0;
+}
+
+.hc-article-body ul,
+.hc-article-body ol {
+  margin: 0 0 24px;
+  padding-left: 24px;
+}
+
+.hc-article-body li {
+  margin-bottom: 10px;
+}
+
+.hc-pre-line {
+  white-space: pre-line;
+}
+
+.hc-checklist {
+  list-style: none;
+  padding-left: 0;
+}
+
+.hc-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.hc-checklist-icon {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: #16A34A;
+}
+
+/* Étapes numérotées dans le flux de lecture (jamais une carte par étape) —
+   le numéro guide l'œil sans peser visuellement. */
+.hc-steps {
+  counter-reset: step;
+  list-style: none;
+  padding-left: 0;
+}
+
+.hc-steps li {
+  position: relative;
+  min-height: 30px;
+  padding-left: 42px;
+}
+
+.hc-steps li::before {
+  content: counter(step);
+  counter-increment: step;
+  position: absolute;
+  top: -1px;
+  left: 0;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--hc-border);
+  border-radius: 50%;
+  color: var(--hc-text-muted);
+  background: var(--hc-surface);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* Encadrés contextuels — fond coloré léger, sans bordure (retour Bryan
+   25/09/2026 : le fond coloré suffit à signaler la carte, la bordure
+   alourdissait) + titre à icône (ArticleCallout.tsx), jamais une carte
+   blanche générique. Réservés aux informations réellement particulières
+   (§5 du brief : jamais un habillage par défaut pour du texte normal). */
+.hc-callout {
+  margin: 32px 0;
+  padding: 18px 20px;
+  border-radius: 12px;
+}
+
+.hc-callout__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.hc-callout__header svg {
+  flex-shrink: 0;
+}
+
+.hc-callout__content p {
+  margin: 0 0 12px;
+}
+
+.hc-callout__content p:last-child {
+  margin-bottom: 0;
+}
+
+.hc-callout__lead {
+  font-weight: 700;
+}
+
+.hc-callout--info {
+  color: #173d80;
+  background: #eff6ff;
+}
+.hc-callout--info .hc-callout__header { color: #1d4ed8; }
+
+.hc-callout--success {
+  color: #14532d;
+  background: #f0fdf4;
+}
+.hc-callout--success .hc-callout__header { color: #15803d; }
+
+.hc-callout--warning {
+  color: #78350f;
+  background: #fffbeb;
+}
+.hc-callout--warning .hc-callout__header { color: #a16207; }
+
+.hc-callout--danger {
+  color: #7f1d1d;
+  background: #fef2f2;
+}
+.hc-callout--danger .hc-callout__header { color: #b91c1c; }
+
+/* Emplacement éditorial "capture à ajouter" (GuideScreenshotPlaceholder.tsx,
+   standard v2 §2) — bordure en tirets + fond neutre gris (jamais doré/coloré
+   comme un vrai callout ArticleCallout) pour ne jamais ressembler à une
+   fonctionnalité produit destinée au prestataire final. */
+.hc-screenshot-placeholder {
+  margin: 28px 0;
+  padding: 0;
+  border: 1.5px dashed var(--hc-border);
+  border-radius: var(--hc-radius);
+  background: #FAFAF9;
+  position: relative;
+}
+
+.hc-screenshot-placeholder__tag {
+  position: absolute;
+  top: -11px;
+  left: 18px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  color: var(--hc-text-muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hc-screenshot-placeholder__body {
+  padding: 28px 24px 22px;
+  text-align: center;
+}
+
+.hc-screenshot-placeholder__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  color: var(--hc-text-muted);
+  margin-bottom: 12px;
+}
+
+.hc-screenshot-placeholder__label {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--hc-text);
+}
+
+.hc-screenshot-placeholder__meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 28px;
+  margin: 0 0 14px;
+}
+
+.hc-screenshot-placeholder__meta dt {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--hc-text-muted);
+  margin-bottom: 2px;
+}
+
+.hc-screenshot-placeholder__meta dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--hc-text);
+}
+
+.hc-screenshot-placeholder__montrer-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--hc-text-muted);
+}
+
+.hc-screenshot-placeholder__montrer {
+  display: inline-block;
+  text-align: left;
+  margin: 0 auto;
+  padding: 0 0 0 18px;
+  color: var(--hc-text-muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+/* Articles associés — liste de liens minimaliste, jamais des cartes
+   (.hc-article-row s'en charge déjà, ArticleCard.tsx), juste un séparateur
+   au-dessus pour les distinguer du corps éditorial. */
+.hc-related {
+  margin-top: 48px;
+  padding-top: 28px;
+  border-top: 1px solid var(--hc-border);
+}
+
+.hc-related h2 {
+  font-size: 15px;
+  font-weight: 800;
+  margin: 0 0 6px;
+}
+
+@media (min-width: 1024px) {
+  .hc-layout {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .hc-nav {
+    display: flex;
+    width: 240px;
+    flex-shrink: 0;
+    position: sticky;
+    top: calc(var(--hc-header-h) + 24px);
+  }
+  /* Espace avant la sidebar réduit (retour Bryan 25/09/2026 : trop de vide
+     à gauche) — header et shell gardent le même padding gauche pour que la
+     sidebar reste alignée avec le logo, seul le côté droit garde sa marge
+     d'origine. */
+  .hc-shell {
+    padding-left: 10px;
+  }
+  .hc-header {
+    padding-left: 10px;
+  }
+}
+
+/* Module de feedback "cet article vous a-t-il aidé ?" (ArticleFeedback.tsx,
+   retour Bryan 23/09/2026) — placé après les articles associés, avant
+   SupportCallout. Même séparateur que .hc-related pour rester dans le
+   même rythme visuel de fin de page. */
+.hc-article-feedback {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--hc-border);
+}
+
+.hc-article-feedback__question {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--hc-text);
+}
+
+.hc-article-feedback__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Même poids visuel pour les deux choix — jamais l'un plus dominant que
+   l'autre (retour Bryan). Seul le bouton d'envoi du formulaire négatif
+   (--primary) est doré : c'est la seule vraie action CTA de ce module. */
+.hc-article-feedback__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  min-height: 40px;
+  border-radius: var(--hc-radius-sm);
+  border: 1.5px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.hc-article-feedback__btn:hover {
+  border-color: var(--hc-gold);
+}
+
+.hc-article-feedback__btn:focus-visible {
+  outline: 2.5px solid var(--hc-focus);
+  outline-offset: 2px;
+}
+
+.hc-article-feedback__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hc-article-feedback__btn--primary {
+  background: var(--hc-gold);
+  color: var(--hc-gold-ink);
+  border-color: var(--hc-gold);
+}
+
+.hc-article-feedback__form {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.hc-article-feedback__label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--hc-text);
+}
+
+.hc-article-feedback__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--hc-radius-sm);
+  border: 1.5px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.hc-article-feedback__textarea:focus-visible {
+  outline: 2.5px solid var(--hc-focus);
+  outline-offset: 1px;
+  border-color: var(--hc-gold);
+}
+
+.hc-article-feedback__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--hc-text-muted);
+}
+
+.hc-article-feedback__count {
+  margin: 4px 0 14px;
+  font-size: 12px;
+  color: var(--hc-text-muted);
+  text-align: right;
+}
+
+.hc-article-feedback__support {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--hc-text-muted);
+}
+
+.hc-article-feedback__support a {
+  color: var(--hc-text);
+  font-weight: 700;
+}
+
+.hc-article-feedback__confirmation {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--hc-text);
+}
+
+.hc-article-feedback__confirmation:focus-visible {
+  outline: none;
+}
+
+/* Retour positif uniquement (retour Bryan 23/09/2026) — même vert que
+   .hc-callout--success, jamais une couleur inventée à part. */
+.hc-article-feedback__confirmation--positive {
+  color: #15803d;
+}
+
+.hc-article-feedback__confirmation-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: hc-feedback-pop 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hc-article-feedback__confirmation-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: #15803d;
+}
+
+/* Retour négatif (retour Bryan 23/09/2026) — même rouge que
+   .hc-article-feedback__erreur / .hc-callout--danger, pas une couleur
+   inventée à part. */
+.hc-article-feedback__confirmation--negative {
+  color: #b91c1c;
+}
+
+.hc-article-feedback__confirmation-icon--negative {
+  color: #b91c1c;
+}
+
+@keyframes hc-feedback-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hc-article-feedback__confirmation-wrap {
+    animation: none;
+  }
+}
+
+.hc-article-feedback__autre {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--hc-text-muted);
+}
+
+.hc-article-feedback__erreur {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #b91c1c;
+}
+
+@media (max-width: 480px) {
+  .hc-article-feedback__btn {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+.hc-footer {
+  margin-top: 40px;
+  border-top: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+}
+
+@media (max-width: 640px) {
+  .hc-footer {
+    margin-top: 12px;
+  }
+}
+
+.hc-footer-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 36px 20px 28px;
+  /* Neutralise un hack global mobile (app/globals.css, "FOOTER MOBILE",
+     `footer > div { text-align: center !important }`) écrit pour les
+     anciens footers en style inline de cgu/confidentialite — il matche
+     aussi ce <div> puisque c'est un vrai <footer> HTML, et centrait tout
+     le texte par héritage (cause réelle du texte "en escalier" observé :
+     chaque ligne plus courte que la plus longue de son groupe se
+     retrouvait centrée dans une boîte étirée à la largeur de celle-ci).
+     Spécificité de classe suffisante pour l'emporter sur le sélecteur
+     d'éléments `footer > div` malgré les deux !important. */
+  text-align: left !important;
+}
+
+.hc-footer-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+  flex-wrap: wrap;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--hc-border);
+}
+
+.hc-footer-brand strong {
+  display: block;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--hc-text);
+  letter-spacing: 0.3px;
+  margin-bottom: 3px;
+}
+
+.hc-footer-brand span {
+  font-size: 11px;
+  color: var(--hc-text-muted);
+  font-weight: 600;
+}
+
+/* 3 étoiles décoratives autour de "224" (retour Bryan 23/09/2026) — pur
+   style, aucune fonction. */
+.hc-footer-brand-224 {
+  position: relative;
+  display: inline-block;
+}
+
+.hc-footer-brand-star {
+  position: absolute;
+  color: var(--hc-gold);
+}
+
+.hc-footer-brand-star--1 {
+  top: -9px;
+  right: -13px;
+}
+
+.hc-footer-brand-star--2 {
+  top: -2px;
+  right: -21px;
+}
+
+.hc-footer-brand-star--3 {
+  top: 10px;
+  right: -7px;
+}
+
+.hc-footer-groups {
+  display: flex;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+
+.hc-footer-links-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Titres de section du footer (Éditeur, Mentions légales, Centre d'aide) —
+   retour Bryan 23/09/2026 : trop proches visuellement des liens en dessous.
+   Essai doré abandonné (retour Bryan) : noir très foncé + texte plus gros
+   pour créer la hiérarchie, plutôt qu'une couleur de marque. */
+.hc-footer-group-label {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #0D0B08;
+  margin-bottom: 10px;
+}
+
+.hc-footer-links-group a {
+  font-size: 13px;
+  color: var(--hc-text-muted);
+  text-decoration: none;
+  line-height: 1.8;
+}
+
+.hc-footer-links-group a:hover {
+  color: var(--hc-gold-ink);
+}
+
+.hc-footer-bottom {
+  padding-top: 18px;
+  font-size: 11px;
+  color: var(--hc-text-muted);
+}
+
+@media (max-width: 640px) {
+  .hc-footer-top {
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  /* Le gap de 48px sépare les 3 colonnes à l'horizontale sur desktop —
+     une fois les groupes empilés en une seule colonne par le wrap, ce
+     même 48px se retrouvait réutilisé comme espacement vertical entre
+     "Centre d'aide"/"Mentions légales"/"Éditeur", créant un rythme
+     disproportionné par rapport aux 24px déjà utilisés juste au-dessus
+     (brand → groupes). Alignée sur la même valeur pour un rythme vertical
+     cohérent sur tout le footer mobile. */
+  .hc-footer-groups {
+    gap: 24px;
+  }
+}
+
+/* CTA acquisition institution (InstitutionCta.tsx, retour Bryan
+   23/09/2026) — après SupportCallout partout où celui-ci apparaît. Empilé
+   sur mobile, grosse carte horizontale à partir du desktop (retour Bryan :
+   "PC first, une grosse carte horizontale"). Fond doré clair distinct de
+   .hc-card (neutre) pour se démarquer comme une invitation, pas une simple
+   note d'info — jamais de couleur de bouton hors --hc-gold pour le CTA
+   principal (règle CTA toujours dorée du projet). */
+.hc-institution-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 28px 32px;
+  background: #FFF8EA;
+  border-color: #F0DDA3;
+}
+
+.hc-institution-cta__title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--hc-text);
+}
+
+.hc-institution-cta__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--hc-text-muted);
+}
+
+.hc-institution-cta__actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+
+/* Coins entièrement arrondis façon DoorDash (retour Bryan 23/09/2026) —
+   remplace --hc-radius-sm (10px). */
+.hc-institution-cta__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-height: 40px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color 0.15s ease;
+}
+
+.hc-institution-cta__btn:hover {
+  border-color: var(--hc-gold);
+}
+
+.hc-institution-cta__btn:focus-visible {
+  outline: 2.5px solid var(--hc-focus);
+  outline-offset: 2px;
+}
+
+.hc-institution-cta__btn--primary {
+  background: var(--hc-gold);
+  color: var(--hc-gold-ink);
+  border-color: var(--hc-gold);
+}
+
+@media (min-width: 768px) {
+  .hc-institution-cta {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 32px;
+  }
+
+  .hc-institution-cta__body {
+    max-width: 560px;
+  }
+
+  .hc-institution-cta__actions {
+    flex-shrink: 0;
+  }
+}

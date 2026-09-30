@@ -128,6 +128,7 @@ export const ITEMS: { label: string; href: string; badge: () => React.ReactNode 
 // historique. #F5A623 reste l'unique accent (anneau de l'avatar, chevron
 // du profil) — jamais une couleur par ligne.
 const LineIc = {
+  Projets: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M8.5 13.5l2 2 4.5-4.5"/></svg>,
   Target: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg>,
   Wallet: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10.5h18"/><circle cx="16.5" cy="14.5" r="1" fill="currentColor" stroke="none"/></svg>,
   Calc: () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M8 7h8"/><circle cx="8.3" cy="12.2" r=".6" fill="currentColor" stroke="none"/><circle cx="12" cy="12.2" r=".6" fill="currentColor" stroke="none"/><circle cx="15.7" cy="12.2" r=".6" fill="currentColor" stroke="none"/><circle cx="8.3" cy="16" r=".6" fill="currentColor" stroke="none"/><circle cx="12" cy="16" r=".6" fill="currentColor" stroke="none"/><circle cx="15.7" cy="16" r=".6" fill="currentColor" stroke="none"/></svg>,
@@ -140,6 +141,7 @@ const LineIc = {
 
 const SECTIONS: { title: string; items: { label: string; href: string; icon?: keyof typeof LineIc }[] }[] = [
   { title: "Votre espace", items: [
+    { label: "Mes projets",           href: "/menu/projets",      icon: "Projets" },
     { label: "Vos centres d'intérêt", href: "/menu/interets",     icon: "Target" },
     { label: "Mes dépenses",          href: "/menu/depenses",     icon: "Wallet" },
     { label: "Calculatrice",          href: "/menu/calculatrice", icon: "Calc" },

@@ -58,7 +58,7 @@ export const TAB_KEYS = [
   // Écrans dédiés issus de l'éclatement de "Paramètres" (14/09/2026) — même
   // palier d'accès que "parametres" pour chaque rôle ci-dessous, cet écran
   // ne faisant plus qu'y lister des liens vers ces 4 nouveaux onglets.
-  "parametres-securite", "parametres-notifications", "parametres-support", "parametres-legal",
+  "parametres-securite", "parametres-notifications", "parametres-legal",
   // Module Collaboration (Lot A, 16/09/2026) — espace interne membre <->
   // membre, distinct de "messagerie" (citoyen <-> institution).
   "collaboration",
@@ -75,6 +75,13 @@ export const TAB_KEYS = [
   "yelen-compte", "yelen-contrat", "yelen-forfait", "yelen-paiements",
   "yelen-transactions", "yelen-reconciliation", "yelen-frais-commissions",
   "yelen-facturation", "yelen-documents", "yelen-support",
+  // "Préparer ma semaine" (Phase 1, 26/09/2026, décision CEO) — espace
+  // strictement personnel au membre (comme "profil"), pas un domaine
+  // métier de l'institution : accès complet aux 5 rôles, aucune
+  // ActionKey dédiée (les écritures passent par les routes taches/agenda
+  // déjà gatées sur "espace-travail", seule preparations-semaine est
+  // gatée directement sur cet onglet).
+  "ma-semaine",
 ] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
 
@@ -100,11 +107,12 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     paiements: "full", transactions: "full", "historique-financier": "full",
     facturation: "full", rapports: "full", "documents-financiers": "full", "documents-clients": "full", profil: "full",
     partenariat: "full", "mes-offres": "full", "clock-in-shift": "full",
-    "parametres-securite": "full", "parametres-notifications": "full", "parametres-support": "full", "parametres-legal": "full",
+    "parametres-securite": "full", "parametres-notifications": "full", "parametres-legal": "full",
     collaboration: "full",
     "yelen-compte": "full", "yelen-contrat": "full", "yelen-forfait": "full", "yelen-paiements": "full",
     "yelen-transactions": "full", "yelen-reconciliation": "full", "yelen-frais-commissions": "full",
     "yelen-facturation": "full", "yelen-documents": "full", "yelen-support": "full",
+    "ma-semaine": "full",
   },
   // Front office pur (retour Bryan 13/09/2026) : l'agent d'accueil n'a plus
   // aucun onglet en lecture seule — un accès "read" qu'il ne peut pas
@@ -124,11 +132,12 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "none", profil: "full",
     partenariat: "none", "mes-offres": "none", "clock-in-shift": "none",
-    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-legal": "none",
     collaboration: "full",
     "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
     "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
     "yelen-facturation": "none", "yelen-documents": "none", "yelen-support": "none",
+    "ma-semaine": "full",
   },
   // Menu strictement financier — décision CEO 22/07/2026 : le comptable
   // n'est plus lecteur des écrans des autres rôles (communication, analyse,
@@ -143,11 +152,12 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     paiements: "full", transactions: "full", "historique-financier": "full",
     facturation: "full", rapports: "full", "documents-financiers": "full", "documents-clients": "none", profil: "full",
     partenariat: "none", "mes-offres": "none", "clock-in-shift": "none",
-    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-legal": "none",
     collaboration: "full",
     "yelen-compte": "full", "yelen-contrat": "full", "yelen-forfait": "full", "yelen-paiements": "full",
     "yelen-transactions": "full", "yelen-reconciliation": "full", "yelen-frais-commissions": "full",
     "yelen-facturation": "full", "yelen-documents": "full", "yelen-support": "full",
+    "ma-semaine": "full",
   },
   superviseur: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
@@ -159,11 +169,12 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "full", profil: "full",
     partenariat: "full", "mes-offres": "full", "clock-in-shift": "read",
-    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-legal": "none",
     collaboration: "full",
     "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
     "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
     "yelen-facturation": "none", "yelen-documents": "none", "yelen-support": "none",
+    "ma-semaine": "full",
   },
   dirigeant: {
     accueil: "full", rdv: "read", disponibilites: "none", services: "none",
@@ -175,7 +186,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     paiements: "none", transactions: "none", "historique-financier": "none",
     facturation: "none", rapports: "none", "documents-financiers": "none", "documents-clients": "none", profil: "full",
     partenariat: "read", "mes-offres": "read", "clock-in-shift": "read",
-    "parametres-securite": "none", "parametres-notifications": "none", "parametres-support": "none", "parametres-legal": "none",
+    "parametres-securite": "none", "parametres-notifications": "none", "parametres-legal": "none",
     collaboration: "full",
     "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
     "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
@@ -188,6 +199,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     // journal/partenariat/mes-offres/clock-in-shift) — "lecture seule sur
     // le sensible", jamais un pilotage opérationnel.
     "yelen-facturation": "none", "yelen-documents": "read", "yelen-support": "none",
+    "ma-semaine": "full",
   },
 };
 

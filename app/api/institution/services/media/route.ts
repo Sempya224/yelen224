@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!can(membre.role, "services.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
 
   const form = await req.formData().catch(() => null);
-  if (!form) return NextResponse.json({ error: "Corps de requête invalide" }, { status: 400 });
+  if (!form) return NextResponse.json({ error: "Le fichier n'a pas pu être envoyé — il est peut-être trop volumineux ou la connexion a été interrompue. Réessayez avec un fichier plus léger." }, { status: 400 });
 
   const kind = form.get("kind");
   if (kind !== "photo" && kind !== "video") return NextResponse.json({ error: "Type de média invalide" }, { status: 400 });

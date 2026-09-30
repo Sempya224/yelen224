@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 // Métadonnées visuelles des 15 catégories d'activité (couleur/icône) —
 // chantier Taxonomie des activités, Phase 2 (20/08/2026,
 // docs/product/YELEN_TAXONOMIE_ACTIVITES_SPEC.md §4.3/§12). Reste
@@ -70,4 +72,50 @@ export function ActiviteCategorieIcon({ code, color, size = 20 }: { code: string
     case "associations_ong_organisations": return <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
     default: return <svg {...p}><circle cx="5" cy="5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="19" cy="5" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="19" r="1.6"/><circle cx="12" cy="19" r="1.6"/><circle cx="19" cy="19" r="1.6"/></svg>;
   }
+}
+
+// Illustrations "sticker" sur mesure (designers Yelen, 28/09/2026) — 10
+// catégories livrées pour l'instant sur 15, les 5 restantes arriveront au
+// fil de l'eau. Mapping volontairement partiel : jamais un enregistrement
+// pour une catégorie sans illustration réelle (voir ActiviteCategorieVisuel
+// ci-dessous, qui retombe sur ActiviteCategorieIcon tant qu'une entrée
+// manque ici plutôt que d'afficher un espace vide).
+// Dimensions réelles conservées par fichier (livrées par lot, pas toutes au
+// même format — 1254x1254 pour les 4 premières, 1407x1118/1536x1024 pour
+// Technologie/Hôtels/Droit/Beauté). BTP et Transport recadrées à la main
+// (30/09/2026, fichier source du designer trop chargé pour une tuile 36-44px
+// — camion+voiture+pin et grue+immeuble+casque uniquement, reste rogné) :
+// dimensions propres au recadrage, pas celles livrées par le designer.
+// Toujours vérifier la taille réelle du PNG avant d'ajouter une entrée
+// (`objectFit:"contain"` déforme sinon l'avertissement Next.js "image
+// dimensions don't match" apparaît).
+const ACTIVITE_CATEGORIE_ILLUSTRATION: Partial<Record<string, { src: string; w: number; h: number }>> = {
+  institutions_publiques_administratif: { src: "/illustrations/categorie-administration.png", w: 1254, h: 1254 },
+  sante_medical:                        { src: "/illustrations/categorie-sante.png", w: 1254, h: 1254 },
+  finance_assurance_paiements:          { src: "/illustrations/categorie-finance.png", w: 1254, h: 1254 },
+  droit_comptabilite_conseil:           { src: "/illustrations/categorie-droit.png", w: 1536, h: 1024 },
+  education_formation_recherche:        { src: "/illustrations/categorie-education.png", w: 1254, h: 1254 },
+  technologie_numerique_telecom:        { src: "/illustrations/categorie-technologie.png", w: 1407, h: 1118 },
+  hebergement_restauration_evenements:  { src: "/illustrations/categorie-hotels.png", w: 1536, h: 1024 },
+  transport_logistique_mobilite:        { src: "/illustrations/categorie-transport.png", w: 830, h: 850 },
+  btp_immobilier_technique:             { src: "/illustrations/categorie-btp.png", w: 740, h: 940 },
+  beaute_bien_etre_sport:               { src: "/illustrations/categorie-beaute-sport.png", w: 1536, h: 1024 },
+};
+
+// Tuile catégorie unifiée — point d'entrée unique pour toute tuile
+// catégorie (CategorieGrid, grille "Que voulez-vous faire ?" de
+// projets-client.tsx) : illustration réelle quand disponible (pas de fond
+// coloré superflu, l'illustration porte déjà sa propre lumière), repli sur
+// l'icône SVG + pastille colorée existante sinon — jamais les deux traités
+// différemment par le composant appelant.
+export function ActiviteCategorieVisuel({ code, color, size = 36 }: { code: string; color: string; size?: number }) {
+  const illustration = ACTIVITE_CATEGORIE_ILLUSTRATION[code];
+  if (illustration) {
+    return <Image src={illustration.src} alt="" width={illustration.w} height={illustration.h} style={{ width: `${size}px`, height: `${size}px`, objectFit: "contain" }}/>;
+  }
+  return (
+    <div style={{ width: `${size}px`, height: `${size}px`, borderRadius: "10px", background: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <ActiviteCategorieIcon code={code} color={color} size={Math.round(size * 0.56)}/>
+    </div>
+  );
 }

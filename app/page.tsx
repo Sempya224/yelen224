@@ -633,7 +633,7 @@ function PromoBandeauDepuisSpec({ spec, isDark }: { spec: (typeof PROMO_BANDEAUX
   );
 }
 
-type RDV = { id: string; date_rdv: string; heure_rdv?: string; statut: string; objet?: string; institution_id?: string; institution_name?: string; institution_secteur?: string | null; institution_logo?: string | null; presence?: boolean; presence_status?: string };
+type RDV = { id: string; date_rdv: string; heure_rdv?: string; date_depart?: string | null; statut: string; objet?: string; institution_id?: string; institution_name?: string; institution_secteur?: string | null; institution_logo?: string | null; presence?: boolean; presence_status?: string };
 type Inst = { id: string; name: string; category?: string; secteur?: string; ville?: string; quartier?: string; adresse?: string; latitude?: number; longitude?: number; phone?: string; logo?: string; moyenne_avis?: number; nb_avis?: number; badge_verifie?: boolean; plan?: string; disponibilites?: unknown };
 type PageRouter = ReturnType<typeof useRouter>;
 
@@ -1301,25 +1301,35 @@ function CarteIdentiteCompte({ userId, userName, userPhone, userPhoto, initials,
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-          {[
-            { label: "RDV Total", value: String(rdvs.length || 0), dot: undefined as string | undefined },
-            { label: "Score présence", value: `${presenceScore}%`, dot: scoreColor },
-            { label: "Statut", value: scoreLabel, dot: scoreColor },
-          ].map(s => (
-            <div key={s.label} style={{ background: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderRadius: "10px", padding: "8px 6px", textAlign: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", marginBottom: "3px" }}>
-                {s.dot && <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: s.dot, flexShrink: 0 }}/>}
-                <span style={{ color: "#080812", fontSize: "14px", fontWeight: "900", lineHeight: 1 }}>{s.value}</span>
+        {/* Carte blanche flottant sur le fond doré (retour Bryan 29/09/2026,
+            inspiré de la carte "Genius rewards" de Booking sur son header
+            bleu — pas une reproduction, juste le même principe de calque :
+            un contenu en fond blanc qui se détache du fond de marque au lieu
+            de s'y fondre). Remplace les 3 pastilles blanches + le CTA
+            translucide qui étaient posés directement sur le doré. */}
+        <div style={{ background: "#fff", borderRadius: "16px", padding: "14px 8px 14px", boxShadow: "0 4px 14px rgba(0,0,0,0.14)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginBottom: "14px" }}>
+            {[
+              { label: "RDV Total", value: String(rdvs.length || 0), dot: undefined as string | undefined },
+              { label: "Score présence", value: `${presenceScore}%`, dot: scoreColor },
+              { label: "Statut", value: scoreLabel, dot: scoreColor },
+            ].map((s, i) => (
+              <div key={s.label} style={{ textAlign: "center", borderRight: i < 2 ? "1px solid rgba(8,8,18,0.08)" : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", marginBottom: "3px" }}>
+                  {s.dot && <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: s.dot, flexShrink: 0 }}/>}
+                  <span style={{ color: "#080812", fontSize: "14px", fontWeight: "900", lineHeight: 1 }}>{s.value}</span>
+                </div>
+                <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "600" }}>{s.label}</div>
               </div>
-              <div style={{ color: "rgba(8,8,18,0.55)", fontSize: "9px", fontWeight: "600" }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
 
-        <Link href="/compte/informations-personnelles" className="tap" style={{ display: "block", textAlign: "center", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", borderRadius: "12px", padding: "10px", color: "#080812", fontSize: "13px", fontWeight: "800", textDecoration: "none" }}>
-          Modifier mon profil
-        </Link>
+          <div style={{ padding: "0 6px" }}>
+            <Link href="/compte/informations-personnelles" className="tap" style={{ display: "block", textAlign: "center", background: "#F5A623", borderRadius: "12px", padding: "11px", color: "#080812", fontSize: "13px", fontWeight: "800", textDecoration: "none" }}>
+              Modifier mon profil
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2020,31 +2030,7 @@ function HeroTitre({ prenom }: { prenom: string }) {
 // chiffré (décision actée du 21/07/2026, /chantier-strategie-retention-v2 :
 // jamais de score numérique visible pour un citoyen) — uniquement des
 // badges factuels, thème "lumière" repris des mots du CEO lui-même.
-function greetingTexte(heure: number): string {
-  if (heure < 6) return "Bonne nuit";
-  if (heure < 12) return "Bonjour";
-  if (heure < 18) return "Bon après-midi";
-  return "Bonsoir";
-}
-
-// Icône jour/nuit — remplace l'emoji de lib/salutation.ts (gardé tel quel
-// pour les textes de notification, où un vrai SVG est impossible) par une
-// icône trait, demandé par le CEO le 23/07/2026 ("retire les emojis, crée
-// des vraies SVG").
-function IconSalutation({ heure }: { heure: number }) {
-  const jour = heure >= 6 && heure < 18;
-  return jour ? (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.4" strokeLinecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-  ) : (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.4" strokeLinecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-  );
-}
-
-function StatusHero({ prenom, nom, sexe, dateStr, rdvEnRetard, prochainRdv, aDejaEuRdv, demarcheEnRetardCount, documentsAttenteCount, router }: {
-  prenom: string;
-  nom: string;
-  sexe: string | null;
-  dateStr: string;
+function StatusHero({ rdvEnRetard, prochainRdv, aDejaEuRdv, demarcheEnRetardCount, documentsAttenteCount, router }: {
   rdvEnRetard: RDV | undefined;
   prochainRdv: RDV | undefined;
   aDejaEuRdv: boolean;
@@ -2052,13 +2038,6 @@ function StatusHero({ prenom, nom, sexe, dateStr, rdvEnRetard, prochainRdv, aDej
   documentsAttenteCount: number;
   router: ReturnType<typeof useRouter>;
 }) {
-  const heure = new Date().getHours();
-  // Salutation formelle (Bryan, 23/07/2026 : "Yelen c'est pour les
-  // professionnels, ministres etc., c'est important") — M./Mme + nom de
-  // famille quand le genre est renseigné, sinon on retombe sur le prénom
-  // seul plutôt que d'inventer un titre (aucune donnée fictive).
-  const titre = sexe === "homme" ? "M." : sexe === "femme" ? "Mme" : null;
-  const nomAffiche = titre && nom ? `${titre} ${nom}` : prenom;
   // Zone "Aujourd'hui" (retour Bryan 22/08/2026) — étend le Hero déjà en
   // place plutôt que de construire un nouveau composant en parallèle :
   // tout signal réellement bloquant (RDV manqué, démarche en retard,
@@ -2075,20 +2054,10 @@ function StatusHero({ prenom, nom, sexe, dateStr, rdvEnRetard, prochainRdv, aDej
 
   return (
     <div>
-      {/* Date + salutation sur une seule ligne (retour CEO 23/07/2026 :
-          réduire la hauteur du Hero) — date en pastille blanche, "Bonsoir"
-          en foncé, uniquement le prénom en blanc et gros, icône jour/nuit
-          réelle (plus d'emoji). */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        {dateStr && (
-          <span style={{ background: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", borderRadius: "8px", padding: "3px 9px", color: "#080812", fontSize: "10px", fontWeight: "800", letterSpacing: "0.5px", textTransform: "uppercase" }}>{dateStr}</span>
-        )}
-        <span style={{ display: "inline-flex", alignItems: "baseline", gap: "5px" }}>
-          <span style={{ display: "inline-flex", alignItems: "center" }}><IconSalutation heure={heure}/></span>
-          <span style={{ color: "#080812", fontSize: "12.5px", fontWeight: "700" }}>{greetingTexte(heure)},</span>
-          <span style={{ color: "#fff", fontSize: "20px", fontWeight: "900", letterSpacing: "-0.3px" }}>{nomAffiche}</span>
-        </span>
-      </div>
+      {/* Date, salutation et nom retirés du Hero (retour Bryan 26/09/2026,
+          fusion header/Hero) — le bandeau de navigation au-dessus porte
+          désormais seule la couche "identité", le Hero ne garde que le
+          statut du jour et l'action prioritaire. */}
       <h1 style={{ color: "#080812", fontSize: "22px", fontWeight: "900", margin: "0 0 14px", lineHeight: 1.25, letterSpacing: "-0.3px", maxWidth: "300px" }}>{HEADLINE[statut]}</h1>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "320px" }}>
@@ -2642,12 +2611,12 @@ export default function YelenApp() {
 
   const [userId, setUserId]         = useState<string | null>(null);
   const [userName, setUserName]     = useState("");
+  const [userNom, setUserNom]       = useState("");
+  const [userSexe, setUserSexe]     = useState<string | null>(null);
   const [userPhone, setUserPhone]   = useState("");
   const [userPhoto, setUserPhoto]   = useState<string | null>(null);
   const [userVille, setUserVille]   = useState("");
   const [userCreeLe, setUserCreeLe] = useState<string | null>(null);
-  const [userNom, setUserNom]       = useState("");
-  const [userSexe, setUserSexe]     = useState<string | null>(null);
   const [identiteVerifiee, setIdentiteVerifiee] = useState(false);
   const [cinStatut, setCinStatut]   = useState<string | null>(null);
   // Sheet "Identité non vérifiée" — onglet Communauté (retour Bryan
@@ -3190,9 +3159,15 @@ export default function YelenApp() {
         // une limite à 10 faussait ces chiffres pour tout citoyen ayant
         // plus de 10 RDV (signalé par Bryan le 20/07/2026 — "les données
         // étaient cachées", pas un problème de mise en page de la carte).
-        type RdvRow = { id: string; date_rdv: string; heure_rdv?: string; statut: string; objet?: string; institution_id?: string; presence?: boolean; presence_status?: string };
+        // date_depart (26/09/2026) — non-null uniquement pour une chambre
+        // hôtel réservée via reserver_chambre_hotel (migration
+        // 20260925000001), jamais pour les 14 autres secteurs. Seul
+        // discriminant "séjour vs rendez-vous" pour les cartes RDV EN
+        // RETARD/PROCHAIN RDV ci-dessous, même convention que
+        // app/mes-rdv/page.tsx.
+        type RdvRow = { id: string; date_rdv: string; heure_rdv?: string; date_depart?: string | null; statut: string; objet?: string; institution_id?: string; presence?: boolean; presence_status?: string };
         type InstNameRow = { id: string; name: string | null; secteur: string | null; logo: string | null };
-        const rD = await ft(supabase.from("rdv").select("id,date_rdv,heure_rdv,statut,objet,institution_id,presence,presence_status").eq("citoyen_id", id).order("date_rdv", { ascending: false }), 5000);
+        const rD = await ft(supabase.from("rdv").select("id,date_rdv,heure_rdv,date_depart,statut,objet,institution_id,presence,presence_status").eq("citoyen_id", id).order("date_rdv", { ascending: false }), 5000);
         if (rD && (rD as DataResult<RdvRow[]>)?.data) {
           const rows = (rD as DataResult<RdvRow[]>)!.data!;
           const ids = [...new Set(rows.map((r) => r.institution_id).filter(Boolean))];
@@ -3764,6 +3739,13 @@ export default function YelenApp() {
 
   const initials = userName.split(" ").map(p => p[0]).join("").toUpperCase().slice(0, 2) || "C";
   const prenom = userName.split(" ")[0] || "Citoyen";
+  // Nom affiché dans le header Accueil (retour Bryan 26/09/2026, test de
+  // placement entre le menu et l'icône recherche) — même règle formelle
+  // que l'ex-StatusHero (Bryan, 23/07/2026 : "Yelen c'est pour les
+  // professionnels, ministres etc.") : M./Mme + nom de famille si le
+  // genre est renseigné, sinon repli sur le prénom seul.
+  const titreCivil = userSexe === "homme" ? "M." : userSexe === "femme" ? "Mme" : null;
+  const nomAffiche = titreCivil && userNom ? `${titreCivil} ${userNom}` : prenom;
   // rdvs est chargé trié par date_rdv DESCENDANT (loadDashboardData) — un
   // simple .find() y renvoyait donc le RDV valide le plus ÉLOIGNÉ dans le
   // temps (ex. 1 août) plutôt que le plus proche (ex. 30 juillet), tant que
@@ -3846,13 +3828,9 @@ export default function YelenApp() {
       { l: "Tutoriels",               h: "/compte/tutoriels",              i: Ic.Info() },
       { l: "Envoyer un feedback",     h: "/compte/feedback",               i: Ic.Info() },
     ]},
-    { titre: "Mentions légales", items: [
-      { l: "Conditions d'utilisation", h: "/cgu",                          i: Ic.Info() },
-      { l: "Politique de confidentialité", h: "/confidentialite",          i: Ic.Lock() },
+    { titre: "Légal et à propos", items: [
+      { l: "Légal",                   h: "/legal",                         i: Ic.Lock() },
       { l: "À propos de Yelen",       h: "/compte/a-propos",               i: Ic.Info() },
-      { l: "Version",                 h: "/compte/version",                i: Ic.Info() },
-      { l: "Gestion des consentements", h: "/compte/consentements",        i: Ic.Check() },
-      { l: "Licences",                h: "/compte/licences",               i: Ic.Doc() },
     ]},
   ];
 
@@ -4353,11 +4331,21 @@ export default function YelenApp() {
               // Calculatrice/Leçons d'argent/Vos tendances/Parrainage/
               // Nouveautés (components/CitoyenMenu.tsx), conçu pour donner
               // des raisons d'ouvrir Yelen en dehors d'un RDV.
-              <button onClick={() => setMenuOpen(true)} className="tap" style={{ width: "50px", height: "50px", flexShrink: 0, background: "none", border: "none", padding: 0, margin: 0, display: "flex", alignItems: "center", justifyContent: "flex-start", cursor: "pointer", color: hText }}>
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                  <line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/>
-                </svg>
-              </button>
+              <>
+                <button onClick={() => setMenuOpen(true)} className="tap" style={{ width: "50px", height: "50px", flexShrink: 0, background: "none", border: "none", padding: 0, margin: 0, display: "flex", alignItems: "center", justifyContent: "flex-start", cursor: "pointer", color: hIcon }}>
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                    <line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/>
+                  </svg>
+                </button>
+                {/* Nom du citoyen entre le menu et les icônes (retour Bryan
+                    26/09/2026, essai de placement suite au retrait du nom du
+                    Hero) — même format formel M./Mme + nom que l'ex-StatusHero,
+                    blanc sur le bandeau doré, bascule avec les autres icônes
+                    (hIcon) une fois le header neutralisé au scroll. */}
+                <div style={{ flex: 1, minWidth: 0, marginLeft: "10px", color: hIcon, fontSize: "16px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {nomAffiche}
+                </div>
+              </>
             ) : tab === "communaute" ? (
               // Header Communauté — texte "Communauté" retiré entièrement
               // (retour Bryan 23/08/2026) : icône profil (ouvre
@@ -4536,7 +4524,7 @@ export default function YelenApp() {
 
             <div style={{ paddingTop: `calc(${78 + (pwaBannerVisible ? PWA_BANNER_HEIGHT : 0)}px + env(safe-area-inset-top))`, paddingLeft: "20px", paddingRight: "20px", paddingBottom: "24px" }}>
               {userId ? (
-                <StatusHero prenom={prenom} nom={userNom} sexe={userSexe} dateStr={now ? dateStr : ""} rdvEnRetard={rdvEnRetard} prochainRdv={prochainRdv} aDejaEuRdv={rdvs.length > 0} demarcheEnRetardCount={demarcheEnRetardCount} documentsAttenteCount={documentsAttenteCount} router={router}/>
+                <StatusHero rdvEnRetard={rdvEnRetard} prochainRdv={prochainRdv} aDejaEuRdv={rdvs.length > 0} demarcheEnRetardCount={demarcheEnRetardCount} documentsAttenteCount={documentsAttenteCount} router={router}/>
               ) : (
                 <>
                   <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "11px", fontWeight: "700", letterSpacing: "1px", marginBottom: "8px", textTransform: "uppercase" }}>{now ? dateStr : "Chargement..."}</div>
@@ -4750,9 +4738,11 @@ export default function YelenApp() {
                   <span style={{ backgroundColor: "#FE2C55", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "7px", letterSpacing: "0.5px" }}>SEMPYA224</span>
                 </a>
               </div>
-              <div style={{ display: "flex", justifyContent: "center", gap: "16px" }}>
+              <div style={{ display: "flex", justifyContent: "center", gap: "16px", flexWrap: "wrap" }}>
                 <Link href="/cgu" style={{ color: t3, fontSize: "11px", textDecoration: "none" }}>CGU</Link>
                 <Link href="/confidentialite" style={{ color: t3, fontSize: "11px", textDecoration: "none" }}>Confidentialité</Link>
+                <Link href="/mentions-legales" style={{ color: t3, fontSize: "11px", textDecoration: "none" }}>Mentions légales</Link>
+                <Link href="/politique-cookies" style={{ color: t3, fontSize: "11px", textDecoration: "none" }}>Cookies</Link>
                 <Link href="/contact" style={{ color: t3, fontSize: "11px", textDecoration: "none" }}>Contact</Link>
               </div>
             </div>
@@ -5412,7 +5402,7 @@ export default function YelenApp() {
               {rdvEnRetard && (
                 <div onClick={() => router.push("/mes-rdv")} className="tap" style={{ backgroundColor: card, borderRadius: "16px", padding: "15px", border: "1.5px solid rgba(239,68,68,0.4)", cursor: "pointer" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-                    <div style={{ color: "#ef4444", fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.08em" }}>Rendez-vous en retard</div>
+                    <div style={{ color: "#ef4444", fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.08em" }}>{rdvEnRetard.date_depart ? "Réservation en retard" : "Rendez-vous en retard"}</div>
                     <span style={{ backgroundColor: "rgba(239,68,68,0.12)", color: "#ef4444", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>En retard</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -5422,12 +5412,21 @@ export default function YelenApp() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: t1, fontSize: "14px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{rdvEnRetard.institution_name}</div>
                       {rdvEnRetard.objet && <div style={{ color: t2, fontSize: "12px", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{rdvEnRetard.objet}</div>}
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px", color: t2, fontSize: "12px", marginTop: "2px" }}>{Ic.Clock()}<span>{parseDateLocale(rdvEnRetard.date_rdv).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}{rdvEnRetard.heure_rdv && ` · ${rdvEnRetard.heure_rdv}`}</span></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", color: t2, fontSize: "12px", marginTop: "2px" }}>
+                        {Ic.Clock()}
+                        <span>
+                          {rdvEnRetard.date_depart
+                            ? `Du ${parseDateLocale(rdvEnRetard.date_rdv).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} au ${parseDateLocale(rdvEnRetard.date_depart).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`
+                            : <>{parseDateLocale(rdvEnRetard.date_rdv).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}{rdvEnRetard.heure_rdv && ` · ${rdvEnRetard.heure_rdv}`}</>}
+                        </span>
+                      </div>
                     </div>
                     {Ic.Chev()}
                   </div>
                   <div style={{ color: "#ef4444", fontSize: "11px", lineHeight: 1.5, marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${brd}` }}>
-                    Ce rendez-vous a dépassé l&apos;heure prévue sans confirmation de votre présence. Contactez l&apos;établissement si vous êtes toujours sur place.
+                    {rdvEnRetard.date_depart
+                      ? "Cette réservation a dépassé la date d'arrivée prévue sans confirmation de votre présence. Contactez l'établissement si vous comptez toujours vous présenter."
+                      : "Ce rendez-vous a dépassé l'heure prévue sans confirmation de votre présence. Contactez l'établissement si vous êtes toujours sur place."}
                   </div>
                 </div>
               )}
@@ -5436,7 +5435,7 @@ export default function YelenApp() {
               {prochain && (
                 <div onClick={() => router.push("/mes-rdv")} className="tap" style={{ backgroundColor: card, borderRadius: "16px", padding: "15px", cursor: "pointer" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-                    <div style={{ color: t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.08em" }}>Prochain rendez-vous</div>
+                    <div style={{ color: t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.08em" }}>{prochain.date_depart ? "Prochaine réservation" : "Prochain rendez-vous"}</div>
                     <span style={{ background: stInfo(prochain.statut).c, color: "#fff", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "0" }}>{stInfo(prochain.statut).l}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -5452,7 +5451,14 @@ export default function YelenApp() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: t1, fontSize: "14px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prochain.institution_name}</div>
                       {prochain.objet && <div style={{ color: t2, fontSize: "12px", marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prochain.objet}</div>}
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px", color: t2, fontSize: "12px", marginTop: "2px" }}>{Ic.Clock()}<span>{parseDateLocale(prochain.date_rdv).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}{prochain.heure_rdv && ` · ${prochain.heure_rdv}`}</span></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", color: t2, fontSize: "12px", marginTop: "2px" }}>
+                        {Ic.Clock()}
+                        <span>
+                          {prochain.date_depart
+                            ? `Du ${parseDateLocale(prochain.date_rdv).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} au ${parseDateLocale(prochain.date_depart).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`
+                            : <>{parseDateLocale(prochain.date_rdv).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}{prochain.heure_rdv && ` · ${prochain.heure_rdv}`}</>}
+                        </span>
+                      </div>
                     </div>
                     {Ic.Chev()}
                   </div>

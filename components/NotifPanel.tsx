@@ -157,7 +157,7 @@ export function NotifPanel({ onClose, isDark, bg, t1, t2, t3, card, card2, brd, 
             (mention "à venir" seulement), demandé par Bryan le 20/07/2026 ── */}
         <div style={{ display: "flex", gap: "8px", padding: "0 16px 12px" }}>
           {([{ key: "utilisateur", label: "Mes notifications" }, { key: "systeme", label: "Système" }] as const).map(o => (
-            <button key={o.key} onClick={() => setOngletNotif(o.key)} className="tap" style={{ flex: 1, background: ongletNotif === o.key ? "#F5A623" : "transparent", border: `1px solid ${ongletNotif === o.key ? "#F5A623" : brd}`, borderRadius: "10px", padding: "9px 10px", color: ongletNotif === o.key ? "#080812" : t3, fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
+            <button key={o.key} onClick={() => setOngletNotif(o.key)} className="tap" style={{ flex: 1, background: ongletNotif === o.key ? "#F5A623" : "transparent", border: `1px solid ${ongletNotif === o.key ? "#F5A623" : brd}`, borderRadius: "999px", padding: "9px 10px", color: ongletNotif === o.key ? "#080812" : t3, fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}>
               {o.label}
             </button>
           ))}

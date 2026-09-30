@@ -11,6 +11,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 
 const PRIORITES = ["basse", "normale", "haute"] as const;
 const STATUTS = ["a_faire", "en_cours", "termine"] as const;
+const ORIGINES = ["manuel", "rdv", "client", "demarche", "recurrent", "systeme"] as const;
 
 type ChecklistItem = { label: string; fait: boolean };
 
@@ -38,9 +39,10 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const statut = searchParams.get("statut");
   const projetId = searchParams.get("projet_id");
+  const membreIdParam = searchParams.get("membre_id");
   let query = sb
     .from("taches")
-    .select("id,titre,description,priorite,statut,echeance,checklist,citoyen_id,rdv_id,membre_id,cree_par_membre_id,projet_id,created_at,updated_at")
+    .select("id,titre,description,priorite,statut,echeance,checklist,citoyen_id,rdv_id,membre_id,cree_par_membre_id,projet_id,duree_estimee_minutes,origine,flexible,created_at,updated_at")
     .eq("institution_id", authInstId)
     .order("echeance", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false });
@@ -49,6 +51,10 @@ export async function GET(req: NextRequest) {
   // contextes" (item 11) : filtre additif, aucun changement pour les
   // appelants existants (TachesSection.tsx n'envoie jamais ce paramètre).
   if (projetId) query = query.eq("projet_id", projetId);
+  // "Préparer ma semaine" (Phase 1, 26/09/2026) — "moi" résolu côté serveur
+  // vers le membre authentifié, jamais un id arbitraire fourni par le
+  // client (même esprit que membre.membreId ailleurs dans cette route).
+  if (membreIdParam === "moi") query = query.eq("membre_id", membre.membreId);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -75,6 +81,12 @@ export async function POST(req: NextRequest) {
   const rdvId = typeof body?.rdv_id === "string" ? body.rdv_id : null;
   const membreAssigneId = typeof body?.membre_id === "string" ? body.membre_id : null;
   const projetId = typeof body?.projet_id === "string" ? body.projet_id : null;
+  // "Préparer ma semaine" (Phase 1, 26/09/2026) — champs additifs, jamais
+  // envoyés par TachesSection.tsx aujourd'hui, donc sans effet sur son
+  // comportement actuel (retombe sur les defaults de la migration).
+  const dureeEstimeeMinutes = typeof body?.duree_estimee_minutes === "number" && body.duree_estimee_minutes > 0 ? Math.round(body.duree_estimee_minutes) : null;
+  const origine = ORIGINES.includes(body?.origine) ? body.origine : "manuel";
+  const flexible = typeof body?.flexible === "boolean" ? body.flexible : true;
   let checklist: ChecklistItem[] = [];
   if (body?.checklist !== undefined) {
     const parsed = parseChecklist(body.checklist);
@@ -101,7 +113,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await sb
     .from("taches")
-    .insert({ institution_id: authInstId, titre: titre.trim(), description, priorite, echeance, checklist, citoyen_id: citoyenId, rdv_id: rdvId, membre_id: membreAssigneId, projet_id: projetId, cree_par_membre_id: membre.membreId })
+    .insert({ institution_id: authInstId, titre: titre.trim(), description, priorite, echeance, checklist, citoyen_id: citoyenId, rdv_id: rdvId, membre_id: membreAssigneId, projet_id: projetId, cree_par_membre_id: membre.membreId, duree_estimee_minutes: dureeEstimeeMinutes, origine, flexible })
     .select("id")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

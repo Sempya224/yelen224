@@ -17,6 +17,7 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 import type { NiveauReputation } from "@/lib/reputationScore";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 type Signaux = { tNote: number; tReponseNegatifs: number; tAnnulation: number; tReclamations: number };
 type StatService = { service: string; nbAvis: number; nbNegatifs: number; noteMoyenne: number };
@@ -297,7 +298,10 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
   if (loading) {
     return (
       <div>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "4px" }}>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Santé du compte</h1>
+          <HelpCenterGuide tab="avis-reputation" />
+        </div>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "20px" }}>Suivez la qualité de service de votre établissement et améliorez votre réputation sur Yelen.</p>
         <div style={{ padding: "48px 16px", display: "flex", justifyContent: "center" }}>
           <YelenLoader size={28}/>
@@ -309,7 +313,10 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
   if (!data || data.score === null || !data.niveau) {
     return (
       <div style={{ animation: "fadeUp 0.2s ease" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "4px" }}>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Santé du compte</h1>
+          <HelpCenterGuide tab="avis-reputation" />
+        </div>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "20px" }}>Suivez la qualité de service de votre établissement et améliorez votre réputation sur Yelen.</p>
         <div style={{ marginBottom: "16px" }}>
           <EtatVideSante C={C} avisCount={data?.avisCount ?? 0} minAvisRequis={data?.minAvisRequis ?? 3}/>
@@ -333,7 +340,10 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
 
   return (
     <div style={{ animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "4px" }}>Santé du compte</h1>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "4px" }}>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Santé du compte</h1>
+        <HelpCenterGuide tab="avis-reputation" />
+      </div>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "20px" }}>Suivez la qualité de service de votre établissement et améliorez votre réputation sur Yelen.</p>
 
       {data.alerteAdmin && (
@@ -350,6 +360,16 @@ export function AvisReputationTab({ instId, onToast, access = "full" }: { instId
         <ScoreRing score={data.score} color={couleur} C={C}/>
         <div style={{ marginTop: "16px", color: couleur, fontSize: "18px", fontWeight: "800", letterSpacing: "0.3px" }}>{NIVEAU_LABEL[data.niveau]}</div>
         <div style={{ color: C.t2, fontSize: "13px", marginTop: "4px" }}>{data.phrase}</div>
+      </div>
+
+      {/* Note T11-A — d'où vient ce score (4 composantes réelles,
+          lib/reputationScore.ts::POIDS). Le seuil des 3 avis minimum est
+          déjà expliqué dans EtatVideSante, pas répété ici. */}
+      <div style={{ backgroundColor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: "12px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.6 }}>
+          Score calculé sur vos 30 derniers avis reçus : <strong style={{ color: C.t1 }}>60 %</strong> la note, <strong style={{ color: C.t1 }}>15 %</strong> le taux de réponse aux avis négatifs, <strong style={{ color: C.t1 }}>15 %</strong> le taux d&apos;annulation à votre initiative, <strong style={{ color: C.t1 }}>10 %</strong> les réclamations résolues par Yelen.
+        </div>
       </div>
 
       {/* Évolution 30 jours */}

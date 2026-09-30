@@ -1,11 +1,12 @@
 "use client";
 
 // Zone dangereuse (déconnexion + suppression de compte), extraite de page.tsx.
-// Sécurité du compte / Notifications / Support / Légal ont chacun leur écran
-// dédié depuis le chantier d'éclatement de Paramètres (14/09/2026) — voir
-// SecuriteCompteTab.tsx / NotificationsTab.tsx / AideSupportTab.tsx /
-// LegalTab.tsx. Compte, Apparence et Abonnement restent inline dans
-// layout.tsx (inchangés, pas de raison de les déplacer).
+// Sécurité du compte / Notifications / Légal ont chacun leur écran dédié
+// depuis le chantier d'éclatement de Paramètres (14/09/2026) — voir
+// SecuriteCompteTab.tsx / NotificationsTab.tsx / LegalTab.tsx. Compte,
+// Apparence et Abonnement restent inline dans layout.tsx (inchangés, pas de
+// raison de les déplacer). "Support" retiré (21/09/2026, doublon du popover
+// "Aide Yelen" et du ticketing SupportYelenTab).
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";

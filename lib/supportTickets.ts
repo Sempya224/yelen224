@@ -1,11 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
+import crypto from "crypto";
 import { extraireContexteRequete } from "./journalActivite";
+import { timingSafeEqual } from "./geoAccess";
 import {
   SUPPORT_TRANSITIONS, prioriteInitiale, isSupportRatingRaison,
-  type SupportCategorie, type SupportCategorieInstitution, type SupportStatut, type SupportPriorite,
-  type SupportEventType, type SupportContexteType,
+  type SupportCategorie, type SupportCategorieInstitution, type SupportCategoriePublic,
+  type SupportStatut, type SupportPriorite, type SupportEventType, type SupportContexteType,
 } from "./supportTicketsConstants";
+import { envoyerEmailSupport, type EmailSupportType } from "./supportEmail";
 
 // Support Yelen (ticketing citoyen↔agent humain, 04/09/2026, aucun LLM) —
 // seul point d'écriture pour support_tickets/support_ticket_messages/
@@ -16,7 +19,7 @@ import {
 // qu'aucun statut/priorité/agent ne puisse être falsifié côté client.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-type Acteur = { type: "citoyen" | "agent" | "system" | "institution"; agentId?: string | null; agentNom?: string | null };
+type Acteur = { type: "citoyen" | "agent" | "system" | "institution" | "visiteur"; agentId?: string | null; agentNom?: string | null };
 type ActionResult<T = unknown> = ({ ok: true } & T) | { ok: false; error: string };
 
 async function ajouterEvenement(params: {
@@ -76,6 +79,22 @@ async function notifierInstitution(institutionId: string, ticketId: string, titr
     lu: false,
   });
   if (error) console.error("[Support] Erreur notification institution:", error.message);
+}
+
+// Équivalent visiteur (chantier "Support Public", 24/09/2026) — pas de
+// table `notifications` possible (suppose un compte) : notification par
+// email Postmark uniquement, avec un NOUVEAU token de suivi à chaque
+// appel (le token précédent n'est jamais réutilisable — seul son hash est
+// stocké, irréversible par design, voir §4 technical design). Plusieurs
+// tokens de suivi actifs peuvent donc coexister pour un même ticket, tous
+// valides jusqu'à expiration individuelle ou révocation groupée à la
+// clôture (cloturerTicket ci-dessus).
+async function notifierVisiteurParEmail(email: string, ticketId: string, type: EmailSupportType): Promise<void> {
+  const token = await creerTokenPublic({ ticketId, purpose: "suivi", dureeMs: DUREE_TOKEN_SUIVI_MS });
+  if (!token) { console.error("[Support] Impossible de générer un token de suivi pour la notification visiteur."); return; }
+  const lienSuivi = `${process.env.NEXT_PUBLIC_APP_URL || "https://yelen224.netlify.app"}/support/suivi?token=${token.rawToken}`;
+  const resultat = await envoyerEmailSupport({ type, destinataire: email, variables: { lien_suivi: lienSuivi } });
+  if (!resultat.ok) console.error("[Support] Erreur envoi email visiteur:", resultat.error);
 }
 
 // ── Citoyen ──────────────────────────────────────────────────────────────
@@ -575,27 +594,34 @@ export async function enregistrerEvaluationInstitution(params: {
 export type FileAttenteItem = {
   id: string; numero_public: string; categorie: SupportCategorie | SupportCategorieInstitution; sujet: string;
   statut: SupportStatut; priorite: SupportPriorite;
-  // Origine (chantier "Support Yelen institution" 06/09/2026) : exactement
-  // un des deux non-null, jamais les deux (même garantie que la contrainte
-  // DB). citoyen_nom conservé tel quel (non renommé) pour ne pas casser
-  // app/admin/support/page.tsx dans ce lot — institution_nom est un ajout
-  // pur. Lot E (UI admin) affichera les deux distinctement.
-  origine: "citoyen" | "institution";
-  citoyen_nom: string | null; institution_nom: string | null;
+  // Origine (chantiers "Support Yelen institution" 06/09/2026 puis
+  // "Support Public" 24/09/2026) : exactement une des trois non-null,
+  // jamais deux, jamais aucune (même garantie que la contrainte DB
+  // support_tickets_une_seule_origine, 3 voies). citoyen_nom conservé tel
+  // quel (non renommé) pour ne pas casser app/admin/support/page.tsx —
+  // institution_nom/visiteur_nom sont des ajouts purs.
+  origine: "citoyen" | "institution" | "public";
+  citoyen_nom: string | null; institution_nom: string | null; visiteur_nom: string | null;
   assigned_agent_id: string | null; agent_nom: string | null; cree_le: string; dernier_message_at: string | null;
 };
 
 export async function fileAttenteAgent(filtreStatut?: SupportStatut): Promise<{ items: FileAttenteItem[]; compteurs: Record<SupportStatut, number> }> {
   const { data: tickets } = await sb
     .from("support_tickets")
-    .select("id,numero_public,citoyen_id,institution_id,categorie,sujet,statut,priorite,assigned_agent_id,cree_le")
+    .select("id,numero_public,citoyen_id,institution_id,visiteur_nom,visiteur_email,categorie,sujet,statut,priorite,assigned_agent_id,cree_le")
     .order("cree_le", { ascending: true });
   const all = tickets ?? [];
 
-  const compteurs: Record<SupportStatut, number> = { attente_agent: 0, en_cours: 0, resolu: 0, cloture: 0 };
+  const compteurs: Record<SupportStatut, number> = { attente_verification: 0, attente_agent: 0, en_cours: 0, resolu: 0, cloture: 0 };
   for (const t of all) compteurs[t.statut as SupportStatut] = (compteurs[t.statut as SupportStatut] ?? 0) + 1;
 
-  const visibles = filtreStatut ? all.filter(t => t.statut === filtreStatut) : all.filter(t => t.statut !== "cloture");
+  // 'attente_verification' exclu par construction, même si explicitement
+  // demandé en filtre (jamais exposé à un agent, quelle que soit la
+  // requête — pas seulement absent de la vue par défaut) : un ticket
+  // public non vérifié n'existe pas encore du point de vue d'un agent.
+  const visibles = (filtreStatut && filtreStatut !== "attente_verification")
+    ? all.filter(t => t.statut === filtreStatut)
+    : all.filter(t => t.statut !== "cloture" && t.statut !== "attente_verification");
 
   const citoyenIds = [...new Set(visibles.map(t => t.citoyen_id).filter((v): v is string => !!v))];
   const institutionIds = [...new Set(visibles.map(t => t.institution_id).filter((v): v is string => !!v))];
@@ -615,9 +641,10 @@ export async function fileAttenteAgent(filtreStatut?: SupportStatut): Promise<{ 
   const items: FileAttenteItem[] = visibles.map(t => ({
     id: t.id, numero_public: t.numero_public, categorie: t.categorie as SupportCategorie, sujet: t.sujet,
     statut: t.statut as SupportStatut, priorite: t.priorite as SupportPriorite,
-    origine: (t.institution_id ? "institution" : "citoyen") as FileAttenteItem["origine"],
+    origine: (t.institution_id ? "institution" : t.citoyen_id ? "citoyen" : "public") as FileAttenteItem["origine"],
     citoyen_nom: t.citoyen_id ? citoyenNomMap.get(t.citoyen_id) ?? "Citoyen" : null,
     institution_nom: t.institution_id ? institutionNomMap.get(t.institution_id) ?? "Établissement" : null,
+    visiteur_nom: t.visiteur_email ? (t.visiteur_nom || t.visiteur_email) : null,
     assigned_agent_id: t.assigned_agent_id, agent_nom: t.assigned_agent_id ? agentNomMap.get(t.assigned_agent_id) ?? null : null,
     cree_le: t.cree_le, dernier_message_at: dernierMsgMap.get(t.id) ?? null,
   })).sort((a, b) => new Date(b.dernier_message_at ?? b.cree_le).getTime() - new Date(a.dernier_message_at ?? a.cree_le).getTime());
@@ -631,15 +658,16 @@ export async function fileAttenteAgent(filtreStatut?: SupportStatut): Promise<{ 
 // citoyen_nom toujours affiché tel quel en JSX, un null n'y affiche rien).
 export async function obtenirTicketAgent(ticketId: string): Promise<(Omit<TicketDetail, "messages"> & {
   citoyen_nom: string | null; institution_id: string | null; institution_nom: string | null;
-  messages: (Omit<TicketDetail["messages"][number], "expediteur_type"> & { expediteur_type: "citoyen" | "agent" | "institution" })[];
+  visiteur_nom: string | null; visiteur_email: string | null;
+  messages: (Omit<TicketDetail["messages"][number], "expediteur_type"> & { expediteur_type: "citoyen" | "agent" | "institution" | "visiteur" })[];
 }) | null> {
   const { data: ticket } = await sb
     .from("support_tickets")
-    .select("id,numero_public,citoyen_id,institution_id,categorie,sujet,statut,priorite,assigned_agent_id,contexte_type,contexte_id,cree_le")
+    .select("id,numero_public,citoyen_id,institution_id,visiteur_nom,visiteur_email,categorie,sujet,statut,priorite,assigned_agent_id,contexte_type,contexte_id,cree_le")
     .eq("id", ticketId).maybeSingle();
   if (!ticket) return null;
 
-  const expediteurNonAgent = ticket.institution_id ? "institution" : "citoyen";
+  const expediteurNonAgent = ticket.institution_id ? "institution" : ticket.citoyen_id ? "citoyen" : "visiteur";
   const [{ data: citoyen }, { data: institution }, { data: agent }, { data: messages }] = await Promise.all([
     ticket.citoyen_id ? sb.from("users").select("nom,prenom,phone").eq("id", ticket.citoyen_id).maybeSingle() : Promise.resolve({ data: null }),
     ticket.institution_id ? sb.from("institutions").select("name").eq("id", ticket.institution_id).maybeSingle() : Promise.resolve({ data: null }),
@@ -675,8 +703,10 @@ export async function obtenirTicketAgent(ticketId: string): Promise<(Omit<Ticket
     cree_le: ticket.cree_le,
     citoyen_nom: citoyen ? [citoyen.prenom, citoyen.nom].filter(Boolean).join(" ") || citoyen.phone || "Citoyen" : null,
     institution_id: ticket.institution_id, institution_nom: institution ? institution.name || "Établissement" : null,
+    visiteur_nom: ticket.visiteur_email ? (ticket.visiteur_nom || ticket.visiteur_email) : null,
+    visiteur_email: ticket.visiteur_email,
     messages: (messages ?? []).map(m => ({
-      id: m.id, expediteur_type: m.expediteur_type as "citoyen" | "agent" | "institution",
+      id: m.id, expediteur_type: m.expediteur_type as "citoyen" | "agent" | "institution" | "visiteur",
       agent_nom: m.agent_id ? agentNomParMessage.get(m.agent_id) ?? "Agent Yelen" : null,
       contenu: m.contenu, image_url: m.image_url, type: m.type as "texte" | "image", cree_le: m.cree_le,
     })),
@@ -693,7 +723,7 @@ export async function prendreEnCharge(params: { agentId: string; agentNom: strin
     .from("support_tickets")
     .update({ statut: "en_cours", assigned_agent_id: params.agentId, assigne_le: maintenant, mis_a_jour_le: maintenant })
     .eq("id", params.ticketId).eq("statut", "attente_agent")
-    .select("id,citoyen_id,institution_id").maybeSingle();
+    .select("id,citoyen_id,institution_id,visiteur_email").maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!data) return { ok: false, error: "Cette demande a déjà été prise en charge par un autre agent." };
 
@@ -705,6 +735,11 @@ export async function prendreEnCharge(params: { agentId: string; agentNom: strin
     await notifierInstitution(data.institution_id, params.ticketId, "Vous êtes en contact avec Yelen", `${params.agentNom} va vous aider.`);
   } else if (data.citoyen_id) {
     await notifierCitoyen(data.citoyen_id, params.ticketId, "Vous êtes en contact avec Yelen", `${params.agentNom} va vous aider.`);
+  } else if (data.visiteur_email) {
+    // Aucun email à cette étape — pas dans la liste des 5 besoins email du
+    // visiteur (technical design §12) : un email de confirmation existe
+    // déjà juste après la vérification, "prise en charge" n'en ajoute pas
+    // un second. Branche volontairement vide, pas un oubli.
   }
 
   return { ok: true };
@@ -713,7 +748,7 @@ export async function prendreEnCharge(params: { agentId: string; agentNom: strin
 export async function envoyerMessageAgent(params: {
   agentId: string; agentNom: string; ticketId: string; contenu: string; req?: NextRequest;
 }): Promise<ActionResult> {
-  const { data: ticket } = await sb.from("support_tickets").select("id,citoyen_id,institution_id,statut,assigned_agent_id").eq("id", params.ticketId).maybeSingle();
+  const { data: ticket } = await sb.from("support_tickets").select("id,citoyen_id,institution_id,visiteur_email,statut,assigned_agent_id").eq("id", params.ticketId).maybeSingle();
   if (!ticket) return { ok: false, error: "Demande introuvable." };
   if (ticket.statut !== "en_cours" || ticket.assigned_agent_id !== params.agentId) {
     return { ok: false, error: "Vous devez avoir pris en charge cette demande pour y répondre." };
@@ -729,13 +764,15 @@ export async function envoyerMessageAgent(params: {
     await notifierInstitution(ticket.institution_id, params.ticketId, "Nouvelle réponse de l'agent Yelen", `${params.agentNom} : ${params.contenu.slice(0, 120)}`);
   } else if (ticket.citoyen_id) {
     await notifierCitoyen(ticket.citoyen_id, params.ticketId, "Nouvelle réponse de l'agent Yelen", `${params.agentNom} : ${params.contenu.slice(0, 120)}`);
+  } else if (ticket.visiteur_email) {
+    await notifierVisiteurParEmail(ticket.visiteur_email, params.ticketId, "reponse_agent");
   }
 
   return { ok: true };
 }
 
 export async function resoudreTicket(params: { agentId: string; agentNom: string; ticketId: string; req?: NextRequest }): Promise<ActionResult> {
-  const { data: ticket } = await sb.from("support_tickets").select("id,citoyen_id,institution_id,statut,assigned_agent_id").eq("id", params.ticketId).maybeSingle();
+  const { data: ticket } = await sb.from("support_tickets").select("id,citoyen_id,institution_id,visiteur_email,statut,assigned_agent_id").eq("id", params.ticketId).maybeSingle();
   if (!ticket) return { ok: false, error: "Demande introuvable." };
   if (!SUPPORT_TRANSITIONS[ticket.statut as SupportStatut]?.includes("resolu") || ticket.assigned_agent_id !== params.agentId) {
     return { ok: false, error: "Transition impossible." };
@@ -753,13 +790,15 @@ export async function resoudreTicket(params: { agentId: string; agentNom: string
     await notifierInstitution(ticket.institution_id, params.ticketId, "Votre problème est résolu", `${params.agentNom} considère votre problème résolu. Répondez ici si vous avez encore besoin d'aide.`);
   } else if (ticket.citoyen_id) {
     await notifierCitoyen(ticket.citoyen_id, params.ticketId, "Votre problème est résolu", `${params.agentNom} considère votre problème résolu. Répondez ici si vous avez encore besoin d'aide.`);
+  } else if (ticket.visiteur_email) {
+    await notifierVisiteurParEmail(ticket.visiteur_email, params.ticketId, "resolution");
   }
 
   return { ok: true };
 }
 
 export async function cloturerTicket(params: { agentId: string; agentNom: string; ticketId: string; req?: NextRequest }): Promise<ActionResult> {
-  const { data: ticket } = await sb.from("support_tickets").select("id,citoyen_id,institution_id,statut,assigned_agent_id").eq("id", params.ticketId).maybeSingle();
+  const { data: ticket } = await sb.from("support_tickets").select("id,citoyen_id,institution_id,visiteur_email,statut,assigned_agent_id").eq("id", params.ticketId).maybeSingle();
   if (!ticket) return { ok: false, error: "Demande introuvable." };
   if (!SUPPORT_TRANSITIONS[ticket.statut as SupportStatut]?.includes("cloture") || ticket.assigned_agent_id !== params.agentId) {
     return { ok: false, error: "Transition impossible — la demande doit être résolue avant clôture." };
@@ -777,7 +816,348 @@ export async function cloturerTicket(params: { agentId: string; agentNom: string
     await notifierInstitution(ticket.institution_id, params.ticketId, "Conversation terminée", "Merci d'avoir contacté Yelen. Vous pouvez nous écrire à tout moment si vous avez besoin d'aide.");
   } else if (ticket.citoyen_id) {
     await notifierCitoyen(ticket.citoyen_id, params.ticketId, "Conversation terminée", "Merci d'avoir contacté Yelen. Vous pouvez nous écrire à tout moment si vous avez besoin d'aide.");
+  } else if (ticket.visiteur_email) {
+    await notifierVisiteurParEmail(ticket.visiteur_email, params.ticketId, "resolution");
+    // Un ticket clôturé reste terminé : révoque tout token de suivi encore
+    // actif (plusieurs peuvent exister — un nouveau est émis à chaque
+    // notification, voir notifierVisiteurParEmail ci-dessous) pour qu'aucun
+    // lien déjà reçu par email ne redonne accès après clôture.
+    await sb.from("support_ticket_public_tokens")
+      .update({ status: "revoque", revoked_at: maintenant })
+      .eq("ticket_id", params.ticketId).eq("purpose", "suivi").eq("status", "actif");
   }
 
+  return { ok: true };
+}
+
+// ── Visiteur (public) ────────────────────────────────────────────────────
+// Chantier "Yelen Support Public Général" (24/09/2026) — 3e origine du
+// moteur, aucun compte Yelen. Design complet :
+// docs/support-center/public-support-architecture.md et
+// docs/support-center/public-support-technical-design.md. Contrairement à
+// citoyen/institution (ownership vérifiée par un id de session), toute
+// fonction ci-dessous qui touche à un ticket existant prend le TOKEN brut
+// en paramètre et le résout elle-même — jamais un ticketId fait confiance
+// tel quel depuis un appelant, la preuve d'accès est le token, pas un
+// identifiant.
+
+const DUREE_TOKEN_VERIFICATION_MS = 24 * 60 * 60 * 1000;
+const DUREE_TOKEN_SUIVI_MS = 30 * 24 * 60 * 60 * 1000;
+
+function genererRawTokenPublic(): string {
+  // 256 bits — même mécanique que lib/auth/trustedDevice.ts. Jamais
+  // persisté en clair, jamais loggé : seul hasherTokenPublic() traverse
+  // la base et les logs.
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function hasherTokenPublic(rawToken: string): string {
+  return crypto.createHash("sha256").update(rawToken).digest("hex");
+}
+
+// Jamais exporté — le token brut ne doit exister qu'en mémoire le temps de
+// l'email/la réponse HTTP qui le transporte. Retourne null sur échec
+// d'insertion plutôt que de laisser un rawToken orphelin sans ligne en
+// base (un token qui ne peut jamais être résolu serait un lien mort).
+async function creerTokenPublic(params: {
+  ticketId: string; purpose: "verification" | "suivi"; dureeMs: number; req?: NextRequest;
+}): Promise<{ rawToken: string } | null> {
+  const rawToken = genererRawTokenPublic();
+  const { ip } = extraireContexteRequete(params.req);
+  const { error } = await sb.from("support_ticket_public_tokens").insert({
+    ticket_id: params.ticketId,
+    purpose: params.purpose,
+    token_hash: hasherTokenPublic(rawToken),
+    expires_at: new Date(Date.now() + params.dureeMs).toISOString(),
+    ip_creation: ip,
+  });
+  if (error) { console.error("[Support] Erreur création token public:", error.message); return null; }
+  return { rawToken };
+}
+
+// Résolution par hash uniquement — jamais par ticket_id/numero_public
+// depuis une route publique (aucune énumération possible, token 256
+// bits). Les 4 cas d'échec (absent/expiré/déjà utilisé/révoqué) sont
+// indiscernables pour l'appelant : tous retournent null, jamais un
+// message distinct qui créerait un oracle.
+async function resoudreTokenPublic(params: {
+  rawToken: string; purpose: "verification" | "suivi";
+}): Promise<{ id: string; ticketId: string } | null> {
+  const { data } = await sb
+    .from("support_ticket_public_tokens")
+    .select("id,ticket_id,status,expires_at")
+    .eq("token_hash", hasherTokenPublic(params.rawToken))
+    .eq("purpose", params.purpose)
+    .maybeSingle();
+  if (!data || data.status !== "actif" || new Date(data.expires_at) <= new Date()) return null;
+  return { id: data.id, ticketId: data.ticket_id };
+}
+
+// Rate limit applicatif par email (§8/§14 technical design) — pas de
+// nouvelle table, compte directement support_tickets sur une fenêtre de
+// 24h (largement contenue dans les 7 jours avant purge, aucune fenêtre
+// glissante à gérer séparément). Le signal long terme (§2.6) vit dans
+// support_public_signal_log, indépendamment de ce plafond court terme.
+export async function compterDemandesPubliquesRecentes(email: string): Promise<number> {
+  const { count } = await sb
+    .from("support_tickets")
+    .select("id", { count: "exact", head: true })
+    .eq("visiteur_email", email)
+    .gte("cree_le", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  return count ?? 0;
+}
+
+export type TicketPublicVue = {
+  numero_public: string; categorie: SupportCategoriePublic; sujet: string;
+  statut: SupportStatut;
+  messages: { id: string; expediteur_type: "visiteur" | "agent"; contenu: string | null; cree_le: string }[];
+};
+
+// Création — POST /api/support/public/tickets. Persistance immédiate en
+// 'attente_verification' (jamais dans la file agent tant que l'email n'est
+// pas prouvé, voir fileAttenteAgent). Écriture DÉLIBÉRÉMENT différée de
+// support_ticket_events : aucun événement inséré ici — c'est ce qui rend
+// la suppression physique à J+7 possible sans toucher à l'immuabilité de
+// cette table pour les tickets réellement vérifiés (architecture §2.3/§17).
+//
+// Rollback verrouillé (24/09/2026) : un échec aux étapes internes
+// (message, signal log, token) supprime le ticket avant de renvoyer
+// l'erreur — jamais de ticket orphelin sans message dans la file. Un échec
+// de l'envoi Postmark (étape externe) NE déclenche PAS ce rollback : le
+// ticket reste valide, l'erreur est tracée dans email_verification_erreur
+// (même discipline que recus.erreur_generation, incident réel du
+// 06/08/2026 sur les reçus PDF jamais générés silencieusement).
+export async function creerTicketPublic(params: {
+  nom: string; email: string; telephone?: string | null;
+  categorie: SupportCategoriePublic; sujet: string; message: string; req?: NextRequest;
+}): Promise<ActionResult<{ id: string; numeroPublic: string }>> {
+  const priorite = prioriteInitiale(params.categorie);
+  const { data: ticket, error } = await sb.from("support_tickets").insert({
+    visiteur_nom: params.nom,
+    visiteur_email: params.email,
+    visiteur_telephone: params.telephone ?? null,
+    statut: "attente_verification",
+    categorie: params.categorie,
+    priorite,
+    sujet: params.sujet,
+  }).select("id,numero_public").single();
+  if (error || !ticket) return { ok: false, error: error?.message || "Création impossible." };
+
+  const { error: msgErr } = await sb.from("support_ticket_messages").insert({
+    ticket_id: ticket.id, expediteur_type: "visiteur", contenu: params.message, type: "texte",
+  });
+  if (msgErr) {
+    await sb.from("support_tickets").delete().eq("id", ticket.id);
+    return { ok: false, error: msgErr.message };
+  }
+
+  const { error: signalErr } = await sb.from("support_public_signal_log").insert({
+    email: params.email, categorie: params.categorie, ticket_id: ticket.id,
+    ip: extraireContexteRequete(params.req).ip,
+  });
+  if (signalErr) {
+    await sb.from("support_tickets").delete().eq("id", ticket.id);
+    return { ok: false, error: signalErr.message };
+  }
+
+  const token = await creerTokenPublic({ ticketId: ticket.id, purpose: "verification", dureeMs: DUREE_TOKEN_VERIFICATION_MS, req: params.req });
+  if (!token) {
+    await sb.from("support_tickets").delete().eq("id", ticket.id);
+    return { ok: false, error: "Création du token de vérification impossible." };
+  }
+
+  const lienVerification = `${process.env.NEXT_PUBLIC_APP_URL || "https://yelen224.netlify.app"}/support/verifier?token=${token.rawToken}`;
+  const resultatEmail = await envoyerEmailSupport({
+    type: "verification", destinataire: params.email,
+    variables: { lien_verification: lienVerification, expiration_heures: "24" },
+  });
+  if (!resultatEmail.ok) {
+    await sb.from("support_tickets").update({ email_verification_erreur: resultatEmail.error }).eq("id", ticket.id);
+  }
+
+  return { ok: true, id: ticket.id, numeroPublic: ticket.numero_public };
+}
+
+// Aperçu en lecture seule pour GET /support/verifier?token=... — AUCUNE
+// mutation. Neutralise le risque de pré-clic automatique par un scanner
+// d'email (Outlook Safe Links, passerelles antispam) qui consommerait
+// silencieusement un token à usage unique si le simple GET suffisait à
+// activer le ticket — l'activation réelle exige un clic explicite sur la
+// page, voir verifierEtActiverTicketPublic ci-dessous.
+export async function previsualiserTicketParTokenVerification(rawToken: string): Promise<{ sujet: string; categorie: SupportCategoriePublic } | null> {
+  const resolu = await resoudreTokenPublic({ rawToken, purpose: "verification" });
+  if (!resolu) return null;
+  const { data } = await sb.from("support_tickets").select("sujet,categorie").eq("id", resolu.ticketId).maybeSingle();
+  if (!data) return null;
+  return { sujet: data.sujet, categorie: data.categorie as SupportCategoriePublic };
+}
+
+// Activation réelle — POST /api/support/public/verify, déclenché par le
+// clic explicite sur la page de confirmation (jamais par le GET seul).
+// Écriture différée de 'created'/'email_verifie' ici (§2.3 architecture).
+export async function verifierEtActiverTicketPublic(params: { rawToken: string; req?: NextRequest }): Promise<ActionResult<{ numeroPublic: string; rawTokenSuivi: string }>> {
+  const resolu = await resoudreTokenPublic({ rawToken: params.rawToken, purpose: "verification" });
+  if (!resolu) return { ok: false, error: "Lien invalide ou expiré." };
+
+  const maintenant = new Date().toISOString();
+  // Consommation atomique — même discipline que prendreEnCharge()
+  // (UPDATE conditionné, jamais un SELECT puis UPDATE séparés).
+  const { data: tokenConsomme } = await sb
+    .from("support_ticket_public_tokens")
+    .update({ status: "utilise", used_at: maintenant })
+    .eq("id", resolu.id).eq("status", "actif")
+    .select("id").maybeSingle();
+
+  if (!tokenConsomme) {
+    // Déjà consommé par une requête concurrente — idempotent UNIQUEMENT si
+    // le ticket est réellement passé actif entre-temps, jamais un nouveau
+    // traitement.
+    const { data: ticketDejaActif } = await sb.from("support_tickets").select("id,numero_public").eq("id", resolu.ticketId).neq("statut", "attente_verification").maybeSingle();
+    if (!ticketDejaActif) return { ok: false, error: "Lien invalide ou expiré." };
+    const token = await creerTokenPublic({ ticketId: resolu.ticketId, purpose: "suivi", dureeMs: DUREE_TOKEN_SUIVI_MS, req: params.req });
+    if (!token) return { ok: false, error: "Vérification déjà effectuée, mais le lien de suivi n'a pas pu être régénéré." };
+    return { ok: true, numeroPublic: ticketDejaActif.numero_public, rawTokenSuivi: token.rawToken };
+  }
+
+  const { data: ticketActive } = await sb
+    .from("support_tickets")
+    .update({ statut: "attente_agent", email_verifie_le: maintenant, mis_a_jour_le: maintenant })
+    .eq("id", resolu.ticketId).eq("statut", "attente_verification")
+    .select("id,numero_public,visiteur_email").maybeSingle();
+  if (!ticketActive) return { ok: false, error: "Cette demande a déjà été vérifiée." };
+
+  await ajouterEvenement({ ticketId: resolu.ticketId, type: "created", acteur: { type: "visiteur" }, req: params.req });
+  await ajouterEvenement({ ticketId: resolu.ticketId, type: "email_verifie", acteur: { type: "visiteur" }, req: params.req });
+  await sb.from("support_public_signal_log").update({ verifie: true }).eq("ticket_id", resolu.ticketId);
+
+  const token = await creerTokenPublic({ ticketId: resolu.ticketId, purpose: "suivi", dureeMs: DUREE_TOKEN_SUIVI_MS, req: params.req });
+  if (!token) return { ok: false, error: "Vérification réussie, mais le lien de suivi n'a pas pu être généré." };
+
+  const lienSuivi = `${process.env.NEXT_PUBLIC_APP_URL || "https://yelen224.netlify.app"}/support/suivi?token=${token.rawToken}`;
+  const resultatEmail = await envoyerEmailSupport({
+    type: "confirmation", destinataire: ticketActive.visiteur_email!,
+    variables: { numero_public: ticketActive.numero_public, lien_suivi: lienSuivi },
+  });
+  if (!resultatEmail.ok) console.error("[Support] Erreur envoi email confirmation:", resultatEmail.error);
+
+  return { ok: true, numeroPublic: ticketActive.numero_public, rawTokenSuivi: token.rawToken };
+}
+
+// Lecture du fil de suivi — GET /api/support/suivi (le cookie httpOnly
+// porte le rawToken, jamais l'URL au-delà du tout premier accès, voir
+// technical design §8). Projection minimale : jamais support_ticket_events
+// (IP/user-agent), même principe que citoyen/institution.
+export async function obtenirTicketParToken(rawToken: string): Promise<TicketPublicVue | null> {
+  const resolu = await resoudreTokenPublic({ rawToken, purpose: "suivi" });
+  if (!resolu) return null;
+  const { data: ticket } = await sb.from("support_tickets").select("numero_public,categorie,sujet,statut").eq("id", resolu.ticketId).maybeSingle();
+  if (!ticket) return null;
+  const { data: messages } = await sb
+    .from("support_ticket_messages")
+    .select("id,expediteur_type,contenu,cree_le")
+    .eq("ticket_id", resolu.ticketId)
+    .order("cree_le", { ascending: true });
+  return {
+    numero_public: ticket.numero_public, categorie: ticket.categorie as SupportCategoriePublic,
+    sujet: ticket.sujet, statut: ticket.statut as SupportStatut,
+    messages: (messages ?? []).map(m => ({
+      id: m.id, expediteur_type: m.expediteur_type as "visiteur" | "agent", contenu: m.contenu, cree_le: m.cree_le,
+    })),
+  };
+}
+
+// Réponse du visiteur — POST /api/support/public/suivi/message. Même
+// règle que côté citoyen : un agent doit avoir pris en charge avant que le
+// visiteur puisse continuer à échanger.
+export async function envoyerMessageVisiteur(params: { rawToken: string; texte: string; req?: NextRequest }): Promise<ActionResult> {
+  const resolu = await resoudreTokenPublic({ rawToken: params.rawToken, purpose: "suivi" });
+  if (!resolu) return { ok: false, error: "Session de suivi expirée. Redemandez un lien depuis votre email." };
+
+  const { data: ticket } = await sb.from("support_tickets").select("id,statut").eq("id", resolu.ticketId).maybeSingle();
+  if (!ticket) return { ok: false, error: "Demande introuvable." };
+  if (ticket.statut === "attente_agent") return { ok: false, error: "Un agent doit prendre en charge la conversation avant que vous puissiez continuer à échanger." };
+  if (ticket.statut === "resolu" || ticket.statut === "cloture") return { ok: false, error: "Cette conversation est terminée." };
+
+  const { error: msgErr } = await sb.from("support_ticket_messages").insert({
+    ticket_id: ticket.id, expediteur_type: "visiteur", contenu: params.texte, type: "texte",
+  });
+  if (msgErr) return { ok: false, error: msgErr.message };
+
+  await ajouterEvenement({ ticketId: ticket.id, type: "message_sent", acteur: { type: "visiteur" }, req: params.req });
+  return { ok: true };
+}
+
+// Fin de conversation côté visiteur — équivalent de terminerParCitoyen(),
+// sans exiger d'agent assigné (même raisonnement : le visiteur peut
+// terminer même une conversation encore en file d'attente). Idempotent
+// (0 ligne affectée = déjà terminée ailleurs → succès quand même).
+const STATUTS_TERMINABLES_PAR_VISITEUR: SupportStatut[] = ["attente_agent", "en_cours"];
+
+export async function terminerParVisiteur(params: { rawToken: string; req?: NextRequest }): Promise<ActionResult> {
+  const resolu = await resoudreTokenPublic({ rawToken: params.rawToken, purpose: "suivi" });
+  if (!resolu) return { ok: false, error: "Session de suivi expirée." };
+
+  const { data: ticket } = await sb.from("support_tickets").select("id,statut").eq("id", resolu.ticketId).maybeSingle();
+  if (!ticket) return { ok: false, error: "Conversation introuvable." };
+  if (!STATUTS_TERMINABLES_PAR_VISITEUR.includes(ticket.statut as SupportStatut)) return { ok: true };
+
+  const maintenant = new Date().toISOString();
+  const { data: updated, error } = await sb
+    .from("support_tickets")
+    .update({ statut: "resolu", resolu_le: maintenant, mis_a_jour_le: maintenant })
+    .eq("id", ticket.id).in("statut", STATUTS_TERMINABLES_PAR_VISITEUR)
+    .select("id").maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!updated) return { ok: true };
+
+  await ajouterEvenement({
+    ticketId: ticket.id, type: "resolved", acteur: { type: "visiteur" },
+    ancienneValeur: { statut: ticket.statut }, nouvelleValeur: { statut: "resolu" }, req: params.req,
+  });
+  return { ok: true };
+}
+
+// ── Webhooks Postmark (bounce/spam) ─────────────────────────────────────
+// Signal anti-abus uniquement (§11 technical design) — collecte dans
+// support_public_signal_log, AUCUNE action automatique sur un ticket.
+// Postmark ne supporte pas de signature HMAC (confirmé sur
+// postmarkapp.com/developer/webhooks/webhooks-overview au moment de ce
+// chantier) : sécurisation par Basic Auth intégré à l'URL du webhook,
+// comparaison à temps constant — même précaution que lib/geoAccess.ts pour
+// le cookie de géo-bypass. Fail-closed (contrairement au géoblocage,
+// volontairement fail-open pour d'autres raisons) : un secret absent/mal
+// configuré rejette la requête plutôt que de l'accepter.
+export function verifierAuthPostmarkWebhook(req: NextRequest): boolean {
+  const attenduUser = process.env.POSTMARK_WEBHOOK_BASIC_AUTH_USER;
+  const attenduPass = process.env.POSTMARK_WEBHOOK_BASIC_AUTH_PASS;
+  if (!attenduUser || !attenduPass) return false;
+
+  const header = req.headers.get("authorization") ?? "";
+  if (!header.startsWith("Basic ")) return false;
+
+  let decoded = "";
+  try { decoded = Buffer.from(header.slice(6), "base64").toString("utf-8"); } catch { return false; }
+  const separateur = decoded.indexOf(":");
+  if (separateur === -1) return false;
+  const user = decoded.slice(0, separateur);
+  const pass = decoded.slice(separateur + 1);
+
+  return timingSafeEqual(user, attenduUser) && timingSafeEqual(pass, attenduPass);
+}
+
+// Écriture insert-only, idempotente par (postmark_message_id, type) —
+// contrainte unique posée par la migration 20260924000002. Un doublon
+// (Postmark peut renvoyer le même webhook plusieurs fois en cas de
+// non-200 de notre côté) n'est jamais une erreur, juste un no-op.
+export async function enregistrerSignalPostmark(params: {
+  type: "bounce" | "spam"; email: string; postmarkMessageId: string;
+}): Promise<ActionResult> {
+  const { error } = await sb.from("support_public_signal_log").insert({
+    email: params.email, type: params.type, postmark_message_id: params.postmarkMessageId,
+  });
+  if (error) {
+    if (error.code === "23505") return { ok: true };
+    return { ok: false, error: error.message };
+  }
   return { ok: true };
 }

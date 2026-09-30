@@ -26,6 +26,27 @@ import {
   type SignalementStatut, type SignalementPriorite, type SignalementResolutionAction, type SignalementEscaladeNiveau,
 } from "@/lib/signalementsConstants";
 
+// "Prochaine étape" par statut (Help Center Phase E, pattern P8 transposé
+// de CommunauteProTab.tsx::STATUT_INFO). Décrit où en est le dossier, ne
+// suggère jamais une action que l'institution effectuerait elle-même : la
+// transition de statut est exclusivement pilotée par l'équipe Yelen
+// (lib/signalements.ts::changerStatut, appelé uniquement depuis
+// app/api/admin/signalements-cas/**, jamais depuis app/api/institution/
+// signalements/**) — l'institution assigne en interne et ajoute des
+// notes/pièces, elle ne fait jamais transiter le dossier elle-même. Chaque
+// phrase reste strictement dans les transitions réelles de
+// SIGNALEMENT_TRANSITIONS pour ce statut, aucune n'est inventée.
+const SIGNALEMENT_PROCHAINE_ETAPE: Record<SignalementStatut, string> = {
+  nouveau: "Ce signalement vient d'être reçu par l'équipe Yelen, qui va l'examiner et l'orienter vers un traitement.",
+  a_traiter: "Ce signalement est en attente de prise en charge par l'équipe Yelen.",
+  en_cours: "L'équipe Yelen examine actuellement ce dossier.",
+  en_attente: "L'examen est en pause — l'équipe Yelen attend un élément avant de poursuivre.",
+  resolu: "L'équipe Yelen a traité ce dossier. Il peut encore être rouvert si nécessaire, ou sera clôturé.",
+  cloture: "Ce dossier est clôturé, aucune suite n'est prévue.",
+  rejete: "Ce signalement a été examiné par l'équipe Yelen et n'a pas été retenu.",
+  doublon: "Ce signalement a été identifié comme le doublon d'un autre dossier déjà traité.",
+};
+
 const inputStyle = (C: ThemeTokens): React.CSSProperties => ({
   width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border}`,
   borderRadius: "10px", padding: "11px 14px", color: C.t1, fontSize: "14px", fontFamily: "inherit",
@@ -316,6 +337,10 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SignalementDetail | null>(null);
+  // Point d'accès contextuel vers la connaissance transverse T9 (Help
+  // Center Phase E, Batch 3) — prose définitive non publiée tant que
+  // Bryan n'a pas validé le contenu (Batch 4), stub honnête en attendant.
+  const [showCanauxInfo, setShowCanauxInfo] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   // Un seul type de modale reste possible côté institution (chantier
   // arbitrage Yelen, 15/08/2026) — voir app/admin/moderation.tsx (onglet
@@ -544,9 +569,14 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
 
   async function telechargerPreuve(attachmentId: string) {
     if (!selectedId) return;
+    // Fenêtre ouverte de façon synchrone dans la pile du clic — un window.open()
+    // déclenché après un await est bloqué silencieusement par les bloqueurs de
+    // popup (Safari iOS notamment) : rien ne se passe, aucune erreur visible.
+    const fenetre = window.open("", "_blank");
     const res = await fetch(`/api/institution/signalements/${selectedId}/attachments?download=${attachmentId}`);
     const json = await res.json().catch(() => null);
-    if (json?.url) window.open(json.url, "_blank");
+    if (json?.url) { if (fenetre) fenetre.location.href = json.url; else window.open(json.url, "_blank"); }
+    else fenetre?.close();
   }
 
   // ── Création ────────────────────────────────────────────────────────
@@ -914,6 +944,9 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
         <div>
           <h1 className="yelen-h2" style={{ color: C.t1, marginBottom: "4px" }}>Signalements</h1>
           <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Gestion des cas de signalement — création, traitement, résolution.</p>
+          <button onClick={() => setShowCanauxInfo(true)} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.gold, fontSize: "11.5px", fontWeight: 700, cursor: "pointer", marginBottom: "6px" }}>
+            Signalements, avis, messages, questions clients — quel canal pour quoi ?
+          </button>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
@@ -1094,7 +1127,8 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                       <span style={{ backgroundColor: prioriteBg(sig.priorite, C), color: prioriteColor(sig.priorite, C), fontSize: "10.5px", fontWeight: 700, padding: "3px 9px", borderRadius: "20px" }}>{SIGNALEMENT_PRIORITE_LABELS[sig.priorite]}</span>
                       <span style={{ backgroundColor: cfg.bg, color: cfg.color, fontSize: "10.5px", fontWeight: 700, padding: "3px 9px", borderRadius: "20px" }}>{cfg.label}</span>
                     </div>
-                    <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: 800, margin: 0 }}>{motifLabel(sig.motif)}</h2>
+                    <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: 800, margin: "0 0 6px" }}>{motifLabel(sig.motif)}</h2>
+                    <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5, margin: 0 }}>{SIGNALEMENT_PROCHAINE_ETAPE[sig.statut]}</p>
                   </div>
 
                   <div className="sig-fiche-body">
@@ -1226,6 +1260,35 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
           </select>
           {modalError && <p style={{ color: C.red, fontSize: "12px", marginBottom: "10px" }}>{modalError}</p>}
           <button onClick={() => formAssigne && appelerAction("assigner", { assigneAMembreId: formAssigne })} disabled={modalSaving || !formAssigne} className="tap" style={confirmBtnStyle(C, modalSaving || !formAssigne)}>{modalSaving ? <SigBtnLoading C={C}/> : "Assigner"}</button>
+        </SigModal>
+      )}
+
+      {/* Connaissance transverse T9 — article publié (Help Center Phase E,
+          Batch 4, validé par Bryan 21/09/2026). TabKey/source technique
+          restent des métadonnées internes, jamais affichées ici. */}
+      {showCanauxInfo && (
+        <SigModal C={C} titre="Quel canal pour quoi ?" onClose={() => setShowCanauxInfo(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "14px" }}>
+            <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
+              <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800, margin: "0 0 3px" }}>Questions clients</p>
+              <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, margin: 0 }}>Publique, avant RDV — la réponse apparaît sur votre fiche publique. À utiliser pour une question générale posée avant la prise de rendez-vous.</p>
+            </div>
+            <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
+              <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800, margin: "0 0 3px" }}>Messagerie</p>
+              <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, margin: 0 }}>Privée — échange direct avec un citoyen déjà en relation avec vous.</p>
+            </div>
+            <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
+              <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800, margin: "0 0 3px" }}>Avis</p>
+              <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, margin: 0 }}>Publique, après un RDV honoré — répond à un retour d&apos;expérience laissé par un citoyen.</p>
+            </div>
+            <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
+              <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800, margin: "0 0 3px" }}>Signalements</p>
+              <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, margin: 0 }}>Restreint — non visible publiquement par les autres citoyens ; traité dans le cadre institution ↔ citoyen concerné ↔ Yelen. À utiliser pour signaler formellement un incident.</p>
+            </div>
+          </div>
+          <p style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6, margin: 0 }}>
+            Toujours pas sûr du bon canal, ou besoin d&apos;une intervention humaine ? Contactez l&apos;équipe via l&apos;onglet Support Yelen.
+          </p>
         </SigModal>
       )}
     </div>

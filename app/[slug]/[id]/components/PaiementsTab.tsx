@@ -13,6 +13,7 @@ import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { ReauthModal } from "./ReauthModal";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 type Paiement = {
   id: string; reference: string; statut: string; date_rdv: string; heure_rdv: string;
@@ -299,7 +300,10 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
           .paiement-fiche-panel{border-radius:20px!important}
         }
       `}</style>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Paiements</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", marginBottom: "6px" }}>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Paiements</h1>
+        <HelpCenterGuide tab="paiements" />
+      </div>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>Suivez tous les paiements de votre établissement, les reçus générés, les remboursements et les opérations nécessitant une intervention.</p>
 
       {/* Header Executive (Lot 1, refonte "Payment Operations Center",

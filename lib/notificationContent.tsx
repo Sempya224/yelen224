@@ -125,6 +125,30 @@ function IllustrationEtapeRetard({ size = TAILLE_DEFAUT }: IllustrationProps) {
   );
 }
 
+// Restriction RDV no-show (décision CEO 03/09/2026, voir
+// docs/product/YELEN_RDV_NOSHOW_RESTRICTIONS.md) — même code couleur que
+// components/RdvRestrictionScreen.tsx : doré pour les paliers temporaires
+// (7j/30j, l'accès reste récupérable), rouge uniquement pour la clôture
+// définitive (10 absences).
+function IllustrationRestrictionTemporaire({ size = TAILLE_DEFAUT }: IllustrationProps) {
+  return (
+    <Badge size={size} accent={OR.or} accentFonce={OR.orFonce} halo={OR.orHalo}>
+      <rect x="39" y="49" width="18" height="14" rx="3" fill="#fff"/>
+      <path d="M42 49v-5a6 6 0 0 1 12 0v5" stroke="#fff" strokeWidth="3" strokeLinecap="round" fill="none"/>
+    </Badge>
+  );
+}
+
+function IllustrationRestrictionClos({ size = TAILLE_DEFAUT }: IllustrationProps) {
+  return (
+    <Badge size={size} accent={RG.rouge} accentFonce={RG.rougeFonce} halo={RG.rougeHalo}>
+      <rect x="39" y="49" width="18" height="14" rx="3" fill="#fff"/>
+      <path d="M42 49v-5a6 6 0 0 1 12 0v5" stroke="#fff" strokeWidth="3" strokeLinecap="round" fill="none"/>
+      <circle cx="48" cy="55" r="1.6" fill={RG.rouge}/>
+    </Badge>
+  );
+}
+
 export function IllustrationGenerique({ size = TAILLE_DEFAUT }: IllustrationProps) {
   return (
     <Badge size={size} accent={OR.or} accentFonce={OR.orFonce} halo={OR.orHalo}>
@@ -146,6 +170,9 @@ const REGISTRE: Record<string, Entree> = {
   demarche_retard: { famille: "alerte", Illustration: IllustrationDemarcheRetard },
   etape_echeance: { famille: "rappel", Illustration: IllustrationEtapeEcheance },
   etape_retard: { famille: "alerte", Illustration: IllustrationEtapeRetard },
+  rdv_restriction_7j: { famille: "rappel", Illustration: IllustrationRestrictionTemporaire },
+  rdv_restriction_30j: { famille: "rappel", Illustration: IllustrationRestrictionTemporaire },
+  rdv_restriction_clos: { famille: "alerte", Illustration: IllustrationRestrictionClos },
 };
 
 const ENTREE_GENERIQUE: Entree = { famille: "information", Illustration: IllustrationGenerique };
@@ -167,6 +194,14 @@ export function resoudreNotif(type: string | null | undefined): Entree {
 // générique.
 export function resoudreCta(notif: NotifFk): { label: string; href: string } | null {
   if (notif.type === "rdv_annule_systeme") return { label: "Trouver un nouveau rendez-vous", href: "/recherche" };
+  // Restriction RDV no-show (7j/30j/clos) — pas de rdv_id porté par cette
+  // notification (voir lib/rdvRestrictions.ts::notifierSiEscalade,
+  // rdvId: null), donc jamais atteinte par la branche générique ci-dessous
+  // sans ce cas explicite. Seul point d'entrée standalone vers
+  // components/RdvRestrictionScreen.tsx (app/compte/restriction-rdv).
+  if (notif.type === "rdv_restriction_7j" || notif.type === "rdv_restriction_30j" || notif.type === "rdv_restriction_clos") {
+    return { label: "En savoir plus", href: "/compte/restriction-rdv" };
+  }
   if (notif.demarche_id) return { label: "Voir ma démarche", href: `/compte/mes-demarches?id=${notif.demarche_id}` };
   if (notif.objectif_id) return { label: "Voir mon objectif", href: `/menu/depenses?objectif=${notif.objectif_id}` };
   if (notif.budget_id) return { label: "Voir mon budget", href: `/menu/depenses?budget=${notif.budget_id}` };

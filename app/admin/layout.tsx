@@ -63,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/analytiques', label: 'Analytiques',   icon: Ic.BarChart, roles: ['super_admin','admin'] },
     { href: '/admin/logs',        label: 'Logs système',  icon: Ic.Logs,     roles: ['super_admin'] },
     { href: '/admin/security',    label: 'Sécurité',      icon: Ic.Lock },
+    { href: '/admin/legal',       label: 'Documents légaux', icon: Ic.File },
     { href: '/admin/protection-auth', label: 'Protection Auth', icon: Ic.Shield, roles: ['super_admin'] },
   ]},
 ]

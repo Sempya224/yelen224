@@ -30,6 +30,7 @@ import { ACTIVITE_CATEGORIE_COLORS, ActiviteCategorieIcon } from "@/lib/activite
 import { supabase } from "@/lib/supabase";
 import { YelenLoader } from "@/components/YelenLoader";
 import { FormField, fieldLabel, inputFieldStyle as fieldInput } from "./FormField";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 // react-leaflet touche `window` dès l'évaluation du module (pas seulement
 // au montage) — même en "use client", Next.js App Router fait un premier
@@ -334,7 +335,10 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
             .profil-entreprise-form{max-width:1000px!important}
           }
         `}</style>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Profil Entreprise</h1>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "6px" }}>
+          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Profil Entreprise</h1>
+          <HelpCenterGuide tab="profil-entreprise" />
+        </div>
         <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
           Identité publique de votre institution — visible par les citoyens sur Yelen224.
         </p>

@@ -51,13 +51,29 @@ export const MOBILE_WALL_EXEMPT_PREFIXES = [
   '/verify',
   '/region-non-disponible',
   '/acces-mobile-requis',
+  '/legal',
   '/cgu',
   '/confidentialite',
   '/contact',
-  '/guide-prestataire',
+  // Support Public Yelen (24/09/2026) — /support/verifier et
+  // /support/suivi sont atteints via un lien email envoyé à un visiteur
+  // qui a pu soumettre sa demande depuis /contact sur PC (déjà exempté
+  // ci-dessus) : même raisonnement que /verify (reçu de paiement), lien
+  // de vérification publique à ouvrir depuis n'importe quel appareil.
+  // Ne concerne PAS le Support citoyen connecté (vit sous /messagerie/
+  // citoyen, reste derrière le mur mobile) ni le Support institution
+  // (SupportYelenTab, sous /{slug}/{id}/..., déjà exempté par
+  // DASHBOARD_INSTITUTION_REGEX).
+  '/support',
   '/mentions-legales',
   '/politique-cookies',
   '/conditions-prestataires',
+  // Yelen Provider Help Center public (scaffolding, 22/09/2026) — retiré
+  // de cette liste le 21/09/2026 en même temps que l'ancien
+  // /guide-prestataire, réajouté avec la nouvelle implémentation : centre
+  // d'aide public, doit rester chargeable sans mur mobile (accessible
+  // desktop, prospect/SEO), voir architecture §6.
+  '/guide-prestataire',
 ];
 
 // Dashboard institution (chantier "URLs dynamiques institution", 28/08/2026)

@@ -11,6 +11,9 @@ import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
 
 const MAX_CAPTURE_SIZE = 5 * 1024 * 1024;
+// Types structurés du sheet d'aide "Tous les projets" (28/09/2026) — absent
+// pour les envois depuis /compte/feedback (formulaire libre, sans choix).
+const TYPES_VALIDES = new Set(["ne_fonctionne_pas", "incomprehensible", "manque", "difficile", "idee", "autre"]);
 
 export async function POST(request: NextRequest) {
   const form = await request.formData().catch(() => null);
@@ -19,6 +22,8 @@ export async function POST(request: NextRequest) {
   const accessToken = form.get("accessToken");
   const message = form.get("message");
   const file = form.get("file");
+  const typeRaw = form.get("type");
+  const contexteRaw = form.get("contexte");
 
   if (typeof accessToken !== "string" || !accessToken) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   const user = await verifierCitoyenToken(accessToken);
@@ -28,8 +33,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Décrivez le problème en au moins 10 caractères." }, { status: 400 });
   }
 
+  const type = typeof typeRaw === "string" && TYPES_VALIDES.has(typeRaw) ? typeRaw : null;
+  // Contexte auto-capturé côté client (écran/filtres/résultats) — jamais
+  // saisi par l'utilisateur. Borné en taille et parsé avec repli silencieux
+  // sur null : un contexte illisible ne doit jamais faire échouer l'envoi
+  // du feedback lui-même.
+  let contexte: unknown = null;
+  if (typeof contexteRaw === "string" && contexteRaw.length > 0 && contexteRaw.length < 2000) {
+    try { contexte = JSON.parse(contexteRaw); } catch { contexte = null; }
+  }
+
   const { data: inserted, error: insertErr } = await sb.from("citoyen_feedback")
-    .insert({ citoyen_id: user.id, message: message.trim() })
+    .insert({ citoyen_id: user.id, message: message.trim(), type, contexte })
     .select("id").single();
   if (insertErr || !inserted) return NextResponse.json({ error: "Erreur lors de l'envoi. Réessayez." }, { status: 500 });
 

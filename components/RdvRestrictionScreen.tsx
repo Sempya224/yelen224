@@ -121,7 +121,7 @@ export function RdvRestrictionScreen({
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           ) : <div/>}
-          <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>{estTemporaire ? "Accès aux rendez-vous" : "Compte clôturé"}</div>
+          <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>{estTemporaire ? "Accès aux rendez-vous" : "Rendez-vous clôturés"}</div>
           <div/>
         </div>
       </header>
@@ -136,12 +136,12 @@ export function RdvRestrictionScreen({
         </div>
 
         <h1 style={{ fontSize: "20px", fontWeight: "900", textAlign: "center", margin: "0 0 12px", letterSpacing: "-0.3px" }}>
-          {estTemporaire ? "Votre accès aux rendez-vous est temporairement limité" : "Votre compte a été clôturé"}
+          {estTemporaire ? "Votre accès aux rendez-vous est temporairement limité" : "Votre accès aux rendez-vous a été clôturé"}
         </h1>
         <p style={{ color: C.textSubtle, fontSize: "13.5px", lineHeight: 1.7, textAlign: "center", margin: "0 0 24px" }}>
           {estTemporaire
             ? `Votre compte ne peut actuellement pas effectuer de nouvelles réservations, car ${data.absencesTotal} rendez-vous ont été enregistrés comme non honorés.`
-            : `Votre compte Yelen a été clôturé après l'enregistrement de ${data.absencesTotal} rendez-vous non honorés. Cette décision entraîne la clôture définitive de votre accès à la prise de rendez-vous et aux réservations sur Yelen.`}
+            : `Votre accès à la prise de rendez-vous et aux réservations sur Yelen a été clôturé définitivement, après l'enregistrement de ${data.absencesTotal} rendez-vous non honorés. Le reste de votre compte Yelen reste actif.`}
         </p>
 
         {estTemporaire && data.jusquAu && (

@@ -1416,7 +1416,6 @@ function InstitutionConnexionInner() {
             <span>© {new Date().getFullYear()} Yelen224</span>
             <Link href="/confidentialite">Confidentialité</Link>
             <Link href="/cgu">CGU</Link>
-            <Link href="/guide-prestataire">FAQ</Link>
             <Link href="/contact">Contact</Link>
           </div>
 

@@ -25,7 +25,7 @@
 //   et "sur demande sans tarif" nécessiteraient d'assouplir la
 //   validation prix>0 partagée par tous les secteurs, non fait dans ce
 //   lot (voir note de portée dans le rapport de livraison).
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
@@ -69,9 +69,31 @@ type PaidService = {
   // chambres créées avant ce lot → traité comme 1 côté affichage,
   // jamais réécrit en base rétroactivement.
   nombre_unites: number | null;
+  // Fiche service structurée V2 (25/09/2026, migration
+  // 20260925000004_paid_services_detail_service.sql) — description_courte
+  // distincte de description (devient la description détaillée). inclus/
+  // non_inclus/public_cible : tableaux jamais pré-remplis, saisis par le
+  // prestataire. a_savoir : note libre affichée telle quelle côté citoyen.
+  description_courte: string | null; inclus: string[]; non_inclus: string[]; a_savoir: string | null; public_cible: string[];
+  // Fiche chambre structurée V2 (25/09/2026, migration
+  // 20260925000005_paid_services_chambre_capacite.sql) — capacite_max
+  // obligatoire côté formulaire Chambre, adultes/enfants et superficie
+  // facultatifs, jamais une valeur par défaut inventée.
+  capacite_max: number | null; capacite_adultes: number | null; capacite_enfants: number | null; superficie_m2: number | null;
 };
 
+const PUBLIC_CIBLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "individuel", label: "Individuel" },
+  { value: "couple", label: "Couple" },
+  { value: "famille", label: "Famille" },
+  { value: "groupe", label: "Groupe" },
+];
+
 const MAX_PHOTOS_CHAMBRE = 5;
+// Prestations (retour Bryan 25/09/2026) — galerie distincte de celle des
+// chambres : plus légère (2 photos max, pas de vidéo), et facultative
+// (contrairement à la chambre où au moins 1 photo reste obligatoire).
+const MAX_PHOTOS_PRESTATION = 2;
 const MAX_VIDEO_SECONDES = 60;
 
 // Lit la durée réelle d'une vidéo avant upload (retour Bryan 20/08/2026 :
@@ -115,31 +137,46 @@ function Toast({ msg, color, onDismiss }: { msg: string; color: string; onDismis
 // compris la photo. Stockées dans paid_services (est_chambre=true) pour
 // avoir un vrai prix + une vraie photo, contrairement à l'ancienne
 // "Chambres" (Offre générale, institutions.services, sans photo).
-function ChambreForm({ onSave, onCancel, saving, initial }: {
-  onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number }) => Promise<void>;
-  onCancel: () => void; saving: boolean; initial?: PaidService | null;
-}) {
+const TYPE_CHAMBRE_SUGGESTIONS = ["Chambre simple", "Chambre double", "Suite", "Studio"];
+
+type ChambreFormHandle = { submit: () => void };
+const ChambreForm = forwardRef<ChambreFormHandle, {
+  onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number; categorie: string | null; capacite_max: number; capacite_adultes: number | null; capacite_enfants: number | null; superficie_m2: number | null; inclus: string[]; non_inclus: string[]; a_savoir: string | null }) => Promise<void>;
+  initial?: PaidService | null; onBusyChange: (busy: boolean) => void;
+}>(function ChambreForm({ onSave, initial, onBusyChange }, ref) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const [nom, setNom] = useState(initial?.nom ?? "");
+  const [typeChambre, setTypeChambre] = useState(initial?.categorie ?? "");
   const [desc, setDesc] = useState(initial?.description ?? "");
   const [prix, setPrix] = useState(initial ? String(initial.prix) : "");
   const [nombreUnites, setNombreUnites] = useState(String(initial?.nombre_unites ?? 1));
+  const [capaciteMax, setCapaciteMax] = useState(initial?.capacite_max ? String(initial.capacite_max) : "");
+  const [capaciteAdultes, setCapaciteAdultes] = useState(initial?.capacite_adultes != null ? String(initial.capacite_adultes) : "");
+  const [capaciteEnfants, setCapaciteEnfants] = useState(initial?.capacite_enfants != null ? String(initial.capacite_enfants) : "");
+  const [superficie, setSuperficie] = useState(initial?.superficie_m2 != null ? String(initial.superficie_m2) : "");
   const [photos, setPhotos] = useState<string[]>(initial?.photos ?? []);
   const [videoUrl, setVideoUrl] = useState(initial?.video_url ?? "");
   const [videoDuree, setVideoDuree] = useState<number | null>(initial?.video_duree_secondes ?? null);
   const [equipements, setEquipements] = useState<string[]>(initial?.equipements_chambre ?? []);
+  const [inclus, setInclus] = useState<string[]>(initial?.inclus ?? []);
+  const [nonInclus, setNonInclus] = useState<string[]>(initial?.non_inclus ?? []);
+  const [aSavoir, setASavoir] = useState(initial?.a_savoir ?? "");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
-  const [err, setErr] = useState("");
-  const isEdit = !!initial;
+  const [uploadErr, setUploadErr] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => { onBusyChange(uploadingPhoto || uploadingVideo); }, [uploadingPhoto, uploadingVideo, onBusyChange]);
 
   const toggleEquipement = (code: string) => {
     setEquipements(prev => prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]);
   };
+  const literieCategorie = EQUIPEMENTS_CHAMBRE.find(c => c.id === "literie");
+  const autresCategories = EQUIPEMENTS_CHAMBRE.filter(c => c.id !== "literie");
 
   async function handlePhoto(file: File) {
-    setErr("");
+    setUploadErr("");
     setUploadingPhoto(true);
     const form = new FormData();
     form.append("kind", "photo");
@@ -147,21 +184,21 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
     const res = await fetch("/api/institution/services/media", { method: "POST", body: form });
     const j = await res.json().catch(() => null);
     setUploadingPhoto(false);
-    if (!res.ok) { setErr(j?.error || "Échec de l'envoi de la photo"); return; }
+    if (!res.ok) { setUploadErr(j?.error || "Échec de l'envoi de la photo"); return; }
     setPhotos(p => [...p, j.url].slice(0, MAX_PHOTOS_CHAMBRE));
   }
 
   async function handleVideo(file: File) {
-    setErr("");
+    setUploadErr("");
     let duree: number;
     try {
       duree = await lireDureeVideo(file);
     } catch {
-      setErr("Impossible de lire cette vidéo — réessayez avec un autre fichier.");
+      setUploadErr("Impossible de lire cette vidéo — réessayez avec un autre fichier.");
       return;
     }
     if (duree > MAX_VIDEO_SECONDES) {
-      setErr(`Cette vidéo dure ${Math.round(duree)}s — le maximum est de ${MAX_VIDEO_SECONDES}s.`);
+      setUploadErr(`Cette vidéo dure ${Math.round(duree)}s — le maximum est de ${MAX_VIDEO_SECONDES}s.`);
       return;
     }
     setUploadingVideo(true);
@@ -172,126 +209,256 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
     const res = await fetch("/api/institution/services/media", { method: "POST", body: form });
     const j = await res.json().catch(() => null);
     setUploadingVideo(false);
-    if (!res.ok) { setErr(j?.error || "Échec de l'envoi de la vidéo"); return; }
+    if (!res.ok) { setUploadErr(j?.error || "Échec de l'envoi de la vidéo"); return; }
     setVideoUrl(j.url);
     setVideoDuree(Math.round(duree));
   }
 
-  async function submit() {
-    setErr("");
-    if (!nom.trim()) { setErr("Le nom du type de chambre est obligatoire"); return; }
-    if (!nombreUnites || isNaN(+nombreUnites) || +nombreUnites <= 0) { setErr("Entrez un nombre de chambres valide"); return; }
-    if (!prix || isNaN(+prix) || +prix <= 0) { setErr(`Entrez un prix par nuit valide en ${DEVISE_LABEL}`); return; }
-    if (!desc.trim()) { setErr("La description est obligatoire"); return; }
-    if (photos.length === 0) { setErr("Au moins une photo est obligatoire"); return; }
-    await onSave({ nom: nom.trim(), description: desc.trim(), prix: +prix, photos, video_url: videoUrl || null, video_duree_secondes: videoUrl ? videoDuree : null, equipements_chambre: equipements, nombre_unites: Math.round(+nombreUnites) });
+  // Erreurs au niveau du champ concerné (retour Bryan 25/09/2026, "Créer
+  // une chambre" V2 : "ne pas utiliser uniquement une erreur globale") —
+  // même discipline que PrestationForm.
+  function validate(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (!nom.trim()) e.nom = "Le nom du type de chambre est obligatoire.";
+    if (!nombreUnites || isNaN(+nombreUnites) || +nombreUnites <= 0) e.nombreUnites = "Entrez un nombre de chambres valide.";
+    if (!prix || isNaN(+prix) || +prix <= 0) e.prix = `Entrez un prix par nuit valide en ${DEVISE_LABEL}.`;
+    if (!capaciteMax || isNaN(+capaciteMax) || +capaciteMax <= 0) e.capaciteMax = "Entrez une capacité maximale valide.";
+    if (capaciteAdultes && (isNaN(+capaciteAdultes) || +capaciteAdultes < 0)) e.capaciteAdultes = "Entrez un nombre d'adultes valide.";
+    if (capaciteEnfants && (isNaN(+capaciteEnfants) || +capaciteEnfants < 0)) e.capaciteEnfants = "Entrez un nombre d'enfants valide.";
+    if (superficie && (isNaN(+superficie) || +superficie <= 0)) e.superficie = "Entrez une superficie valide en m².";
+    if (!desc.trim()) e.desc = "La description est obligatoire.";
+    if (photos.length === 0) e.photos = "Ajoutez au moins une photo principale.";
+    return e;
   }
+
+  async function submit() {
+    const e = validate();
+    setFieldErrors(e);
+    if (Object.keys(e).length > 0) return;
+    await onSave({
+      nom: nom.trim(), description: desc.trim(), prix: +prix, photos, video_url: videoUrl || null,
+      video_duree_secondes: videoUrl ? videoDuree : null, equipements_chambre: equipements, nombre_unites: Math.round(+nombreUnites),
+      categorie: typeChambre.trim() || null, capacite_max: Math.round(+capaciteMax),
+      capacite_adultes: capaciteAdultes ? Math.round(+capaciteAdultes) : null, capacite_enfants: capaciteEnfants ? Math.round(+capaciteEnfants) : null,
+      superficie_m2: superficie ? +superficie : null, inclus, non_inclus: nonInclus, a_savoir: aSavoir.trim() || null,
+    });
+  }
+
+  useImperativeHandle(ref, () => ({ submit }));
 
   const inputStyle: React.CSSProperties = { width: "100%", backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px", fontSize: "14px", color: C.t1, fontFamily: "inherit" };
   const labelStyle: React.CSSProperties = { display: "block", color: C.t2, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "6px" };
+  const literieLabels = (literieCategorie?.items ?? []).filter(i => equipements.includes(i.code)).map(i => i.label);
+  const autresEquipementsSelectionnes = autresCategories.flatMap(c => c.items).filter(i => equipements.includes(i.code));
 
   return (
-    <div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        <div>
-          <label style={labelStyle}>Photos * <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>({photos.length}/{MAX_PHOTOS_CHAMBRE})</span></label>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
-            {photos.map((url, i) => (
-              <div key={url} style={{ position: "relative", borderRadius: "12px", overflow: "hidden", aspectRatio: "1/1" }}>
-                {/* IMG-EXCEPTION: reason=galerie de vignettes en cours d'édition, URLs Storage publiques déjà stables | reviewed=2026-08-20 */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`Photo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
-                <button onClick={() => setPhotos(p => p.filter((_, idx) => idx !== i))} className="tap" style={{ position: "absolute", top: "5px", right: "5px", width: "22px", height: "22px", borderRadius: "50%", backgroundColor: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", fontSize: "11px" }}>✕</button>
-              </div>
-            ))}
-            {photos.length < MAX_PHOTOS_CHAMBRE && (
-              <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "4px", aspectRatio: "1/1", border: `1.5px dashed ${C.border2}`, borderRadius: "12px", cursor: uploadingPhoto ? "wait" : "pointer", backgroundColor: C.bg3 }}>
-                {uploadingPhoto ? <YelenLoader size={18}/> : (
-                  <>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700" }}>Ajouter</span>
-                  </>
-                )}
-                <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingPhoto} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhoto(f); e.target.value = ""; }}/>
-              </label>
-            )}
+    <div style={{ display: "flex", flexDirection: "column", gap: "26px" }}>
+      <FormSection number="01" title="Photos" description="Ajoutez les photos qui permettent aux clients de comprendre clairement cette chambre. Privilégiez des vues qui montrent réellement l&apos;espace, le lit, la salle de bain et les équipements importants.">
+        <PhotoGallery photos={photos} setPhotos={setPhotos} uploading={uploadingPhoto} onUpload={handlePhoto} max={MAX_PHOTOS_CHAMBRE} required/>
+        <FieldError msg={fieldErrors.photos}/>
+        <FieldError msg={uploadErr}/>
+
+        <div style={{ marginTop: "4px", paddingTop: "18px", borderTop: `1px dashed ${C.border}` }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
+            <span style={{ color: C.t2, fontSize: "11px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.6px" }}>Vidéo</span>
+            <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 600 }}>Facultatif — {MAX_VIDEO_SECONDES}s maximum</span>
           </div>
-        </div>
-        <div>
-          <label style={labelStyle}>Vidéo <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif, {MAX_VIDEO_SECONDES}s max)</span></label>
           {videoUrl ? (
-            <div style={{ position: "relative", borderRadius: "14px", overflow: "hidden" }}>
-              <video src={videoUrl} controls style={{ width: "100%", maxHeight: "200px", display: "block", backgroundColor: "#000" }}/>
+            <div style={{ position: "relative", borderRadius: "14px", overflow: "hidden", maxWidth: "320px" }}>
+              <video src={videoUrl} controls style={{ width: "100%", maxHeight: "180px", display: "block", backgroundColor: "#000" }}/>
               <button onClick={() => { setVideoUrl(""); setVideoDuree(null); }} className="tap" style={{ position: "absolute", top: "8px", right: "8px", width: "28px", height: "28px", borderRadius: "50%", backgroundColor: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer" }}>✕</button>
             </div>
           ) : (
-            <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px", height: "90px", border: `1.5px dashed ${C.border2}`, borderRadius: "14px", cursor: uploadingVideo ? "wait" : "pointer", backgroundColor: C.bg3 }}>
-              {uploadingVideo ? <YelenLoader size={18}/> : (
-                <>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-                  <span style={{ color: C.t3, fontSize: "12px", fontWeight: "700" }}>Ajouter une vidéo</span>
-                </>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "9px 16px", borderRadius: "22px", border: `1.5px solid ${C.border2}`, backgroundColor: C.bg3, cursor: uploadingVideo ? "wait" : "pointer" }}>
+              {uploadingVideo ? <YelenLoader size={14}/> : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
               )}
+              <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>Ajouter une vidéo</span>
               <input type="file" accept="video/mp4,video/webm,video/quicktime" style={{ display: "none" }} disabled={uploadingVideo} onChange={e => { const f = e.target.files?.[0]; if (f) handleVideo(f); e.target.value = ""; }}/>
             </label>
           )}
+          <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5, margin: "8px 0 0" }}>Ajoutez une courte vidéo permettant de présenter la chambre et son aménagement.</p>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "10px" }}>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="02" title="Informations générales" description="Définissez le nom, le type, la quantité et le tarif de ce type de chambre.">
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "12px" }}>
           <div>
             <label style={labelStyle}>Nom du type de chambre *</label>
             <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : Chambre Deluxe, Suite familiale…" style={inputStyle}/>
+            <FieldError msg={fieldErrors.nom}/>
           </div>
           <div>
             <label style={labelStyle}>Nombre de chambres *</label>
             <input type="number" min={1} value={nombreUnites} onChange={e => setNombreUnites(e.target.value)} placeholder="4" style={inputStyle}/>
+            <FieldError msg={fieldErrors.nombreUnites}/>
           </div>
         </div>
-        <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5, margin: "-6px 0 0" }}>Toutes les chambres de ce type partagent le même prix, la même description et les mêmes équipements.</p>
+        <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5, margin: "-4px 0 0" }}>Toutes les chambres de ce type partagent le même prix, la même description et les mêmes équipements.</p>
+        <div>
+          <label style={labelStyle}>Type de chambre <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif)</span></label>
+          <input value={typeChambre} onChange={e => setTypeChambre(e.target.value)} placeholder="Ex : Chambre simple, Chambre double, Suite, Studio…" style={inputStyle} list="types-chambre-existants"/>
+          <datalist id="types-chambre-existants">{TYPE_CHAMBRE_SUGGESTIONS.map(t => <option key={t} value={t}/>)}</datalist>
+        </div>
         <div>
           <label style={labelStyle}>Prix par nuit ({DEVISE_LABEL}) *</label>
           <input type="number" value={prix} onChange={e => setPrix(e.target.value)} placeholder="500000" style={inputStyle}/>
+          <FieldError msg={fieldErrors.prix}/>
         </div>
-        <div>
-          <label style={labelStyle}>Description *</label>
-          <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Superficie, literie…" rows={3} style={{ ...inputStyle, resize: "none", lineHeight: 1.65 }}/>
-        </div>
+      </FormSection>
 
-        <div>
-          <label style={labelStyle}>Équipements de cette chambre <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif — distinct des équipements de l&apos;établissement)</span></label>
-          <div style={{ backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "12px", padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
-            {EQUIPEMENTS_CHAMBRE.map(cat => (
-              <div key={cat.id}>
-                <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "7px" }}>{cat.label}</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "7px" }}>
-                  {cat.items.map(item => {
-                    const checked = equipements.includes(item.code);
-                    return (
-                      <button key={item.code} type="button" onClick={() => toggleEquipement(item.code)} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: checked ? `${C.gold}15` : C.bgCard, border: `1.5px solid ${checked ? C.gold + "50" : C.border2}`, borderRadius: "20px", padding: "7px 12px", cursor: "pointer" }}>
-                        {item.icon(checked ? C.gold : C.t3)}
-                        <span style={{ color: checked ? C.gold : C.t2, fontSize: "11.5px", fontWeight: checked ? "700" : "500" }}>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+      <SectionDivider/>
+
+      <FormSection number="03" title="Capacité & configuration" description="Définissez combien de personnes cette chambre peut accueillir, sa literie et sa superficie.">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+          <div>
+            <label style={labelStyle}>Capacité maximale *</label>
+            <input type="number" min={1} value={capaciteMax} onChange={e => setCapaciteMax(e.target.value)} placeholder="2" style={inputStyle}/>
+            <FieldError msg={fieldErrors.capaciteMax}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Adultes <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif)</span></label>
+            <input type="number" min={0} value={capaciteAdultes} onChange={e => setCapaciteAdultes(e.target.value)} placeholder="2" style={inputStyle}/>
+            <FieldError msg={fieldErrors.capaciteAdultes}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Enfants <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif)</span></label>
+            <input type="number" min={0} value={capaciteEnfants} onChange={e => setCapaciteEnfants(e.target.value)} placeholder="0" style={inputStyle}/>
+            <FieldError msg={fieldErrors.capaciteEnfants}/>
           </div>
         </div>
-
-        {err && (
-          <div style={{ backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 14px", borderRadius: "10px" }}>{err}</div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: "10px" }}>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onCancel}>Annuler</Button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={uploadingPhoto || uploadingVideo} loading={saving} onClick={submit}>
-            {isEdit ? "Enregistrer les modifications" : "Créer la chambre"}
-          </Button>
+        <div>
+          <label style={labelStyle}>Superficie <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif, en m²)</span></label>
+          <input type="number" min={0} value={superficie} onChange={e => setSuperficie(e.target.value)} placeholder="32" style={{ ...inputStyle, maxWidth: "160px" }}/>
+          <FieldError msg={fieldErrors.superficie}/>
         </div>
-      </div>
+        {literieCategorie && (
+          <div>
+            <label style={labelStyle}>Literie <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif)</span></label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "7px" }}>
+              {literieCategorie.items.map(item => {
+                const checked = equipements.includes(item.code);
+                return (
+                  <button key={item.code} type="button" onClick={() => toggleEquipement(item.code)} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: C.bg3, border: `1.5px solid ${checked ? C.gold + "50" : C.border2}`, borderRadius: "20px", padding: "7px 12px", cursor: "pointer" }}>
+                    {item.icon(checked ? C.gold : C.t3)}
+                    <span style={{ color: checked ? C.gold : C.t2, fontSize: "11.5px", fontWeight: checked ? "700" : "500" }}>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="04" title="Description" description="Présentez cette chambre : ambiance, vue, agencement et caractéristiques particulières. Inutile de répéter la superficie, la literie ou les équipements déjà renseignés ci-dessus.">
+        <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Ex : Cette chambre double lumineuse offre un espace confortable pour deux personnes, avec un espace de travail et une vue dégagée…" rows={5} style={{ ...inputStyle, resize: "none", lineHeight: 1.65 }}/>
+        <FieldError msg={fieldErrors.desc}/>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="05" title="Équipements" description="Sélectionnez uniquement les équipements réellement disponibles dans cette chambre.">
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Équipements de cette chambre</span>
+          <span style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, color: C.t3, fontSize: "10px", fontWeight: 700, padding: "3px 9px", borderRadius: "20px" }}>Distinct des équipements de l&apos;établissement</span>
+        </div>
+        <div style={{ backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "14px", padding: "14px", display: "flex", flexDirection: "column", gap: "18px" }}>
+          {autresCategories.map(cat => (
+            <div key={cat.id}>
+              <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "9px" }}>{cat.label}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "7px" }}>
+                {cat.items.map(item => {
+                  const checked = equipements.includes(item.code);
+                  return (
+                    <button key={item.code} type="button" onClick={() => toggleEquipement(item.code)} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", backgroundColor: C.bgCard, border: `1.5px solid ${checked ? C.gold + "50" : C.border2}`, borderRadius: "20px", padding: "7px 12px", cursor: "pointer" }}>
+                      {item.icon(checked ? C.gold : C.t3)}
+                      <span style={{ color: checked ? C.gold : C.t2, fontSize: "11.5px", fontWeight: checked ? "700" : "500" }}>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="06" title="Informations pratiques" description="Ce que le citoyen doit connaître avant de réserver cette chambre (facultatif).">
+        <div>
+          <label style={labelStyle}>Ce qui est inclus</label>
+          <ChipListEditor items={inclus} setItems={setInclus} placeholder="Ex : Petit-déjeuner…" emptyLabel="Aucun élément inclus renseigné pour le moment." tone="positive"/>
+        </div>
+        <div>
+          <label style={labelStyle}>Ce qui n&apos;est pas inclus</label>
+          <ChipListEditor items={nonInclus} setItems={setNonInclus} placeholder="Ex : Lit supplémentaire…" emptyLabel="Aucune exclusion renseignée pour le moment." tone="negative"/>
+        </div>
+        <div>
+          <label style={labelStyle}>À savoir</label>
+          <textarea value={aSavoir} onChange={e => setASavoir(e.target.value)} placeholder="Ex : Vue partielle sur la cour, étage sans ascenseur…" rows={3} style={{ ...inputStyle, resize: "none", lineHeight: 1.65 }}/>
+        </div>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="07" title="Aperçu" description="Vérifiez ce que le citoyen verra avant de créer cette chambre.">
+        <div style={{ border: `1.5px solid ${C.border2}`, borderRadius: "16px", overflow: "hidden", backgroundColor: C.bg3 }}>
+          {photos[0] ? (
+            // IMG-EXCEPTION: reason=aperçu live d'une photo déjà uploadée en cours d'édition, URL Storage publique stable | reviewed=2026-09-25
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photos[0]} alt={nom || "Aperçu de la chambre"} style={{ width: "100%", height: "160px", objectFit: "cover", display: "block" }}/>
+          ) : (
+            <div style={{ height: "100px", display: "flex", alignItems: "center", justifyContent: "center", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>Aucune photo</div>
+          )}
+          <div style={{ padding: "16px" }}>
+            <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800 }}>{nom || "Nom du type de chambre"}</div>
+            <div style={{ color: C.gold, fontSize: "16px", fontWeight: 800, marginTop: "6px" }}>{prix && !isNaN(+prix) ? `${formatPrix(+prix)} / nuit` : "—"}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "14px", marginTop: "12px" }}>
+              {capaciteMax && <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>{capaciteMax} personne{+capaciteMax > 1 ? "s" : ""}</span>}
+              {literieLabels.length > 0 && <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>{literieLabels.join(", ")}</span>}
+              {superficie && <span style={{ color: C.t2, fontSize: "12px", fontWeight: 700 }}>{superficie} m²</span>}
+            </div>
+            {desc && <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: "12px 0 0" }}>{desc}</p>}
+            {autresEquipementsSelectionnes.length > 0 && (
+              <div style={{ marginTop: "14px" }}>
+                <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "6px" }}>Équipements</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  {autresEquipementsSelectionnes.map(i => <span key={i.code} style={{ color: C.t1, fontSize: "12px" }}>✓ {i.label}</span>)}
+                </div>
+              </div>
+            )}
+            {(inclus.length > 0 || nonInclus.length > 0) && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginTop: "14px" }}>
+                {inclus.length > 0 && (
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "6px" }}>Inclus</div>
+                    {inclus.map(i => <div key={i} style={{ color: C.t1, fontSize: "12px", marginBottom: "4px" }}>✓ {i}</div>)}
+                  </div>
+                )}
+                {nonInclus.length > 0 && (
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "6px" }}>Non inclus</div>
+                    {nonInclus.map(i => <div key={i} style={{ color: C.t3, fontSize: "12px", marginBottom: "4px" }}>✕ {i}</div>)}
+                  </div>
+                )}
+              </div>
+            )}
+            {aSavoir && (
+              <div style={{ backgroundColor: C.bg, borderRadius: "10px", padding: "10px 12px", marginTop: "14px" }}>
+                <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "4px" }}>À savoir</div>
+                <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55 }}>{aSavoir}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </FormSection>
     </div>
   );
-}
+});
 
 // Pop-up large et centré (retour Bryan 20/08/2026, correction : "plein
 // écran" voulait dire "tiré horizontalement", pas une prise de contrôle
@@ -303,34 +470,253 @@ function ChambreForm({ onSave, onCancel, saving, initial }: {
 // c'était trop étroit pour un grand écran). Les deux pop-ups de cet
 // écran (Chambres/Prestations) partagent ce même patron, strictement
 // identique.
-function FormOverlay({ title, onCancel, children }: { title: string; onCancel: () => void; children: React.ReactNode }) {
+function FormOverlay({ title, subtitle, onCancel, footer, children }: { title: string; subtitle?: string; onCancel: () => void; footer: React.ReactNode; children: React.ReactNode }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   return (
-    <div className="svch-overlay" style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={onCancel}>
-      <style>{`@media(min-width:900px){.svch-overlay{align-items:center!important;padding:24px!important}.svch-panel{max-width:820px!important;border-radius:20px!important;max-height:88svh!important}}`}</style>
-      <div onClick={e => e.stopPropagation()} className="svch-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", width: "100%", maxWidth: "560px", maxHeight: "92svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease", display: "flex", flexDirection: "column" }}>
-        <div style={{ position: "sticky", top: 0, zIndex: 1, backgroundColor: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: "18px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-          <h2 style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: 0 }}>{title}</h2>
+    <div className="svch-overlay" style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "stretch", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={onCancel}>
+      {/* Mobile = vraie page plein écran (pas un petit modal centré à faire
+          défiler dans une zone minuscule, retour Bryan) ; ≥900px = modal
+          centré large, hauteur proche de 90vh, header/footer sticky des
+          deux côtés. */}
+      {/* Barre de défilement visible en permanence (retour Bryan
+          25/09/2026 : formulaires longs par sections, l'utilisateur doit
+          voir immédiatement qu'il reste du contenu à défiler) — scrollbar
+          fine mais non transparente, mêmes tokens de couleur que le reste
+          du modal, Firefox + WebKit. */}
+      <style>{`@media(min-width:900px){.svch-overlay{align-items:center!important;padding:24px!important}.svch-panel{max-width:860px!important;width:100%!important;height:auto!important;max-height:90vh!important;border-radius:20px!important;border:1px solid var(--svch-border)!important}}.svch-content{scrollbar-width:thin;scrollbar-color:var(--svch-thumb) transparent}.svch-content::-webkit-scrollbar{width:9px}.svch-content::-webkit-scrollbar-track{background:transparent}.svch-content::-webkit-scrollbar-thumb{background-color:var(--svch-thumb);border-radius:20px;border:2px solid transparent;background-clip:padding-box}.svch-content::-webkit-scrollbar-thumb:hover{background-color:var(--svch-thumb-hover)}`}</style>
+      <div onClick={e => e.stopPropagation()} className="svch-panel" style={{ ["--svch-border" as string]: C.border2, position: "relative", backgroundColor: C.bgCard, borderRadius: "0", width: "100%", height: "100dvh", maxHeight: "100dvh", overflow: "hidden", animation: "slideUp 0.3s ease", display: "flex", flexDirection: "column" }}>
+        <div style={{ flexShrink: 0, backgroundColor: C.bgCard, borderBottom: `1px solid ${C.border}`, padding: "18px 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+          <div>
+            <h2 style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: 0 }}>{title}</h2>
+            {subtitle && <p style={{ color: C.t3, fontSize: "12px", margin: "4px 0 0", lineHeight: 1.5 }}>{subtitle}</p>}
+          </div>
           <button onClick={onCancel} aria-label="Fermer" className="tap" style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.t2, flexShrink: 0 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <div style={{ padding: "22px 22px 32px" }}>
+        <div className="svch-content" style={{ ["--svch-thumb" as string]: "rgba(0,0,0,0.55)", ["--svch-thumb-hover" as string]: "rgba(0,0,0,0.8)", flex: 1, minHeight: 0, overflowY: "auto", padding: "26px 22px 30px" }}>
           {children}
+        </div>
+        <div style={{ flexShrink: 0, backgroundColor: C.bgCard, borderTop: `1px solid ${C.border}`, padding: "14px 22px" }}>
+          {footer}
         </div>
       </div>
     </div>
   );
 }
 
+// En-tête de section numérotée — même patron répété par Chambre et
+// Prestation (retour Bryan 25/09/2026 : "formulaire par étapes logiques",
+// pas un long formulaire compact). Un seul système visuel, pas un nouveau
+// design system : mêmes tokens de couleur/bordure/rayon que le reste de
+// l'écran.
+function FormSection({ number, title, description, children }: { number: string; title: string; description?: string; children: React.ReactNode }) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+        <div style={{ width: "26px", height: "26px", borderRadius: "9px", backgroundColor: `${C.gold}15`, border: `1px solid ${C.gold}35`, display: "flex", alignItems: "center", justifyContent: "center", color: C.gold, fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{number}</div>
+        <div>
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.6px" }}>{title}</div>
+          {description && <p style={{ color: C.t3, fontSize: "12px", lineHeight: 1.55, margin: "4px 0 0" }}>{description}</p>}
+        </div>
+      </div>
+      <div style={{ paddingLeft: "38px", display: "flex", flexDirection: "column", gap: "14px" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SectionDivider() {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  return <div style={{ height: "1px", backgroundColor: C.border }}/>;
+}
+
+// Galerie photo partagée Chambre/Prestation (retour Bryan 25/09/2026) —
+// même présentation, plafond différent selon l'appelant (MAX_PHOTOS_CHAMBRE
+// vs MAX_PHOTOS_PRESTATION). "Photo principale" reflète le comportement
+// réel : ChambreCard/PrestationCard affichent toutes deux photos[0] comme
+// image de couverture.
+// Réorganisation par glisser-déposer (retour Bryan 25/09/2026, "Créer un
+// service" V2 : "la photo principale doit être réordonnable à la
+// souris") — implémenté en Pointer Events plutôt que l'API HTML5 Drag and
+// Drop native (draggable/onDragStart) : cette dernière ne déclenche aucun
+// événement sur mobile/tactile (Safari/Chrome mobile), alors que Pointer
+// Events unifie souris/tactile/stylet nativement, sans dépendance ajoutée.
+// Réordonnancement "live" pendant le glissement (comme la plupart des
+// galeries pro) : l'élément survolé et l'élément déplacé échangent de
+// position immédiatement, pas seulement au relâchement. Boutons ‹ ›
+// gardés en parallèle comme alternative 100% clavier/tactile simple —
+// jamais un 2e système de sélection de "photo principale" : le premier
+// élément de la liste EST la principale, dans les deux cas.
+function PhotoGallery({ photos, setPhotos, uploading, onUpload, max, required }: {
+  photos: string[]; setPhotos: (fn: (p: string[]) => string[]) => void; uploading: boolean; onUpload: (file: File) => void; max: number; required: boolean;
+}) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  function movePhoto(from: number, to: number) {
+    if (from === to || to < 0 || to >= photos.length) return;
+    setPhotos(p => {
+      const copy = [...p];
+      const [item] = copy.splice(from, 1);
+      copy.splice(to, 0, item);
+      return copy;
+    });
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>, i: number) {
+    if (photos.length < 2) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragIndex(i);
+  }
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (dragIndex === null) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-photo-tile]") as HTMLElement | null;
+    if (!el) return;
+    const overI = Number(el.dataset.photoTile);
+    if (!Number.isNaN(overI) && overI !== dragIndex) {
+      movePhoto(dragIndex, overI);
+      setDragIndex(overI);
+    }
+  }
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    setDragIndex(null);
+  }
+
+  const moveBtnStyle: React.CSSProperties = { width: "20px", height: "20px", borderRadius: "50%", backgroundColor: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+        <span style={{ color: C.t2, fontSize: "11px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.6px" }}>Photos{required ? " *" : ""}</span>
+        <span style={{ color: C.t3, fontSize: "11px", fontWeight: 700 }}>{photos.length}/{max}</span>
+      </div>
+      {photos.length === 0 ? (
+        <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px", height: "130px", border: `1.5px dashed ${C.border2}`, borderRadius: "16px", cursor: uploading ? "wait" : "pointer", backgroundColor: C.bg3 }}>
+          {uploading ? <YelenLoader size={20}/> : (
+            <>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+              <span style={{ color: C.t2, fontSize: "12.5px", fontWeight: 800 }}>Ajoutez vos premières photos</span>
+              <span style={{ color: C.t3, fontSize: "11px" }}>JPG, PNG — jusqu&apos;à {max} photos</span>
+            </>
+          )}
+          <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploading} onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }}/>
+        </label>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: "10px" }}>
+          {photos.map((url, i) => (
+            <div
+              key={url}
+              data-photo-tile={i}
+              onPointerDown={e => handlePointerDown(e, i)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              style={{ position: "relative", borderRadius: "14px", overflow: "hidden", aspectRatio: "1/1", touchAction: "none", cursor: photos.length > 1 ? (dragIndex === i ? "grabbing" : "grab") : "default", opacity: dragIndex === i ? 0.55 : 1, transform: dragIndex === i ? "scale(1.05)" : "none", boxShadow: dragIndex === i ? "0 10px 22px rgba(0,0,0,0.35)" : "none", zIndex: dragIndex === i ? 2 : 1, transition: dragIndex === i ? "none" : "transform 0.15s ease" }}
+            >
+              {/* IMG-EXCEPTION: reason=galerie de vignettes en cours d'édition, URLs Storage publiques déjà stables | reviewed=2026-09-25 */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={`Photo ${i + 1}`} draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", pointerEvents: "none" }}/>
+              <div style={{ position: "absolute", top: "6px", left: "6px", backgroundColor: i === 0 ? C.gold : "rgba(0,0,0,0.6)", color: i === 0 ? "#000" : "#fff", fontSize: "9.5px", fontWeight: 800, padding: "2px 7px", borderRadius: "20px" }}>{i === 0 ? "Principale" : `#${i + 1}`}</div>
+              <button onPointerDown={e => e.stopPropagation()} onClick={() => setPhotos(p => p.filter((_, idx) => idx !== i))} aria-label={`Supprimer la photo ${i + 1}`} className="tap" style={{ position: "absolute", top: "6px", right: "6px", width: "22px", height: "22px", borderRadius: "50%", backgroundColor: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", fontSize: "11px" }}>✕</button>
+              {photos.length > 1 && (
+                <div style={{ position: "absolute", bottom: "6px", left: "6px", display: "flex", gap: "4px" }}>
+                  <button onPointerDown={e => e.stopPropagation()} onClick={() => movePhoto(i, i - 1)} disabled={i === 0} aria-label="Déplacer plus tôt dans l'ordre" className="tap" style={{ ...moveBtnStyle, opacity: i === 0 ? 0.35 : 1, cursor: i === 0 ? "default" : "pointer" }}>‹</button>
+                  <button onPointerDown={e => e.stopPropagation()} onClick={() => movePhoto(i, i + 1)} disabled={i === photos.length - 1} aria-label="Déplacer plus tard dans l'ordre" className="tap" style={{ ...moveBtnStyle, opacity: i === photos.length - 1 ? 0.35 : 1, cursor: i === photos.length - 1 ? "default" : "pointer" }}>›</button>
+                </div>
+              )}
+            </div>
+          ))}
+          {photos.length < max && (
+            <label style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "4px", aspectRatio: "1/1", border: `1.5px dashed ${C.border2}`, borderRadius: "14px", cursor: uploading ? "wait" : "pointer", backgroundColor: C.bg3 }}>
+              {uploading ? <YelenLoader size={18}/> : (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <span style={{ color: C.t3, fontSize: "10px", fontWeight: 700 }}>Ajouter</span>
+                </>
+              )}
+              <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploading} onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }}/>
+            </label>
+          )}
+        </div>
+      )}
+      <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5, margin: "10px 0 0" }}>La première photo sera utilisée comme photo principale sur votre fiche publique.{photos.length > 1 ? " Glissez une photo (ou utilisez ‹ ›) pour changer son ordre." : ""}</p>
+    </div>
+  );
+}
+
+// Liste texte libre (inclus/non inclus) — jamais une liste pré-cochée
+// (retour Bryan 25/09/2026 : "ne pas afficher automatiquement comme
+// inclus quelque chose que le prestataire n'a pas sélectionné") : simple
+// saisie + validation par Entrée/bouton, chaque élément supprimable.
+function ChipListEditor({ items, setItems, placeholder, emptyLabel, tone }: {
+  items: string[]; setItems: (fn: (p: string[]) => string[]) => void; placeholder: string; emptyLabel: string; tone: "positive" | "negative";
+}) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  const [draft, setDraft] = useState("");
+  const color = tone === "positive" ? C.green : C.t3;
+
+  function addItem() {
+    const v = draft.trim();
+    if (!v) return;
+    setItems(p => (p.includes(v) ? p : [...p, v]));
+    setDraft("");
+  }
+
+  return (
+    <div>
+      {items.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
+          {items.map((item, i) => (
+            <div key={item} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "10px", padding: "8px 10px" }}>
+              <span style={{ color, fontSize: "13px", fontWeight: 800, flexShrink: 0 }}>{tone === "positive" ? "✓" : "✕"}</span>
+              <span style={{ color: C.t1, fontSize: "12.5px", flex: 1 }}>{item}</span>
+              <button onClick={() => setItems(p => p.filter((_, idx) => idx !== i))} aria-label={`Retirer ${item}`} className="tap" style={{ background: "none", border: "none", color: C.t3, cursor: "pointer", fontSize: "12px", padding: "2px 4px" }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {items.length === 0 && <p style={{ color: C.t3, fontSize: "11.5px", fontStyle: "italic", margin: "0 0 10px" }}>{emptyLabel}</p>}
+      <div style={{ display: "flex", gap: "8px" }}>
+        <input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} placeholder={placeholder} style={{ flex: 1, backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "10px", padding: "9px 12px", fontSize: "13px", color: C.t1, fontFamily: "inherit" }}/>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={addItem}>+ Ajouter</Button>
+      </div>
+    </div>
+  );
+}
+
 function ChambreFormSheet({ target, onSave, onCancel, saving }: {
-  target: "new" | PaidService; onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number }) => Promise<void>;
+  target: "new" | PaidService; onSave: (d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number; categorie: string | null; capacite_max: number; capacite_adultes: number | null; capacite_enfants: number | null; superficie_m2: number | null; inclus: string[]; non_inclus: string[]; a_savoir: string | null }) => Promise<void>;
   onCancel: () => void; saving: boolean;
 }) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  const formRef = useRef<ChambreFormHandle>(null);
+  const [busy, setBusy] = useState(false);
+  const isEdit = target !== "new";
   return (
-    <FormOverlay title={target === "new" ? "Nouvelle chambre" : "Modifier la chambre"} onCancel={onCancel}>
-      <ChambreForm onSave={onSave} onCancel={onCancel} saving={saving} initial={target === "new" ? null : target}/>
+    <FormOverlay
+      title={isEdit ? "Modifier la chambre" : "Nouvelle chambre"}
+      subtitle="Configurez les informations et les équipements de cette chambre."
+      onCancel={onCancel}
+      footer={
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: "10px" }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onCancel}>Annuler</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={busy} loading={saving} onClick={() => formRef.current?.submit()}>
+            {isEdit ? "Enregistrer les modifications" : "Créer la chambre"}
+          </Button>
+        </div>
+      }
+    >
+      <ChambreForm ref={formRef} onSave={onSave} initial={isEdit ? target : null} onBusyChange={setBusy}/>
     </FormOverlay>
   );
 }
@@ -376,73 +762,166 @@ function ChambreCard({ chambre, resaCount, onEdit, onToggleActive, onDelete, tog
   );
 }
 
-function PrestationForm({ onSave, onCancel, saving, initial, familles }: {
-  onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string; type_prestation: TypePrestation; unite_prix: string | null; horaires: Horaire[]; localisation: string }) => Promise<void>;
-  onCancel: () => void; saving: boolean; initial?: PaidService | null; familles: string[];
-}) {
+function FieldError({ msg }: { msg?: string }) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  if (!msg) return null;
+  return <p style={{ color: C.red, fontSize: "11px", fontWeight: 700, margin: "6px 0 0" }}>{msg}</p>;
+}
+
+type PrestationFormHandle = { submit: () => void };
+const PrestationForm = forwardRef<PrestationFormHandle, {
+  onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; description_courte: string; categorie: string; type_prestation: TypePrestation; unite_prix: string | null; horaires: Horaire[]; localisation: string; photos: string[]; inclus: string[]; non_inclus: string[]; a_savoir: string | null; public_cible: string[] }) => Promise<void>;
+  initial?: PaidService | null; familles: string[]; onBusyChange: (busy: boolean) => void;
+}>(function PrestationForm({ onSave, initial, familles, onBusyChange }, ref) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const [nom, setNom] = useState(initial?.nom ?? "");
+  const [descCourte, setDescCourte] = useState(initial?.description_courte ?? "");
+  const [desc, setDesc] = useState(initial?.description ?? "");
   const [famille, setFamille] = useState(initial?.categorie ?? "");
   const [type, setType] = useState<TypePrestation>(initial?.type_prestation ?? "reservable");
+  const [publicCible, setPublicCible] = useState<string[]>(initial?.public_cible ?? []);
   const [prix, setPrix] = useState(initial ? String(initial.prix) : "");
   const [unitePrix, setUnitePrix] = useState(initial?.unite_prix ?? "");
   const [duree, setDuree] = useState(initial ? String(initial.duree_minutes) : "30");
+  const [inclus, setInclus] = useState<string[]>(initial?.inclus ?? []);
+  const [nonInclus, setNonInclus] = useState<string[]>(initial?.non_inclus ?? []);
   const [horaires, setHoraires] = useState<Horaire[]>(initial?.horaires && initial.horaires.length > 0 ? initial.horaires : HORAIRES_DEFAUT);
   const [localisation, setLocalisation] = useState(initial?.localisation ?? "");
-  const [desc, setDesc] = useState(initial?.description ?? "");
-  const [err, setErr] = useState("");
-  const isEdit = !!initial;
+  const [aSavoir, setASavoir] = useState(initial?.a_savoir ?? "");
+  const [photos, setPhotos] = useState<string[]>(initial?.photos ?? []);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadErr, setUploadErr] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => { onBusyChange(uploadingPhoto); }, [uploadingPhoto, onBusyChange]);
 
   const updateHoraire = (idx: number, field: keyof Horaire, value: string | boolean) => {
     setHoraires(h => h.map((x, i) => i === idx ? { ...x, [field]: value } : x));
   };
+  const togglePublicCible = (value: string) => {
+    setPublicCible(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+  };
 
-  // Tous les champs sont obligatoires dans ce pop-up (retour Bryan
-  // 20/08/2026 : "tous doivent être obligatoire pas de facultatif") —
-  // ne concerne que ce formulaire, aucune contrainte NOT NULL ajoutée en
-  // base (colonnes restent nullable, paid_services étant partagée par
-  // les 14 autres secteurs qui ne renseignent jamais ces champs).
-  async function submit() {
-    setErr("");
-    if (!nom.trim()) { setErr("Le nom est obligatoire"); return; }
-    if (!famille.trim()) { setErr("La famille est obligatoire (ex : Restauration, Bien-être, Confort de la chambre…)"); return; }
-    if (!prix || isNaN(+prix) || +prix <= 0) { setErr(`Entrez un prix valide en ${DEVISE_LABEL}`); return; }
-    if (!unitePrix) { setErr("L'unité de prix est obligatoire"); return; }
-    if (!duree || isNaN(+duree) || +duree <= 0) { setErr("Entrez une durée estimée valide en minutes"); return; }
-    if (!horaires.some(h => h.ouvert)) { setErr("Les horaires sont obligatoires — ouvrez au moins un jour"); return; }
-    if (!localisation.trim()) { setErr("La localisation est obligatoire"); return; }
-    if (!desc.trim()) { setErr("La description est obligatoire"); return; }
-    await onSave({ nom: nom.trim(), prix: +prix, duree_minutes: +duree, description: desc.trim(), categorie: famille.trim(), type_prestation: type, unite_prix: unitePrix.trim(), horaires, localisation: localisation.trim() });
+  // Galerie prestation (retour Bryan 25/09/2026) — même endpoint que la
+  // galerie chambre (api/institution/services/media), plafond distinct
+  // (MAX_PHOTOS_PRESTATION), jamais obligatoire contrairement à la chambre.
+  async function handlePhoto(file: File) {
+    setUploadErr("");
+    setUploadingPhoto(true);
+    const form = new FormData();
+    form.append("kind", "photo");
+    form.append("file", file);
+    const res = await fetch("/api/institution/services/media", { method: "POST", body: form });
+    const j = await res.json().catch(() => null);
+    setUploadingPhoto(false);
+    if (!res.ok) { setUploadErr(j?.error || "Échec de l'envoi de la photo"); return; }
+    setPhotos(p => [...p, j.url].slice(0, MAX_PHOTOS_PRESTATION));
   }
+
+  // Erreurs affichées au niveau du champ concerné (retour Bryan 25/09/2026,
+  // "Créer un service" V2 : "ne pas utiliser uniquement une notification
+  // globale") — plus de bannière unique en haut du formulaire. Tous les
+  // champs listés ici restent obligatoires (retour Bryan 20/08/2026 :
+  // "tous doivent être obligatoire pas de facultatif") sauf les photos
+  // (retour Bryan 25/09/2026 : "de nombreuses prestations existantes n'en
+  // ont aucune") et les sections Inclus/Non inclus/À savoir/Public cible
+  // (facultatives par nature, jamais pré-remplies).
+  function validate(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (!nom.trim()) e.nom = "Le nom du service est obligatoire.";
+    if (!descCourte.trim()) e.descCourte = "La description courte est obligatoire.";
+    if (!desc.trim()) e.desc = "La description détaillée est obligatoire.";
+    if (!famille.trim()) e.famille = "La famille est obligatoire (ex : Restauration, Bien-être, Confort de la chambre…).";
+    if (!prix || isNaN(+prix) || +prix <= 0) e.prix = `Entrez un prix valide en ${DEVISE_LABEL}.`;
+    if (!unitePrix) e.unitePrix = "L'unité de prix est obligatoire.";
+    if (!duree || isNaN(+duree) || +duree <= 0) e.duree = "Entrez une durée estimée valide en minutes.";
+    if (!horaires.some(h => h.ouvert)) e.horaires = "Les horaires sont obligatoires — ouvrez au moins un jour.";
+    if (!localisation.trim()) e.localisation = "La localisation est obligatoire.";
+    return e;
+  }
+
+  async function submit() {
+    const e = validate();
+    setFieldErrors(e);
+    if (Object.keys(e).length > 0) return;
+    await onSave({
+      nom: nom.trim(), prix: +prix, duree_minutes: +duree, description: desc.trim(), description_courte: descCourte.trim(),
+      categorie: famille.trim(), type_prestation: type, unite_prix: unitePrix.trim(), horaires, localisation: localisation.trim(),
+      photos, inclus, non_inclus: nonInclus, a_savoir: aSavoir.trim() || null, public_cible: publicCible,
+    });
+  }
+
+  useImperativeHandle(ref, () => ({ submit }));
 
   const inputStyle: React.CSSProperties = { width: "100%", backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px", fontSize: "14px", color: C.t1, fontFamily: "inherit" };
   const labelStyle: React.CSSProperties = { display: "block", color: C.t2, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "6px" };
-  const aperçu = typeInfo(type);
+  const aperçuType = typeInfo(type);
 
   return (
-    <div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "26px" }}>
+      <FormSection number="01" title="Présentation" description="Identifiez ce service : son nom, sa présentation rapide et sa description complète.">
         <div>
-          <label style={labelStyle}>Nom de la prestation *</label>
-          <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : Massage relaxant, Transfert aéroport, Petit-déjeuner buffet…" style={inputStyle}/>
+          <label style={labelStyle}>Nom du service *</label>
+          <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Ex : Petit-déjeuner en chambre, Massage relaxant, Transfert aéroport…" style={inputStyle}/>
+          <FieldError msg={fieldErrors.nom}/>
+        </div>
+        <div>
+          <label style={labelStyle}>Description courte *</label>
+          <input value={descCourte} onChange={e => setDescCourte(e.target.value)} placeholder="Ex : Un petit-déjeuner complet servi directement dans votre chambre." style={inputStyle}/>
+          <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5, margin: "6px 0 0" }}>Utilisée pour la présentation rapide dans les cartes et listes.</p>
+          <FieldError msg={fieldErrors.descCourte}/>
+        </div>
+        <div>
+          <label style={labelStyle}>Description détaillée *</label>
+          <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Décrivez précisément ce service pour vos clients…" rows={5} style={{ ...inputStyle, resize: "none", lineHeight: 1.65 }}/>
+          <p style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5, margin: "6px 0 0" }}>Utilisée sur la fiche complète du service.</p>
+          <FieldError msg={fieldErrors.desc}/>
         </div>
         <div>
           <label style={labelStyle}>Famille *</label>
           <input value={famille} onChange={e => setFamille(e.target.value)} placeholder="Ex : Restauration, Bien-être & loisirs, Confort de la chambre…" style={inputStyle} list="familles-existantes"/>
           <datalist id="familles-existantes">{familles.map(f => <option key={f} value={f}/>)}</datalist>
+          <FieldError msg={fieldErrors.famille}/>
         </div>
         <div>
           <label style={labelStyle}>Type de prestation *</label>
           <select value={type} onChange={e => setType(e.target.value as TypePrestation)} style={{ ...inputStyle, cursor: "pointer" }}>
             {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          {aperçu && <div style={{ color: C.t3, fontSize: "11px", marginTop: "6px", lineHeight: 1.5 }}>{aperçu.apercu}</div>}
+          {aperçuType && <div style={{ color: C.t3, fontSize: "11px", marginTop: "6px", lineHeight: 1.5 }}>{aperçuType.apercu}</div>}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div>
+          <label style={labelStyle}>Ce service convient à <span style={{ fontWeight: "500", textTransform: "none", fontSize: "10px" }}>(facultatif)</span></label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "7px" }}>
+            {PUBLIC_CIBLE_OPTIONS.map(o => {
+              const checked = publicCible.includes(o.value);
+              return (
+                <button key={o.value} type="button" onClick={() => togglePublicCible(o.value)} className="tap" style={{ backgroundColor: C.bg3, border: `1.5px solid ${checked ? C.gold + "50" : C.border2}`, borderRadius: "20px", padding: "7px 14px", cursor: "pointer" }}>
+                  <span style={{ color: checked ? C.gold : C.t2, fontSize: "11.5px", fontWeight: checked ? 700 : 500 }}>{o.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="02" title="Photos" description="Ajoutez des photos qui aident vos clients à comprendre ce service (facultatif).">
+        <PhotoGallery photos={photos} setPhotos={setPhotos} uploading={uploadingPhoto} onUpload={handlePhoto} max={MAX_PHOTOS_PRESTATION} required={false}/>
+        <FieldError msg={uploadErr}/>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="03" title="Tarification" description="Définissez le prix, son unité et la durée estimée de ce service.">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <div>
             <label style={labelStyle}>Prix ({DEVISE_LABEL}) *</label>
             <input type="number" value={prix} onChange={e => setPrix(e.target.value)} placeholder="50000" style={inputStyle}/>
+            <FieldError msg={fieldErrors.prix}/>
           </div>
           <div>
             <label style={labelStyle}>Unité *</label>
@@ -450,23 +929,44 @@ function PrestationForm({ onSave, onCancel, saving, initial, familles }: {
               <option value="" disabled>Choisir…</option>
               {UNITE_PRIX_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
+            <FieldError msg={fieldErrors.unitePrix}/>
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-          <div>
-            <label style={labelStyle}>Durée estimée (min) *</label>
-            <input type="number" value={duree} onChange={e => setDuree(e.target.value)} placeholder="30" style={inputStyle}/>
-          </div>
-          <div>
-            <label style={labelStyle}>Localisation *</label>
-            <input value={localisation} onChange={e => setLocalisation(e.target.value)} placeholder="Ex : Rez-de-chaussée" style={inputStyle}/>
-          </div>
+        <div>
+          <label style={labelStyle}>Durée estimée (min) *</label>
+          <input type="number" value={duree} onChange={e => setDuree(e.target.value)} placeholder="30" style={inputStyle}/>
+          <FieldError msg={fieldErrors.duree}/>
+        </div>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="04" title="Inclus / non inclus" description="Indiquez ce qui est réellement inclus ou non inclus dans ce service — rien n'est présélectionné.">
+        <div>
+          <label style={labelStyle}>Ce qui est inclus</label>
+          <ChipListEditor items={inclus} setItems={setInclus} placeholder="Ex : Café ou thé, Pain frais…" emptyLabel="Aucun élément inclus renseigné pour le moment." tone="positive"/>
+        </div>
+        <div>
+          <label style={labelStyle}>Ce qui n&apos;est pas inclus</label>
+          <ChipListEditor items={nonInclus} setItems={setNonInclus} placeholder="Ex : Boissons supplémentaires, Livraison hors horaires…" emptyLabel="Aucune exclusion renseignée pour le moment." tone="negative"/>
+        </div>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="05" title="Disponibilité" description="Indiquez où et quand ce service est proposé.">
+        <div>
+          <label style={labelStyle}>Localisation *</label>
+          <input value={localisation} onChange={e => setLocalisation(e.target.value)} placeholder="Ex : Rez-de-chaussée" style={inputStyle}/>
+          <FieldError msg={fieldErrors.localisation}/>
         </div>
         <div>
           <label style={labelStyle}>Horaires *</label>
           {/* Même widget que Profil Entreprise (ProfilEntrepriseTab.tsx)
               — jour par jour, ouvert/fermé + début/fin, jamais un champ
-              texte réinventé (retour Bryan 20/08/2026). */}
+              texte réinventé (retour Bryan 20/08/2026). Système de
+              disponibilité réutilisé tel quel (retour Bryan 25/09/2026 :
+              "ne pas créer une nouvelle logique si elle existe déjà"). */}
           <div style={{ backgroundColor: C.bg3, border: `1.5px solid ${C.border}`, borderRadius: "12px", padding: "6px", display: "flex", flexDirection: "column", gap: "4px" }}>
             {horaires.map((h, i) => (
               <div key={h.jour} style={{ display: "grid", gridTemplateColumns: "94px 1fr", gap: "8px", alignItems: "center", padding: "6px 6px" }}>
@@ -488,34 +988,92 @@ function PrestationForm({ onSave, onCancel, saving, initial, familles }: {
               </div>
             ))}
           </div>
+          <FieldError msg={fieldErrors.horaires}/>
         </div>
+      </FormSection>
+
+      <SectionDivider/>
+
+      <FormSection number="06" title="Informations pratiques" description="Ce que le citoyen doit connaître avant de demander ce service (facultatif).">
         <div>
-          <label style={labelStyle}>Description *</label>
-          <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Décrivez brièvement cette prestation pour vos clients…" rows={3} style={{ ...inputStyle, resize: "none", lineHeight: 1.65 }}/>
+          <label style={labelStyle}>À savoir</label>
+          <textarea value={aSavoir} onChange={e => setASavoir(e.target.value)} placeholder="Ex : Le petit-déjeuner doit être commandé avant 22h la veille…" rows={3} style={{ ...inputStyle, resize: "none", lineHeight: 1.65 }}/>
         </div>
+      </FormSection>
 
-        {err && (
-          <div style={{ backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 14px", borderRadius: "10px" }}>{err}</div>
-        )}
+      <SectionDivider/>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: "10px" }}>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onCancel}>Annuler</Button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" loading={saving} onClick={submit}>
-            {isEdit ? "Enregistrer les modifications" : "Créer la prestation"}
-          </Button>
+      <FormSection number="07" title="Aperçu" description="Vérifiez ce que le citoyen verra avant de créer ce service.">
+        <div style={{ border: `1.5px solid ${C.border2}`, borderRadius: "16px", overflow: "hidden", backgroundColor: C.bg3 }}>
+          {photos[0] ? (
+            // IMG-EXCEPTION: reason=aperçu live d'une photo déjà uploadée en cours d'édition, URL Storage publique stable | reviewed=2026-09-25
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photos[0]} alt={nom || "Aperçu du service"} style={{ width: "100%", height: "160px", objectFit: "cover", display: "block" }}/>
+          ) : (
+            <div style={{ height: "100px", display: "flex", alignItems: "center", justifyContent: "center", color: C.t3, fontSize: "11.5px", fontWeight: 700 }}>Aucune photo</div>
+          )}
+          <div style={{ padding: "16px" }}>
+            <div style={{ color: C.t1, fontSize: "15px", fontWeight: 800 }}>{nom || "Nom du service"}</div>
+            <div style={{ color: C.t2, fontSize: "12.5px", marginTop: "4px", lineHeight: 1.5 }}>{descCourte || "Description courte…"}</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "10px", marginTop: "12px" }}>
+              <span style={{ color: C.gold, fontSize: "16px", fontWeight: 800 }}>{prix && !isNaN(+prix) ? formatPrix(+prix) : "—"}{unitePrix ? ` / ${unitePrix}` : ""}</span>
+              {duree && <span style={{ color: C.t3, fontSize: "12px", fontWeight: 700 }}>{duree} min</span>}
+            </div>
+            {desc && <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: "12px 0 0" }}>{desc}</p>}
+            {(inclus.length > 0 || nonInclus.length > 0) && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginTop: "14px" }}>
+                {inclus.length > 0 && (
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "6px" }}>Inclus</div>
+                    {inclus.map(i => <div key={i} style={{ color: C.t1, fontSize: "12px", marginBottom: "4px" }}>✓ {i}</div>)}
+                  </div>
+                )}
+                {nonInclus.length > 0 && (
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "6px" }}>Non inclus</div>
+                    {nonInclus.map(i => <div key={i} style={{ color: C.t3, fontSize: "12px", marginBottom: "4px" }}>✕ {i}</div>)}
+                  </div>
+                )}
+              </div>
+            )}
+            {localisation && <div style={{ color: C.t3, fontSize: "12px", marginTop: "14px" }}>📍 {localisation}</div>}
+            {aSavoir && (
+              <div style={{ backgroundColor: C.bg, borderRadius: "10px", padding: "10px 12px", marginTop: "14px" }}>
+                <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "4px" }}>À savoir</div>
+                <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55 }}>{aSavoir}</div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </FormSection>
     </div>
   );
-}
+});
 
 function PrestationFormSheet({ target, onSave, onCancel, saving, familles }: {
-  target: "new" | PaidService; onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string; type_prestation: TypePrestation; unite_prix: string | null; horaires: Horaire[]; localisation: string }) => Promise<void>;
+  target: "new" | PaidService; onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; description_courte: string; categorie: string; type_prestation: TypePrestation; unite_prix: string | null; horaires: Horaire[]; localisation: string; photos: string[]; inclus: string[]; non_inclus: string[]; a_savoir: string | null; public_cible: string[] }) => Promise<void>;
   onCancel: () => void; saving: boolean; familles: string[];
 }) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  const formRef = useRef<PrestationFormHandle>(null);
+  const [busy, setBusy] = useState(false);
+  const isEdit = target !== "new";
   return (
-    <FormOverlay title={target === "new" ? "Nouvelle prestation" : "Modifier la prestation"} onCancel={onCancel}>
-      <PrestationForm onSave={onSave} onCancel={onCancel} saving={saving} initial={target === "new" ? null : target} familles={familles}/>
+    <FormOverlay
+      title={isEdit ? "Modifier le service" : "Nouveau service"}
+      subtitle="Construisez une fiche complète : ce que le citoyen doit savoir avant de réserver."
+      onCancel={onCancel}
+      footer={
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: "10px" }}>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onCancel}>Annuler</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={busy} loading={saving} onClick={() => formRef.current?.submit()}>
+            {isEdit ? "Enregistrer les modifications" : "Créer le service"}
+          </Button>
+        </div>
+      }
+    >
+      <PrestationForm ref={formRef} onSave={onSave} initial={isEdit ? target : null} familles={familles} onBusyChange={setBusy}/>
     </FormOverlay>
   );
 }
@@ -530,38 +1088,52 @@ function PrestationCard({ service, resaCount, onEdit, onToggleActive, onDelete, 
   const badgeBg = ti ? { blue: C.blueL, green: C.greenL, orange: C.orangeL, purple: C.purpleL }[ti.color] : C.bg3;
 
   return (
-    <Card tokens={toCardTokens(C)} padding="14px 16px" style={{ border: `1.5px solid ${service.is_active ? C.border2 : C.border}`, opacity: service.is_active ? 1 : 0.6 }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "8px" }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ color: C.t1, fontSize: "14.5px", fontWeight: "800" }}>{service.nom}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-            {ti && <span style={{ backgroundColor: badgeBg, color: badgeColor, fontSize: "10px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{ti.label}</span>}
-            <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>{formatPrix(service.prix)}{service.unite_prix ? ` / ${service.unite_prix}` : ""}</span>
-          </div>
-        </div>
-        <div onClick={onToggleActive} className="tap" style={{ width: "40px", height: "23px", borderRadius: "13px", backgroundColor: service.is_active ? C.gold : C.bg3, position: "relative", cursor: "pointer", flexShrink: 0, opacity: toggling ? 0.5 : 1, transition: "background-color 0.3s" }}>
-          <div style={{ position: "absolute", top: "3px", left: service.is_active ? "20px" : "3px", width: "17px", height: "17px", borderRadius: "50%", backgroundColor: service.is_active ? "#000" : C.t3, transition: "left 0.25s ease" }}/>
-        </div>
-      </div>
-      {service.description && <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, marginBottom: "8px" }}>{service.description}</div>}
-      {(service.horaires && service.horaires.length > 0 || service.localisation) && (
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "8px" }}>
-          {service.horaires && service.horaires.length > 0 && (() => {
-            const { ouvert, horaire } = isOuvertNow(service.horaires);
-            return (
-              <span style={{ color: ouvert ? C.green : C.t3, fontSize: "11px", fontWeight: "600" }}>
-                🕒 {ouvert ? "Ouvert maintenant" : "Fermé maintenant"}{horaire?.ouvert ? ` · ${horaire.debut}-${horaire.fin}` : ""}
-              </span>
-            );
-          })()}
-          {service.localisation && <span style={{ color: C.t3, fontSize: "11px", fontWeight: "600" }}>📍 {service.localisation}</span>}
+    <Card tokens={toCardTokens(C)} noPadding style={{ border: `1.5px solid ${service.is_active ? C.border2 : C.border}`, opacity: service.is_active ? 1 : 0.6 }}>
+      {service.photos.length > 0 && (
+        <div style={{ position: "relative" }}>
+          {/* IMG-EXCEPTION: reason=galerie de cartes dynamique, URL Storage publique stable, pas de <Image> pour éviter le layout shift dans une grille auto-fill | reviewed=2026-09-25 */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={service.photos[0]} alt={service.nom} style={{ width: "100%", height: "140px", objectFit: "cover", display: "block" }}/>
+          {service.photos.length > 1 && (
+            <div style={{ position: "absolute", bottom: "8px", right: "8px" }}>
+              <span style={{ backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px" }}>📷 {service.photos.length}</span>
+            </div>
+          )}
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "6px" }}>
-        <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700" }}>{resaCount} réservation{resaCount > 1 ? "s" : ""}</span>
-        <div style={{ display: "flex", gap: "6px" }}>
-          <button onClick={onEdit} className="tap" style={{ backgroundColor: C.bg3, border: `1.5px solid ${C.border2}`, color: C.t1, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer" }}>Modifier</button>
-          <button onClick={onDelete} className="tap" style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer" }}>Supprimer</button>
+      <div style={{ padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "8px" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: C.t1, fontSize: "14.5px", fontWeight: "800" }}>{service.nom}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+              {ti && <span style={{ backgroundColor: badgeBg, color: badgeColor, fontSize: "10px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{ti.label}</span>}
+              <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>{formatPrix(service.prix)}{service.unite_prix ? ` / ${service.unite_prix}` : ""}</span>
+            </div>
+          </div>
+          <div onClick={onToggleActive} className="tap" style={{ width: "40px", height: "23px", borderRadius: "13px", backgroundColor: service.is_active ? C.gold : C.bg3, position: "relative", cursor: "pointer", flexShrink: 0, opacity: toggling ? 0.5 : 1, transition: "background-color 0.3s" }}>
+            <div style={{ position: "absolute", top: "3px", left: service.is_active ? "20px" : "3px", width: "17px", height: "17px", borderRadius: "50%", backgroundColor: service.is_active ? "#000" : C.t3, transition: "left 0.25s ease" }}/>
+          </div>
+        </div>
+        {service.description && <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, marginBottom: "8px" }}>{service.description}</div>}
+        {(service.horaires && service.horaires.length > 0 || service.localisation) && (
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "8px" }}>
+            {service.horaires && service.horaires.length > 0 && (() => {
+              const { ouvert, horaire } = isOuvertNow(service.horaires);
+              return (
+                <span style={{ color: ouvert ? C.green : C.t3, fontSize: "11px", fontWeight: "600" }}>
+                  🕒 {ouvert ? "Ouvert maintenant" : "Fermé maintenant"}{horaire?.ouvert ? ` · ${horaire.debut}-${horaire.fin}` : ""}
+                </span>
+              );
+            })()}
+            {service.localisation && <span style={{ color: C.t3, fontSize: "11px", fontWeight: "600" }}>📍 {service.localisation}</span>}
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "6px" }}>
+          <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700" }}>{resaCount} réservation{resaCount > 1 ? "s" : ""}</span>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button onClick={onEdit} className="tap" style={{ backgroundColor: C.bg3, border: `1.5px solid ${C.border2}`, color: C.t1, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer" }}>Modifier</button>
+            <button onClick={onDelete} className="tap" style={{ backgroundColor: C.redL, border: `1px solid ${C.red}30`, color: C.red, fontWeight: "700", fontSize: "11.5px", padding: "7px 12px", borderRadius: "9px", cursor: "pointer" }}>Supprimer</button>
+          </div>
         </div>
       </div>
     </Card>
@@ -604,7 +1176,7 @@ export function ServicesHotelTab({}: { instId: string }) {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  async function handleSavePrestation(d: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string; type_prestation: TypePrestation; unite_prix: string | null; horaires: Horaire[]; localisation: string }) {
+  async function handleSavePrestation(d: { nom: string; prix: number; duree_minutes: number; description: string; description_courte: string; categorie: string; type_prestation: TypePrestation; unite_prix: string | null; horaires: Horaire[]; localisation: string; photos: string[]; inclus: string[]; non_inclus: string[]; a_savoir: string | null; public_cible: string[] }) {
     setSaving(true);
     const isEdit = prestationFormTarget && prestationFormTarget !== "new";
     const res = await fetch("/api/institution/services", {
@@ -625,10 +1197,16 @@ export function ServicesHotelTab({}: { instId: string }) {
   // une colonne obligatoire côté route (partagée par tous les secteurs,
   // jamais assouplie) — 1440 = 24h, valeur technique invisible du
   // formulaire.
-  async function handleSaveChambre(d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number }) {
+  async function handleSaveChambre(d: { nom: string; description: string; prix: number; photos: string[]; video_url: string | null; video_duree_secondes: number | null; equipements_chambre: string[]; nombre_unites: number; categorie: string | null; capacite_max: number; capacite_adultes: number | null; capacite_enfants: number | null; superficie_m2: number | null; inclus: string[]; non_inclus: string[]; a_savoir: string | null }) {
     setSaving(true);
     const isEdit = chambreFormTarget && chambreFormTarget !== "new";
-    const body = { nom: d.nom, description: d.description, prix: d.prix, photos: d.photos, video_url: d.video_url, video_duree_secondes: d.video_duree_secondes, equipements_chambre: d.equipements_chambre, nombre_unites: d.nombre_unites, duree_minutes: 1440, unite_prix: "par nuit", est_chambre: true, categorie: null, type_prestation: null, horaires: null, localisation: null };
+    const body = {
+      nom: d.nom, description: d.description, prix: d.prix, photos: d.photos, video_url: d.video_url, video_duree_secondes: d.video_duree_secondes,
+      equipements_chambre: d.equipements_chambre, nombre_unites: d.nombre_unites, duree_minutes: 1440, unite_prix: "par nuit", est_chambre: true,
+      categorie: d.categorie, type_prestation: null, horaires: null, localisation: null,
+      capacite_max: d.capacite_max, capacite_adultes: d.capacite_adultes, capacite_enfants: d.capacite_enfants, superficie_m2: d.superficie_m2,
+      inclus: d.inclus, non_inclus: d.non_inclus, a_savoir: d.a_savoir,
+    };
     const res = await fetch("/api/institution/services", {
       method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
@@ -732,7 +1310,7 @@ export function ServicesHotelTab({}: { instId: string }) {
               <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", minWidth: "200px", overflow: "hidden" }}>
                 <button onClick={() => { setChambreFormTarget("new"); setAjouterMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Ajouter une chambre</button>
                 <div style={{ height: "1px", backgroundColor: C.border }}/>
-                <button onClick={() => { setPrestationFormTarget("new"); setAjouterMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Ajouter une prestation</button>
+                <button onClick={() => { setPrestationFormTarget("new"); setAjouterMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Ajouter un service</button>
               </div>
             </>
           )}
@@ -798,7 +1376,7 @@ export function ServicesHotelTab({}: { instId: string }) {
             </div>
             <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "8px" }}>Aucune prestation configurée</div>
             <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65, marginBottom: "20px" }}>Room service, spa, transfert aéroport, blanchisserie… Ajoutez vos prestations pour qu&apos;elles apparaissent sur votre fiche.</div>
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={() => setPrestationFormTarget("new")}>Ajouter ma première prestation</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={() => setPrestationFormTarget("new")}>Ajouter mon premier service</Button>
           </Card>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
