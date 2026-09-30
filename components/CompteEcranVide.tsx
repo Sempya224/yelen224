@@ -81,9 +81,76 @@ function ScrollPositionBar({ isDark }: { isDark: boolean }) {
   );
 }
 
-export function CompteHeader({ titre, fondNeutre, retourHref, onBackIntercept, rightAction }: {
+// Variante réutilisable (retour Bryan, chantier "Mes projets" — les Bottom
+// Sheets/overlays custom de ce chantier n'utilisent pas CompteHeader, donc
+// n'avaient jamais cet indicateur) : même calcul/rendu que
+// ScrollPositionBar ci-dessus, mais lit le scroll d'un conteneur précis
+// (`conteneurRef`) au lieu de `window`. `variant="absolute"` (défaut) pour
+// un Bottom Sheet — rendue en enfant du panneau NON scrollable (le panneau
+// lui-même, pas la div interne `overflowY:auto`), reste donc fixe pendant
+// que le contenu défile à l'intérieur. `variant="fixed"` pour un overlay
+// plein écran qui scrolle sur sa propre racine (ex. RechercheProjetsOverlay,
+// le formulaire "Nouveau projet") — le conteneur scrollé est aussi
+// l'ancêtre positionné, `position:fixed` évite que la barre défile avec lui.
+export function ScrollPositionBarConteneur({ isDark, conteneurRef, variant = "absolute" }: {
+  isDark: boolean; conteneurRef: React.RefObject<HTMLDivElement | null>; variant?: "absolute" | "fixed";
+}) {
+  const [pct, setPct] = useState(0);
+  const [thumbH, setThumbH] = useState(0);
+  const [shown, setShown] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const el = conteneurRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const viewport = el.clientHeight;
+      const total = el.scrollHeight;
+      const max = total - viewport;
+      setPct(max > 0 ? Math.min(Math.max(el.scrollTop / max, 0), 1) : 0);
+      setThumbH(total > 0 ? Math.min(Math.max(viewport / total, 0.08), 1) : 1);
+      setShown(true);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => setShown(false), 900);
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, [conteneurRef]);
+
+  return (
+    <div aria-hidden style={{
+      position: variant, top: 0, bottom: 0,
+      right: "3px", width: "3px", zIndex: 1300, pointerEvents: "none",
+      opacity: shown ? 1 : 0, transition: "opacity 0.4s ease",
+    }}>
+      <div style={{
+        position: "absolute", top: `${pct * (1 - thumbH) * 100}%`, height: `${thumbH * 100}%`, width: "100%",
+        borderRadius: "3px", background: isDark ? "rgba(245,166,35,0.55)" : "rgba(8,8,18,0.35)",
+      }}/>
+    </div>
+  );
+}
+
+export function CompteHeader({ titre, fondNeutre, retourHref, onBackIntercept, rightAction, rightActions }: {
   titre: string; fondNeutre?: boolean; retourHref?: string; onBackIntercept?: () => void;
-  rightAction?: { icon: React.ReactNode; label: string; onClick: () => void };
+  // `variant` (retour Bryan 28/09/2026, écran "Tous les projets") : "chip"
+  // (défaut, cercle plein avec fond/bordure — pensé pour un raccourci
+  // ponctuel comme "Mon QR Code") reste inchangé pour ne pas affecter ce
+  // site existant. "plain" reproduit le style discret des icônes recherche/
+  // casque par défaut — nécessaire quand rightAction remplace juste l'une
+  // d'elles (ex. loupe scoppée à l'écran) sans vouloir un bouton plus gros/
+  // plus visible que ses voisins.
+  rightAction?: { icon: React.ReactNode; label: string; onClick: () => void; variant?: "chip" | "plain" };
+  // `rightActions` (retour Bryan, sheet Aide "Tous les projets") : remplace
+  // le duo recherche/casque par 2 icônes personnalisées (Aide + Recherche)
+  // au lieu d'une seule — toujours rendues "plain" (discret), a priorité
+  // sur `rightAction` si les deux sont passés. Optionnel, n'affecte aucun
+  // des sites existants qui ne le passent pas.
+  rightActions?: { icon: React.ReactNode; label: string; onClick: () => void }[];
 }) {
   const router = useRouter();
   const [rechercheOpen, setRechercheOpen] = useState(false);
@@ -132,8 +199,16 @@ export function CompteHeader({ titre, fondNeutre, retourHref, onBackIntercept, r
         </button>
         <div style={{ color: headerText, fontSize: "16px", fontWeight: "800", minWidth: 0, maxWidth: "180px", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{titre}</div>
         <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: "10px" }}>
-          {rightAction ? (
-            <button onClick={rightAction.onClick} aria-label={rightAction.label} className="tap" style={{ width: "36px", height: "36px", borderRadius: "50%", background: chipBg, border: `1px solid ${chipBrd}`, boxShadow: chipShadow, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0, cursor: "pointer" }}>
+          {rightActions ? (
+            rightActions.map((a, i) => (
+              <button key={i} onClick={a.onClick} aria-label={a.label} className="tap" style={{ background: "none", border: "none", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0, cursor: "pointer" }}>
+                {a.icon}
+              </button>
+            ))
+          ) : rightAction ? (
+            <button onClick={rightAction.onClick} aria-label={rightAction.label} className="tap" style={rightAction.variant === "plain"
+              ? { background: "none", border: "none", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0, cursor: "pointer" }
+              : { width: "36px", height: "36px", borderRadius: "50%", background: chipBg, border: `1px solid ${chipBrd}`, boxShadow: chipShadow, display: "flex", alignItems: "center", justifyContent: "center", color: chipIcon, flexShrink: 0, cursor: "pointer" }}>
               {rightAction.icon}
             </button>
           ) : (

@@ -73,7 +73,16 @@ const COLLAPSED_H = 68;
 // voir le fond de la page entre les deux (retour Bryan 23/08/2026 :
 // "l'utilisateur ne doit pas voir que le sheet est coupé").
 const NAV_H = 62;
-const HEADER_CLEARANCE = 110; // marge de sécurité sous le header pour le calc CSS du max-height
+// Distance (CSS px) entre le haut de l'écran et le haut du panneau déplié
+// (= sa position Y directe, voir getMaxH ci-dessous) — donc plus cette
+// valeur est petite, plus le panneau remonte près du header. Valeur
+// précédente (110) laissait encore un bandeau doré vide visible sous la
+// ligne d'icônes du header Accueil sur capture (retour Bryan 30/09/2026 :
+// "juste les icônes du header doivent être visibles, le sheet doit
+// couvrir tout cet espace vide"). Ne descend pas en dessous de la hauteur
+// réelle du header (safe-area-inset-top + ligne d'icônes ~60px) sous
+// peine de passer par-dessus les icônes elles-mêmes.
+const HEADER_CLEARANCE = 78;
 const DRAG_SNAP_RATIO = 0.35; // fraction de la course pour basculer d'état au relâchement
 
 const Ic = {
@@ -184,9 +193,59 @@ function RailDecouverte({ titre, t1, children }: { titre: string; t1: string; ch
   return (
     <div>
       <div style={{ color: t1, fontSize: "14px", fontWeight: "900", marginBottom: "10px" }}>{titre}</div>
-      <div style={{ display: "flex", gap: "10px", overflowX: "auto", margin: "0 -16px", padding: "0 16px 4px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", overflowX: "auto", margin: "0 -16px", padding: "0 16px 4px" }}>
         {children}
       </div>
+    </div>
+  );
+}
+
+// Carte annonce (30/08/2026 → refonte taille adaptative 30/09/2026, retour
+// Bryan) : pleine largeur quand une seule annonce est "concernée" (favori ou
+// historique RDV, filtrage déjà fait par l'API), rail compact horizontal dès
+// que plusieurs — jamais une pile verticale qui écrase le reste du bandeau.
+// "Voir plus" déplie le texte intégral SUR PLACE (jamais une navigation),
+// pour que le citoyen ait toute l'info sans quitter "Mon Assistant" — seul
+// le titre/l'image restent un raccourci cliquable vers la fiche.
+function AnnonceCard({ a, full, expanded, onToggleExpand, onOpenInstitution, t1, t2, card, card2, brd }: {
+  a: AnnonceLite; full: boolean; expanded: boolean; onToggleExpand: () => void; onOpenInstitution: () => void;
+  t1: string; t2: string; card: string; card2: string; brd: string;
+}) {
+  const nomInst = a.institutions?.name ?? "Institution";
+  const video = !a.image_url && a.format === "video" && a.media_urls?.[0];
+  const imgH = full ? 130 : 80;
+  return (
+    <div style={{ width: full ? "100%" : "220px", flexShrink: 0, background: card2, border: `1px solid ${brd}`, borderRadius: full ? "16px" : "14px", overflow: "hidden" }}>
+      <button onClick={onOpenInstitution} className="tap" style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", display: "block" }}>
+        {a.image_url ? (
+          <div style={{ width: "100%", height: `${imgH}px`, position: "relative", overflow: "hidden", background: card }}>
+            <Image src={a.image_url} alt="" fill sizes={full ? "(min-width: 640px) 400px, 92vw" : "220px"} style={{ objectFit: "cover" }} onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}/>
+          </div>
+        ) : video ? (
+          <div style={{ width: "100%", height: `${imgH}px`, overflow: "hidden", background: "#000" }}>
+            <video src={video} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted playsInline preload="metadata"/>
+          </div>
+        ) : null}
+        <div style={{ padding: full ? "13px 14px 8px" : "9px 10px 6px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: full ? "8px" : "6px", marginBottom: full ? "10px" : "6px" }}>
+            <InstitutionAvatar logo={a.institutions?.logo} name={nomInst} size={full ? 24 : 18}/>
+            <div style={{ flex: 1, minWidth: 0, color: t1, fontSize: full ? "12px" : "10.5px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nomInst}</div>
+            <span style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", fontSize: full ? "9px" : "8px", fontWeight: "800", padding: full ? "3px 8px" : "2px 6px", borderRadius: full ? "8px" : "7px", flexShrink: 0 }}>Annonce</span>
+          </div>
+          <div style={{ color: t1, fontSize: full ? "13.5px" : "12px", fontWeight: "800" }}>{a.titre}</div>
+        </div>
+      </button>
+      {a.contenu && (
+        <div style={{ padding: full ? "0 14px 13px" : "0 10px 9px" }}>
+          <div style={{
+            color: t2, fontSize: full ? "12px" : "11px", lineHeight: 1.5,
+            ...(expanded ? {} : { overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: full ? 3 : 2, WebkitBoxOrient: "vertical" as const }),
+          }}>{a.contenu}</div>
+          <button onClick={(e) => { e.stopPropagation(); onToggleExpand(); }} className="tap" style={{ background: "none", border: "none", padding: 0, marginTop: "4px", color: "#F5A623", fontSize: full ? "12px" : "11px", fontWeight: "800", cursor: "pointer" }}>
+            {expanded ? "Voir moins" : "Voir plus"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -228,6 +287,18 @@ export function MonAssistant({ userId }: { userId: string | null }) {
   const [favorisInsts, setFavorisInsts] = useState<Institution[] | null>(null);
   const [categorieById, setCategorieById] = useState<CategorieById>({});
   const [expanded, setExpanded] = useState(false);
+  // "Voir plus" par annonce (retour Bryan 30/09/2026) — dépliage local du
+  // texte intégral, jamais une navigation vers la fiche établissement :
+  // l'objectif explicite est que le citoyen ait toute l'information sans
+  // quitter le bandeau.
+  const [annonceExpandedIds, setAnnonceExpandedIds] = useState<Set<string>>(new Set());
+  const toggleAnnonceExpanded = useCallback((id: string) => {
+    setAnnonceExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   const [nowTick, setNowTick] = useState(() => Date.now());
   // X + popup explicatif (retour Bryan 23/07/2026) — fermer n'efface pas
   // définitivement le bandeau, ça ouvre d'abord un message expliquant sa
@@ -253,6 +324,16 @@ export function MonAssistant({ userId }: { userId: string | null }) {
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef<{ startY: number; startH: number } | null>(null);
+  // Indicateur de scroll — même barre verticale native que NotifPanel.tsx
+  // (retour Bryan 30/09/2026 : le sheet perd son ::-webkit-scrollbar global
+  // comme tout le reste de l'app, donc rien n'indiquait qu'il restait du
+  // contenu à faire défiler une fois déplié). Rattachée au scroll du
+  // contenu interne (contentRef), pas du document.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [scrollPct, setScrollPct] = useState(0);
+  const [scrollThumbH, setScrollThumbH] = useState(0);
+  const [scrollBarShown, setScrollBarShown] = useState(false);
+  const scrollHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const charger = useCallback(async () => {
     if (!userId) return;
@@ -394,6 +475,37 @@ export function MonAssistant({ userId }: { userId: string | null }) {
     setPanelHeight(expanded ? getMaxH() : COLLAPSED_H, true);
   }, [expanded]);
 
+  // Verrouille le scroll de l'écran derrière pendant que le panneau est
+  // déplié — même convention que les overlays plein écran du produit
+  // (ex. MembreLoginSection.tsx) : sauvegarde/restaure la valeur
+  // précédente plutôt qu'un simple "" au cleanup, au cas où un autre
+  // composant aurait déjà posé son propre verrou.
+  useEffect(() => {
+    if (!expanded) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, [expanded]);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const onScrollPct = () => {
+      const max = el.scrollHeight - el.clientHeight;
+      setScrollPct(max > 0 ? Math.min(Math.max(el.scrollTop / max, 0), 1) : 0);
+      setScrollThumbH(el.scrollHeight > 0 ? Math.min(Math.max(el.clientHeight / el.scrollHeight, 0.08), 1) : 1);
+      setScrollBarShown(true);
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+      scrollHideTimer.current = setTimeout(() => setScrollBarShown(false), 900);
+    };
+    onScrollPct();
+    el.addEventListener("scroll", onScrollPct, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScrollPct);
+      if (scrollHideTimer.current) clearTimeout(scrollHideTimer.current);
+    };
+  }, [expanded, loaded, annonces.length, nouveautes.length, recommandes.length, favorisInsts]);
+
   const onPointerDown = (e: React.PointerEvent) => {
     const el = panelRef.current;
     if (!el) return;
@@ -469,7 +581,7 @@ export function MonAssistant({ userId }: { userId: string | null }) {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onClick={onGripTap}
-        style={{ flexShrink: 0, padding: "10px 16px 8px", cursor: "grab", color: t2 }}
+        style={{ flexShrink: 0, padding: "10px 16px 12px", cursor: "grab", color: t2, borderBottom: `1px solid ${brd}` }}
       >
         <Ic.Grip/>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "10px" }}>
@@ -523,7 +635,7 @@ export function MonAssistant({ userId }: { userId: string | null }) {
       )}
 
       {/* Contenu déplié — scrollable, jamais responsable de la hauteur du panneau */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "4px 16px 20px", display: "flex", flexDirection: "column", gap: "18px" }}>
+      <div ref={contentRef} style={{ flex: 1, overflowY: "auto", padding: "4px 16px 20px", display: "flex", flexDirection: "column", gap: "18px" }}>
         {rien ? (
           <div style={{ textAlign: "center", padding: "24px 12px" }}>
             <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#F5A623", color: "#080812", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
@@ -600,37 +712,27 @@ export function MonAssistant({ userId }: { userId: string | null }) {
               </Section>
             )}
 
+            {/* Rail horizontal compact (retour Bryan 30/09/2026 : les grandes
+                cartes verticales empilées pesaient trop dans un bandeau déjà
+                centré sur l'activité du citoyen — même traitement que les 3
+                rails "découverte" plus bas). Le filtrage aux seules
+                institutions favorites ou avec historique de RDV existe déjà
+                côté serveur (`institutionIds`, app/api/citoyen/assistant/route.ts) —
+                rien à changer côté données, uniquement la présentation. */}
             {annonces.length > 0 && (
-              <Section titre="Annonces des établissements" t2={t2}>
-                {annonces.map((a) => {
-                  const nomInst = a.institutions?.name ?? "Institution";
-                  const video = !a.image_url && a.format === "video" && a.media_urls?.[0];
-                  return (
-                    <button key={a.id} onClick={() => a.institutions && router.push(`/institution/${a.institutions.id}`)} className="tap" style={{ width: "100%", textAlign: "left", background: card2, border: `1px solid ${brd}`, borderRadius: "16px", overflow: "hidden", cursor: "pointer", padding: 0 }}>
-                      {a.image_url ? (
-                        <div style={{ width: "100%", height: "130px", position: "relative", overflow: "hidden", background: card }}>
-                          <Image src={a.image_url} alt="" fill sizes="(min-width: 640px) 400px, 92vw" style={{ objectFit: "cover" }} onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}/>
-                        </div>
-                      ) : video ? (
-                        <div style={{ width: "100%", height: "150px", overflow: "hidden", background: "#000" }}>
-                          <video src={video} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted playsInline preload="metadata"/>
-                        </div>
-                      ) : null}
-                      <div style={{ padding: "13px 14px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                          <InstitutionAvatar logo={a.institutions?.logo} name={nomInst} size={24}/>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ color: t1, fontSize: "12px", fontWeight: "800", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nomInst}</div>
-                          </div>
-                          <span style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", fontSize: "9px", fontWeight: "800", padding: "3px 8px", borderRadius: "8px", flexShrink: 0 }}>Annonce</span>
-                        </div>
-                        <div style={{ color: t1, fontSize: "13.5px", fontWeight: "800", marginBottom: "4px" }}>{a.titre}</div>
-                        <div style={{ color: t2, fontSize: "12px", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{a.contenu}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </Section>
+              <RailDecouverte titre="Annonces des établissements" t1={t1}>
+                {annonces.map((a) => (
+                  <AnnonceCard
+                    key={a.id}
+                    a={a}
+                    full={annonces.length === 1}
+                    expanded={annonceExpandedIds.has(a.id)}
+                    onToggleExpand={() => toggleAnnonceExpanded(a.id)}
+                    onOpenInstitution={() => a.institutions && router.push(`/institution/${a.institutions.id}`)}
+                    t1={t1} t2={t2} card={card} card2={card2} brd={brd}
+                  />
+                ))}
+              </RailDecouverte>
             )}
           </>
         )}
@@ -679,6 +781,34 @@ export function MonAssistant({ userId }: { userId: string | null }) {
             )}
           </RailDecouverte>
         )}
+      </div>
+
+      {/* Barre de scroll native — panelRef (position:fixed, overflow:hidden)
+          sert de repère absolu, donc reste clipée aux bords réels du sheet
+          qu'il soit replié ou déplié. */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: "70px",
+          bottom: "8px",
+          right: "4px",
+          width: "3px",
+          pointerEvents: "none",
+          opacity: scrollBarShown ? 1 : 0,
+          transition: "opacity 0.4s ease",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: `${scrollPct * (1 - scrollThumbH) * 100}%`,
+            height: `${scrollThumbH * 100}%`,
+            width: "100%",
+            borderRadius: "3px",
+            background: isDark ? "rgba(245,166,35,0.55)" : "rgba(8,8,18,0.35)",
+          }}
+        />
       </div>
     </div>
   );

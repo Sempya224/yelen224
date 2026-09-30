@@ -54,6 +54,10 @@ type BookingFound = {
   statut: BookingStatut;
   date_rdv: string;
   heure_rdv: string;
+  // Chambre hôtel (chantier "Vraie réservation hôtel", 25/09/2026) —
+  // présent uniquement pour une réservation de chambre, null pour tous les
+  // autres services (créneau horaire classique).
+  date_depart: string | null;
   traite_le: string | null;
   montant_declare_citoyen: number | null;
   declare_le: string | null;
@@ -616,7 +620,11 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                 </div>
                 <div>
                   <div style={{ color: C.orange, fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>Le citoyen est en avance</div>
-                  <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.6 }}>Rendez-vous prévu à {booking.heure_rdv}, dans environ {minutesEnAvance} min. La validation ne sera possible qu&apos;à partir de 10 minutes avant l&apos;heure prévue.</div>
+                  <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.6 }}>
+                    {booking.date_depart
+                      ? `Arrivée prévue le ${new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}, dans environ ${Math.max(1, Math.round(minutesEnAvance / 1440))} jour${Math.round(minutesEnAvance / 1440) > 1 ? "s" : ""}.`
+                      : `Rendez-vous prévu à ${booking.heure_rdv}, dans environ ${minutesEnAvance} min. La validation ne sera possible qu'à partir de 10 minutes avant l'heure prévue.`}
+                  </div>
                 </div>
               </div>
             )}
@@ -753,22 +761,42 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
             <div style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "18px", padding: "18px 20px", marginBottom: "14px" }}>
               <div style={{ color: C.t3, fontSize: "11px", fontWeight: "800", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "14px" }}>Détails de la réservation</div>
               <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "12px" }}>{booking.service_nom}</div>
-              <div style={{ display: "grid", gridTemplateColumns: booking.service_duree > 0 ? "1fr 1fr 1fr" : "1fr 1fr", gap: "10px" }}>
-                <div>
-                  <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Date</div>
-                  <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
-                </div>
-                <div>
-                  <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Heure</div>
-                  <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{booking.heure_rdv}</div>
-                </div>
-                {booking.service_duree > 0 && (
+              {booking.date_depart ? (
+                // Chambre hôtel — arrivée/départ/nuits plutôt que
+                // date/heure/durée en minutes (1440 min n'aurait aucun sens
+                // affiché ici, voir ServicesHotelTab.tsx::handleSaveChambre).
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
                   <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Durée prévue</div>
-                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{booking.service_duree} min</div>
+                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Arrivée</div>
+                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
                   </div>
-                )}
-              </div>
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Départ</div>
+                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{new Date(`${booking.date_depart}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Nuits</div>
+                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{Math.round((new Date(`${booking.date_depart}T00:00:00`).getTime() - new Date(`${booking.date_rdv}T00:00:00`).getTime()) / 86400000)}</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: booking.service_duree > 0 ? "1fr 1fr 1fr" : "1fr 1fr", gap: "10px" }}>
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Date</div>
+                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Heure</div>
+                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{booking.heure_rdv}</div>
+                  </div>
+                  {booking.service_duree > 0 && (
+                    <div>
+                      <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Durée prévue</div>
+                      <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{booking.service_duree} min</div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Zone 3 — Paiement (uniquement si le service est payant) */}

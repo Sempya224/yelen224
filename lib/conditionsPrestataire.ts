@@ -1,10 +1,13 @@
-// Conditions d'utilisation prestataire — texte d'exemple (19/07/2026).
-// Distinct des CGU/Confidentialité génériques (app/cgu,
-// app/confidentialite), spécifique aux institutions. Contenu
-// provisoire, rédigé pour couvrir les points essentiels de l'activité
-// réelle de la plateforme — à remplacer par le texte définitif une fois
-// rédigé avec conseillers/avocat/CEO (voir CLAUDE.md /backlog-technique).
-export const CONDITIONS_PRESTATAIRE_VERSION = "1.0-exemple";
+// Résumé des conditions d'utilisation prestataire (19/07/2026, requalifié
+// 23/09/2026 — chantier Légal & Confidentialité, Lot 1). Distinct des
+// CGU/Confidentialité génériques (app/cgu, app/confidentialite),
+// spécifique aux institutions. Ce résumé n'est plus le texte
+// contractuel de référence : le document qui fait foi est le CGP
+// complet publié sur /conditions-prestataires (app/conditions-prestataires/page.tsx),
+// vers lequel ConditionsPrestataireModal (app/[slug]/[id]/layout.tsx)
+// renvoie explicitement avant acceptation. Ce fichier ne sert plus qu'à
+// afficher un aperçu rapide dans le modal.
+export const CONDITIONS_PRESTATAIRE_VERSION = "1.0";
 
 export const CONDITIONS_PRESTATAIRE: { titre: string; texte: string }[] = [
   {

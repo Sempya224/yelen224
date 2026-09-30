@@ -84,6 +84,7 @@ export function SecuriteCompteTab({ }: { instId: string }) {
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
   const [reauthOpen, setReauthOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [reauthReason, setReauthReason] = useState<string | undefined>(undefined);
   const uiTokens = toUiTokens(C);
 
   function notify(text: string, color: string = C.t2) {
@@ -162,7 +163,7 @@ export function SecuriteCompteTab({ }: { instId: string }) {
       const optData = await optRes.json();
       if (!optRes.ok) {
         setAddingDevice(false);
-        if (optData?.code === "REAUTH_REQUIRED") { setPendingAction(() => addWebauthnDevice); setReauthOpen(true); return; }
+        if (optData?.code === "REAUTH_REQUIRED") { setPendingAction(() => addWebauthnDevice); setReauthReason("Vous êtes sur le point d'ajouter une nouvelle clé d'accès à votre compte — entrez votre PIN pour confirmer."); setReauthOpen(true); return; }
         notify(optData.error || "Impossible de préparer l'ajout de la clé d'accès. Réessayez.", C.red);
         return;
       }
@@ -214,7 +215,7 @@ export function SecuriteCompteTab({ }: { instId: string }) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        if (data?.code === "REAUTH_REQUIRED") { setPendingAction(() => () => revokeWebauthn(credentialId)); setReauthOpen(true); return; }
+        if (data?.code === "REAUTH_REQUIRED") { setPendingAction(() => () => revokeWebauthn(credentialId)); setReauthReason("Vous êtes sur le point de retirer cette clé d'accès de votre compte — entrez votre PIN pour confirmer."); setReauthOpen(true); return; }
         notify("Impossible de retirer cette clé d'accès. Réessayez.", C.red);
         return;
       }
@@ -525,8 +526,9 @@ export function SecuriteCompteTab({ }: { instId: string }) {
 
         <ReauthModal
           open={reauthOpen}
-          onClose={() => { setReauthOpen(false); setPendingAction(null); }}
-          onSuccess={() => { const action = pendingAction; setReauthOpen(false); setPendingAction(null); action?.(); }}
+          reason={reauthReason}
+          onClose={() => { setReauthOpen(false); setPendingAction(null); setReauthReason(undefined); }}
+          onSuccess={() => { const action = pendingAction; setReauthOpen(false); setPendingAction(null); setReauthReason(undefined); action?.(); }}
         />
       </div>
     </div>

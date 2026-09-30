@@ -1,8 +1,12 @@
 "use client";
 import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
+import { YelenLogo } from "@/components/YelenLogo";
+import { LegalLanguageSwitcher } from "@/app/(legal)/_components/LegalLanguageSwitcher";
 
 // ═══════════════════════════════════════════════════════════
 // ROUTES — adapter selon l'arborescence réelle du projet
@@ -20,203 +24,277 @@ const ROUTES = {
 const slides = [
   {
     id: 1,
-    title: "Bienvenue sur Yelen224",
-    subtitle: "La plateforme officielle de la République de Guinée pour vos démarches en ligne",
+    title: "Bienvenue sur Yelen",
+    subtitle: "La plateforme numérique pour simplifier toutes vos démarches administratives et institutionnelles.",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
-        <circle cx="160" cy="120" r="100" fill="#FFF3CD" opacity="0.6"/>
-        <circle cx="160" cy="100" r="38" fill="#F5A623"/>
-        <circle cx="160" cy="100" r="28" fill="#FFD166"/>
-        {[0,30,60,90,120,150,180,210,240,270,300,330].map((angle, i) => (
-          <line key={i}
-            x1={160 + 42 * Math.cos((angle * Math.PI) / 180)}
-            y1={100 + 42 * Math.sin((angle * Math.PI) / 180)}
-            x2={160 + 55 * Math.cos((angle * Math.PI) / 180)}
-            y2={100 + 55 * Math.sin((angle * Math.PI) / 180)}
-            stroke="#F5A623" strokeWidth="3" strokeLinecap="round"/>
-        ))}
-        <rect x="30" y="160" width="30" height="80" rx="4" fill="#E8961A" opacity="0.8"/>
-        <rect x="35" y="148" width="20" height="16" rx="2" fill="#F5A623" opacity="0.9"/>
-        <rect x="70" y="145" width="40" height="95" rx="4" fill="#D4870F" opacity="0.85"/>
-        <rect x="78" y="133" width="24" height="16" rx="2" fill="#F5A623"/>
-        <rect x="120" y="155" width="35" height="85" rx="4" fill="#E8961A" opacity="0.8"/>
-        <rect x="165" y="140" width="45" height="100" rx="4" fill="#C97A0E" opacity="0.9"/>
-        <rect x="172" y="126" width="30" height="18" rx="2" fill="#FFD166"/>
-        <rect x="220" y="158" width="32" height="82" rx="4" fill="#E8961A" opacity="0.8"/>
-        <rect x="262" y="150" width="28" height="90" rx="4" fill="#D4870F" opacity="0.85"/>
-        {[[78,160],[90,160],[78,178],[90,178],[78,196],[90,196],[172,145],[185,145],[172,163],[185,163]].map(([x,y],i) => (
-          <rect key={i} x={x} y={y} width="8" height="8" rx="1" fill="#FFF8E7" opacity="0.9"/>
-        ))}
-        <ellipse cx="160" cy="248" rx="130" ry="18" fill="#F5A623" opacity="0.25"/>
-        <line x1="160" y1="60" x2="160" y2="35" stroke="#8B5E0A" strokeWidth="2.5"/>
-        <rect x="160" y="35" width="14" height="8" fill="#E8281E"/>
-        <rect x="174" y="35" width="14" height="8" fill="#FFD700"/>
-        <rect x="188" y="35" width="14" height="8" fill="#009A44"/>
-      </svg>
+      <Image src="/illustrations/onboarding-bienvenue.png" alt="Bienvenue sur Yelen" width={1536} height={1024}
+        style={{ width: "100%", height: "100%", objectFit: "contain" }} priority/>
     ),
   },
   {
     id: 2,
-    title: "Prenez vos RDV facilement",
-    subtitle: "Hôpitaux, mairies, ambassades, banques… Réservez en quelques secondes",
+    title: "Planifiez vos démarches",
+    subtitle: "Évitez les files d'attente. Choisissez la date et l'heure qui vous conviennent le mieux.",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
-        <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
-        <rect x="70" y="70" width="180" height="160" rx="16" fill="white" stroke="#F5A623" strokeWidth="3"/>
-        <rect x="70" y="70" width="180" height="45" rx="16" fill="#F5A623"/>
-        <rect x="70" y="100" width="180" height="15" fill="#F5A623"/>
-        <text x="160" y="97" textAnchor="middle" fill="white" fontSize="14" fontWeight="bold" fontFamily="sans-serif">MARS 2026</text>
-        {["L","M","M","J","V","S","D"].map((d, i) => (
-          <text key={i} x={95 + i * 24} y="130" textAnchor="middle" fill="#999" fontSize="10" fontFamily="sans-serif">{d}</text>
-        ))}
-        {[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21].map((n, i) => (
-          <text key={n} x={95 + (i % 7) * 24} y={150 + Math.floor(i / 7) * 22}
-            textAnchor="middle" fill={n === 15 ? "white" : "#444"} fontSize="11" fontFamily="sans-serif">{n}</text>
-        ))}
-        <circle cx="95" cy="146" r="10" fill="#F5A623"/>
-        <circle cx="230" cy="210" r="22" fill="#4CAF50"/>
-        <polyline points="220,210 227,218 242,200" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-        <rect x="195" y="155" width="55" height="95" rx="10" fill="#333" opacity="0.85"/>
-        <rect x="200" y="165" width="45" height="70" rx="6" fill="#F5A623" opacity="0.9"/>
-        <circle cx="222" cy="240" r="4" fill="#555"/>
-      </svg>
+      <Image src="/illustrations/onboarding-planifier.png" alt="Planifiez vos démarches" width={1214} height={1295}
+        style={{ width: "100%", height: "100%", objectFit: "contain" }} priority/>
     ),
   },
   {
     id: 3,
-    title: "Toutes vos institutions, en un seul endroit",
-    subtitle: "Services publics et entreprises privées, accessibles directement depuis votre téléphone",
+    title: "Tout votre quotidien, au même endroit",
+    subtitle: "Interagissez avec vos institutions, gérez vos finances, échangez avec la communauté et accédez à des offres exclusives.",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
-        <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
-        <circle cx="160" cy="130" r="32" fill="#F5A623"/>
-        <circle cx="160" cy="130" r="22" fill="#FFD166"/>
-        <circle cx="160" cy="130" r="10" fill="#F5A623"/>
-        {[0,45,90,135,180,225,270,315].map((a, i) => (
-          <line key={i}
-            x1={160 + 13 * Math.cos(a * Math.PI/180)} y1={130 + 13 * Math.sin(a * Math.PI/180)}
-            x2={160 + 19 * Math.cos(a * Math.PI/180)} y2={130 + 19 * Math.sin(a * Math.PI/180)}
-            stroke="#C97A0E" strokeWidth="2" strokeLinecap="round"/>
-        ))}
-        {[[-90,-70],[90,-70],[90,70],[-90,70],[0,-95],[0,95]].map(([dx,dy],i) => (
-          <line key={i} x1="160" y1="130" x2={160+dx} y2={130+dy}
-            stroke="#F5A623" strokeWidth="2" strokeDasharray="5,4" opacity="0.6"/>
-        ))}
-        {[
-          {x:70, y:60, emoji:"🏥", label:"Hôpital"},
-          {x:250, y:60, emoji:"🏛️", label:"Mairie"},
-          {x:250, y:200, emoji:"🏦", label:"Banque"},
-          {x:70, y:200, emoji:"🏫", label:"École"},
-          {x:160, y:35, emoji:"✈️", label:"Ambassade"},
-          {x:160, y:225, emoji:"🏢", label:"Entreprise"},
-        ].map(({x,y,emoji,label},i) => (
-          <g key={i}>
-            <circle cx={x} cy={y} r="26" fill="white" stroke="#F5A623" strokeWidth="2"/>
-            <text x={x} y={y+5} textAnchor="middle" fontSize="16">{emoji}</text>
-            <text x={x} y={y+22} textAnchor="middle" fill="#C97A0E" fontSize="8" fontFamily="sans-serif" fontWeight="bold">{label}</text>
-          </g>
-        ))}
-      </svg>
+      <Image src="/illustrations/onboarding-institutions.png" alt="Toutes vos institutions" width={1254} height={1254}
+        style={{ width: "100%", height: "100%", objectFit: "contain" }} priority/>
     ),
   },
   {
     id: 4,
-    title: "Sécurisé et fiable",
-    subtitle: "Vos données restent privées et protégées par un chiffrement de niveau bancaire, à chaque étape",
+    title: "Sécurité et confidentialité garanties",
+    subtitle: "Vos données personnelles sont chiffrées selon les standards bancaires les plus stricts pour assurer la protection de chaque démarche.",
     illustration: (
-      <svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "100%" }}>
-        <circle cx="160" cy="130" r="110" fill="#FFF3CD" opacity="0.5"/>
-        <path d="M160 50 L220 75 L220 145 C220 185 160 215 160 215 C160 215 100 185 100 145 L100 75 Z"
-          fill="#F5A623" opacity="0.2" stroke="#F5A623" strokeWidth="3"/>
-        <path d="M160 65 L210 86 L210 148 C210 180 160 205 160 205 C160 205 110 180 110 148 L110 86 Z"
-          fill="#FFD166" opacity="0.5"/>
-        <rect x="138" y="130" width="44" height="36" rx="8" fill="#F5A623"/>
-        <path d="M148 130 L148 118 C148 107 172 107 172 118 L172 130" stroke="#C97A0E" strokeWidth="5" fill="none" strokeLinecap="round"/>
-        <circle cx="160" cy="148" r="6" fill="white"/>
-        <rect x="157" y="148" width="6" height="10" rx="3" fill="white"/>
-        {[[85,85],[235,85],[85,175],[235,175],[160,230]].map(([x,y],i) => (
-          <g key={i} transform={`translate(${x},${y})`}>
-            <polygon points="0,-10 2.9,-4 9.5,-3.1 4.8,1.5 6.0,8.1 0,5 -6.0,8.1 -4.8,1.5 -9.5,-3.1 -2.9,-4"
-              fill="#FFD166" opacity="0.8"/>
-          </g>
-        ))}
-        <rect x="100" y="235" width="120" height="28" rx="14" fill="#F5A623" opacity="0.15"/>
-        <text x="160" y="254" textAnchor="middle" fill="#C97A0E" fontSize="11" fontFamily="sans-serif" fontWeight="bold">Chiffrement AES-256</text>
-      </svg>
+      <Image src="/illustrations/onboarding-securite.png" alt="Sécurité et confidentialité garanties" width={1536} height={1024}
+        style={{ width: "100%", height: "100%", objectFit: "contain" }} priority/>
     ),
   },
 ];
 
-// ─── Permission popup ──────────────────────────────────────────────────────────
-// Même famille visuelle que les bottom sheets du reste de l'app (mes-rdv,
-// rdv/[id]) : fond C.cardBg, coin arrondi haut, poignée centrée, bouton
-// principal or canonique #F5A623→#C8940A + texte #080812 (retour Bryan
-// 29/08/2026 — l'onboarding utilisait jusqu'ici une nuance/texte différents
-// de tout le reste de l'app).
-function PermissionPopup({
-  icon, title, description, buttonLabel, onAllow, onSkip
+// ─── Statut de permission réel ──────────────────────────────────────────────────
+// Lu depuis l'API navigateur elle-même, jamais déduit d'un choix utilisateur côté
+// écran Yelen (retour Bryan 29/09/2026 : un tap sur "Continuer" n'est jamais une
+// permission accordée, seul l'OS/navigateur fait foi).
+type PermStatus = "granted" | "denied" | "prompt" | "unsupported";
+
+function getNotificationStatus(): PermStatus {
+  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+  if (Notification.permission === "granted") return "granted";
+  if (Notification.permission === "denied") return "denied";
+  return "prompt";
+}
+
+async function getGeolocationStatus(): Promise<PermStatus> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return "unsupported";
+  if (!navigator.permissions?.query) return "prompt"; // Permissions API absente : impossible de vérifier sans déclencher la demande
+  try {
+    const result = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+    return result.state as PermStatus;
+  } catch {
+    return "prompt";
+  }
+}
+
+// ─── Écran de permission plein écran ────────────────────────────────────────────
+// Vraie étape Yelen, pas une bottom sheet décorative : pas de fond flouté, pas
+// d'écran visible derrière, une seule action ("Continuer") qui déclenche la vraie
+// demande système. Jamais de "Pas maintenant" ici (retour Bryan 29/09/2026,
+// conforme HIG Apple sur les pré-demandes de permission à action unique).
+function PermissionScreen({
+  icon, title, description, onContinue,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
-  buttonLabel: string;
-  onAllow: () => void;
-  onSkip: () => void;
+  onContinue: () => void;
 }) {
   const { theme } = useTheme();
   const C = T[theme];
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 9999,
-      backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)",
-      display: "flex", alignItems: "flex-end", justifyContent: "center",
-      padding: "0 0 env(safe-area-inset-bottom)",
-    }}>
-      <div style={{
-        width: "100%", maxWidth: "480px",
-        backgroundColor: C.cardBg,
-        borderRadius: "24px 24px 0 0",
-        padding: "8px 0 0",
-        boxShadow: "0 -8px 40px rgba(0,0,0,0.2)",
-        animation: "slideUp 0.3s ease",
-      }}>
-        <style>{`@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-        <div style={{ width: "40px", height: "4px", borderRadius: "2px", backgroundColor: C.borderCard, margin: "0 auto 20px" }}/>
-        <div style={{ padding: "0 24px 32px" }}>
-          <div style={{
-            width: "64px", height: "64px", borderRadius: "18px",
-            background: "linear-gradient(135deg,#F5A623,#C8940A)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 18px",
-            boxShadow: "0 6px 20px rgba(245,166,35,0.35)",
-          }}>
-            {icon}
-          </div>
-          <h2 style={{ textAlign: "center", fontSize: "18px", fontWeight: "900", color: C.text, margin: "0 0 8px" }}>
-            {title}
-          </h2>
-          <p style={{ textAlign: "center", fontSize: "13px", color: C.textSubtle, lineHeight: 1.6, margin: "0 0 24px" }}>
-            {description}
-          </p>
-          <button onClick={onAllow} className="tap" style={{
-            width: "100%", padding: "15px",
-            background: "linear-gradient(135deg,#F5A623,#C8940A)",
-            color: "#080812", fontWeight: "800", fontSize: "15px",
-            border: "none", borderRadius: "14px", cursor: "pointer",
-            marginBottom: "8px",
-          }}>
-            {buttonLabel}
-          </button>
-          <button onClick={onSkip} className="tap" style={{
-            width: "100%", padding: "13px",
-            background: "transparent", color: C.textSubtle,
-            fontWeight: "700", fontSize: "13px",
-            border: "none", borderRadius: "14px", cursor: "pointer",
-          }}>
-            Pas maintenant
-          </button>
+    <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif" }}>
+      <style>{`
+        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+        html,body{overflow-x:hidden;background:${C.pageBg}}
+        .tap{transition:opacity .1s,transform .1s;cursor:pointer;touch-action:manipulation}
+        .tap:active{opacity:.7;transform:scale(.97)}
+      `}</style>
+
+      <div style={{ height: "calc(env(safe-area-inset-top) + 64px)" }}/>
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 32px" }}>
+        <div style={{
+          width: "96px", height: "96px", borderRadius: "28px",
+          background: "#F5A623",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          marginBottom: "28px",
+          boxShadow: "0 10px 32px rgba(245,166,35,0.35)",
+        }}>
+          {icon}
         </div>
+        <h1 style={{ textAlign: "center", fontSize: "22px", fontWeight: "900", color: C.text, margin: "0 0 12px", lineHeight: 1.25 }}>
+          {title}
+        </h1>
+        <p style={{ textAlign: "center", fontSize: "14px", color: C.textSubtle, lineHeight: 1.6, margin: 0, maxWidth: "340px" }}>
+          {description}
+        </p>
+      </div>
+
+      <div style={{ padding: "16px 20px calc(env(safe-area-inset-bottom) + 16px)" }}>
+        <button onClick={onContinue} className="tap" style={{
+          width: "100%", height: "52px", borderRadius: "26px",
+          border: "none", cursor: "pointer",
+          fontWeight: "800", fontSize: "15px",
+          background: "#F5A623", color: "#080812",
+        }}>
+          Continuer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Aide contextuelle Yelen — point d'entrée unique vers l'aide (retour Bryan
+// 29/09/2026) : plein écran, jamais une popup, ouvert depuis le "?" de l'écran
+// de choix de compte. Volontairement pas un Centre d'aide séparé — les 4 blocs
+// renvoient vers les vraies actions déjà existantes (créer compte, continuer
+// sans compte, /confidentialite) plutôt que vers des pages inventées ; seul
+// "Prendre rendez-vous" reste un simple encart informatif (aucun parcours RDV
+// n'existe avant la création d'un compte ou l'entrée sans compte).
+const HELP_FAQ: { id: string; question: string; reponse: string }[] = [
+  { id: "pourquoi-compte", question: "Pourquoi créer un compte ?", reponse: "Un compte vous permet de retrouver votre historique, vos rendez-vous et vos préférences à chaque connexion, sur n'importe quel appareil." },
+  { id: "sans-compte", question: "Puis-je utiliser Yelen sans compte ?", reponse: "Oui. Vous pouvez explorer Yelen librement. Certaines actions, comme prendre un rendez-vous ou suivre une démarche, nécessiteront ensuite un compte." },
+  { id: "quest-ce-que", question: "Qu'est-ce que Yelen ?", reponse: "Yelen est votre espace pour organiser vos démarches, rendez-vous et activités avec les institutions, au même endroit." },
+  { id: "comment-rdv", question: "Comment fonctionne un rendez-vous ?", reponse: "Vous recherchez un service, choisissez un créneau disponible, puis retrouvez toutes les informations liées à votre rendez-vous dans votre espace." },
+  { id: "donnees-protegees", question: "Mes données sont-elles protégées ?", reponse: "Oui. Vos informations personnelles sont protégées et vous gardez le contrôle de vos préférences et de vos documents à tout moment." },
+  { id: "compte-plus-tard", question: "Puis-je créer mon compte plus tard ?", reponse: "Oui, vous pouvez continuer sans compte maintenant et créer votre compte à tout moment depuis l'application." },
+];
+
+function HelpYelenScreen({
+  onClose, onCreerCompte, onSkipAccount,
+}: {
+  onClose: () => void;
+  onCreerCompte: () => void;
+  onSkipAccount: () => void;
+}) {
+  const { theme } = useTheme();
+  const C = T[theme];
+  const [rdvOuvert, setRdvOuvert] = useState(false);
+  const [faqOuverte, setFaqOuverte] = useState<string | null>(null);
+
+  return (
+    <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif" }}>
+      <style>{`
+        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+        html,body{overflow-x:hidden;background:${C.pageBg}}
+        .tap{transition:opacity .1s,transform .1s;cursor:pointer;touch-action:manipulation}
+        .tap:active{opacity:.7;transform:scale(.97)}
+        html,body{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,0.4) transparent}
+        html::-webkit-scrollbar,body::-webkit-scrollbar{width:6px}
+        html::-webkit-scrollbar-track,body::-webkit-scrollbar-track{background:transparent}
+        html::-webkit-scrollbar-thumb,body::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.4);border-radius:4px}
+      `}</style>
+
+      {/* Header — retour ET fermeture, les deux ramènent au même écran de choix */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "calc(env(safe-area-inset-top) + 16px) 12px 12px" }}>
+        <button onClick={onClose} aria-label="Retour" className="tap" style={{ width: "44px", height: "44px", borderRadius: "22px", border: "none", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.text }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span style={{ fontSize: "15px", fontWeight: "800", color: C.text }}>Besoin d&apos;aide ?</span>
+        <button onClick={onClose} aria-label="Fermer" className="tap" style={{ width: "44px", height: "44px", borderRadius: "22px", border: "none", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.text }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "8px 24px 24px" }}>
+        {/* Intro — réduire l'incertitude immédiatement */}
+        <h1 style={{ fontSize: "22px", fontWeight: "900", margin: "12px 0 8px", color: C.text }}>Bienvenue sur Yelen</h1>
+        <p style={{ fontSize: "14px", lineHeight: 1.6, margin: "0 0 28px", color: C.textSubtle }}>
+          Vous êtes libre de découvrir Yelen avant de créer votre compte. Voici comment ça fonctionne.
+        </p>
+
+        <h2 style={{ fontSize: "16px", fontWeight: "800", margin: "0 0 6px", color: C.text }}>Découvrez Yelen</h2>
+        <p style={{ fontSize: "13.5px", lineHeight: 1.6, margin: "0 0 20px", color: C.textSubtle }}>
+          Yelen vous permet de retrouver au même endroit les services, démarches, rendez-vous et informations dont vous avez besoin.
+        </p>
+
+        {/* 4 blocs — chacun renvoie vers une action réelle, jamais une page inventée */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "28px" }}>
+          <div style={{ padding: "16px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, backgroundColor: C.cardBg }}>
+            <div style={{ fontSize: "14.5px", fontWeight: "800", marginBottom: "4px", color: C.text }}>Créer mon compte</div>
+            <p style={{ fontSize: "13px", lineHeight: 1.5, margin: "0 0 10px", color: C.textSubtle }}>Votre compte vous permet de retrouver vos activités et de bénéficier d&apos;une expérience personnalisée.</p>
+            <button onClick={onCreerCompte} className="tap" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#F5A623", fontWeight: "700", fontSize: "13px" }}>En savoir plus →</button>
+          </div>
+
+          <div style={{ padding: "16px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, backgroundColor: C.cardBg }}>
+            <div style={{ fontSize: "14.5px", fontWeight: "800", marginBottom: "4px", color: C.text }}>Découvrir Yelen sans compte</div>
+            <p style={{ fontSize: "13px", lineHeight: 1.5, margin: "0 0 10px", color: C.textSubtle }}>Vous pouvez commencer à explorer Yelen sans créer de compte. Certaines fonctionnalités nécessiteront ensuite une connexion.</p>
+            <button onClick={onSkipAccount} className="tap" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#F5A623", fontWeight: "700", fontSize: "13px" }}>Découvrir →</button>
+          </div>
+
+          <div style={{ padding: "16px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, backgroundColor: C.cardBg }}>
+            <div style={{ fontSize: "14.5px", fontWeight: "800", marginBottom: "4px", color: C.text }}>Prendre rendez-vous</div>
+            <p style={{ fontSize: "13px", lineHeight: 1.5, margin: "0 0 10px", color: C.textSubtle }}>Recherchez un service, choisissez un créneau disponible et retrouvez les informations liées à votre rendez-vous.</p>
+            <button onClick={() => setRdvOuvert(v => !v)} className="tap" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "#F5A623", fontWeight: "700", fontSize: "13px" }}>
+              Comment ça marche {rdvOuvert ? "↑" : "→"}
+            </button>
+            {rdvOuvert && (
+              <p style={{ fontSize: "12.5px", lineHeight: 1.6, margin: "10px 0 0", color: C.textSubtle }}>
+                1. Recherchez le service ou l&apos;institution souhaitée.<br/>
+                2. Choisissez un créneau disponible.<br/>
+                3. Retrouvez la confirmation et le suivi dans votre espace.
+              </p>
+            )}
+          </div>
+
+          <div style={{ padding: "16px", borderRadius: "14px", border: `1px solid ${C.borderCard}`, backgroundColor: C.cardBg }}>
+            <div style={{ fontSize: "14.5px", fontWeight: "800", marginBottom: "4px", color: C.text }}>Vos données</div>
+            <p style={{ fontSize: "13px", lineHeight: 1.5, margin: "0 0 10px", color: C.textSubtle }}>Yelen protège vos informations et vous permet de gérer vos préférences et vos documents légaux.</p>
+            <Link href="/confidentialite" className="tap" style={{ color: "#F5A623", fontWeight: "700", fontSize: "13px", textDecoration: "none" }}>Confidentialité →</Link>
+          </div>
+        </div>
+
+        {/* Rassurance — répond explicitement à "dois-je créer un compte maintenant ?" */}
+        <h2 style={{ fontSize: "16px", fontWeight: "800", margin: "0 0 12px", color: C.text }}>Vous avez le choix</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "28px" }}>
+          {[
+            { titre: "Créer mon compte", texte: "Pour utiliser pleinement Yelen." },
+            { titre: "Découvrir d'abord", texte: "Pour explorer Yelen sans compte." },
+            { titre: "Revenir plus tard", texte: "Vous pouvez quitter cette page et revenir à votre parcours." },
+          ].map(item => (
+            <div key={item.titre} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", borderRadius: "12px", backgroundColor: C.cardBg }}>
+              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#F5A623", flexShrink: 0 }}/>
+              <div>
+                <div style={{ fontSize: "13.5px", fontWeight: "700", color: C.text }}>{item.titre}</div>
+                <div style={{ fontSize: "12.5px", color: C.textSubtle }}>{item.texte}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* FAQ courte — reste orientée décision, pas une documentation */}
+        <h2 style={{ fontSize: "16px", fontWeight: "800", margin: "0 0 12px", color: C.text }}>Questions fréquentes</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
+          {HELP_FAQ.map(item => {
+            const ouverte = faqOuverte === item.id;
+            return (
+              <div key={item.id} style={{ borderRadius: "12px", border: `1px solid ${C.borderCard}`, overflow: "hidden" }}>
+                <button
+                  onClick={() => setFaqOuverte(ouverte ? null : item.id)}
+                  className="tap"
+                  aria-expanded={ouverte}
+                  style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "13px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                  <span style={{ fontSize: "13.5px", fontWeight: "700", color: C.text }}>{item.question}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ color: C.textSubtle, flexShrink: 0, transform: ouverte ? "rotate(180deg)" : undefined, transition: "transform 0.15s ease" }}>
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
+                </button>
+                {ouverte && (
+                  <p style={{ margin: 0, padding: "0 14px 14px", fontSize: "13px", lineHeight: 1.55, color: C.textSubtle }}>{item.reponse}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* CTA permanent — reprendre le parcours immédiatement après consultation */}
+      <div style={{ padding: "12px 20px calc(env(safe-area-inset-bottom) + 16px)", borderTop: `1px solid ${C.borderCard}` }}>
+        <button onClick={onCreerCompte} className="tap" style={{ width: "100%", height: "52px", borderRadius: "26px", border: "none", cursor: "pointer", fontWeight: "800", fontSize: "15px", background: "#F5A623", color: "#080812" }}>
+          Créer mon compte →
+        </button>
+        <button onClick={onSkipAccount} className="tap" style={{ display: "block", width: "100%", marginTop: "10px", background: "none", border: "none", cursor: "pointer", color: C.textSubtle, fontWeight: "700", fontSize: "13px", padding: "6px", textAlign: "center" }}>
+          Continuer sans compte
+        </button>
       </div>
     </div>
   );
@@ -227,11 +305,11 @@ export default function OnboardingPage() {
   const router = useRouter();
   const { theme } = useTheme();
   const C = T[theme];
-  const isDark = theme === "dark";
   const [current, setCurrent]       = useState(0);
   const [showChoice, setShowChoice] = useState(false);
   const [animating, setAnimating]   = useState(false);
   const [permStep, setPermStep]     = useState<null | "location" | "notif" | "done">(null);
+  const [helpOpen, setHelpOpen]     = useState(false);
 
   const finishOnboarding = () => {
     try { localStorage.setItem("yelen224_onboarding_done", "1"); } catch {}
@@ -244,6 +322,10 @@ export default function OnboardingPage() {
 
   const handleSkipAccount = () => {
     finishOnboarding();
+    // Acceptation implicite CGU/Confidentialité affichée sur cet écran (point 5
+    // du brief) — permet à un futur gate invité de ne jamais redemander cette
+    // confirmation déjà donnée ici.
+    try { localStorage.setItem("yelen224_guest_legal_acceptee", "1"); } catch {}
     router.push(ROUTES.home);
   };
 
@@ -252,12 +334,22 @@ export default function OnboardingPage() {
     router.push(ROUTES.citoyenConnexion);
   };
 
+  // Décide le premier écran de permission à montrer (ou aucun) en lisant le
+  // statut réel — jamais réafficher une pré-demande déjà tranchée par l'OS.
+  const advanceToPermissions = async () => {
+    const geo = await getGeolocationStatus();
+    if (geo === "prompt") { setPermStep("location"); return; }
+    if (getNotificationStatus() === "prompt") { setPermStep("notif"); return; }
+    setPermStep("done");
+    setShowChoice(true);
+  };
+
   const goNext = () => {
     if (current < slides.length - 1) {
       setAnimating(true);
       setTimeout(() => { setCurrent(current + 1); setAnimating(false); }, 300);
     } else {
-      setPermStep("location");
+      advanceToPermissions();
     }
   };
 
@@ -268,11 +360,18 @@ export default function OnboardingPage() {
     }
   };
 
+  const afterLocationResolved = () => {
+    if (getNotificationStatus() === "prompt") { setPermStep("notif"); return; }
+    setPermStep("done");
+    setShowChoice(true);
+  };
+
   const requestLocation = () => {
     if (typeof navigator !== "undefined" && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(() => {}, () => {}, { timeout: 8000 });
+      navigator.geolocation.getCurrentPosition(afterLocationResolved, afterLocationResolved, { timeout: 8000 });
+    } else {
+      afterLocationResolved();
     }
-    setPermStep("notif");
   };
 
   const requestNotifications = async () => {
@@ -283,87 +382,156 @@ export default function OnboardingPage() {
     setShowChoice(true);
   };
 
-  const iconBg = isDark ? "rgba(245,166,35,0.12)" : "rgba(245,166,35,0.08)";
+  // ─── Écrans de permission plein écran (vraies étapes, jamais une overlay) ────
+  if (permStep === "location") {
+    return (
+      <PermissionScreen
+        icon={
+          <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+        }
+        title="Trouvez les services près de chez vous"
+        description="Yelen224 utilise votre position pour vous montrer les institutions et services disponibles près de chez vous, et calculer les distances en temps réel."
+        onContinue={requestLocation}
+      />
+    );
+  }
 
-  // ─── Écran de choix du profil ────────────────────────────────────────────────
+  if (permStep === "notif") {
+    return (
+      <PermissionScreen
+        icon={
+          <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+        }
+        title="Ne manquez aucun rendez-vous"
+        description="Recevez des rappels pour vos rendez-vous, des confirmations de réservation et des alertes importantes de vos institutions directement sur votre téléphone."
+        onContinue={requestNotifications}
+      />
+    );
+  }
+
+  // ─── Aide contextuelle Yelen — "?" de l'Account Gateway ──────────────────────
+  if (showChoice && helpOpen) {
+    return (
+      <HelpYelenScreen
+        onClose={() => setHelpOpen(false)}
+        onCreerCompte={handleCreerCompte}
+        onSkipAccount={handleSkipAccount}
+      />
+    );
+  }
+
+  // ─── Écran de choix du profil — Account Gateway ─────────────────────────────
+  // Point de sortie de l'onboarding, pensé comme un vrai palier d'entrée (retour
+  // Bryan 29/09/2026, direction Apple/Stripe/Linear) : logo discret en header
+  // (le branding plein écran des slides a déjà été vu), un seul CTA dominant,
+  // aucune carte décorative/emoji, "Continuer sans compte" volontairement en
+  // retrait pour ne plus concurrencer visuellement la création de compte.
   if (showChoice) {
     return (
-      <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif" }}>
+      <div style={{ minHeight: "100svh", display: "flex", flexDirection: "column", backgroundColor: C.pageBg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif" }}>
         <style>{`
           *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
           html,body{overflow-x:hidden;background:${C.pageBg}}
           .tap{transition:opacity .1s,transform .1s;cursor:pointer;touch-action:manipulation}
           .tap:active{opacity:.7;transform:scale(.97)}
+          html,body{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,0.4) transparent}
+          html::-webkit-scrollbar,body::-webkit-scrollbar{width:6px}
+          html::-webkit-scrollbar-track,body::-webkit-scrollbar-track{background:transparent}
+          html::-webkit-scrollbar-thumb,body::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.4);border-radius:4px}
         `}</style>
 
-        {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "40px" }}>
-          <div style={{ width: "44px", height: "44px", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#F5A623,#C8940A)" }}>
-            <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
-              <circle cx="12" cy="12" r="4" fill="#080812"/>
-              {[0,45,90,135,180,225,270,315].map((a,i)=>(
-                <line key={i}
-                  x1={12+5.5*Math.cos(a*Math.PI/180)} y1={12+5.5*Math.sin(a*Math.PI/180)}
-                  x2={12+8*Math.cos(a*Math.PI/180)} y2={12+8*Math.sin(a*Math.PI/180)}
-                  stroke="#080812" strokeWidth="1.8" strokeLinecap="round"/>
-              ))}
-            </svg>
-          </div>
-          <span style={{ fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px", color: C.text }}>
-            YELEN<span style={{ color: "#F5A623" }}>224</span>
-          </span>
-        </div>
-
-        <h1 style={{ fontSize: "22px", fontWeight: "900", textAlign: "center", margin: "0 0 8px", color: C.text }}>
-          Créez votre compte
-        </h1>
-        <p style={{ textAlign: "center", fontSize: "13px", margin: "0 0 36px", color: C.textSubtle }}>
-          Prenez rendez-vous avec des institutions et services en quelques secondes
-        </p>
-
-        {/* Créer un compte — mobile réservé aux citoyens */}
-        <button
-          onClick={handleCreerCompte}
-          className="tap"
-          style={{ width: "100%", maxWidth: "400px", padding: "20px", borderRadius: "20px", border: "none", cursor: "pointer", textAlign: "left", background: "linear-gradient(135deg,#F5A623,#C8940A)", boxShadow: "0 8px 28px rgba(245,166,35,0.35)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <div style={{ width: "52px", height: "52px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "26px", flexShrink: 0, background: "rgba(8,8,18,0.12)" }}>
-              🧑🏾
+        {/* Header discret */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "calc(env(safe-area-inset-top) + 20px) 12px 0 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ width: "32px", height: "32px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", background: "#F5A623" }}>
+              <YelenLogo size={18} color="#080812"/>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: "16px", fontWeight: "900", marginBottom: "2px", color: "#080812" }}>Créer mon compte</div>
-              <div style={{ fontSize: "12.5px", color: "rgba(8,8,18,0.65)" }}>Rendez-vous, démarches et suivi en un seul endroit</div>
-            </div>
-            <div style={{ fontSize: "20px", color: "#080812", flexShrink: 0 }}>→</div>
+            <span style={{ fontSize: "15px", fontWeight: "900", letterSpacing: "-0.3px", color: C.text }}>
+              YELEN<span style={{ color: "#F5A623" }}>224</span>
+            </span>
           </div>
-        </button>
-
-        {/* Séparateur */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", maxWidth: "400px", margin: "20px 0 16px" }}>
-          <div style={{ flex: 1, height: "1px", background: C.borderCard }}/>
-          <span style={{ color: C.textSubtle, fontSize: "12px" }}>ou</span>
-          <div style={{ flex: 1, height: "1px", background: C.borderCard }}/>
-        </div>
-
-        {/* Continuer sans compte */}
-        <button
-          onClick={handleSkipAccount}
-          className="tap"
-          style={{ width: "100%", maxWidth: "400px", padding: "15px", borderRadius: "16px", cursor: "pointer", background: "transparent", border: `1.5px dashed ${C.borderCard}`, color: C.textSubtle, fontWeight: "700", fontSize: "14px" }}>
-          Continuer sans compte →
-        </button>
-        <p style={{ textAlign: "center", marginTop: "8px", fontSize: "11px", color: C.textFaint }}>
-          Vous pourrez créer un compte plus tard
-        </p>
-
-        {/* Déjà un compte */}
-        <div style={{ marginTop: "24px", textAlign: "center" }}>
-          <span style={{ color: C.textSubtle, fontSize: "13px" }}>Déjà un compte ? </span>
+          {/* Aide contextuelle — seule icône d'aide de l'écran, ouvre le Help Yelen plein écran */}
           <button
-            onClick={handleAlreadyAccount}
-            style={{ color: "#F5A623", fontSize: "13px", fontWeight: "700", background: "none", border: "none", cursor: "pointer", textDecoration: "none" }}>
-            Se connecter
+            onClick={() => setHelpOpen(true)}
+            aria-label="Besoin d'aide ?"
+            className="tap"
+            style={{ width: "44px", height: "44px", borderRadius: "22px", border: `1.5px solid ${C.borderCard}`, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.text, flexShrink: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
           </button>
+        </div>
+
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "0 24px 32px", minHeight: 0 }}>
+          {/* Illustration — élément central de l'écran, dominant comme la référence Target */}
+          <div style={{ position: "relative", width: "100%", maxWidth: "340px", height: "clamp(220px, 40svh, 380px)", flexShrink: 1 }}>
+            <Image src="/illustrations/onboarding-compte-hero.png" alt="" fill sizes="340px" priority style={{ objectFit: "contain" }}/>
+          </div>
+
+          <h1 style={{ fontSize: "24px", fontWeight: "900", textAlign: "center", margin: "0 0 10px", color: C.text }}>
+            Bienvenue sur Yelen
+          </h1>
+          <p style={{ textAlign: "center", fontSize: "14px", lineHeight: 1.5, margin: "0 0 28px", color: C.textSubtle, maxWidth: "320px" }}>
+            Votre espace pour organiser vos démarches, rendez-vous et activités au même endroit.
+          </p>
+
+          {/* Espace flexible — pousse le bloc d'actions vers le bas plutôt que de
+              laisser un vide au-dessus de l'illustration (retour Bryan 29/09/2026) */}
+          <div style={{ flex: 1, minHeight: "12px" }}/>
+
+          {/* Créer un compte — CTA dominant, mobile réservé aux citoyens */}
+          <button
+            onClick={handleCreerCompte}
+            className="tap"
+            style={{ width: "100%", maxWidth: "400px", padding: "20px 22px", borderRadius: "18px", border: "none", cursor: "pointer", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px" }}>
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontSize: "17px", fontWeight: "900", marginBottom: "3px", color: "#080812" }}>Créer mon compte</div>
+              <div style={{ fontSize: "12.5px", color: "rgba(8,8,18,0.65)" }}>Accéder à mon espace Yelen</div>
+            </div>
+            <span style={{ fontSize: "20px", color: "#080812", flexShrink: 0 }}>→</span>
+          </button>
+          <p style={{ textAlign: "center", marginTop: "12px", fontSize: "12px", color: C.textFaint, letterSpacing: "0.2px" }}>
+            Rendez-vous · Démarches · Suivi
+          </p>
+
+          {/* Découverte sans compte — zone distincte, clairement secondaire, jamais une 2e carte */}
+          <div style={{ marginTop: "26px", textAlign: "center" }}>
+            <p style={{ margin: "0 0 8px", fontSize: "13px", color: C.textSubtle }}>
+              Vous préférez d&apos;abord découvrir Yelen ?
+            </p>
+            <button
+              onClick={handleSkipAccount}
+              className="tap"
+              style={{ background: "none", border: "none", cursor: "pointer", color: C.text, fontWeight: "700", fontSize: "14px", padding: "6px" }}>
+              Continuer sans compte →
+            </button>
+          </div>
+
+          {/* Clause légale — système légal Yelen existant (/cgu, /confidentialite) */}
+          <p style={{ textAlign: "center", marginTop: "10px", fontSize: "11.5px", lineHeight: 1.5, color: C.textFaint, maxWidth: "300px" }}>
+            En continuant sans compte, vous confirmez avoir lu et accepté les{" "}
+            <Link href="/cgu" style={{ color: "#F5A623", fontWeight: "700", textDecoration: "none" }}>CGU</Link>
+            {" "}et la{" "}
+            <Link href="/confidentialite" style={{ color: "#F5A623", fontWeight: "700", textDecoration: "none" }}>Politique de confidentialité</Link>.
+          </p>
+
+          {/* Déjà un compte */}
+          <div style={{ marginTop: "18px", textAlign: "center" }}>
+            <span style={{ color: C.textSubtle, fontSize: "13px" }}>Déjà un compte ? </span>
+            <button
+              onClick={handleAlreadyAccount}
+              style={{ color: "#F5A623", fontSize: "13px", fontWeight: "700", background: "none", border: "none", cursor: "pointer", textDecoration: "none" }}>
+              Se connecter
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -381,63 +549,26 @@ export default function OnboardingPage() {
         .tap:active{opacity:.7;transform:scale(.97)}
       `}</style>
 
-      {/* Permission popups */}
-      {permStep === "location" && (
-        <PermissionPopup
-          icon={
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-              <circle cx="12" cy="10" r="3"/>
-            </svg>
-          }
-          title="Trouvez les services près de chez vous"
-          description="Yelen224 utilise votre position pour vous montrer les institutions et services disponibles près de chez vous, et calculer les distances en temps réel."
-          buttonLabel="Activer la localisation"
-          onAllow={requestLocation}
-          onSkip={() => setPermStep("notif")}
-        />
-      )}
-
-      {permStep === "notif" && (
-        <PermissionPopup
-          icon={
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            </svg>
-          }
-          title="Ne manquez aucun rendez-vous"
-          description="Recevez des rappels pour vos rendez-vous, des confirmations de réservation et des alertes importantes de vos institutions directement sur votre téléphone."
-          buttonLabel="Activer les notifications"
-          onAllow={requestNotifications}
-          onSkip={() => { setPermStep("done"); setShowChoice(true); }}
-        />
-      )}
-
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "calc(env(safe-area-inset-top) + 20px) 20px 8px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ width: "32px", height: "32px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#F5A623,#C8940A)" }}>
-            <svg viewBox="0 0 24 24" fill="none" width="18" height="18">
-              <circle cx="12" cy="12" r="4" fill="#080812"/>
-              {[0,60,120,180,240,300].map((a,i)=>(
-                <line key={i}
-                  x1={12+5.5*Math.cos(a*Math.PI/180)} y1={12+5.5*Math.sin(a*Math.PI/180)}
-                  x2={12+8*Math.cos(a*Math.PI/180)} y2={12+8*Math.sin(a*Math.PI/180)}
-                  stroke="#080812" strokeWidth="1.8" strokeLinecap="round"/>
-              ))}
-            </svg>
+          <div style={{ width: "32px", height: "32px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", background: "#F5A623" }}>
+            <YelenLogo size={18} color="#080812"/>
           </div>
           <span style={{ fontSize: "15px", fontWeight: "900", letterSpacing: "-0.3px", color: C.text }}>
             YELEN<span style={{ color: "#F5A623" }}>224</span>
           </span>
         </div>
-        <button
-          onClick={() => setPermStep("location")}
-          className="tap"
-          style={{ padding: "7px 14px", borderRadius: "20px", border: "none", cursor: "pointer", color: "#F5A623", background: iconBg, fontSize: "13px", fontWeight: "700" }}>
-          Passer
-        </button>
+        {current === 0 ? (
+          <LegalLanguageSwitcher variant="pill"/>
+        ) : (
+          <button
+            onClick={advanceToPermissions}
+            className="tap"
+            style={{ padding: "7px 14px", borderRadius: "20px", border: "none", cursor: "pointer", color: C.text, background: "transparent", fontSize: "13px", fontWeight: "700" }}>
+            Passer
+          </button>
+        )}
       </div>
 
       {/* Indicateurs de progression */}
@@ -470,15 +601,15 @@ export default function OnboardingPage() {
       </div>
 
       {/* Navigation */}
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "16px 20px calc(env(safe-area-inset-bottom) + 24px)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "16px 20px calc(env(safe-area-inset-bottom) + 16px)" }}>
         {current > 0 && (
           <button onClick={goPrev} className="tap" aria-label="Précédent"
-            style={{ width: "52px", height: "52px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, background: iconBg, border: "none" }}>
-            <span style={{ color: "#F5A623", fontSize: "18px" }}>←</span>
+            style={{ width: "52px", height: "52px", borderRadius: "26px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, background: "transparent", border: `1.5px solid ${C.borderCard}` }}>
+            <span style={{ color: "#080812", fontSize: "18px" }}>←</span>
           </button>
         )}
         <button onClick={goNext} className="tap"
-          style={{ flex: 1, height: "52px", borderRadius: "16px", border: "none", cursor: "pointer", fontWeight: "800", fontSize: "15px", background: "linear-gradient(135deg,#F5A623,#C8940A)", color: "#080812" }}>
+          style={{ flex: 1, height: "52px", borderRadius: "26px", border: "none", cursor: "pointer", fontWeight: "800", fontSize: "15px", background: "#F5A623", color: "#080812" }}>
           {current === slides.length - 1 ? "Commencer →" : "Suivant →"}
         </button>
       </div>

@@ -211,6 +211,31 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ error: "type invalide (ajout_pointage, correction_pointage, override_statut_jour)" }, { status: 400 });
 }
 
-export async function GET() {
-  return NextResponse.json({ error: "Méthode non autorisée" }, { status: 405 });
+// Consultation du journal des corrections (attendance_audit_logs), lecture
+// seule — même permission que le reste du module (clock_in.read_full),
+// jamais clock_in.write : consulter l'historique des corrections n'est pas
+// une action d'administration.
+export async function GET(req: NextRequest) {
+  const membre = await getAuthenticatedMembre(req);
+  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (!can(membre.role, "clock_in.read_full")) {
+    return NextResponse.json({ error: "Accès réservé à ce module" }, { status: 403 });
+  }
+
+  const url = new URL(req.url);
+  const employeeId = url.searchParams.get("employeeId");
+  const limit = Math.min(Number(url.searchParams.get("limit")) || 30, 100);
+
+  let query = sb
+    .from("attendance_audit_logs")
+    .select("id,audit_id,employee_nom,employee_matricule,action_type,ancienne_valeur,nouvelle_valeur,raison,membre_nom,created_at")
+    .eq("institution_id", membre.institutionId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (employeeId) query = query.eq("employee_id", employeeId);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ logs: data ?? [] });
 }

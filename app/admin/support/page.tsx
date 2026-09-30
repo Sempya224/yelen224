@@ -9,31 +9,33 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { D } from '@/app/admin/adminTheme'
 import { YelenLoader } from '@/components/YelenLoader'
 import {
-  SUPPORT_CATEGORIE_LABELS, SUPPORT_CATEGORIE_INSTITUTION_LABELS, SUPPORT_STATUT_LABELS, SUPPORT_PRIORITE_LABELS,
-  type SupportCategorie, type SupportCategorieInstitution, type SupportStatut, type SupportPriorite,
+  SUPPORT_CATEGORIE_LABELS, SUPPORT_CATEGORIE_INSTITUTION_LABELS, SUPPORT_CATEGORIE_PUBLIC_LABELS, SUPPORT_STATUT_LABELS, SUPPORT_PRIORITE_LABELS,
+  type SupportCategorie, type SupportCategorieInstitution, type SupportCategoriePublic, type SupportStatut, type SupportPriorite,
 } from '@/lib/supportTicketsConstants'
 
-// Origine citoyen/institution (chantier "Support Yelen institution",
-// 06/09/2026) — file unifiée, badge distinctif plutôt que deux consoles
-// séparées. citoyen_nom/institution_nom : exactement un des deux non-null.
+// Origine citoyen/institution/public (chantiers "Support Yelen
+// institution" 06/09/2026 puis "Support Public" 24/09/2026) — file
+// unifiée, badge distinctif plutôt que 3 consoles séparées. citoyen_nom/
+// institution_nom/visiteur_nom : exactement un des trois non-null.
 type FileItem = {
-  id: string; numero_public: string; categorie: SupportCategorie | SupportCategorieInstitution; sujet: string;
+  id: string; numero_public: string; categorie: SupportCategorie | SupportCategorieInstitution | SupportCategoriePublic; sujet: string;
   statut: SupportStatut; priorite: SupportPriorite;
-  origine: 'citoyen' | 'institution'; citoyen_nom: string | null; institution_nom: string | null;
+  origine: 'citoyen' | 'institution' | 'public'; citoyen_nom: string | null; institution_nom: string | null; visiteur_nom: string | null;
   assigned_agent_id: string | null; agent_nom: string | null; cree_le: string; dernier_message_at: string | null;
 }
-type Msg = { id: string; expediteur_type: 'citoyen' | 'agent' | 'institution'; agent_nom: string | null; contenu: string | null; image_url: string | null; type: string; cree_le: string }
+type Msg = { id: string; expediteur_type: 'citoyen' | 'agent' | 'institution' | 'visiteur'; agent_nom: string | null; contenu: string | null; image_url: string | null; type: string; cree_le: string }
 type TicketDetail = {
-  id: string; numero_public: string; categorie: SupportCategorie | SupportCategorieInstitution; sujet: string; statut: SupportStatut; priorite: SupportPriorite;
+  id: string; numero_public: string; categorie: SupportCategorie | SupportCategorieInstitution | SupportCategoriePublic; sujet: string; statut: SupportStatut; priorite: SupportPriorite;
   agent_nom: string | null; contexte_type: string | null; contexte_id: string | null; cree_le: string;
-  citoyen_nom: string | null; institution_id: string | null; institution_nom: string | null; messages: Msg[]
+  citoyen_nom: string | null; institution_id: string | null; institution_nom: string | null;
+  visiteur_nom: string | null; visiteur_email: string | null; messages: Msg[]
 }
 
-function categorieLabel(c: SupportCategorie | SupportCategorieInstitution): string {
-  return (SUPPORT_CATEGORIE_LABELS as Record<string, string>)[c] ?? (SUPPORT_CATEGORIE_INSTITUTION_LABELS as Record<string, string>)[c] ?? c
+function categorieLabel(c: SupportCategorie | SupportCategorieInstitution | SupportCategoriePublic): string {
+  return (SUPPORT_CATEGORIE_LABELS as Record<string, string>)[c] ?? (SUPPORT_CATEGORIE_INSTITUTION_LABELS as Record<string, string>)[c] ?? (SUPPORT_CATEGORIE_PUBLIC_LABELS as Record<string, string>)[c] ?? c
 }
-function requerantNom(item: { citoyen_nom: string | null; institution_nom: string | null }): string {
-  return item.institution_nom ?? item.citoyen_nom ?? 'Inconnu'
+function requerantNom(item: { citoyen_nom: string | null; institution_nom: string | null; visiteur_nom?: string | null }): string {
+  return item.institution_nom ?? item.citoyen_nom ?? item.visiteur_nom ?? 'Inconnu'
 }
 type Vue = 'active' | 'attente_agent' | 'en_cours' | 'resolu' | 'cloture'
 
@@ -62,7 +64,10 @@ function badgePriorite(p: SupportPriorite): { bg: string; fg: string } | null {
 export default function SupportAdminPage() {
   const [vue, setVue] = useState<Vue>('active')
   const [items, setItems] = useState<FileItem[]>([])
-  const [compteurs, setCompteurs] = useState<Record<SupportStatut, number>>({ attente_agent: 0, en_cours: 0, resolu: 0, cloture: 0 })
+  // attente_verification (24/09/2026) : compté par fileAttenteAgent() mais
+  // jamais affiché dans les KPI ci-dessous — un agent ne peut rien faire
+  // d'un ticket public non vérifié, voir docs/support-center.
+  const [compteurs, setCompteurs] = useState<Record<SupportStatut, number>>({ attente_verification: 0, attente_agent: 0, en_cours: 0, resolu: 0, cloture: 0 })
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [ticket, setTicket] = useState<TicketDetail | null>(null)
@@ -201,6 +206,7 @@ export default function SupportAdminPage() {
                 <div style={{ color: D.text, fontSize: 13, fontWeight: 700, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sujet}</div>
                 <div style={{ color: D.textSub, fontSize: 11.5, marginBottom: 6 }}>
                   {t.origine === 'institution' && <span style={{ color: D.blue, fontWeight: 700 }}>Institution · </span>}
+                  {t.origine === 'public' && <span style={{ color: D.textMuted, fontWeight: 700 }}>Public · </span>}
                   {requerantNom(t)} · {categorieLabel(t.categorie)}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -225,7 +231,7 @@ export default function SupportAdminPage() {
                   <div>
                     <div style={{ color: D.text, fontSize: 14, fontWeight: 800 }}>{ticket.sujet}</div>
                     <div style={{ color: D.textMuted, fontSize: 11 }}>
-                      {ticket.numero_public} · {ticket.institution_id && <span style={{ color: D.blue, fontWeight: 700 }}>Institution </span>}{requerantNom(ticket)} · {categorieLabel(ticket.categorie)}
+                      {ticket.numero_public} · {ticket.institution_id && <span style={{ color: D.blue, fontWeight: 700 }}>Institution </span>}{ticket.visiteur_email && <span style={{ color: D.textMuted, fontWeight: 700 }}>Public </span>}{requerantNom(ticket)} · {categorieLabel(ticket.categorie)}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

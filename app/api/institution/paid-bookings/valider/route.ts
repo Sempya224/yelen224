@@ -52,7 +52,7 @@ async function chargerBooking(filtre: { id: string } | { code: string }, institu
   let query = sb
     .from("paid_bookings")
     .select(`
-      id, confirmation_code, statut, date_rdv, heure_rdv, institution_id, traite_le, citoyen_id,
+      id, confirmation_code, statut, date_rdv, heure_rdv, date_depart, institution_id, traite_le, citoyen_id,
       montant_declare_citoyen, declare_le,
       paid_services(nom, prix, duree_minutes),
       users!paid_bookings_citoyen_id_fkey(prenom, nom, phone, photo_url, date_naissance, sexe)
@@ -83,6 +83,7 @@ async function chargerBooking(filtre: { id: string } | { code: string }, institu
     statut: data.statut,
     date_rdv: data.date_rdv,
     heure_rdv: data.heure_rdv,
+    date_depart: data.date_depart ?? null,
     traite_le: data.traite_le,
     montant_declare_citoyen: data.montant_declare_citoyen ?? null,
     declare_le: data.declare_le ?? null,

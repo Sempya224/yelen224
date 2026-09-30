@@ -1,13 +1,16 @@
 "use client";
 
-import React, { Suspense, useEffect, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
+type ThemeC = (typeof T)[keyof typeof T];
 import { type Horaire, JOURS_SEMAINE, parseHoraires, isOuvertNow } from "@/lib/horaires";
+import { toISODate } from "@/lib/disponibilites";
 import { ACTIVITE_CATEGORIE_COLORS, ActiviteCategorieIcon } from "@/lib/activiteVisuels";
 import { enregistrerInstitutionConsultee } from "@/lib/institutionsRecentes";
 import { YelenLoader } from "@/components/YelenLoader";
@@ -46,6 +49,18 @@ type PrestationHotel = {
   // Équipements structurés Hôtel (21/08/2026, lib/hotelEquipements.tsx) —
   // par chambre, distinct de Institution.equipements_etablissement.
   equipements_chambre: string[] | null;
+  // Fiche structurée Chambre/Service V2 (25/09/2026, migrations
+  // 20260925000004/000005) — description_courte pour les cartes/listes,
+  // `description` devient la description détaillée de la fiche complète.
+  description_courte: string | null; inclus: string[]; non_inclus: string[]; a_savoir: string | null;
+  duree_minutes: number;
+  capacite_max: number | null; capacite_adultes: number | null; capacite_enfants: number | null; superficie_m2: number | null;
+  // Disponibilité réelle du type de chambre (retour Bryan 25/09/2026,
+  // carte Tarif "façon Booking") — NULL sur les chambres créées avant ce
+  // champ (migration 20260917000001), jamais réécrit rétroactivement,
+  // voir CLAUDE.md /schema. Traité comme "non renseigné" côté affichage,
+  // jamais une valeur par défaut inventée.
+  nombre_unites: number | null;
 };
 type Institution = {
   id: string; slug: string; name: string; category: string; secteur: string | null; description: string;
@@ -126,7 +141,7 @@ const Icons = {
   Chevron:  () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="m9 18 6-6-6-6"/></svg>,
   Building: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 21h18M4 21V10l8-7 8 7v11M9 21v-6h6v6"/></svg>,
   MapPin:   () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
-  Info:     () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+  Info:     () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   Announce: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>,
   Heart:    (filled: boolean, color = "#ef4444", size = 13) => <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? color : "none"} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
   Share:    () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v14"/></svg>,
@@ -138,6 +153,12 @@ const Icons = {
   Note:     () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
   CatEdu:     () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 3L2 9l10 6 10-6-10-6z"/><path d="M2 17l10 6 10-6"/><path d="M2 13l10 6 10-6"/></svg>,
   CatPharma:  () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>,
+  // Fiche Chambre — refonte "Détails" (25/09/2026) : icônes UI sobres,
+  // jamais d'emoji dans Yelen (règle produit non négociable).
+  Person:   (color = "currentColor") => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/></svg>,
+  Bed:      (color = "currentColor") => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5"/><path d="M3 18h18"/><path d="M5 11V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4"/></svg>,
+  Expand:   (color = "currentColor") => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>,
+  Cross:    (color = "currentColor") => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
 };
 
 // Chantier Taxonomie des activités (Phase 3, 20/08/2026) — le badge de
@@ -232,6 +253,53 @@ function InstitutionLogo({ logo, name, categorieCode, size = 64 }: { logo?: stri
   );
 }
 
+// ─── Calendrier séjour (Phase B, hero hôtel, 25/09/2026) ───────────────────────
+// Lance uniquement les dates de séjour depuis la fiche publique — Yelen ne
+// construit jamais son propre moteur de réservation ici (voir
+// docs/ui/YELEN_HOTEL_MODEL_AUDIT.md Partie 7) : une fois les 2 dates
+// choisies, "Continuer" redirige vers /rdv/{id} qui reste l'unique moteur
+// (dispo réelle, inventaire, confirmation). Calque de ChambreCalendar dans
+// app/rdv/[id]/page.tsx, dupliqué ici car ce fichier n'importe jamais de
+// composant depuis le wizard (aucun point de partage existant, et la seule
+// autre chambre commune n'a pas de sens en dehors du wizard).
+const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const JOURS_FR = ["D", "L", "M", "M", "J", "V", "S"];
+function SejourCalendar({ calendarMonth, onMonthChange, minDate, selected, onSelect, C }: {
+  calendarMonth: Date; onMonthChange: (dir: 1 | -1) => void; minDate: Date; selected: string | null;
+  onSelect: (iso: string) => void; C: ThemeC;
+}) {
+  const first = new Date(calendarMonth);
+  const startOffset = first.getDay();
+  const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const cells: (Date | null)[] = [...Array(startOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => new Date(first.getFullYear(), first.getMonth(), i + 1))];
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+        <button onClick={() => onMonthChange(-1)} className="tap" style={{ width: "32px", height: "32px", borderRadius: "10px", background: C.cardBg, border: `1px solid ${C.borderCard}`, color: C.text, cursor: "pointer" }}>‹</button>
+        <div style={{ color: C.text, fontSize: "14px", fontWeight: "800", textTransform: "capitalize" }}>{MOIS_FR[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</div>
+        <button onClick={() => onMonthChange(1)} className="tap" style={{ width: "32px", height: "32px", borderRadius: "10px", background: C.cardBg, border: `1px solid ${C.borderCard}`, color: C.text, cursor: "pointer" }}>›</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px", marginBottom: "6px" }}>
+        {JOURS_FR.map((j, i) => <div key={i} style={{ textAlign: "center", color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase" }}>{j}</div>)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px" }}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={i}/>;
+          const iso = toISODate(d);
+          const disabled = d < minDate;
+          const sel = selected === iso;
+          return (
+            <button key={i} disabled={disabled} onClick={() => onSelect(iso)} className={disabled ? "" : "tap"}
+              style={{ aspectRatio: "1", borderRadius: "10px", border: `1px solid ${C.borderCard}`, background: disabled ? "transparent" : C.cardBg, color: disabled ? C.textSubtle : sel ? "#F5A623" : C.text, fontSize: "12px", fontWeight: sel ? "800" : "600", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.35 : 1 }}>
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Étoiles ──────────────────────────────────────────────────────────────────
 function Stars({ note, size = 13, isDark }: { note: number; size?: number; isDark: boolean }) {
   return (
@@ -248,7 +316,6 @@ function Stars({ note, size = 13, isDark }: { note: number; size?: number; isDar
 function SectionTitle({ icon, label, count, color = "#F5A623" }: { icon: React.ReactNode; label: string; count?: number; color?: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
-      <div style={{ width: "4px", height: "20px", borderRadius: "2px", background: `linear-gradient(180deg, ${color}, ${color}88)`, flexShrink: 0 }}/>
       <div style={{ color, opacity: 0.8 }}>{icon}</div>
       <span style={{ fontSize: "15px", fontWeight: "900", letterSpacing: "-0.3px" }}>{label}</span>
       {count !== undefined && count > 0 && (
@@ -330,6 +397,49 @@ function AnnonceImageCarousel({ images, height, dotActiveColor, dotInactiveColor
   );
 }
 
+// Indicateur de scroll réutilisable pour un bottom sheet — même principe
+// que la barre de scroll globale de la page (scrollPct/scrollThumbH plus
+// bas), mais rattaché au scroll interne d'un conteneur précis plutôt qu'à
+// `window` (retour Bryan 26/09/2026, sheets "Prix & frais"/"Garantie" :
+// la scrollbar native est masquée globalement, voir globals.css, donc rien
+// n'indique qu'un sheet peut défiler sans cette barre). Appelé au niveau
+// racine du composant (jamais dans un bloc conditionnel) pour respecter les
+// Rules of Hooks, même si le sheet correspondant n'est pas ouvert.
+// Rendu de la barre elle-même, réutilisé par tous les plein écrans/sheets
+// défilables de la fiche (useSheetScrollThumb ci-dessous fournit l'état).
+function ScrollThumbBar({ thumb, isDark, top = "calc(env(safe-area-inset-top) + 64px)", bottom = "20px" }: { thumb: { pct: number; thumbH: number; shown: boolean }; isDark: boolean; top?: string; bottom?: string }) {
+  return (
+    <div aria-hidden style={{ position: "fixed", top, bottom, right: "4px", width: "3px", zIndex: 60, pointerEvents: "none", opacity: thumb.shown ? 1 : 0, transition: "opacity 0.4s ease" }}>
+      <div style={{ position: "absolute", top: `${thumb.pct * (1 - thumb.thumbH) * 100}%`, height: `${thumb.thumbH * 100}%`, width: "100%", borderRadius: "3px", background: isDark ? "rgba(245,166,35,0.55)" : "rgba(8,8,18,0.35)" }}/>
+    </div>
+  );
+}
+
+function useSheetScrollThumb(open: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pct, setPct] = useState(0);
+  const [thumbH, setThumbH] = useState(1);
+  const [shown, setShown] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onScroll = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    setPct(max > 0 ? Math.min(Math.max(el.scrollTop / max, 0), 1) : 0);
+    setThumbH(el.scrollHeight > 0 ? Math.min(Math.max(el.clientHeight / el.scrollHeight, 0.08), 1) : 1);
+    setShown(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setShown(false), 900);
+  }, []);
+  // Calcule la hauteur du "thumb" dès l'ouverture (pas seulement au 1er
+  // scroll) — sinon le sheet s'affiche sans indicateur tant que le citoyen
+  // n'a pas encore fait défiler une première fois.
+  useEffect(() => {
+    if (open) onScroll();
+  }, [open, onScroll]);
+  return { ref, onScroll, pct, thumbH, shown };
+}
+
 // ─── Page principale ──────────────────────────────────────────────────────────
 // useSearchParams() exige une frontière Suspense en App Router (voir
 // app/login/page.tsx pour le même pattern déjà en place) — sinon le build
@@ -393,10 +503,56 @@ function InstitutionProfilePageInner() {
   // deviennent des ancres qui font défiler jusqu'à la section. Avis reste
   // à part : son bouton ouvre un plein écran dédié façon Booking.
   const [reviewsOpen, setReviewsOpen] = useState(false);
+  // "À propos" tronquée à 2 lignes + "Voir plus" (retour Bryan 25/09/2026,
+  // pour toutes les catégories) — troncature en JS par nombre de
+  // caractères, pas en CSS WebkitLineClamp (retour Bryan 22/08/2026 sur
+  // CommunautePostCard.tsx : peu fiable sur certains rendus). Ouvre le même
+  // patron de sheet Yelen que la FAQ plus bas (faqOuverte).
+  const [descriptionSheetOpen, setDescriptionSheetOpen] = useState(false);
+  // "Prix & frais" — lien façon DoorDash "Pricing & Fees" ouvrant un
+  // bottom sheet explicatif (retour Bryan 26/09/2026). Contenu
+  // volontairement non légal (aucune mention de loi/juridiction) : texte
+  // humain qui explique juste le fonctionnement réel du paiement Yelen —
+  // même patron de sheet que descriptionSheetOpen/faqOuverte ci-dessus.
+  const [prixFraisSheetOpen, setPrixFraisSheetOpen] = useState(false);
+  // "Garantie" — même patron que "Prix & frais" ci-dessus, lien placé à
+  // gauche sur la même ligne (retour Bryan 26/09/2026). Contrairement à
+  // "Prix & frais", visible pour TOUTE institution (pas seulement celles
+  // avec un service payant) : le volet "ce que Yelen garantit" (examen
+  // avant publication, badge_verifie, code de validation, protection des
+  // données) est vrai même sans paiement — seul le volet "ce que Yelen ne
+  // garantit pas" varie selon paidServicesActifs (paiement/remboursement
+  // n'a de sens que s'il y a un service payant).
+  const [garantieSheetOpen, setGarantieSheetOpen] = useState(false);
+  const prixFraisScroll = useSheetScrollThumb(prixFraisSheetOpen);
+  const garantieScroll = useSheetScrollThumb(garantieSheetOpen);
   const infoRef = useRef<HTMLDivElement>(null);
   const horairesRef = useRef<HTMLDivElement>(null);
   const servicesRef = useRef<HTMLDivElement>(null);
   const [imgBanErr, setImgBanErr] = useState(false);
+  // Bandeau "Yelen vous accompagne" (28/09/2026) — arrivée depuis le
+  // parcours d'orientation (app/menu/projets/accompagnement,
+  // ?source=yelen_accompagnement) : propose de reprendre directement le
+  // flux de réservation plutôt que de faire tout reperdre le contexte déjà
+  // collecté. Fermeture locale seulement (pas de mémorisation persistée —
+  // un aller-retour volontaire sur la fiche peut vouloir le revoir).
+  const [accompagnementIgnore, setAccompagnementIgnore] = useState(false);
+  // Calendrier séjour (Phase B, hero hôtel, 25/09/2026) — bandeau qui
+  // remplace Découvrir/WhatsApp dans le hero pour un hôtel, ouvre ce popup
+  // 2 étapes (arrivée puis départ), "Continuer" redirige vers /rdv/{id}
+  // avec les dates déjà connues (le wizard prend le relais, voir
+  // app/rdv/[id]/page.tsx::dispoChambres).
+  const [sejourModalOpen, setSejourModalOpen] = useState(false);
+  const [sejourStep, setSejourStep] = useState<"arrivee" | "depart">("arrivee");
+  // Présélection depuis le bandeau "Vos dates de séjour" de l'onglet
+  // Recherche (catégorie Hôtels & restos, retour Bryan 29/09/2026) —
+  // query params `date_arrivee`/`date_depart` repris tels quels, jamais de
+  // confiance aveugle dans une valeur venue de l'URL (format ISO
+  // yyyy-mm-dd validé, sinon ignoré silencieusement comme si absent).
+  const dateUrlValide = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : null;
+  const [sejourArrivee, setSejourArrivee] = useState<string | null>(() => dateUrlValide(searchParams.get("date_arrivee")));
+  const [sejourDepart, setSejourDepart] = useState<string | null>(() => dateUrlValide(searchParams.get("date_depart")));
+  const [sejourCalendarMonth, setSejourCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
   // Lot E2 (engagement citoyen, 16/07/2026)
   const [citoyenId, setCitoyenId] = useState<string | null>(null);
   const [likesCount, setLikesCount] = useState<Record<string, number>>({});
@@ -424,6 +580,11 @@ function InstitutionProfilePageInner() {
   // sur le bandeau CTA plus bas). Décision assumée : Bryan confirme sur son
   // téléphone si le bug refixed revient avant qu'on généralise le pattern.
   const [ctaVisible, setCtaVisible] = useState(true);
+  // Header principal (secteurs non-hôtel) — même traitement "séparateur
+  // visible seulement au scroll" que les popups plein écran (retour Bryan
+  // 26/09/2026). Réutilise le listener de scroll déjà en place plutôt que
+  // d'en ajouter un second.
+  const [headerScrolled, setHeaderScrolled] = useState(false);
   const lastScrollY = useRef(0);
   useEffect(() => {
     const onScrollPct = () => {
@@ -441,6 +602,7 @@ function InstitutionProfilePageInner() {
       if (y < 40 || delta < -4) setCtaVisible(true);
       else if (delta > 4) setCtaVisible(false);
       lastScrollY.current = y;
+      setHeaderScrolled(y > 4);
     };
     onScrollPct();
     window.addEventListener("scroll", onScrollPct, { passive: true });
@@ -519,6 +681,48 @@ function InstitutionProfilePageInner() {
   // la vraie messagerie citoyen↔institution (liée à un RDV).
   const [questions, setQuestions] = useState<QuestionInstitution[]>([]);
   const [questionsListOpen, setQuestionsListOpen] = useState(false);
+  // Horaire complet replié par défaut, façon DoorDash "Cart summary"
+  // (retour Bryan 26/09/2026) — seul le statut Ouvert/Fermé maintenant
+  // reste visible d'emblée, la liste des 7 jours ne s'affiche qu'au clic.
+  const [horaireDetailOpen, setHoraireDetailOpen] = useState(false);
+  // Même patron pour la carte Contacts (retour Bryan 26/09/2026, "pareil
+  // pour la section Contact") — ici aucun résumé équivalent au statut
+  // Ouvert/Fermé n'existe, donc toute la liste (adresse/téléphone/
+  // WhatsApp/email/site) est repliée derrière une seule ligne.
+  const [contactDetailOpen, setContactDetailOpen] = useState(false);
+  // Même patron pour Équipements (retour Bryan 27/09/2026, "quelques-uns
+  // affichés, les autres pliés, comme pour les horaires") — à la
+  // différence de Contact, un aperçu (quelques équipements, pas zéro)
+  // reste visible replié ; seul le reste bascule derrière le clic.
+  const [equipementsDetailOpen, setEquipementsDetailOpen] = useState(false);
+  // Même patron pour Détails (retour Bryan 27/09/2026, "Détails en pliage
+  // aussi") — comme Contacts, seulement 2 champs possibles (Fondée en/
+  // Capacité), aucun résumé équivalent, donc tout replié derrière une
+  // seule ligne cliquable.
+  const [detailsDetailOpen, setDetailsDetailOpen] = useState(false);
+  // Même patron pour À propos (retour Bryan 27/09/2026, "À propos aussi
+  // en pliage") — pas de résumé chiffré équivalent (ni statut, ni
+  // compteur), donc un simple toggle icône+libellé, contenu (description
+  // tronquée + Voir plus + langues) entièrement replié par défaut.
+  const [aproposDetailOpen, setAproposDetailOpen] = useState(false);
+  // Séparateur du header du popup Conditions/Informations/Légales
+  // (retour Bryan 26/09/2026 : "on doit sentir la séparation uniquement
+  // si on scroll, sinon c'est uniforme") — false tant qu'on est en haut
+  // du contenu, remis à false à chaque ouverture/fermeture (le popup lui
+  // démonte/remonte, mais ce state ne le ferait pas tout seul).
+  const [infoScrolled, setInfoScrolled] = useState(false);
+  // Même traitement étendu à tous les headers plein écran de la fiche
+  // (retour Bryan 26/09/2026, "apporte ce même traitement à tous les
+  // header de la fiche") — un state par popup (chacun a son propre
+  // scroll indépendant), remis à false à la fermeture.
+  const [reviewsScrolled, setReviewsScrolled] = useState(false);
+  const [commentsScrolled, setCommentsScrolled] = useState(false);
+  const [detailScrolled, setDetailScrolled] = useState(false);
+  const [askScrolled, setAskScrolled] = useState(false);
+  const [questionsListScrolled, setQuestionsListScrolled] = useState(false);
+  const [chambreScrolled, setChambreScrolled] = useState(false);
+  const [galerieScrolled, setGalerieScrolled] = useState(false);
+  const [serviceScrolled, setServiceScrolled] = useState(false);
   // "Conditions & Informations" façon Booking (Property Policies/Important
   // details/Legal information), 24/07/2026 — remplace le footer de la
   // fiche. Contenu rempli par l'institution (Mon compte > Conditions &
@@ -529,10 +733,44 @@ function InstitutionProfilePageInner() {
   // infoOpen/reviewsOpen ci-dessus : état local, aucune nouvelle route.
   const [chambreOuverte, setChambreOuverte] = useState<PrestationHotel | null>(null);
   const [galerieOuverte, setGalerieOuverte] = useState(false);
-  const [mediaPleinEcran, setMediaPleinEcran] = useState<{ type: "photo" | "video"; url: string } | null>(null);
+  // "Lire plus" de la description (refonte "Détails", 25/09/2026) — state
+  // top-level (jamais dans l'IIFE conditionnelle chambreOuverte && (()=>{}),
+  // qui casserait les Rules of Hooks), réinitialisé à chaque ouverture
+  // d'une chambre différente.
+  const [descExpanded, setDescExpanded] = useState(false);
+  // Viewer plein écran (refonte visuelle 25/09/2026) — porte désormais la
+  // liste complète des médias + un index, pour permettre précédent/
+  // suivant/compteur/clavier (auparavant un seul {type,url} figé, aucune
+  // navigation possible une fois ouvert).
+  const [mediaPleinEcran, setMediaPleinEcran] = useState<{ items: { type: "photo" | "video"; url: string }[]; index: number } | null>(null);
+  // Swipe tactile du viewer plein écran (retour Bryan 25/09/2026 : "ajouter
+  // le scroll avec la main, pas seulement les flèches") — refs plutôt que
+  // du state, aucun rendu ne dépend de la position du doigt en cours de
+  // geste (pas d'animation de suivi, juste seuil → navigation, cohérent
+  // avec le reste du projet qui n'a pas de librairie de gestes).
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeConsumedRef = useRef(false);
+  // Fiche service structurée V2 (25/09/2026) — même patron d'overlay que
+  // chambreOuverte, contenu propre au service (durée, inclus/non inclus,
+  // disponibilité, à savoir) plutôt que la liste compacte affichée avant.
+  const [serviceOuvert, setServiceOuvert] = useState<PrestationHotel | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [askQuestion, setAskQuestion] = useState("");
   const [askSubmitting, setAskSubmitting] = useState(false);
+  // Indicateur de scroll (même hook que les sheets "Prix & frais"/
+  // "Garantie") étendu à tous les plein écrans défilables de la fiche —
+  // "Scrolled" ci-dessus ne fait que masquer/révéler la bordure du header,
+  // rien n'indiquait qu'il restait du contenu à faire défiler (retour Bryan
+  // 26/09/2026 : "la barre doit exister en général", chambre/service inclus).
+  const reviewsThumb = useSheetScrollThumb(reviewsOpen);
+  const commentsThumb = useSheetScrollThumb(commentsOpenId !== null);
+  const detailThumb = useSheetScrollThumb(detailOpenId !== null);
+  const questionsListThumb = useSheetScrollThumb(questionsListOpen);
+  const infoThumb = useSheetScrollThumb(infoOpen !== null);
+  const chambreThumb = useSheetScrollThumb(chambreOuverte !== null);
+  const galerieThumb = useSheetScrollThumb(chambreOuverte !== null && galerieOuverte);
+  const serviceThumb = useSheetScrollThumb(serviceOuvert !== null);
+  const askThumb = useSheetScrollThumb(askOpen);
   // Deep-link "?question=1" (retour Bryan 28/08/2026, CTA "Poser une
   // question" depuis la sheet Populaire de /recherche) — ouvre directement
   // le formulaire au chargement de la fiche, une seule fois (ref plutôt
@@ -591,6 +829,7 @@ function InstitutionProfilePageInner() {
     if (!error && data) {
       setQuestions(prev => [data, ...prev]);
       setAskOpen(false);
+      setAskScrolled(false);
     }
   }
 
@@ -690,7 +929,7 @@ function InstitutionProfilePageInner() {
         if (actRow?.code === "hotellerie") {
           const { data: prestRows } = await supabase
             .from("paid_services")
-            .select("id, nom, description, categorie, prix, unite_prix, horaires, localisation, type_prestation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre")
+            .select("id, nom, description, categorie, prix, unite_prix, horaires, localisation, type_prestation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre, description_courte, inclus, non_inclus, a_savoir, duree_minutes, capacite_max, capacite_adultes, capacite_enfants, superficie_m2, nombre_unites")
             .eq("institution_id", id)
             .eq("is_active", true)
             .order("categorie", { ascending: true });
@@ -1024,6 +1263,23 @@ function InstitutionProfilePageInner() {
   // zéro nouveau composant, zéro changement pour les autres catégories. Voir
   // docs/ui/YELEN_HOTEL_MODEL_AUDIT.md Partie 12/15.
   const isHotel = inst.activitePrincipaleCode === "hotellerie";
+  // "Continuer" du bandeau "Yelen vous accompagne" — hôtel : atterrit
+  // directement sur l'étape date d'arrivée (?sejour=1, lu par
+  // app/rdv/[id]/page.tsx, même effet que le bouton "Réserver un séjour"
+  // du wizard). Autres catégories : ouvre le flux de réservation
+  // directement, déjà ce que fait le CTA "Prendre rendez-vous" partout
+  // ailleurs sur cette fiche — rien à inventer de plus.
+  const depuisAccompagnement = searchParams.get("source") === "yelen_accompagnement" && !accompagnementIgnore;
+  function continuerDepuisAccompagnement() {
+    router.push(isHotel ? `/rdv/${inst.id}?sejour=1` : `/rdv/${inst.id}`);
+  }
+  const banniereAccompagnement = depuisAccompagnement && (
+    <div style={{ position: "absolute", left: "12px", right: "12px", bottom: "10px", zIndex: 5, background: "rgba(0,0,0,0.62)", backdropFilter: "blur(8px)", borderRadius: "14px", padding: "10px 10px 10px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+      <div style={{ flex: 1, minWidth: 0, color: "#fff", fontSize: "11px", fontWeight: 700, lineHeight: 1.35 }}>Vous avez déjà avancé dans votre recherche</div>
+      <button onClick={continuerDepuisAccompagnement} className="tap" style={{ background: "#F5A623", color: "#080812", fontWeight: 800, fontSize: "12px", padding: "9px 14px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>Continuer</button>
+      <button onClick={() => setAccompagnementIgnore(true)} aria-label="Ignorer" className="tap" style={{ background: "rgba(255,255,255,0.18)", border: "none", borderRadius: "50%", width: "26px", height: "26px", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer", flexShrink: 0 }}>{Icons.Cross("#fff")}</button>
+    </div>
+  );
   // Chantier Services Hôtel V2 (20/08/2026) — les chambres vivent dans
   // paid_services (est_chambre=true, avec photo), plus dans
   // institutions.services. Source unique du compte "Chambres" partout
@@ -1057,8 +1313,6 @@ function InstitutionProfilePageInner() {
   // ci-dessous), comportement conservé à l'identique.
   const ctaQuickSecondary: CtaAction | null =
     ctaDecision.secondaires.find(a => a === "whatsapp" || a === "phone") ?? null;
-  const ctaPhoneSeparement =
-    capacites.hasPhone && ctaDecision.principal?.action !== "phone" && ctaQuickSecondary !== "phone";
 
   // Corrigé (17/08/2026, CTA V1) : le bouton WhatsApp du hero ouvrait
   // avant un compose générique (sans destinataire) même sans numéro réel
@@ -1134,11 +1388,10 @@ function InstitutionProfilePageInner() {
           Yelen elle-même (Accueil, Compte). Bouton favori déplacé ici
           depuis la bannière (3e colonne de la grille, à la place du &lt;div/&gt;
           vide). */}
-      {(() => {
-        const hBg      = isDark ? "rgba(7,7,22,0.97)" : "rgba(255,255,255,0.97)";
+      {!isHotel && (() => {
         const hText    = C.text;
         return (
-        <header style={{ position: "sticky", top: 0, zIndex: 200, background: hBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+        <header style={{ position: "sticky", top: 0, zIndex: 200, background: C.pageBg, borderBottom: headerScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
           {/* Grille 1fr/auto/1fr (au lieu de space-between) — garde le
               titre centré indépendamment de la largeur du bouton retour.
               Icônes retour/favoris/partager alignées sur le traitement de
@@ -1172,17 +1425,56 @@ function InstitutionProfilePageInner() {
           grand visuel qui domine l'écran), uniquement quand une vraie photo
           existe ; le dégradé de secours reste tout aussi petit quand il n'y
           en a pas (retour CEO 24/07/2026 : la première tentative en 230px
-          était trop grande). */}
-      <div style={{ width: "100%", height: inst.banniere && !imgBanErr ? "120px" : "100px", overflow: "hidden", position: "relative" }}>
-        {inst.banniere && !imgBanErr ? (
-          <>
-            <Image src={inst.banniere} alt="" fill sizes="100vw" priority onError={() => setImgBanErr(true)} style={{ objectFit: "cover" }}/>
-            <div style={{ position: "absolute", inset: 0, background: isDark ? "linear-gradient(to bottom,transparent 40%,rgba(7,7,22,0.9) 100%)" : "linear-gradient(to bottom,transparent 45%,rgba(242,242,247,0.9) 100%)" }}/>
-          </>
-        ) : (
-          <div style={{ width: "100%", height: "100%", background: isDark ? `linear-gradient(160deg, ${meta.color}12, ${meta.color}06, transparent)` : `linear-gradient(160deg, ${meta.color}08, ${meta.color}03, transparent)` }}/>
-        )}
-      </div>
+          était trop grande). Non-hôtel uniquement — voir le hero pleine
+          largeur ci-dessous pour l'hôtellerie (retour Bryan 25/09/2026). */}
+      {!isHotel && (
+        <div style={{ width: "100%", height: inst.banniere && !imgBanErr ? "120px" : "100px", overflow: "hidden", position: "relative" }}>
+          {inst.banniere && !imgBanErr ? (
+            <>
+              <Image src={inst.banniere} alt="" fill sizes="100vw" priority onError={() => setImgBanErr(true)} style={{ objectFit: "cover" }}/>
+              <div style={{ position: "absolute", inset: 0, background: isDark ? "linear-gradient(to bottom,transparent 40%,rgba(7,7,22,0.9) 100%)" : "linear-gradient(to bottom,transparent 45%,rgba(242,242,247,0.9) 100%)" }}/>
+            </>
+          ) : (
+            <div style={{ width: "100%", height: "100%", background: isDark ? `linear-gradient(160deg, ${meta.color}12, ${meta.color}06, transparent)` : `linear-gradient(160deg, ${meta.color}08, ${meta.color}03, transparent)` }}/>
+          )}
+          {banniereAccompagnement}
+        </div>
+      )}
+
+      {/* HERO PLEINE LARGEUR — hôtellerie uniquement (retour Bryan
+          25/09/2026, chantier "adapter la fiche à l'hôtel", étape 1/N :
+          "juste le hero header"). Réutilise inst.banniere (même champ, même
+          fallback dégradé que la bannière ci-dessus) mais en couverture
+          pleine largeur façon DoorDash — back/favori/partager superposés en
+          cercles translucides sur la photo au lieu d'une barre sticky
+          séparée. Reste du bloc HERO (logo/nom/catégorie/CTA) inchangé,
+          scope volontairement limité au header pour cette étape. */}
+      {isHotel && (
+        <div style={{ width: "100%", height: "240px", overflow: "hidden", position: "relative" }}>
+          {inst.banniere && !imgBanErr ? (
+            <>
+              <Image src={inst.banniere} alt="" fill sizes="100vw" priority onError={() => setImgBanErr(true)} style={{ objectFit: "cover" }}/>
+              <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.28) 0%, transparent 26%, transparent 62%, rgba(0,0,0,0.4) 100%)" }}/>
+            </>
+          ) : (
+            <div style={{ width: "100%", height: "100%", background: isDark ? `linear-gradient(160deg, ${meta.color}18, ${meta.color}08, transparent)` : `linear-gradient(160deg, ${meta.color}10, ${meta.color}04, transparent)` }}/>
+          )}
+          <div style={{ position: "absolute", top: "calc(env(safe-area-inset-top) + 12px)", left: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px" }}>
+            <Link href="/recherche" className="tap" aria-label="Retour" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "50%", background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.18)", color: "#080812", textDecoration: "none", flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </Link>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <button onClick={handleToggleFavori} className="tap" aria-label={estFavori ? "Retirer des favoris" : "Ajouter aux favoris"} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "50%", background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.18)", border: "none", cursor: "pointer", flexShrink: 0 }}>
+                {Icons.Heart(estFavori, estFavori ? "#ef4444" : "#080812", 19)}
+              </button>
+              <button onClick={handlePartager} className="tap" aria-label="Partager" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "50%", background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.18)", border: "none", cursor: "pointer", color: "#080812", flexShrink: 0 }}>
+                <Icons.Share/>
+              </button>
+            </div>
+          </div>
+          {banniereAccompagnement}
+        </div>
+      )}
 
       {/* HERO — seul le logo chevauche la bannière (négatif appliqué à lui
           seul, pas à tout le bloc) : le nom/la catégorie restent toujours
@@ -1217,7 +1509,7 @@ function InstitutionProfilePageInner() {
         {/* Note globale + statut ouvert/fermé + annonces — regroupés sur
             une seule ligne (retirés du dessus de la bannière) */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "26px", fontWeight: "900", color: noteMoyenne >= 4 ? "#22c55e" : noteMoyenne >= 3 ? "#F5A623" : "#ef4444", letterSpacing: "-1px" }}>
+          <span style={{ fontSize: "26px", fontWeight: "900", color: C.text, letterSpacing: "-1px" }}>
             {noteMoyenne > 0 ? noteMoyenne.toFixed(1) : "—"}
           </span>
           <Stars note={noteMoyenne} size={14} isDark={isDark}/>
@@ -1244,48 +1536,82 @@ function InstitutionProfilePageInner() {
         {/* CTA — piloté par ctaDecision (lib/prestataireCapacites.ts,
             source unique de vérité, voir docs/ui/YELEN_PRESTATAIRE_CTA_V1_SPEC.md).
             Jamais "Prendre RDV" par défaut : n'apparaît que si hasBooking. */}
-        {ctaDecision.principal && (
-          <>
+        {isHotel && chambresHotel.length > 0 ? (
+          <button
+            onClick={() => { setSejourStep("arrivee"); setSejourModalOpen(true); }}
+            className="tap"
+            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "14px 16px", borderRadius: "14px", border: `1.5px solid ${inputBord}`, background: inputBg, marginBottom: "10px", cursor: "pointer" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "rgba(245,166,35,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icons.Cal/>
+              </div>
+              <div style={{ textAlign: "left" }}>
+                <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Vos dates de séjour</div>
+                <div style={{ color: C.text, fontSize: "13.5px", fontWeight: "800" }}>
+                  {sejourArrivee && sejourDepart
+                    ? `${new Date(`${sejourArrivee}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} – ${new Date(`${sejourDepart}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`
+                    : "Choisir mes dates pour réserver"}
+                </div>
+              </div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2" strokeLinecap="round"><polyline points="9 6 15 12 9 18"/></svg>
+          </button>
+        ) : ctaDecision.principal && (
             <div style={{ display: "grid", gridTemplateColumns: ctaQuickSecondary ? "1fr 1fr" : "1fr", gap: "10px", marginBottom: "10px" }}>
               {ctaDecision.principal.action === "rdv" ? (
-                <Link href={ctaHref("rdv")} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+                <Link href={ctaHref("rdv")} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "transparent", border: `1.5px solid ${inputBord}`, color: C.text, fontWeight: "800", fontSize: "13px", padding: "11px 12px", borderRadius: "12px", textDecoration: "none" }}>
                   <Icons.Cal /> {ctaDecision.principal.label}
                 </Link>
               ) : (
-                <a href={ctaHref(ctaDecision.principal.action)} onClick={() => trackerCtaClic(ctaDecision.principal!.action)} target={ctaDecision.principal.action === "phone" ? undefined : "_blank"} rel={ctaDecision.principal.action === "phone" ? undefined : "noreferrer"} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+                <a href={ctaHref(ctaDecision.principal.action)} onClick={() => trackerCtaClic(ctaDecision.principal!.action)} target={ctaDecision.principal.action === "phone" ? undefined : "_blank"} rel={ctaDecision.principal.action === "phone" ? undefined : "noreferrer"} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "transparent", border: `1.5px solid ${inputBord}`, color: C.text, fontWeight: "800", fontSize: "13px", padding: "11px 12px", borderRadius: "12px", textDecoration: "none" }}>
                   {ctaDecision.principal.action === "website" ? <Icons.Globe /> : ctaDecision.principal.action === "whatsapp" ? <Icons.Whatsapp /> : <Icons.Phone />}
                   {" "}{ctaDecision.principal.label}
                 </a>
               )}
               {ctaQuickSecondary && (
                 <a href={ctaHref(ctaQuickSecondary)} onClick={() => trackerCtaClic(ctaQuickSecondary)} target={ctaQuickSecondary === "phone" ? undefined : "_blank"} rel={ctaQuickSecondary === "phone" ? undefined : "noreferrer"} className="tap" style={ctaQuickSecondary === "whatsapp"
-                  ? { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "transparent", border: `1px solid ${inputBord}`, color: "#22c55e", fontWeight: "700", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none" }
-                  : { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontWeight: "700", fontSize: "14px", padding: "14px 12px", borderRadius: "14px", textDecoration: "none" }}>
+                  ? { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: "transparent", border: `1px solid ${inputBord}`, color: "#22c55e", fontWeight: "700", fontSize: "13px", padding: "11px 12px", borderRadius: "12px", textDecoration: "none" }
+                  : { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", backgroundColor: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontWeight: "700", fontSize: "13px", padding: "11px 12px", borderRadius: "12px", textDecoration: "none" }}>
                   {ctaQuickSecondary === "whatsapp" ? <Icons.Whatsapp /> : <Icons.Phone />} {CTA_LABELS[ctaQuickSecondary]}
                 </a>
               )}
             </div>
-
-            {ctaPhoneSeparement && (
-              <a href={`tel:${inst.phone}`} onClick={() => trackerCtaClic("phone")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontWeight: "700", fontSize: "14px", padding: "13px", borderRadius: "14px", textDecoration: "none", marginBottom: "6px" }}>
-                <Icons.Phone />
-                <span style={{ color: "#22c55e" }}>{inst.phone}</span>
-                <span style={{ color: C.textSubtle, fontSize: "11px" }}>· Appeler</span>
-              </a>
-            )}
-          </>
         )}
+
+        {/* "Garantie" (gauche) / "Prix & frais" (droite) — même ligne,
+            façon DoorDash "Pricing & Fees" (retour Bryan 26/09/2026).
+            "Garantie" toujours visible (vrai pour toute institution) ;
+            "Prix & frais" seulement quand l'établissement a au moins un
+            service RÉELLEMENT payant (paidServicesActifs > 0,
+            paid_services.is_active=true, toutes catégories confondues —
+            inclut les chambres d'hôtel). Jamais affiché pour un
+            établissement qui ne propose que des RDV gratuits
+            (institutions.services jsonb) : rien à expliquer sur le prix
+            dans ce cas. Ouvrent les sheets explicatifs
+            garantieSheetOpen/prixFraisSheetOpen ci-dessous. */}
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "-2px" }}>
+          <button onClick={() => setGarantieSheetOpen(true)} className="tap" style={{ background: "none", border: "none", padding: "4px 0", color: C.textSubtle, fontSize: "11.5px", fontWeight: "700", textDecoration: "underline", cursor: "pointer" }}>
+            Garantie
+          </button>
+          {paidServicesActifs > 0 && (
+            <button onClick={() => setPrixFraisSheetOpen(true)} className="tap" style={{ background: "none", border: "none", padding: "4px 0", color: C.textSubtle, fontSize: "11.5px", fontWeight: "700", textDecoration: "underline", cursor: "pointer" }}>
+              Prix &amp; frais
+            </button>
+          )}
+        </div>
+
       </div>
 
       {/* STATS */}
       <div style={{ overflowX: "auto", padding: "4px 16px 0" }}>
         <div style={{ display: "flex", gap: "8px", paddingBottom: "2px" }}>
           {[
-            { label: "Note",     value: noteMoyenne > 0 ? `${noteMoyenne.toFixed(1)}/5` : "—", color: "#F5A623" },
-            { label: "Avis",     value: String(nbAvis),                                          color: "#3b82f6" },
-            { label: isHotel ? "Chambres" : "Services", value: isHotel ? (chambresHotel.length > 0 ? String(chambresHotel.length) : "—") : (inst.services.length > 0 ? String(inst.services.length) : "—"), color: "#22c55e" },
-            { label: "Horaires", value: `${inst.horaires.filter(h => h.ouvert).length}/7j`,      color: "#a855f7" },
-            ...(inst.annee_creation ? [{ label: "Fondée", value: inst.annee_creation, color: "#06b6d4" }] : []),
+            { label: "Note",     value: noteMoyenne > 0 ? `${noteMoyenne.toFixed(1)}/5` : "—", color: C.text },
+            { label: "Avis",     value: String(nbAvis),                                          color: C.text },
+            { label: isHotel ? "Chambres" : "Services", value: isHotel ? (chambresHotel.length > 0 ? String(chambresHotel.length) : "—") : (inst.services.length > 0 ? String(inst.services.length) : "—"), color: C.text },
+            { label: "Horaires", value: `${inst.horaires.filter(h => h.ouvert).length}/7j`,      color: C.text },
+            ...(inst.annee_creation ? [{ label: "Fondée", value: inst.annee_creation, color: C.text }] : []),
           ].map(s => (
             <div key={s.label} style={{ flexShrink: 0, backgroundColor: C.cardBg, borderRadius: "12px", padding: "10px 14px", textAlign: "center", minWidth: "72px" }}>
               <div style={{ color: s.color, fontSize: "15px", fontWeight: "900", lineHeight: 1 }}>{s.value}</div>
@@ -1354,7 +1680,7 @@ function InstitutionProfilePageInner() {
       )}
 
       {/* TABS NAV */}
-      <div style={{ position: "sticky", top: "calc(52px + env(safe-area-inset-top))", zIndex: 150, backgroundColor: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, marginTop: "16px" }}>
+      <div style={{ position: "sticky", top: "calc(52px + env(safe-area-inset-top))", zIndex: 150, backgroundColor: C.pageBg, borderBottom: `1px solid ${C.borderCard}`, marginTop: "16px" }}>
         <div style={{ overflowX: "auto", padding: "0 16px" }}>
           <div style={{ display: "flex", gap: "2px" }}>
             {TABS.map(tab => (
@@ -1391,25 +1717,69 @@ function InstitutionProfilePageInner() {
 
         {/* INFO */}
         <div ref={infoRef} style={{ display: "flex", flexDirection: "column", gap: "14px", scrollMarginTop: "calc(52px + env(safe-area-inset-top) + 64px)" }}>
-            {inst.description && (
-              <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "16px" }}>
-                <SectionTitle icon={<Icons.Note />} label="À propos" color={meta.color}/>
-                <p style={{ color: C.textMuted, fontSize: "13px", lineHeight: 1.75, margin: 0 }}>{inst.description}</p>
-                {inst.langue && inst.langue.length > 0 && (
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px", alignItems: "center" }}>
-                    <span style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "600" }}>Langues :</span>
-                    {inst.langue.map(l => <span key={l} style={{ background: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontSize: "11px", fontWeight: "600", padding: "3px 10px", borderRadius: "20px" }}>{l}</span>)}
+            {inst.description && (() => {
+              const DESCRIPTION_MAX = 140;
+              const desc = inst.description;
+              const tronquee = desc.length > DESCRIPTION_MAX || desc.split("\n").length > 2;
+              const apercu = tronquee ? desc.split("\n").slice(0, 2).join("\n").slice(0, DESCRIPTION_MAX).trimEnd() : desc;
+              return (
+              <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden" }}>
+                {/* Repliée par défaut, même patron que Contacts/Détails
+                    (retour Bryan 27/09/2026) : pas de compteur naturel ici,
+                    juste un toggle icône+libellé. */}
+                <button onClick={() => setAproposDetailOpen(v => !v)} className="tap" aria-expanded={aproposDetailOpen} style={{ width: "100%", background: "none", border: "none", padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div style={{ color: C.text, opacity: 0.8, display: "flex" }}><Icons.Note/></div>
+                    <span style={{ color: C.text, fontSize: "15px", fontWeight: "900", letterSpacing: "-0.3px" }}>À propos</span>
+                  </span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: aproposDetailOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                {aproposDetailOpen && (
+                  <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${C.borderSubtle}`, paddingTop: "14px" }}>
+                    <p style={{ color: C.textMuted, fontSize: "13px", lineHeight: 1.75, margin: 0 }}>
+                      {apercu}{tronquee ? "… " : ""}
+                      {tronquee && (
+                        <button onClick={() => setDescriptionSheetOpen(true)} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.text, fontSize: "13px", fontWeight: "800", cursor: "pointer" }}>Voir plus</button>
+                      )}
+                    </p>
+                    {inst.langue && inst.langue.length > 0 && (
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px", alignItems: "center" }}>
+                        <span style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "600" }}>Langues :</span>
+                        {inst.langue.map(l => <span key={l} style={{ background: inputBg, border: `1px solid ${inputBord}`, color: C.text, fontSize: "11px", fontWeight: "600", padding: "3px 10px", borderRadius: "20px" }}>{l}</span>)}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
+              );
+            })()}
 
-            <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "16px" }}>
-              <SectionTitle icon={<Icons.Phone />} label="Contacts" color="#F5A623"/>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {(() => {
+              const contactCount = [inst.adresse, inst.phone, inst.whatsapp, inst.email, websiteHref].filter(Boolean).length;
+              return (
+            <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden" }}>
+              {/* Coordonnées repliées par défaut, façon DoorDash "Cart
+                  summary" (retour Bryan 26/09/2026) : une seule ligne
+                  cliquable ("Contacts · N éléments"), la liste complète
+                  (adresse/téléphone/WhatsApp/email/site) ne s'affiche
+                  qu'au clic — aucun résumé équivalent au statut Ouvert/
+                  Fermé des Horaires n'existe ici, donc tout est replié. */}
+              <button onClick={() => setContactDetailOpen(v => !v)} className="tap" aria-expanded={contactDetailOpen} style={{ width: "100%", background: "none", border: "none", padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ color: C.text, opacity: 0.8, display: "flex" }}><Icons.Phone/></div>
+                  <span style={{ color: C.text, fontSize: "15px", fontWeight: "900", letterSpacing: "-0.3px" }}>Contacts</span>
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ color: C.textSubtle, fontSize: "12.5px", fontWeight: "600" }}>{contactCount} élément{contactCount > 1 ? "s" : ""}</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: contactDetailOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}><polyline points="6 9 12 15 18 9"/></svg>
+                </span>
+              </button>
+              {contactDetailOpen && (
+              <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${C.borderSubtle}` }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", paddingTop: "14px" }}>
                 {inst.adresse && (
                   <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#fff" }}><Icons.MapPin /></div>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: C.text }}><Icons.MapPin /></div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>Adresse</div>
                       <div style={{ color: C.text, fontSize: "13px", fontWeight: "600", lineHeight: 1.4 }}>{inst.adresse}</div>
@@ -1446,43 +1816,67 @@ function InstitutionProfilePageInner() {
                     </div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>Email</div>
-                      <div style={{ color: "#F5A623", fontSize: "13px", fontWeight: "600" }}>{inst.email}</div>
+                      <div style={{ color: C.text, fontSize: "13px", fontWeight: "600" }}>{inst.email}</div>
                     </div>
                   </a>
                 )}
                 {websiteHref && (
                   <a href={websiteHref} onClick={() => trackerCtaClic("website")} target="_blank" rel="noreferrer" style={{ display: "flex", gap: "12px", alignItems: "center", textDecoration: "none" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                     </div>
                     <div>
                       <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "3px" }}>Site web</div>
-                      <div style={{ color: "#F5A623", fontSize: "13px", fontWeight: "600" }}>Visiter le site →</div>
+                      <div style={{ color: C.text, fontSize: "13px", fontWeight: "600" }}>Visiter le site →</div>
                     </div>
                   </a>
                 )}
               </div>
+              </div>
+              )}
             </div>
+              );
+            })()}
 
-            {(inst.annee_creation || inst.capacite) && (
-              <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "16px" }}>
-                <SectionTitle icon={<Icons.Building />} label="Détails" color="#a855f7"/>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                  {inst.annee_creation && (
-                    <div style={{ background: inputBg, borderRadius: "12px", padding: "12px", border: `1px solid ${inputBord}` }}>
-                      <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "4px" }}>Fondée en</div>
-                      <div style={{ color: C.text, fontSize: "16px", fontWeight: "900" }}>{inst.annee_creation}</div>
-                    </div>
-                  )}
-                  {inst.capacite && (
-                    <div style={{ background: inputBg, borderRadius: "12px", padding: "12px", border: `1px solid ${inputBord}` }}>
-                      <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "4px" }}>Capacité</div>
-                      <div style={{ color: C.text, fontSize: "16px", fontWeight: "900" }}>{inst.capacite}</div>
+            {(inst.annee_creation || inst.capacite) && (() => {
+              const detailsCount = [inst.annee_creation, inst.capacite].filter(Boolean).length;
+              return (
+                <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden" }}>
+                  {/* Repliée par défaut, même patron que Contacts (retour
+                      Bryan 27/09/2026) : une seule ligne cliquable
+                      ("Détails · N éléments"), aucun résumé équivalent au
+                      statut Ouvert/Fermé des Horaires n'existe ici. */}
+                  <button onClick={() => setDetailsDetailOpen(v => !v)} className="tap" aria-expanded={detailsDetailOpen} style={{ width: "100%", background: "none", border: "none", padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ color: C.text, opacity: 0.8, display: "flex" }}><Icons.Building/></div>
+                      <span style={{ color: C.text, fontSize: "15px", fontWeight: "900", letterSpacing: "-0.3px" }}>Détails</span>
+                    </span>
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ color: C.textSubtle, fontSize: "12.5px", fontWeight: "600" }}>{detailsCount} élément{detailsCount > 1 ? "s" : ""}</span>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: detailsDetailOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}><polyline points="6 9 12 15 18 9"/></svg>
+                    </span>
+                  </button>
+                  {detailsDetailOpen && (
+                    <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${C.borderSubtle}` }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", paddingTop: "14px" }}>
+                        {inst.annee_creation && (
+                          <div style={{ background: inputBg, borderRadius: "12px", padding: "12px", border: `1px solid ${inputBord}` }}>
+                            <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "4px" }}>Fondée en</div>
+                            <div style={{ color: C.text, fontSize: "16px", fontWeight: "900" }}>{inst.annee_creation}</div>
+                          </div>
+                        )}
+                        {inst.capacite && (
+                          <div style={{ background: inputBg, borderRadius: "12px", padding: "12px", border: `1px solid ${inputBord}` }}>
+                            <div style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "4px" }}>Capacité</div>
+                            <div style={{ color: C.text, fontSize: "16px", fontWeight: "900" }}>{inst.capacite}</div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
         </div>
 
         {/* HORAIRES */}
@@ -1499,8 +1893,8 @@ function InstitutionProfilePageInner() {
               </div>
             ) : (
               <>
-                <div style={{ backgroundColor: ouvert ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${ouvert ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, borderRadius: "14px", padding: "14px 16px", display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: ouvert ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ backgroundColor: "transparent", border: `1px solid ${ouvert ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, borderRadius: 0, padding: "14px 16px", display: "flex", alignItems: "center", gap: "12px" }}>
+                  <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: ouvert ? "#22c55e" : "#ef4444" }}/>
                   </div>
                   <div>
@@ -1508,20 +1902,35 @@ function InstitutionProfilePageInner() {
                     {horaireAujd && <div style={{ color: C.textSubtle, fontSize: "12px" }}>{jourAujd} · {formatHoraire(horaireAujd)}</div>}
                   </div>
                 </div>
+                {/* Horaire complet — replié par défaut, façon DoorDash
+                    "Cart summary" (retour Bryan 26/09/2026) : une seule
+                    ligne cliquable résume ("Horaire complet · 7 jours"),
+                    le détail jour par jour ne s'affiche qu'au clic. */}
                 <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden" }}>
-                  {inst.horaires.map((h, i) => {
-                    const isToday = h.jour.toLowerCase() === jourAujd.toLowerCase();
-                    return (
-                      <div key={h.jour} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: i < inst.horaires.length - 1 ? `1px solid ${C.borderSubtle}` : "none" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                          {isToday && <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#F5A623", flexShrink: 0 }}/>}
-                          <span style={{ color: isToday ? "#F5A623" : C.text, fontSize: "14px", fontWeight: isToday ? "800" : "600" }}>{h.jour}</span>
-                          {isToday && <span style={{ background: "#F5A623", color: "#fff", fontSize: "9px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px" }}>Aujourd&apos;hui</span>}
-                        </div>
-                        <span style={{ color: h.ouvert ? C.text : C.textSubtle, fontSize: "13px", fontWeight: h.ouvert ? "700" : "500", fontStyle: h.ouvert ? "normal" : "italic" }}>{formatHoraire(h)}</span>
-                      </div>
-                    );
-                  })}
+                  <button onClick={() => setHoraireDetailOpen(v => !v)} className="tap" aria-expanded={horaireDetailOpen} style={{ width: "100%", background: "none", border: "none", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                    <span style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Horaire complet</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ color: C.textSubtle, fontSize: "12.5px", fontWeight: "600" }}>{inst.horaires.length} jours</span>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: horaireDetailOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}><polyline points="6 9 12 15 18 9"/></svg>
+                    </span>
+                  </button>
+                  {horaireDetailOpen && (
+                    <div style={{ borderTop: `1px solid ${C.borderSubtle}` }}>
+                      {inst.horaires.map((h, i) => {
+                        const isToday = h.jour.toLowerCase() === jourAujd.toLowerCase();
+                        return (
+                          <div key={h.jour} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: i < inst.horaires.length - 1 ? `1px solid ${C.borderSubtle}` : "none" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              {isToday && <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#F5A623", flexShrink: 0 }}/>}
+                              <span style={{ color: isToday ? "#F5A623" : C.text, fontSize: "14px", fontWeight: isToday ? "800" : "600" }}>{h.jour}</span>
+                              {isToday && <span style={{ background: "#F5A623", color: "#fff", fontSize: "9px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px" }}>Aujourd&apos;hui</span>}
+                            </div>
+                            <span style={{ color: h.ouvert ? C.text : C.textSubtle, fontSize: "13px", fontWeight: h.ouvert ? "700" : "500", fontStyle: h.ouvert ? "normal" : "italic" }}>{formatHoraire(h)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -1543,29 +1952,75 @@ function InstitutionProfilePageInner() {
                 <p style={{ color: C.textSubtle, fontSize: "12px", margin: 0 }}>Contactez l&apos;établissement pour connaître ses chambres.</p>
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
-                {chambresHotel.map((c, i) => (
-                  <button key={c.id} onClick={() => setChambreOuverte(c)} style={{ display: "block", width: "100%", textAlign: "left", backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden", animation: `fadeUp 0.2s ease ${i * 0.03}s both`, cursor: "pointer", padding: 0 }} className="tap">
-                    {c.photos.length > 0 && (
+              <div>
+                {/* Deux rangées horizontales, deux rendus (retour Bryan
+                    27/09/2026 : "2 lignes, la 2e avec un rendu différent —
+                    plusieurs choix de visionnage, reste professionnel").
+                    Coins carrés partout (retour Bryan : "retire les coins
+                    arrondis"), cartes agrandies (148px jugé trop petit).
+                    Les deux rangées listent les 5 mêmes premières chambres
+                    (chambresHotel.slice(0,5)) sous deux formats — pas une
+                    pagination, une redondance volontaire de navigation.
+                    Chambres au-delà de 5 : toujours consultables via
+                    "Autres chambres" dans la fiche détaillée. */}
+                <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 8px" }}>Aperçu rapide</div>
+                <div style={{ display: "flex", gap: "10px", overflowX: "auto", scrollSnapType: "x mandatory", margin: "0 -16px", padding: "2px 16px 8px" }}>
+                  {chambresHotel.slice(0, 5).map((c, i) => (
+                    <div key={c.id} onClick={() => { setChambreOuverte(c); setDescExpanded(false); }} role="button" tabIndex={0} onKeyDown={e => { if (e.key === "Enter") { setChambreOuverte(c); setDescExpanded(false); } }} style={{ width: "176px", flexShrink: 0, scrollSnapAlign: "start", backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: 0, overflow: "hidden", animation: `fadeUp 0.2s ease ${i * 0.03}s both`, cursor: "pointer" }} className="tap">
                       <div style={{ position: "relative" }}>
-                        {/* IMG-EXCEPTION: reason=galerie de cartes dynamique par institution, URL Storage publique stable, évite le layout shift next/image dans une grille auto-fill | reviewed=2026-08-20 */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={c.photos[0]} alt={c.nom} style={{ width: "100%", height: "120px", objectFit: "cover", display: "block" }}/>
-                        {(c.photos.length > 1 || c.video_url) && (
-                          <span style={{ position: "absolute", bottom: "8px", right: "8px", backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px" }}>
-                            📷 {c.photos.length}{c.video_url ? " · 🎥" : ""}
-                          </span>
+                        {c.photos.length > 0 ? (
+                          // IMG-EXCEPTION: reason=vignette carte chambre rangée 1, URL Storage publique stable | reviewed=2026-09-27
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={c.photos[0]} alt={c.nom} style={{ width: "100%", height: "132px", objectFit: "cover", display: "block" }}/>
+                        ) : (
+                          <div style={{ width: "100%", height: "132px", backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center", color: C.textSubtle }}><Icons.Note/></div>
                         )}
+                        {/* CTA directe — ouvre le wizard de réservation
+                            immédiatement pour cette chambre, sans passer par
+                            la fiche détaillée (retour Bryan 27/09/2026 :
+                            "clique ouvre direct l'étape Que souhaitez-vous
+                            faire"). Le reste de la carte garde l'accès à la
+                            fiche détaillée (chambreOuverte), inchangé. */}
+                        <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(c.nom)}`} onClick={e => { e.stopPropagation(); trackerCtaClic("rdv"); }} aria-label={`Réserver ${c.nom}`} className="tap" style={{ position: "absolute", right: "6px", bottom: "6px", width: "28px", height: "28px", borderRadius: "50%", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.35)" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        </Link>
                       </div>
-                    )}
-                    <div style={{ padding: "12px 14px" }}>
-                      <div style={{ color: C.text, fontSize: "14px", fontWeight: "700" }}>{c.nom}</div>
-                      <div style={{ color: "#F5A623", fontSize: "13px", fontWeight: "800", marginTop: "3px" }}>{c.prix.toLocaleString("fr-FR")} GNF{c.unite_prix ? ` / ${c.unite_prix}` : ""}</div>
-                      {c.description && <p style={{ color: C.textSubtle, fontSize: "11.5px", lineHeight: 1.5, margin: "5px 0 0" }}>{c.description}</p>}
+                      <div style={{ padding: "11px 12px" }}>
+                        <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.nom}</div>
+                        {c.capacite_max && <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "600", marginTop: "2px" }}>{c.capacite_max} pers.</div>}
+                        <div style={{ fontSize: "12.5px", fontWeight: "800", marginTop: "5px" }}><span style={{ color: "#F5A623" }}>{c.prix.toLocaleString("fr-FR")} GNF</span>{c.unite_prix && <span style={{ color: C.text }}> / {c.unite_prix}</span>}</div>
+                      </div>
                     </div>
-                  </button>
-                ))}
-                <p style={{ gridColumn: "1/-1", color: C.textSubtle, fontSize: "11px", textAlign: "center", marginTop: "4px", fontStyle: "italic" }}>Appuyez sur une chambre pour voir ses photos et envoyer une demande de réservation.</p>
+                  ))}
+                </div>
+
+                <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", margin: "16px 0 8px" }}>Vue détaillée</div>
+                <div style={{ display: "flex", gap: "10px", overflowX: "auto", scrollSnapType: "x mandatory", margin: "0 -16px", padding: "2px 16px 8px" }}>
+                  {chambresHotel.slice(0, 5).map((c, i) => (
+                    <div key={c.id} onClick={() => { setChambreOuverte(c); setDescExpanded(false); }} role="button" tabIndex={0} onKeyDown={e => { if (e.key === "Enter") { setChambreOuverte(c); setDescExpanded(false); } }} style={{ width: "268px", flexShrink: 0, scrollSnapAlign: "start", display: "flex", gap: "10px", backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: 0, overflow: "hidden", padding: "10px", animation: `fadeUp 0.2s ease ${i * 0.03}s both`, cursor: "pointer" }} className="tap">
+                      {c.photos.length > 0 ? (
+                        // IMG-EXCEPTION: reason=vignette carte chambre rangée 2 (vue liste), URL Storage publique stable | reviewed=2026-09-27
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.photos[0]} alt={c.nom} style={{ width: "88px", height: "88px", objectFit: "cover", borderRadius: 0, flexShrink: 0 }}/>
+                      ) : (
+                        <div style={{ width: "88px", height: "88px", borderRadius: 0, flexShrink: 0, backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center", color: C.textSubtle }}><Icons.Note/></div>
+                      )}
+                      <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
+                        <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.nom}</div>
+                        {c.capacite_max && <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "600", marginTop: "2px" }}>{c.capacite_max} pers.</div>}
+                        <div style={{ fontSize: "12.5px", fontWeight: "800", marginTop: "4px" }}><span style={{ color: "#F5A623" }}>{c.prix.toLocaleString("fr-FR")} GNF</span>{c.unite_prix && <span style={{ color: C.text }}> / {c.unite_prix}</span>}</div>
+                        {/* CTA — pill "Réserver" plutôt que le "+" de la
+                            rangée 1 (rendu volontairement différent), même
+                            comportement (accès direct au wizard). */}
+                        <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(c.nom)}`} onClick={e => { e.stopPropagation(); trackerCtaClic("rdv"); }} className="tap" style={{ marginTop: "auto", alignSelf: "flex-start", backgroundColor: "#F5A623", color: "#080812", fontSize: "11px", fontWeight: "800", padding: "6px 12px", borderRadius: 0, textDecoration: "none" }}>
+                          Réserver
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p style={{ color: C.textSubtle, fontSize: "11px", textAlign: "center", marginTop: "4px", fontStyle: "italic" }}>Appuyez sur une chambre pour voir ses photos, ou sur le CTA pour réserver directement.</p>
               </div>
             )
           ) : inst.services.length === 0 ? (
@@ -1602,30 +2057,58 @@ function InstitutionProfilePageInner() {
             moins un équipement coché (§6 du brief : jamais un équipement
             non sélectionné à l'écran) ; bloc absent si l'hôtel n'a encore
             rien coché, jamais une grille vide affirmant une absence. */}
-        {isHotel && inst.equipements_etablissement.length > 0 && (
-          <div style={{ marginTop: "24px" }}>
-            <SectionTitle icon={<Icons.Note/>} label="Équipements" color="#60a5fa"/>
-            <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
-              {EQUIPEMENTS_ETABLISSEMENT.map(cat => {
-                const items = cat.items.filter(i => inst.equipements_etablissement.includes(i.code));
-                if (items.length === 0) return null;
-                return (
-                  <div key={cat.id}>
-                    <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "9px" }}>{cat.label}</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "10px" }}>
-                      {items.map(item => (
-                        <div key={item.code} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          {item.icon("#F5A623")}
-                          <span style={{ color: C.text, fontSize: "12.5px", fontWeight: "600" }}>{item.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+        {isHotel && inst.equipements_etablissement.length > 0 && (() => {
+          // Aperçu à plat (toutes catégories confondues, ordre
+          // EQUIPEMENTS_ETABLISSEMENT) — replié par défaut, même patron
+          // que Horaires/Contact (retour Bryan 27/09/2026) : quelques
+          // équipements visibles d'emblée, le reste derrière un clic.
+          // Pas de pli si la liste tient déjà dans l'aperçu (jamais un
+          // toggle inutile).
+          const APERCU = 6;
+          const tousItems = EQUIPEMENTS_ETABLISSEMENT.flatMap(cat => cat.items.filter(i => inst.equipements_etablissement.includes(i.code)));
+          const pliable = tousItems.length > APERCU;
+          const grilleStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "10px" };
+          const itemNode = (item: (typeof tousItems)[number]) => (
+            <div key={item.code} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {item.icon("#F5A623")}
+              <span style={{ color: C.text, fontSize: "12.5px", fontWeight: "600" }}>{item.label}</span>
             </div>
-          </div>
-        )}
+          );
+          return (
+            <div style={{ marginTop: "24px" }}>
+              <SectionTitle icon={<Icons.Note/>} label="Équipements" color="#60a5fa"/>
+              <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", overflow: "hidden" }}>
+                {equipementsDetailOpen ? (
+                  <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                    {EQUIPEMENTS_ETABLISSEMENT.map(cat => {
+                      const items = cat.items.filter(i => inst.equipements_etablissement.includes(i.code));
+                      if (items.length === 0) return null;
+                      return (
+                        <div key={cat.id}>
+                          <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "9px" }}>{cat.label}</div>
+                          <div style={grilleStyle}>{items.map(itemNode)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ padding: "16px" }}>
+                    <div style={grilleStyle}>{tousItems.slice(0, APERCU).map(itemNode)}</div>
+                  </div>
+                )}
+                {pliable && (
+                  <button onClick={() => setEquipementsDetailOpen(v => !v)} className="tap" aria-expanded={equipementsDetailOpen} style={{ width: "100%", background: "none", border: "none", borderTop: `1px solid ${C.borderSubtle}`, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+                    <span style={{ color: C.text, fontSize: "13.5px", fontWeight: "800" }}>{equipementsDetailOpen ? "Réduire" : "Voir tous les équipements"}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ color: C.textSubtle, fontSize: "12.5px", fontWeight: "600" }}>{tousItems.length}</span>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: equipementsDetailOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}><polyline points="6 9 12 15 18 9"/></svg>
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* EXPÉRIENCE & SERVICES — chantier Services Hôtel V2
             (docs/ui/YELEN_HOTEL_SERVICES_V2_AUDIT.md §H, 20/08/2026).
@@ -1645,52 +2128,62 @@ function InstitutionProfilePageInner() {
           return (
             <div style={{ marginTop: "24px" }}>
               <SectionTitle icon={<Icons.Building/>} label="Expérience et services" color="#34d399"/>
-              <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-                {familles.map(famille => (
-                  <div key={famille}>
-                    <div style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{famille}</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      {prestationsSeules.filter(p => p.categorie === famille).map(p => {
-                        const meta = p.type_prestation ? TYPE_META[p.type_prestation] : null;
-                        return (
-                          <div key={p.id} style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "13px 15px" }}>
-                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px" }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                  <span style={{ color: C.text, fontSize: "14px", fontWeight: "700" }}>{p.nom}</span>
-                                  {meta && <span style={{ backgroundColor: `${meta.color}18`, color: meta.color, fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{meta.label}</span>}
+              {/* Liste compacte façon DoorDash (retour Bryan 27/09/2026 :
+                  "je veux une représentation vaste, ça peut être plusieurs
+                  services") — remplace les grandes cartes empilées
+                  (photo 56px + paragraphe complet + gros bouton pill, qui
+                  ne passait pas à l'échelle au-delà de 2-3 services) par
+                  des lignes fines groupées par famille dans un bloc à
+                  bordure unique (même patron que les Key Facts de la fiche
+                  chambre), coins carrés (cohérent avec Chambres
+                  ci-dessus). La description complète n'est pas perdue —
+                  elle vit dans la fiche détaillée (serviceOuvert), que la
+                  ligne ouvre toujours au tap. CTA directe conservée, même
+                  patron "+" circulaire doré que les chambres plutôt que le
+                  gros bouton pill d'avant. */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                {familles.map(famille => {
+                  const items = prestationsSeules.filter(p => p.categorie === famille);
+                  return (
+                    <div key={famille}>
+                      <div style={{ color: C.textSubtle, fontSize: "11px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>{famille}</div>
+                      <div style={{ border: `1px solid ${C.borderCard}`, borderRadius: 0, overflow: "hidden" }}>
+                        {items.map((p, i) => {
+                          const meta = p.type_prestation ? TYPE_META[p.type_prestation] : null;
+                          return (
+                            <div key={p.id} onClick={() => setServiceOuvert(p)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === "Enter") setServiceOuvert(p); }} style={{ display: "flex", alignItems: "center", gap: "12px", backgroundColor: C.cardBg, borderTop: i > 0 ? `1px solid ${C.borderCard}` : "none", padding: "10px 12px", cursor: "pointer" }} className="tap">
+                              {/* PHOTO — vignette compacte si renseignée. */}
+                              {p.photos.length > 0 ? (
+                                // IMG-EXCEPTION: reason=vignette liste compacte service, URL Storage publique stable | reviewed=2026-09-27
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={p.photos[0]} alt={p.nom} style={{ width: "48px", height: "48px", objectFit: "cover", flexShrink: 0 }}/>
+                              ) : (
+                                <div style={{ width: "48px", height: "48px", backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: C.textSubtle }}><Icons.Note/></div>
+                              )}
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                                  <span style={{ color: C.text, fontSize: "13px", fontWeight: "700", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nom}</span>
+                                  <span style={{ fontSize: "12.5px", fontWeight: "800", whiteSpace: "nowrap", flexShrink: 0 }}><span style={{ color: "#F5A623" }}>{p.prix.toLocaleString("fr-FR")} GNF</span>{p.unite_prix && <span style={{ color: C.text }}> / {p.unite_prix}</span>}</span>
                                 </div>
-                                {p.description && <p style={{ color: C.textSubtle, fontSize: "12px", lineHeight: 1.5, margin: "5px 0 0" }}>{p.description}</p>}
-                                {((p.horaires && p.horaires.length > 0) || p.localisation) && (
-                                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "5px" }}>
-                                    {p.horaires && p.horaires.length > 0 && (() => {
-                                      const { ouvert, horaire } = isOuvertNow(p.horaires!);
-                                      return (
-                                        <span style={{ color: ouvert ? "#22c55e" : C.textSubtle, fontSize: "11px" }}>
-                                          🕒 {ouvert ? "Ouvert maintenant" : "Fermé maintenant"}{horaire?.ouvert ? ` · ${horaire.debut}-${horaire.fin}` : ""}
-                                        </span>
-                                      );
-                                    })()}
-                                    {p.localisation && <span style={{ color: C.textSubtle, fontSize: "11px" }}>📍 {p.localisation}</span>}
+                                {(meta || p.duree_minutes > 0) && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px" }}>
+                                    {meta && <span style={{ color: meta.color, fontSize: "10px", fontWeight: "800" }}>{meta.label}</span>}
+                                    {p.duree_minutes > 0 && <span style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "600" }}>{p.duree_minutes} min</span>}
                                   </div>
                                 )}
                               </div>
-                              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                                <div style={{ color: "#F5A623", fontSize: "13px", fontWeight: "800", whiteSpace: "nowrap" }}>{p.prix.toLocaleString("fr-FR")} GNF{p.unite_prix ? ` / ${p.unite_prix}` : ""}</div>
-                              </div>
+                              {meta?.action && (
+                                <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(p.nom)}`} onClick={e => { e.stopPropagation(); trackerCtaClic("rdv"); }} aria-label={`${meta.action} ${p.nom}`} className="tap" style={{ width: "28px", height: "28px", borderRadius: "50%", backgroundColor: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                </Link>
+                              )}
                             </div>
-                            {meta?.action && (
-                              <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(p.nom)}`} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "5px", marginTop: "10px", backgroundColor: "#F5A623", borderRadius: "20px", padding: "7px 14px", color: "#080812", fontSize: "11.5px", fontWeight: "800", textDecoration: "none" }}>
-                                {meta.action}
-                                <Icons.Chevron/>
-                              </Link>
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
@@ -1812,10 +2305,23 @@ function InstitutionProfilePageInner() {
             </div>
           </div>
         ) : (
+          // Refonte (retour Bryan 26/09/2026 : "change complètement sa
+          // façon, retire le fond") — l'ancien gros bouton plein doré
+          // faisait passer un texte informatif pour un CTA géant. Repris
+          // sur le même patron icône+texte que la question vedette
+          // ci-dessus (cercle Icons.Comment), sans aucun fond ; la vraie
+          // action est maintenant un bouton correctement dimensionné,
+          // pas toute la carte.
           <div style={{ marginTop: "24px" }}>
             <h3 style={{ color: C.text, fontSize: "18px", fontWeight: "900", letterSpacing: "-0.3px", margin: "0 0 14px" }}>Les citoyens posent des questions</h3>
-            <button onClick={ouvrirPoserQuestion} className="tap" style={{ width: "100%", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "14px", padding: "16px", fontSize: "13.5px", fontWeight: "800", cursor: "pointer", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
-              Soyez le premier à poser une question à cet établissement
+            <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+              <div style={{ flexShrink: 0, width: "26px", height: "26px", borderRadius: "50%", background: C.borderCard, display: "flex", alignItems: "center", justifyContent: "center", color: C.text }}>
+                <Icons.Comment/>
+              </div>
+              <p style={{ color: C.textMuted, fontSize: "13.5px", lineHeight: 1.5, margin: 0 }}>Aucune question n&apos;a encore été posée à cet établissement.</p>
+            </div>
+            <button onClick={ouvrirPoserQuestion} className="tap" style={{ display: "inline-flex", backgroundColor: "transparent", color: C.text, border: `1.5px solid ${inputBord}`, borderRadius: 0, padding: "12px 18px", fontSize: "13px", fontWeight: "800", cursor: "pointer" }}>
+              Soyez le premier à poser une question
             </button>
           </div>
         )}
@@ -1945,11 +2451,12 @@ function InstitutionProfilePageInner() {
           ci-dessus. Contenu repris tel quel de l'ancien onglet Avis.
       ══════════════════════════════════════════════════════ */}
       {reviewsOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
-          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+        <div ref={reviewsThumb.ref} onScroll={e => { setReviewsScrolled(e.currentTarget.scrollTop > 4); reviewsThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <ScrollThumbBar thumb={reviewsThumb} isDark={isDark}/>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: reviewsScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
             <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-              <button onClick={() => setReviewsOpen(false)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <button onClick={() => { setReviewsOpen(false); setReviewsScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
               <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Avis</div>
               <div/>
@@ -2061,17 +2568,18 @@ function InstitutionProfilePageInner() {
         const liste = commentaires[a.id] ?? [];
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, display: "flex", flexDirection: "column" }}>
-            <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0", flexShrink: 0 }}>
+            <ScrollThumbBar thumb={commentsThumb} isDark={isDark}/>
+            <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: commentsScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0", flexShrink: 0 }}>
               <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-                <button onClick={() => setCommentsOpenId(null)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <button onClick={() => { setCommentsOpenId(null); setCommentsScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                 </button>
                 <div style={{ color: C.text, fontSize: "14px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "220px" }}>{a.titre}</div>
                 <div/>
               </div>
             </header>
 
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+            <div ref={commentsThumb.ref} onScroll={e => { setCommentsScrolled(e.currentTarget.scrollTop > 4); commentsThumb.onScroll(); }} style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
               {liste.length === 0 ? (
                 <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center" }}>
                   <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}><Icons.Comment/></div>
@@ -2093,7 +2601,7 @@ function InstitutionProfilePageInner() {
               )}
             </div>
 
-            <div style={{ position: "sticky", bottom: 0, flexShrink: 0, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderTop: `1px solid ${C.borderCard}`, padding: `10px 16px calc(10px + env(safe-area-inset-bottom))`, display: "flex", gap: "8px" }}>
+            <div style={{ position: "sticky", bottom: 0, flexShrink: 0, background: C.pageBg, borderTop: `1px solid ${C.borderCard}`, padding: `10px 16px calc(10px + env(safe-area-inset-bottom))`, display: "flex", gap: "8px" }}>
               <input
                 value={nouveauCommentaire[a.id] ?? ""}
                 onChange={e => setNouveauCommentaire(prev => ({ ...prev, [a.id]: e.target.value }))}
@@ -2122,11 +2630,12 @@ function InstitutionProfilePageInner() {
           on scrolle automatiquement jusqu'à celle-ci à l'ouverture.
       ══════════════════════════════════════════════════════ */}
       {detailOpenId && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
-          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+        <div ref={detailThumb.ref} onScroll={e => { setDetailScrolled(e.currentTarget.scrollTop > 4); detailThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <ScrollThumbBar thumb={detailThumb} isDark={isDark}/>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: detailScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
             <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-              <button onClick={() => setDetailOpenId(null)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <button onClick={() => { setDetailOpenId(null); setDetailScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
               <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Annonces officielles</div>
               <div/>
@@ -2183,6 +2692,204 @@ function InstitutionProfilePageInner() {
       )}
 
       {/* ══════════════════════════════════════════════════════
+          PRIX & FRAIS — sheet façon DoorDash "Pricing and Fees" (retour
+          Bryan 26/09/2026), déclenché par le lien ajouté près du CTA de
+          réservation ci-dessus. Contenu volontairement non légal (aucune
+          mention de loi/juridiction, contrairement à la référence
+          DoorDash) : texte humain qui explique le fonctionnement réel du
+          paiement Yelen, cohérent avec les sheets "Frais Yelen"/"Frais &
+          taxes" du récapitulatif de réservation (app/rdv/[id]/page.tsx).
+          Contenu légèrement différent hôtel / autres catégories : un hôtel
+          n'a que des chambres payantes, alors que les autres secteurs
+          mélangent RDV gratuits et payants sur la même fiche (retour Bryan
+          26/09/2026, précision demandée après un premier jet trop générique)
+          — d'où le 1er point dédié à cette coexistence pour les non-hôtels.
+          Même patron de sheet que "À propos"/FAQ ci-dessous.
+      ══════════════════════════════════════════════════════ */}
+      {prixFraisSheetOpen && (() => {
+        const bullets: { icon: React.ReactNode; titre: string; texte: React.ReactNode }[] = [
+          ...(!isHotel ? [{
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
+            titre: "Gratuit ou payant selon le service",
+            texte: <>Chez {inst.name}, certains rendez-vous sont gratuits et d&apos;autres payants selon le service choisi. Quand un service a un prix, il est toujours affiché avant que vous ne réserviez — jamais de surprise au moment de confirmer.</>,
+          }] : []),
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+            titre: "Le prix affiché est le prix final",
+            texte: isHotel
+              ? <>C&apos;est le prix fixé par l&apos;établissement lui-même — jamais une estimation, jamais un prix ajusté par un algorithme Yelen. Si une taxe s&apos;applique, elle est déjà incluse : rien à ajouter de votre côté.</>
+              : <>Pour un service payant, le prix indiqué est celui fixé par l&apos;établissement lui-même — jamais une estimation, jamais un prix ajusté par un algorithme Yelen. Si une taxe s&apos;applique, elle est déjà incluse : rien à ajouter de votre côté.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/></svg>,
+            titre: "Aucun frais Yelen à ce jour",
+            texte: <>Yelen ne facture aucune commission ni frais de service sur les réservations. Ce que vous voyez sur la fiche est ce que vous payez.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>,
+            titre: "Paiement directement sur place",
+            texte: isHotel
+              ? <>Le règlement se fait auprès de l&apos;établissement, jamais via Yelen. Yelen ne collecte et ne conserve aucun moyen de paiement.</>
+              : <>Pour les services payants, le règlement se fait auprès de l&apos;établissement, jamais via Yelen. Yelen ne collecte et ne conserve aucun moyen de paiement.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12h6M9 16h6M9 8h6M6 3h9l3 3v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/></svg>,
+            titre: "Un récapitulatif avant chaque confirmation",
+            texte: isHotel
+              ? <>Avant de confirmer une réservation, Yelen affiche toujours le détail complet — prix, frais Yelen, frais &amp; taxes, puis le total — pour que vous validiez chaque montant en connaissance de cause.</>
+              : <>Avant de confirmer un rendez-vous payant, Yelen affiche toujours le détail complet — prix, frais Yelen, frais &amp; taxes, puis le total — pour que vous validiez chaque montant en connaissance de cause. Pour un rendez-vous gratuit, aucun montant n&apos;est demandé.</>,
+          },
+        ];
+        return (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", alignItems: "flex-end" }}>
+          <div onClick={() => setPrixFraisSheetOpen(false)} style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.5)" }}/>
+          <div style={{ position: "relative", width: "100%", maxHeight: "80svh", backgroundColor: C.pageBg, borderRadius: "20px 20px 0 0", overflow: "hidden", animation: "faqSheetUp 0.22s ease" }}>
+            <div ref={prixFraisScroll.ref} onScroll={prixFraisScroll.onScroll} style={{ maxHeight: "80svh", overflowY: "auto", padding: "10px 20px calc(20px + env(safe-area-inset-bottom))" }}>
+              <div style={{ width: "36px", height: "4px", borderRadius: "2px", background: C.borderCard, margin: "0 auto 18px" }}/>
+              <h2 style={{ color: C.text, fontSize: "19px", fontWeight: "900", lineHeight: 1.3, margin: "0 0 6px" }}>Prix &amp; frais</h2>
+              <p style={{ color: C.textSubtle, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 18px" }}>Comment fonctionne le paiement sur Yelen.</p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "22px" }}>
+                {bullets.map(b => (
+                  <div key={b.titre} style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                    <span style={{ display: "flex", flexShrink: 0, marginTop: "1px", color: C.text }}>{b.icon}</span>
+                    <div>
+                      <div style={{ color: C.text, fontSize: "13.5px", fontWeight: "800", marginBottom: "3px" }}>{b.titre}</div>
+                      <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: 0 }}>{b.texte}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={() => setPrixFraisSheetOpen(false)} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "26px", border: "none", background: "#F5A623", color: "#080812", fontSize: "14px", fontWeight: "800", cursor: "pointer" }}>
+                Compris
+              </button>
+            </div>
+            {/* Indicateur de scroll — scrollbar native masquée globalement
+                (globals.css), sinon rien ne signale que ce sheet défile. */}
+            <div aria-hidden style={{ position: "absolute", top: "18px", bottom: "18px", right: "4px", width: "3px", pointerEvents: "none", opacity: prixFraisScroll.shown ? 1 : 0, transition: "opacity 0.4s ease" }}>
+              <div style={{ position: "absolute", top: `${prixFraisScroll.pct * (1 - prixFraisScroll.thumbH) * 100}%`, height: `${prixFraisScroll.thumbH * 100}%`, width: "100%", borderRadius: "3px", background: isDark ? "rgba(245,166,35,0.55)" : "rgba(8,8,18,0.35)" }}/>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════
+          GARANTIE — sheet façon DoorDash/Target "guarantee" (retour Bryan
+          26/09/2026), déclenché par le lien ajouté à gauche de "Prix &
+          frais" ci-dessus. Deux volets honnêtes plutôt qu'une promesse
+          générique : ce que Yelen garantit RÉELLEMENT (basé sur le badge
+          badge_verifie déjà réel — contrôle des documents officiels par un
+          admin Yelen, voir section CERTIFICATION plus bas — le code de
+          validation généré à la confirmation, et la protection des
+          données), puis ce que Yelen ne garantit pas (qualité du service
+          sur place, paiement/remboursement quand un service payant existe,
+          respect des horaires) — jamais une promesse que le produit ne
+          peut pas tenir (voir CLAUDE.md /protocole "zéro fausse promesse").
+      ══════════════════════════════════════════════════════ */}
+      {garantieSheetOpen && (() => {
+        const garantitBullets: { icon: React.ReactNode; titre: string; texte: React.ReactNode }[] = [
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>,
+            titre: "Un établissement examiné avant publication",
+            texte: inst.badge_verifie
+              ? <>Cet établissement porte le badge « Vérifié par Yelen » : son identité et ses documents officiels ont été contrôlés par notre équipe avant sa mise en ligne.</>
+              : <>Chaque établissement présent sur Yelen — dont celui-ci — passe par une validation de notre équipe avant sa mise en ligne. Certains portent en plus le badge « Vérifié par Yelen », accordé après un contrôle renforcé de leur identité et de leurs documents officiels.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+            titre: "Une réservation tracée",
+            texte: <>Chaque réservation confirmée génère un code de validation Yelen unique, à présenter à votre arrivée — la preuve que votre rendez-vous existe bien dans notre système.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+            titre: "Vos données protégées",
+            texte: <>Vos informations personnelles ne sont transmises à l&apos;établissement que dans le cadre strict de votre réservation — jamais revendues ni partagées à un autre usage.</>,
+          },
+        ];
+        const neGarantitPasBullets: { icon: React.ReactNode; titre: string; texte: React.ReactNode }[] = [
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+            titre: "La qualité du service sur place",
+            texte: <>Yelen valide l&apos;établissement, pas chaque prestation prise individuellement : la qualité, la disponibilité réelle et le déroulement du service une fois sur place restent sous la responsabilité de l&apos;établissement.</>,
+          },
+          ...(paidServicesActifs > 0 ? [{
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>,
+            titre: "Le paiement et les remboursements",
+            texte: <>Le règlement d&apos;un service payant se fait directement avec l&apos;établissement : Yelen ne traite aucun paiement et ne peut donc pas garantir de remboursement en cas de litige.</>,
+          }] : []),
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>,
+            titre: "Le respect des horaires annoncés",
+            texte: <>Les horaires et informations affichés proviennent de l&apos;établissement lui-même — Yelen ne peut garantir qu&apos;ils sont appliqués à la lettre à tout moment.</>,
+          },
+        ];
+        return (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", alignItems: "flex-end" }}>
+          <div onClick={() => setGarantieSheetOpen(false)} style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.5)" }}/>
+          <div style={{ position: "relative", width: "100%", maxHeight: "80svh", backgroundColor: C.pageBg, borderRadius: "20px 20px 0 0", overflow: "hidden", animation: "faqSheetUp 0.22s ease" }}>
+            <div ref={garantieScroll.ref} onScroll={garantieScroll.onScroll} style={{ maxHeight: "80svh", overflowY: "auto", padding: "10px 20px calc(20px + env(safe-area-inset-bottom))" }}>
+              <div style={{ width: "36px", height: "4px", borderRadius: "2px", background: C.borderCard, margin: "0 auto 18px" }}/>
+              <h2 style={{ color: C.text, fontSize: "19px", fontWeight: "900", lineHeight: 1.3, margin: "0 0 6px" }}>Garantie</h2>
+              <p style={{ color: C.textSubtle, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 18px" }}>Ce que Yelen vérifie réellement — et ce qui reste entre vous et l&apos;établissement.</p>
+
+              <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 12px" }}>Ce que Yelen garantit</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "22px" }}>
+                {garantitBullets.map(b => (
+                  <div key={b.titre} style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                    <span style={{ display: "flex", flexShrink: 0, marginTop: "1px", color: "#22c55e" }}>{b.icon}</span>
+                    <div>
+                      <div style={{ color: C.text, fontSize: "13.5px", fontWeight: "800", marginBottom: "3px" }}>{b.titre}</div>
+                      <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: 0 }}>{b.texte}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 12px", paddingTop: "4px", borderTop: `1px solid ${C.borderSubtle}` }}>Ce que Yelen ne garantit pas</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "22px", marginTop: "16px" }}>
+                {neGarantitPasBullets.map(b => (
+                  <div key={b.titre} style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                    <span style={{ display: "flex", flexShrink: 0, marginTop: "1px", color: C.textSubtle }}>{b.icon}</span>
+                    <div>
+                      <div style={{ color: C.text, fontSize: "13.5px", fontWeight: "800", marginBottom: "3px" }}>{b.titre}</div>
+                      <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: 0 }}>{b.texte}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={() => setGarantieSheetOpen(false)} className="tap" style={{ width: "100%", padding: "14px", borderRadius: "26px", border: "none", background: "#F5A623", color: "#080812", fontSize: "14px", fontWeight: "800", cursor: "pointer" }}>
+                Compris
+              </button>
+            </div>
+            {/* Indicateur de scroll — même barre que le sheet "Prix & frais"
+                ci-dessus (scrollbar native masquée globalement). */}
+            <div aria-hidden style={{ position: "absolute", top: "18px", bottom: "18px", right: "4px", width: "3px", pointerEvents: "none", opacity: garantieScroll.shown ? 1 : 0, transition: "opacity 0.4s ease" }}>
+              <div style={{ position: "absolute", top: `${garantieScroll.pct * (1 - garantieScroll.thumbH) * 100}%`, height: `${garantieScroll.thumbH * 100}%`, width: "100%", borderRadius: "3px", background: isDark ? "rgba(245,166,35,0.55)" : "rgba(8,8,18,0.35)" }}/>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════
+          À PROPOS — sheet plein texte (retour Bryan 25/09/2026, toutes
+          catégories) : même patron bottom sheet que la FAQ ci-dessous.
+      ══════════════════════════════════════════════════════ */}
+      {descriptionSheetOpen && inst.description && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", alignItems: "flex-end" }}>
+          <div onClick={() => setDescriptionSheetOpen(false)} style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.5)" }}/>
+          <div style={{ position: "relative", width: "100%", maxHeight: "80svh", overflowY: "auto", backgroundColor: C.pageBg, borderRadius: "20px 20px 0 0", padding: "10px 20px calc(20px + env(safe-area-inset-bottom))", animation: "faqSheetUp 0.22s ease" }}>
+            <div style={{ width: "36px", height: "4px", borderRadius: "2px", background: C.borderCard, margin: "0 auto 18px" }}/>
+            <h2 style={{ color: C.text, fontSize: "19px", fontWeight: "900", lineHeight: 1.3, margin: "0 0 14px" }}>À propos de {inst.name}</h2>
+            <p style={{ color: C.textMuted, fontSize: "13.5px", lineHeight: 1.75, margin: "0 0 20px", whiteSpace: "pre-line" }}>{inst.description}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
           FAQ — bottom sheet façon Booking (retour Bryan 09/08/2026) :
           question en grand, réponse, puis "Cela vous a-t-il aidé ?".
           Réponse "Non" → CTA directe vers "Poser une question"
@@ -2231,11 +2938,12 @@ function InstitutionProfilePageInner() {
           questions_institution).
       ══════════════════════════════════════════════════════ */}
       {askOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
-          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+        <div ref={askThumb.ref} onScroll={e => { setAskScrolled(e.currentTarget.scrollTop > 4); askThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <ScrollThumbBar thumb={askThumb} isDark={isDark}/>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: askScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
             <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-              <button onClick={() => setAskOpen(false)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <button onClick={() => { setAskOpen(false); setAskScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
               <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Poser une question</div>
               <div/>
@@ -2281,11 +2989,12 @@ function InstitutionProfilePageInner() {
           toujours accessible sans scroller.
       ══════════════════════════════════════════════════════ */}
       {questionsListOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
-          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+        <div ref={questionsListThumb.ref} onScroll={e => { setQuestionsListScrolled(e.currentTarget.scrollTop > 4); questionsListThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <ScrollThumbBar thumb={questionsListThumb} isDark={isDark} bottom="calc(env(safe-area-inset-bottom) + 76px)"/>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: questionsListScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
             <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-              <button onClick={() => setQuestionsListOpen(false)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <button onClick={() => { setQuestionsListOpen(false); setQuestionsListScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
               <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Questions des citoyens</div>
               <div/>
@@ -2326,7 +3035,7 @@ function InstitutionProfilePageInner() {
             </div>
           </div>
 
-          <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderTop: `1px solid ${C.borderCard}` }}>
+          <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: C.pageBg, borderTop: `1px solid ${C.borderCard}` }}>
             <button onClick={ouvrirPoserQuestion} className="tap" style={{ width: "100%", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "13px", fontSize: "14px", fontWeight: "800", cursor: "pointer" }}>
               Poser une question
             </button>
@@ -2353,13 +3062,76 @@ function InstitutionProfilePageInner() {
             { key: "importantes" as const, label: isHotel ? "Règles du séjour" : "Informations importantes" },
             { key: "legales" as const, label: "Informations légales" },
           ].map((s, i, arr) => (
-            <button key={s.key} onClick={() => setInfoOpen(s.key)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "none", border: "none", borderBottom: i < arr.length - 1 ? `1px solid ${C.borderCard}` : "none", padding: "15px 16px", cursor: "pointer", textAlign: "left" }}>
+            <button key={s.key} onClick={() => { setInfoOpen(s.key); setInfoScrolled(false); }} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "none", border: "none", borderBottom: i < arr.length - 1 ? `1px solid ${C.borderCard}` : "none", padding: "15px 16px", cursor: "pointer", textAlign: "left" }}>
               <span style={{ color: C.text, fontSize: "13.5px", fontWeight: "700" }}>{s.label}</span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSubtle} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
             </button>
           ))}
         </div>
       </div>
+
+      {/* POPUP CALENDRIER SÉJOUR — bandeau hero hôtel, remplace
+          Découvrir/WhatsApp (retour Bryan 25/09/2026). Juste le calendrier :
+          arrivée puis départ, "Continuer" redirige vers /rdv/{id} avec les
+          dates en query params — le wizard (dispoChambres) prend le relais,
+          aucune logique de disponibilité dupliquée ici. */}
+      {sejourModalOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <div style={{ padding: "calc(env(safe-area-inset-top) + 16px) 16px 0" }}>
+            {/* Flèche retour nue, façon DoorDash — pas de bouton encadré :
+                étape "arrivee" = ferme le popup, étape "depart" = revient à
+                "arrivee" (remplace l'ancien lien "Modifier", même action,
+                un seul bouton). Retour Bryan 25/09/2026. */}
+            <button onClick={() => sejourStep === "depart" ? setSejourStep("arrivee") : setSejourModalOpen(false)} className="tap" aria-label={sejourStep === "depart" ? "Modifier la date d'arrivée" : "Fermer"} style={{ background: "none", border: "none", padding: 0, marginBottom: "20px", display: "flex", color: C.text, cursor: "pointer" }}>
+              <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <h1 style={{ color: C.text, fontSize: "28px", fontWeight: "900", margin: "0 0 8px", letterSpacing: "-0.6px" }}>{sejourStep === "arrivee" ? "Date d'arrivée" : "Date de départ"}</h1>
+          </div>
+
+          <div style={{ padding: "0 16px 40px" }}>
+            {sejourStep === "arrivee" ? (
+              <>
+                <p style={{ color: C.textSubtle, fontSize: "13.5px", margin: "0 0 20px" }}>Sélectionnez votre date d&apos;arrivée pour <strong style={{ color: C.text }}>{inst.name}</strong>.</p>
+                <SejourCalendar
+                  calendarMonth={sejourCalendarMonth}
+                  onMonthChange={(dir) => setSejourCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() + dir); return d; })}
+                  minDate={(() => { const t = new Date(); t.setHours(0, 0, 0, 0); return t; })()}
+                  selected={sejourArrivee}
+                  onSelect={(iso) => { setSejourArrivee(iso); setSejourDepart(null); setSejourStep("depart"); }}
+                  C={C}
+                />
+              </>
+            ) : (
+              <>
+                <p style={{ color: C.textSubtle, fontSize: "13.5px", margin: "0 0 20px", textTransform: "capitalize" }}>Arrivée le {sejourArrivee && new Date(`${sejourArrivee}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}.</p>
+                <SejourCalendar
+                  calendarMonth={sejourCalendarMonth}
+                  onMonthChange={(dir) => setSejourCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() + dir); return d; })}
+                  minDate={(() => { const d = new Date(`${sejourArrivee}T00:00:00`); d.setDate(d.getDate() + 1); return d; })()}
+                  selected={sejourDepart}
+                  onSelect={(iso) => setSejourDepart(iso)}
+                  C={C}
+                />
+
+                {sejourDepart && (
+                  <div style={{ marginTop: "24px" }}>
+                    <p style={{ color: C.text, fontSize: "14.5px", fontWeight: "700", lineHeight: 1.6, margin: "0 0 18px" }}>
+                      Trouvons maintenant des chambres de qualité pour votre séjour du {new Date(`${sejourArrivee}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} au {new Date(`${sejourDepart}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}.
+                    </p>
+                    <button
+                      onClick={() => router.push(`/rdv/${inst.id}?date_arrivee=${sejourArrivee}&date_depart=${sejourDepart}`)}
+                      className="tap"
+                      style={{ width: "100%", padding: "16px", borderRadius: "26px", border: "none", background: "#F5A623", color: "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer" }}
+                    >
+                      Continuer
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════
           CHAMBRE — Vue 2 (chantier Services Hôtel V2, galerie, 20/08/2026).
@@ -2372,84 +3144,337 @@ function InstitutionProfilePageInner() {
       {chambreOuverte && (() => {
         const c = chambreOuverte;
         const apercu = [...c.photos.slice(0, 4), ...(c.video_url ? [c.video_url] : [])];
+        const literieLabels = EQUIPEMENTS_CHAMBRE.find(cat => cat.id === "literie")?.items.filter(i => c.equipements_chambre?.includes(i.code)).map(i => i.label) ?? [];
+        const equipementsAffiches = EQUIPEMENTS_CHAMBRE.filter(cat => cat.id !== "literie").flatMap(cat => cat.items).filter(i => c.equipements_chambre?.includes(i.code));
+        const autresChambres = chambresHotel.filter(x => x.id !== c.id);
+        const sectionTitleStyle: React.CSSProperties = { color: C.text, fontSize: "15px", fontWeight: 800, margin: "0 0 12px" };
+        const microLabelStyle: React.CSSProperties = { color: C.textSubtle, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" };
+        // Bloc "Tarif" (refonte "Détails", 25/09/2026) — label + valeur +
+        // unité, jamais juste un chiffre nu (retour Bryan : "le prix doit
+        // être présenté dans un bloc clairement séparé").
+        // Refonte "façon Booking" (retour Bryan 25/09/2026) : structure
+        // épurée reprise (label discret → prix en avant → ligne
+        // d'information secondaire sous un séparateur), mais SANS les
+        // badges de réduction/annulation de la référence Booking — aucune
+        // de ces données n'existe dans paid_services (pas de prix barré,
+        // pas de politique d'annulation en base, voir CLAUDE.md
+        // /zero-donnee-inventee). La ligne d'info reprend nombre_unites
+        // (donnée réelle) formulée sans jamais impliquer une disponibilité
+        // en temps réel (aucun moteur de réservation par dates n'existe,
+        // voir /schema paid_services.nombre_unites).
+        // Infos complémentaires (nombre de chambres du type + annulation) —
+        // extraites de prixNode pour être réutilisées seules, sans le prix
+        // (retour Bryan 26/09/2026 : "retire le prix de cette carte, mets-le
+        // à la même ligne que le nom de la chambre à droite" — le prix
+        // rejoint le titre, cette carte ne garde que l'information
+        // secondaire, toujours sans "annulation gratuite" invoquée nulle
+        // part en base, voir commentaire d'origine ci-dessous conservé).
+        const infosComplementaires = (
+          <>
+            {c.nombre_unites != null && (
+              <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                <span style={{ display: "flex", color: C.textSubtle }}>{Icons.Bed(C.textSubtle)}</span>
+                <span style={{ color: C.textSubtle, fontSize: "12px", fontWeight: 600 }}>
+                  {c.nombre_unites} chambre{c.nombre_unites > 1 ? "s" : ""} de ce type dans l&apos;établissement
+                </span>
+              </div>
+            )}
+            {/* Annulation — pas de politique réelle en base (aucun champ,
+                aucune logique de remboursement citoyen), donc jamais
+                "gratuite"/garantie (retour Bryan 25/09/2026, arbitrage
+                explicite après audit) : formulation prudente qui renvoie
+                vers l'établissement plutôt qu'une promesse Yelen. */}
+            <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+              <span style={{ display: "flex", color: C.textSubtle }}>{Icons.Info()}</span>
+              <span style={{ color: C.textSubtle, fontSize: "11.5px", fontWeight: 600 }}>
+                Conditions d&apos;annulation à demander auprès de l&apos;établissement
+              </span>
+            </div>
+          </>
+        );
+        const prixNode = (compact: boolean) => (
+          <div style={{ backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "18px", padding: compact ? "16px 18px" : "18px 20px" }}>
+            <div style={{ ...microLabelStyle, marginBottom: "8px" }}>Tarif</div>
+            <div style={{ color: "#F5A623", fontSize: compact ? "22px" : "28px", fontWeight: 900, lineHeight: 1.15 }}>{c.prix.toLocaleString("fr-FR")} GNF</div>
+            {c.unite_prix && <div style={{ color: C.textSubtle, fontSize: "12.5px", fontWeight: 600, marginTop: "3px" }}>{c.unite_prix}</div>}
+            <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: `1px solid ${C.borderCard}`, display: "flex", flexDirection: "column", gap: "10px" }}>
+              {infosComplementaires}
+            </div>
+          </div>
+        );
+        // Key Facts (refonte "Détails", 25/09/2026) — 3 blocs visuels
+        // (Capacité/Couchage/Surface), jamais des lignes de texte brutes,
+        // jamais d'emoji (icônes UI vectorielles, Icons.Person/Bed/Expand).
+        const keyFacts: { label: string; value: string; sub?: string; icon: (c?: string) => React.ReactNode }[] = [];
+        if (c.capacite_max) {
+          keyFacts.push({
+            label: "Capacité", value: `${c.capacite_max} personne${c.capacite_max > 1 ? "s" : ""}`,
+            sub: (c.capacite_adultes || c.capacite_enfants) ? [c.capacite_adultes ? `${c.capacite_adultes} adulte${c.capacite_adultes > 1 ? "s" : ""}` : null, c.capacite_enfants ? `${c.capacite_enfants} enfant${c.capacite_enfants > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ") : undefined,
+            icon: Icons.Person,
+          });
+        }
+        if (literieLabels.length > 0) {
+          keyFacts.push({ label: "Couchage", value: literieLabels[0], sub: literieLabels.length > 1 ? literieLabels.slice(1).join(" · ") : undefined, icon: Icons.Bed });
+        }
+        if (c.superficie_m2) {
+          keyFacts.push({ label: "Surface", value: `${c.superficie_m2} m²`, icon: Icons.Expand });
+        }
+        const reserverBtn = (
+          <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(c.nom)}`} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "block", textAlign: "center", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "23px", padding: "13px 20px", fontSize: "14px", fontWeight: 800, textDecoration: "none", flexShrink: 0 }}>
+            Réserver
+          </Link>
+        );
         return (
-          <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
-            <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+          <div ref={chambreThumb.ref} onScroll={e => { setChambreScrolled(e.currentTarget.scrollTop > 4); chambreThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+            <ScrollThumbBar thumb={chambreThumb} isDark={isDark} bottom="calc(env(safe-area-inset-bottom) + 80px)"/>
+            {/* Refonte visuelle (25/09/2026) : mobile-first en flux
+                unique, réarrangé en 2 colonnes ≥900px via CSS (galerie
+                pleine largeur, identité+key facts+description à gauche,
+                carte prix+CTA sticky à droite) — jamais le "desktop
+                réduit" (retour Bryan), une seule barre CTA active à la
+                fois (fixe en bas sur mobile, remplacée par la carte
+                sticky sur desktop). */}
+            <style>{`
+              .chfiche-container{max-width:1120px;margin:0 auto;padding:16px 16px 110px}
+              .chfiche-grid{display:flex;flex-direction:column}
+              .chfiche-sidebar{display:none}
+              .chfiche-hero-img{height:220px}
+              .chfiche-thumb{height:107px}
+              .chfiche-desc{max-width:100%}
+              @media(min-width:900px){
+                .chfiche-container{padding:32px 24px 60px}
+                .chfiche-grid{display:grid;grid-template-columns:1fr 320px;column-gap:40px;row-gap:0;align-items:start}
+                .chfiche-gallery{grid-column:1/-1}
+                .chfiche-info{grid-column:1}
+                .chfiche-sidebar{grid-column:2;display:block;position:sticky;top:24px;background:${C.cardBg};border-radius:16px;padding:20px;border:1px solid ${C.borderCard}}
+                .chfiche-full{grid-column:1/-1}
+                .chfiche-price-inline{display:none}
+                .chfiche-title-price{display:none}
+                .chfiche-ctabar{display:none!important}
+                .chfiche-hero-img{height:380px}
+                .chfiche-thumb{height:186px}
+                .chfiche-desc{max-width:640px}
+              }
+            `}</style>
+            <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: chambreScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
               <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-                <button onClick={() => { setChambreOuverte(null); setGalerieOuverte(false); }} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                {/* Flèche retour nue — cohérence avec le popup calendrier
+                    de séjour du même parcours de réservation (retour Bryan
+                    26/09/2026), plus un bouton X encadré. */}
+                <button onClick={() => { setChambreOuverte(null); setGalerieOuverte(false); setChambreScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                 </button>
                 <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>{c.nom}</div>
                 <div/>
               </div>
             </header>
 
-            <div style={{ padding: "16px 16px 110px" }}>
-              {apercu.length > 0 && (
-                <button onClick={() => setGalerieOuverte(true)} className="tap" style={{ display: "grid", gridTemplateColumns: apercu.length === 1 ? "1fr" : "1.4fr 1fr", gap: "6px", width: "100%", border: "none", padding: 0, cursor: "pointer", borderRadius: "16px", overflow: "hidden", marginBottom: "18px" }}>
-                  {/* IMG-EXCEPTION: reason=aperçu galerie chambre, URL Storage publique stable | reviewed=2026-08-20 */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={c.photos[0]} alt={c.nom} style={{ width: "100%", height: "220px", objectFit: "cover", display: "block" }}/>
-                  {apercu.length > 1 && (
-                    <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: "6px" }}>
-                      {apercu.slice(1, 3).map((url, i) => {
-                        const estVideo = c.video_url === url;
-                        const restant = apercu.length - 3;
-                        const dernier = i === 1 && restant > 0;
-                        return (
-                          <div key={url} style={{ position: "relative", height: "107px" }}>
-                            {estVideo ? (
-                              <div style={{ width: "100%", height: "100%", backgroundColor: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+            <div className="chfiche-container">
+              <div className="chfiche-grid">
+                {/* GALERIE — priorité visuelle n°1, alignement/rayons
+                    homogènes, écart minimal entre vignettes. */}
+                <div className="chfiche-gallery">
+                  {apercu.length > 0 && (
+                    <button onClick={() => setGalerieOuverte(true)} aria-label="Voir toutes les photos" className="tap" style={{ display: "grid", gridTemplateColumns: apercu.length === 1 ? "1fr" : "1.4fr 1fr", gap: "4px", width: "100%", border: "none", padding: 0, cursor: "pointer", borderRadius: "16px", overflow: "hidden", marginBottom: "20px" }}>
+                      {/* IMG-EXCEPTION: reason=aperçu galerie chambre, URL Storage publique stable | reviewed=2026-08-20 */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={c.photos[0]} alt={c.nom} className="chfiche-hero-img" style={{ width: "100%", objectFit: "cover", display: "block" }}/>
+                      {apercu.length > 1 && (
+                        <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: "4px" }}>
+                          {apercu.slice(1, 3).map((url, i) => {
+                            const estVideo = c.video_url === url;
+                            const restant = apercu.length - 3;
+                            const dernier = i === 1 && restant > 0;
+                            return (
+                              <div key={url} className="chfiche-thumb" style={{ position: "relative" }}>
+                                {estVideo ? (
+                                  <div style={{ width: "100%", height: "100%", backgroundColor: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                                  </div>
+                                ) : (
+                                  // IMG-EXCEPTION: reason=aperçu galerie chambre, URL Storage publique stable | reviewed=2026-08-20
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
+                                )}
+                                {dernier && (
+                                  <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "15px", fontWeight: "900" }}>+{restant}</div>
+                                )}
                               </div>
-                            ) : (
-                              // IMG-EXCEPTION: reason=aperçu galerie chambre, URL Storage publique stable | reviewed=2026-08-20
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
-                            )}
-                            {dernier && (
-                              <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "15px", fontWeight: "900" }}>+{restant}</div>
-                            )}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                <div className="chfiche-info">
+                  {/* IDENTITÉ — nom en titre principal, type en information
+                      secondaire (jamais un 2e gros titre, retour Bryan
+                      25/09/2026). Prix sur la même ligne que le nom, aligné
+                      à droite (retour Bryan 26/09/2026) — mobile uniquement
+                      (chfiche-title-price masqué ≥900px : le prix vit déjà
+                      dans la carte sidebar sticky sur desktop, jamais les
+                      deux à la fois). */}
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+                    <h1 style={{ color: C.text, fontSize: "22px", fontWeight: 900, letterSpacing: "-0.3px", margin: "0 0 4px" }}>{c.nom}</h1>
+                    <div className="chfiche-title-price" style={{ textAlign: "right", flexShrink: 0, paddingTop: "2px" }}>
+                      <div style={{ color: "#F5A623", fontSize: "18px", fontWeight: 900, lineHeight: 1.2, whiteSpace: "nowrap" }}>{c.prix.toLocaleString("fr-FR")} GNF</div>
+                      {c.unite_prix && <div style={{ color: C.textSubtle, fontSize: "11px", fontWeight: 600, marginTop: "2px", whiteSpace: "nowrap" }}>{c.unite_prix}</div>}
+                    </div>
+                  </div>
+                  {c.categorie && <div style={{ color: C.textSubtle, fontSize: "13px", fontWeight: 600, marginBottom: "16px" }}>{c.categorie}</div>}
+
+                  {/* INFORMATIONS ESSENTIELLES — refonte "premium"
+                      (retour Bryan 25/09/2026 : "les 4 cartes sont nulles,
+                      style Booking/Airbnb") : une seule carte "fiche"
+                      empilant chaque fait (icône ronde + valeur en avant +
+                      libellé en second plan), au lieu de 3 petites cases en
+                      grille asymétrique (Surface se retrouvait seule sur sa
+                      ligne). Aucun emoji, mêmes icônes UI qu'avant. */}
+                  {keyFacts.length > 0 && (
+                    <div style={{ backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "18px", overflow: "hidden", marginBottom: "18px" }}>
+                      {keyFacts.map((f, i) => (
+                        <div key={f.label} style={{ display: "flex", alignItems: "center", gap: "14px", padding: "15px 18px", borderTop: i > 0 ? `1px solid ${C.borderCard}` : "none" }}>
+                          <div style={{ width: "40px", height: "40px", borderRadius: "50%", backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "center", color: C.text, flexShrink: 0 }}>
+                            {f.icon(C.text)}
                           </div>
-                        );
-                      })}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ color: C.text, fontSize: "14.5px", fontWeight: 800, lineHeight: 1.3 }}>{f.value}</div>
+                            <div style={{ color: C.textSubtle, fontSize: "12px", fontWeight: 600, marginTop: "2px" }}>{f.label}{f.sub ? ` · ${f.sub}` : ""}</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
-                </button>
-              )}
 
-              <div style={{ color: "#F5A623", fontSize: "20px", fontWeight: "900", marginBottom: "4px" }}>{c.prix.toLocaleString("fr-FR")} GNF{c.unite_prix ? ` / ${c.unite_prix}` : ""}</div>
-              {c.description && <p style={{ color: C.text, fontSize: "13.5px", lineHeight: 1.65, margin: 0 }}>{c.description}</p>}
+                  {/* INFOS COMPLÉMENTAIRES (mobile uniquement — le prix est
+                      remonté sur la ligne du titre, la carte complète avec
+                      prix reste sur la sidebar desktop, jamais les deux à
+                      la fois). */}
+                  <div className="chfiche-price-inline" style={{ backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "16px", padding: "14px 16px", marginBottom: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {infosComplementaires}
+                  </div>
 
-              {/* Équipements de cette chambre (21/08/2026) — distincts des
-                  équipements de l'établissement affichés plus haut sur la
-                  fiche ; jamais un équipement non coché à l'écran. */}
-              {c.equipements_chambre && c.equipements_chambre.length > 0 && (
-                <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${C.borderCard}` }}>
-                  <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px" }}>Équipements de la chambre</div>
-                  {EQUIPEMENTS_CHAMBRE.map(cat => {
-                    const items = cat.items.filter(i => c.equipements_chambre!.includes(i.code));
-                    if (items.length === 0) return null;
+                  {/* DESCRIPTION — section éditoriale, largeur de lecture
+                      confortable sur desktop (max-width via chfiche-desc),
+                      "Lire plus" au-delà de 220 caractères plutôt qu'un
+                      pavé de texte brut. */}
+                  {c.description && (() => {
+                    const SEUIL = 220;
+                    const longue = c.description.length > SEUIL;
+                    const texte = longue && !descExpanded ? c.description.slice(0, SEUIL).trimEnd() + "…" : c.description;
                     return (
-                      <div key={cat.id} style={{ marginBottom: "12px" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "9px" }}>
-                          {items.map(item => (
-                            <div key={item.code} style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-                              {item.icon("#F5A623")}
-                              <span style={{ color: C.text, fontSize: "12px", fontWeight: "600" }}>{item.label}</span>
-                            </div>
-                          ))}
-                        </div>
+                      <div style={{ marginBottom: "8px" }}>
+                        <h2 style={sectionTitleStyle}>À propos de cette chambre</h2>
+                        <p className="chfiche-desc" style={{ color: C.text, fontSize: "13.5px", lineHeight: 1.75, margin: 0 }}>{texte}</p>
+                        {longue && (
+                          <button onClick={() => setDescExpanded(v => !v)} className="tap" style={{ background: "none", border: "none", padding: "8px 0 0", color: C.text, fontSize: "12.5px", fontWeight: 800, textDecoration: "underline", cursor: "pointer" }}>
+                            {descExpanded ? "Lire moins" : "Lire plus"}
+                          </button>
+                        )}
                       </div>
                     );
-                  })}
+                  })()}
                 </div>
-              )}
+
+                {/* Carte Prix + Réserver — desktop uniquement. */}
+                <div className="chfiche-sidebar">
+                  {prixNode(true)}
+                  <div style={{ marginTop: "14px" }}>{reserverBtn}</div>
+                </div>
+
+                <div className="chfiche-full">
+                  {/* ÉQUIPEMENTS — grille de cellules, icônes discrètes,
+                      texte dominant (hors literie, déjà résumée dans les
+                      Key Facts — jamais une donnée dupliquée à l'écran). */}
+                  {equipementsAffiches.length > 0 && (
+                    <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: `1px solid ${C.borderCard}` }}>
+                      <h2 style={sectionTitleStyle}>Équipements de la chambre</h2>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                        {equipementsAffiches.map(item => (
+                          <div key={item.code} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${C.borderCard}`, borderRadius: "10px", padding: "10px 12px" }}>
+                            {item.icon(C.textSubtle)}
+                            <span style={{ color: C.text, fontSize: "12.5px", fontWeight: "600" }}>{item.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* INCLUS / NON INCLUS — deux cartes structurées, jamais
+                      une couleur agressive pour Non inclus (retour Bryan
+                      25/09/2026 : "reste neutre et professionnel"). */}
+                  {(c.inclus.length > 0 || c.non_inclus.length > 0) && (
+                    <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: `1px solid ${C.borderCard}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px" }}>
+                      {c.inclus.length > 0 && (
+                        <div style={{ backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", border: `1px solid ${C.borderCard}`, borderRadius: "14px", padding: "16px" }}>
+                          <div style={{ ...microLabelStyle, marginBottom: "10px" }}>Inclus</div>
+                          {c.inclus.map(item => <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: C.text, fontSize: "12.5px", marginBottom: "7px", lineHeight: 1.5 }}><span style={{ flexShrink: 0, marginTop: "2px", color: "#22c55e" }}>{Icons.Check("currentColor")}</span><span>{item}</span></div>)}
+                        </div>
+                      )}
+                      {c.non_inclus.length > 0 && (
+                        <div style={{ backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", border: `1px solid ${C.borderCard}`, borderRadius: "14px", padding: "16px" }}>
+                          <div style={{ ...microLabelStyle, marginBottom: "10px" }}>Non inclus</div>
+                          {c.non_inclus.map(item => <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: C.textSubtle, fontSize: "12.5px", marginBottom: "7px", lineHeight: 1.5 }}><span style={{ flexShrink: 0, marginTop: "2px" }}>{Icons.Cross(C.textSubtle)}</span><span>{item}</span></div>)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* À SAVOIR — information importante, pas une publicité :
+                      fond neutre, aucune couleur accent. */}
+                  {c.a_savoir && (
+                    <div style={{ marginTop: "24px", backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderRadius: "14px", padding: "16px" }}>
+                      <div style={{ ...microLabelStyle, marginBottom: "8px" }}>À savoir</div>
+                      <div style={{ color: C.text, fontSize: "12.5px", lineHeight: 1.65 }}>{c.a_savoir}</div>
+                    </div>
+                  )}
+
+                  {/* INFORMATIONS PRATIQUES — volontairement absente (brief
+                      "Détails" §8 : "si une donnée n'existe pas dans le
+                      modèle, ne pas créer de fausse information"). Arrivée/
+                      Départ/Conditions n'existent pas pour un type de
+                      chambre (données de séjour, pas de fiche produit) et
+                      la Capacité est déjà couverte par les Key Facts —
+                      aucune donnée réelle distincte à afficher ici. */}
+
+                  {/* AUTRES CHAMBRES — réutilise chambresHotel déjà chargé,
+                      aucune nouvelle donnée/requête. */}
+                  {autresChambres.length > 0 && (
+                    <div style={{ marginTop: "28px", paddingTop: "20px", borderTop: `1px solid ${C.borderCard}` }}>
+                      <h2 style={sectionTitleStyle}>Autres chambres</h2>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "10px" }}>
+                        {autresChambres.map(other => (
+                          <button key={other.id} onClick={() => { setChambreOuverte(other); setGalerieOuverte(false); setDescExpanded(false); setChambreScrolled(false); }} className="tap" style={{ display: "block", width: "100%", textAlign: "left", backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "14px", overflow: "hidden", cursor: "pointer", padding: 0 }}>
+                            {other.photos.length > 0 && (
+                              // IMG-EXCEPTION: reason=vignette "autres chambres", URL Storage publique stable | reviewed=2026-09-25
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={other.photos[0]} alt={other.nom} style={{ width: "100%", height: "90px", objectFit: "cover", display: "block" }}/>
+                            )}
+                            <div style={{ padding: "10px 12px" }}>
+                              <div style={{ color: C.text, fontSize: "12.5px", fontWeight: 700 }}>{other.nom}</div>
+                              <div style={{ color: "#F5A623", fontSize: "12px", fontWeight: 800, marginTop: "3px" }}>{other.prix.toLocaleString("fr-FR")} GNF{other.unite_prix ? ` / ${other.unite_prix}` : ""}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderTop: `1px solid ${C.borderCard}` }}>
-              <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(c.nom)}`} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "block", width: "100%", textAlign: "center", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "13px", fontSize: "14px", fontWeight: "800", textDecoration: "none" }}>
-                Demander une réservation
+            {/* CTA — mobile uniquement (barre fixe), remplacée par la
+                carte sidebar sticky sur desktop : jamais deux CTA
+                permanents en même temps. */}
+            <div className="chfiche-ctabar" style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: C.pageBg, borderTop: `1px solid ${C.borderCard}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+              <div>
+                <div style={{ color: "#F5A623", fontSize: "16px", fontWeight: "900", whiteSpace: "nowrap" }}>{c.prix.toLocaleString("fr-FR")} GNF</div>
+                {c.unite_prix && <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: 600 }}>{c.unite_prix}</div>}
+              </div>
+              <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(c.nom)}`} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "inline-block", textAlign: "center", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "23px", padding: "13px 28px", fontSize: "14px", fontWeight: "800", textDecoration: "none", flexShrink: 0 }}>
+                Réserver
               </Link>
             </div>
           </div>
@@ -2461,48 +3486,231 @@ function InstitutionProfilePageInner() {
           "Photos"). Tap sur un élément = plein écran (mediaPleinEcran).
       ══════════════════════════════════════════════════════ */}
       {chambreOuverte && galerieOuverte && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 550, backgroundColor: C.pageBg, overflowY: "auto" }}>
-          <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+        <div ref={galerieThumb.ref} onScroll={e => { setGalerieScrolled(e.currentTarget.scrollTop > 4); galerieThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 550, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <ScrollThumbBar thumb={galerieThumb} isDark={isDark}/>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: galerieScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
             <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-              <button onClick={() => setGalerieOuverte(false)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <button onClick={() => { setGalerieOuverte(false); setGalerieScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
               <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Photos</div>
               <div/>
             </div>
           </header>
           <div style={{ padding: "12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-            {chambreOuverte.photos.map(url => (
-              <button key={url} onClick={() => setMediaPleinEcran({ type: "photo", url })} className="tap" style={{ border: "none", padding: 0, cursor: "pointer", borderRadius: "10px", overflow: "hidden" }}>
-                {/* IMG-EXCEPTION: reason=galerie plein écran, URL Storage publique stable | reviewed=2026-08-20 */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="" style={{ width: "100%", height: "160px", objectFit: "cover", display: "block" }}/>
-              </button>
-            ))}
-            {chambreOuverte.video_url && (
-              <button onClick={() => setMediaPleinEcran({ type: "video", url: chambreOuverte.video_url! })} className="tap" style={{ position: "relative", border: "none", padding: 0, cursor: "pointer", borderRadius: "10px", overflow: "hidden", height: "160px", backgroundColor: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-              </button>
-            )}
+            {(() => {
+              const items: { type: "photo" | "video"; url: string }[] = [
+                ...chambreOuverte.photos.map(url => ({ type: "photo" as const, url })),
+                ...(chambreOuverte.video_url ? [{ type: "video" as const, url: chambreOuverte.video_url }] : []),
+              ];
+              return items.map((item, i) => (
+                <button key={item.url} onClick={() => setMediaPleinEcran({ items, index: i })} aria-label={item.type === "video" ? "Voir la vidéo" : `Voir la photo ${i + 1}`} className="tap" style={{ position: "relative", border: "none", padding: 0, cursor: "pointer", borderRadius: "10px", overflow: "hidden", height: "160px", backgroundColor: item.type === "video" ? "#000" : undefined, display: item.type === "video" ? "flex" : "block", alignItems: "center", justifyContent: "center" }}>
+                  {item.type === "video" ? (
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                  ) : (
+                    <>
+                      {/* IMG-EXCEPTION: reason=galerie plein écran, URL Storage publique stable | reviewed=2026-08-20 */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={item.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
+                    </>
+                  )}
+                </button>
+              ));
+            })()}
           </div>
         </div>
       )}
 
-      {/* Média plein écran (photo ou vidéo), au-dessus de la galerie. */}
-      {mediaPleinEcran && (
-        <div onClick={() => setMediaPleinEcran(null)} style={{ position: "fixed", inset: 0, zIndex: 600, backgroundColor: "rgba(0,0,0,0.95)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <button onClick={() => setMediaPleinEcran(null)} aria-label="Fermer" className="tap" style={{ position: "absolute", top: "calc(16px + env(safe-area-inset-top))", right: "16px", width: "36px", height: "36px", borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.15)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-          {mediaPleinEcran.type === "photo" ? (
-            // IMG-EXCEPTION: reason=visionneuse plein écran, URL Storage publique stable | reviewed=2026-08-20
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={mediaPleinEcran.url} alt="" onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
-          ) : (
-            <video src={mediaPleinEcran.url} controls autoPlay onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%" }}/>
-          )}
-        </div>
-      )}
+      {/* Média plein écran (photo ou vidéo) — refonte "façon Booking"
+          (retour Bryan 25/09/2026) : croix en haut à gauche, barre unique
+          en bas (précédent · compteur · suivant), fond noir plein — plus
+          de compteur/flèches éclatés au milieu de l'écran. Rendu via
+          createPortal(document.body) : ce viewer est ouvert par-dessus la
+          galerie plein écran (elle-même position:fixed + overflowY:auto),
+          et un position:fixed imbriqué dans un autre position:fixed
+          scrollable ne se recale pas fiablement sur mobile (Safari iOS
+          notamment) — même pattern de portail déjà utilisé par
+          MonAssistant/BiometrieModal/NotifPanel/LogoutFlow pour sortir
+          d'un contexte d'empilement local. Swipe tactile (retour Bryan :
+          "ajouter le scroll avec la main") : Pointer Events plutôt que
+          l'API Drag and Drop (ne se déclenche pas sur tactile, même
+          justification que PhotoGallery dans ServicesHotelTab.tsx) — pas
+          de suivi animé du doigt, juste un seuil de distance qui déclenche
+          précédent/suivant, cohérent avec l'absence de librairie de
+          gestes dans le projet. Le zoom repose sur le pincement natif du
+          navigateur. */}
+      {mediaPleinEcran && createPortal((() => {
+        const { items, index } = mediaPleinEcran;
+        const current = items[index];
+        const goTo = (i: number) => setMediaPleinEcran({ items, index: (i + items.length) % items.length });
+        const SWIPE_THRESHOLD = 50;
+        return (
+          <div
+            ref={el => el?.focus()}
+            tabIndex={-1}
+            onKeyDown={e => {
+              if (e.key === "Escape") setMediaPleinEcran(null);
+              if (e.key === "ArrowRight") goTo(index + 1);
+              if (e.key === "ArrowLeft") goTo(index - 1);
+            }}
+            onClick={() => { if (swipeConsumedRef.current) { swipeConsumedRef.current = false; return; } setMediaPleinEcran(null); }}
+            onPointerDown={e => { swipeStartRef.current = { x: e.clientX, y: e.clientY }; }}
+            onPointerUp={e => {
+              const start = swipeStartRef.current;
+              swipeStartRef.current = null;
+              if (!start || items.length < 2) return;
+              const dx = e.clientX - start.x;
+              const dy = e.clientY - start.y;
+              if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+                swipeConsumedRef.current = true;
+                goTo(dx < 0 ? index + 1 : index - 1);
+              }
+            }}
+            style={{ position: "fixed", inset: 0, zIndex: 600, backgroundColor: "#000", display: "flex", alignItems: "center", justifyContent: "center", outline: "none", touchAction: "pan-y" }}
+          >
+            <button onClick={() => setMediaPleinEcran(null)} aria-label="Fermer" className="tap" style={{ position: "absolute", top: "calc(16px + env(safe-area-inset-top))", left: "16px", width: "36px", height: "36px", borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.15)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", cursor: "pointer", zIndex: 1 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            {current.type === "photo" ? (
+              // IMG-EXCEPTION: reason=visionneuse plein écran, URL Storage publique stable | reviewed=2026-08-20
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={current.url} alt="" draggable={false} onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
+            ) : (
+              <video src={current.url} controls autoPlay onClick={e => e.stopPropagation()} style={{ maxWidth: "100%", maxHeight: "100%" }}/>
+            )}
+            {items.length > 1 && (
+              <div onClick={e => e.stopPropagation()} style={{ position: "absolute", left: 0, right: 0, bottom: "calc(20px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "center", gap: "22px" }}>
+                <button onClick={() => goTo(index - 1)} aria-label="Photo précédente" className="tap" style={{ width: "38px", height: "38px", borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.15)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <span style={{ color: "#fff", fontSize: "13px", fontWeight: "700" }}>{index + 1} / {items.length}</span>
+                <button onClick={() => goTo(index + 1)} aria-label="Photo suivante" className="tap" style={{ width: "38px", height: "38px", borderRadius: "50%", backgroundColor: "rgba(255,255,255,0.15)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })(), document.body)}
+
+      {/* ══════════════════════════════════════════════════════
+          SERVICE — fiche complète (25/09/2026), même patron d'overlay que
+          la chambre (header sticky + footer CTA sticky), ordre standard
+          Yelen Hôtel : Photo → Identité → Prix+durée → Demande →
+          Description → Inclus/non inclus → Disponibilité → Informations →
+          À savoir. Les deux expériences (chambre/service) doivent donner
+          l'impression du même produit — mêmes tokens de couleur/rayon.
+      ══════════════════════════════════════════════════════ */}
+      {serviceOuvert && (() => {
+        const p = serviceOuvert;
+        const TYPE_META: Record<string, { label: string; action: string | null; color: string }> = {
+          reservable:       { label: "Réservable",       action: "Réserver",               color: "#60a5fa" },
+          commandable:      { label: "Commandable",      action: "Commander",              color: "#34d399" },
+          supplement:       { label: "Avec supplément",  action: "Ajouter à ma réservation", color: "#fbbf24" },
+          horaires_limites: { label: "Horaires limités", action: null,                      color: "#c084fc" },
+        };
+        const meta = p.type_prestation ? TYPE_META[p.type_prestation] : null;
+        return (
+          <div ref={serviceThumb.ref} onScroll={e => { setServiceScrolled(e.currentTarget.scrollTop > 4); serviceThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+            <ScrollThumbBar thumb={serviceThumb} isDark={isDark} bottom={meta?.action ? "calc(env(safe-area-inset-bottom) + 80px)" : "20px"}/>
+            <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: serviceScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
+              <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+                <button onClick={() => { setServiceOuvert(null); setServiceScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>{p.nom}</div>
+                <div/>
+              </div>
+            </header>
+
+            <div style={{ padding: "16px 16px 110px" }}>
+              {/* PHOTO — facultative pour un service. */}
+              {p.photos.length > 0 && (
+                <button onClick={() => setMediaPleinEcran({ items: p.photos.map(url => ({ type: "photo" as const, url })), index: 0 })} className="tap" style={{ display: "block", width: "100%", border: "none", padding: 0, cursor: "pointer", borderRadius: "16px", overflow: "hidden", marginBottom: "18px" }}>
+                  {/* IMG-EXCEPTION: reason=aperçu fiche service, URL Storage publique stable | reviewed=2026-09-25 */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.photos[0]} alt={p.nom} style={{ width: "100%", height: "200px", objectFit: "cover", display: "block" }}/>
+                </button>
+              )}
+
+              {/* IDENTITÉ — nom déjà dans le header, famille + type ici. */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+                {p.categorie && <span style={{ color: C.textSubtle, fontSize: "12px", fontWeight: "700" }}>{p.categorie}</span>}
+                {meta && <span style={{ backgroundColor: `${meta.color}18`, color: meta.color, fontSize: "10px", fontWeight: "800", padding: "2px 9px", borderRadius: "20px" }}>{meta.label}</span>}
+              </div>
+
+              {/* PRIX + DURÉE */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: "12px", marginBottom: "16px" }}>
+                <span style={{ color: "#F5A623", fontSize: "20px", fontWeight: "900" }}>{p.prix.toLocaleString("fr-FR")} GNF{p.unite_prix ? ` / ${p.unite_prix}` : ""}</span>
+                {p.duree_minutes > 0 && <span style={{ color: C.textSubtle, fontSize: "12.5px", fontWeight: "700" }}>{p.duree_minutes} min</span>}
+              </div>
+
+              {/* DESCRIPTION — détaillée. */}
+              {p.description && <p style={{ color: C.text, fontSize: "13.5px", lineHeight: 1.65, margin: 0 }}>{p.description}</p>}
+
+              {/* INCLUS / NON INCLUS */}
+              {(p.inclus.length > 0 || p.non_inclus.length > 0) && (
+                <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${C.borderCard}`, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                  {p.inclus.length > 0 && (
+                    <div>
+                      <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Inclus</div>
+                      {p.inclus.map(item => <div key={item} style={{ color: C.text, fontSize: "12.5px", marginBottom: "5px" }}>✓ {item}</div>)}
+                    </div>
+                  )}
+                  {p.non_inclus.length > 0 && (
+                    <div>
+                      <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Non inclus</div>
+                      {p.non_inclus.map(item => <div key={item} style={{ color: C.textSubtle, fontSize: "12.5px", marginBottom: "5px" }}>✕ {item}</div>)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* DISPONIBILITÉ — horaires (distincts de la localisation,
+                  affichée séparément ci-dessous en Informations). */}
+              {p.horaires && p.horaires.length > 0 && (() => {
+                const { ouvert, horaire } = isOuvertNow(p.horaires!);
+                return (
+                  <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${C.borderCard}` }}>
+                    <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Disponibilité</div>
+                    <span style={{ color: ouvert ? "#22c55e" : C.textSubtle, fontSize: "12.5px", fontWeight: "700" }}>
+                      🕒 {ouvert ? "Ouvert maintenant" : "Fermé maintenant"}{horaire?.ouvert ? ` · ${horaire.debut}-${horaire.fin}` : ""}
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* INFORMATIONS — localisation. */}
+              {p.localisation && (
+                <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${C.borderCard}` }}>
+                  <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Informations</div>
+                  <span style={{ color: C.text, fontSize: "12.5px", fontWeight: "700" }}>📍 {p.localisation}</span>
+                </div>
+              )}
+
+              {/* À SAVOIR */}
+              {p.a_savoir && (
+                <div style={{ marginTop: "16px", backgroundColor: C.cardBg, borderRadius: "12px", padding: "12px 14px" }}>
+                  <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>À savoir</div>
+                  <div style={{ color: C.text, fontSize: "12.5px", lineHeight: 1.6 }}>{p.a_savoir}</div>
+                </div>
+              )}
+            </div>
+
+            {/* DEMANDE — même CTA que la carte compacte (Réserver/
+                Commander/Ajouter à ma réservation selon type_prestation),
+                jamais affiché si le type n'a pas d'action (horaires_limites). */}
+            {meta?.action && (
+              <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: C.pageBg, borderTop: `1px solid ${C.borderCard}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                <div style={{ color: C.text, fontSize: "16px", fontWeight: "900", whiteSpace: "nowrap" }}>{p.prix.toLocaleString("fr-FR")} GNF{p.unite_prix ? ` / ${p.unite_prix}` : ""}</div>
+                <Link href={`/rdv/${inst.id}?service=${encodeURIComponent(p.nom)}`} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "inline-block", textAlign: "center", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "23px", padding: "13px 28px", fontSize: "14px", fontWeight: "800", textDecoration: "none", flexShrink: 0 }}>
+                  {meta.action}
+                </Link>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ══════════════════════════════════════════════════════
           POPUP CONDITIONS/INFORMATIONS/LÉGALES — même logique que Avis/
@@ -2530,11 +3738,23 @@ function InstitutionProfilePageInner() {
           },
         }[infoOpen];
         return (
-          <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
-            <header style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "rgba(7,7,22,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.borderCard}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+          <div ref={infoThumb.ref} onScroll={e => { setInfoScrolled(e.currentTarget.scrollTop > 4); infoThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+            <ScrollThumbBar thumb={infoThumb} isDark={isDark}/>
+            {/* Séparateur visible seulement au scroll (retour Bryan
+                26/09/2026) — header uniforme avec la page tant qu'on est
+                en haut, la ligne apparaît dès qu'il y a du contenu
+                dessous à distinguer. Fond identique à C.pageBg (retour
+                Bryan 26/09/2026 : "les fonds sont différents") — plus le
+                voile semi-transparent + flou utilisé ailleurs (utile
+                seulement quand du contenu défile sous un header
+                translucide ; ici le fond est plein, donc inutile). */}
+            <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: infoScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
               <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
-                <button onClick={() => setInfoOpen(null)} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "9px", background: inputBg, border: `1px solid ${inputBord}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.text, cursor: "pointer" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                {/* Flèche retour nue — même patron que le flux de
+                    réservation (chambreOuverte/serviceOuvert, retour Bryan
+                    26/09/2026), plus l'ancien bouton X encadré. */}
+                <button onClick={() => { setInfoOpen(null); setInfoScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                 </button>
                 <div/>
                 <div/>
@@ -2548,9 +3768,13 @@ function InstitutionProfilePageInner() {
               </div>
               <h1 style={{ color: C.text, fontSize: "19px", fontWeight: "900", textAlign: "center", margin: "0 0 20px", letterSpacing: "-0.3px" }}>{meta.titre}</h1>
               {meta.texte ? (
-                <div style={{ backgroundColor: C.cardBg, borderRadius: "18px", padding: "22px 20px" }}>
-                  <div style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "10px" }}>{meta.titre}</div>
-                  <p style={{ color: C.textMuted, fontSize: "14.5px", lineHeight: 1.85, margin: 0, whiteSpace: "pre-wrap" }}>{meta.texte}</p>
+                // Contenu en lecture directe (retour Bryan 26/09/2026 :
+                // "adapte en vraie lecture, retire le texte dans un cadre")
+                // — plus de carte C.cardBg autour du texte ni d'eyebrow
+                // dupliquant le titre déjà affiché au-dessus, juste le
+                // paragraphe sur le fond de page comme un vrai article.
+                <div>
+                  <p style={{ color: C.text, fontSize: "14.5px", lineHeight: 1.85, margin: 0, whiteSpace: "pre-wrap" }}>{meta.texte}</p>
                   <p style={{ color: "#080812", background: "#F5A623", borderRadius: "10px", fontSize: "11px", fontWeight: "700", margin: "16px 0 0", padding: "8px 10px" }}>
                     {(() => {
                       const fmt = (d: string) => new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
@@ -2596,11 +3820,11 @@ function InstitutionProfilePageInner() {
       {ctaDecision.principal && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 240, backgroundColor: C.cardBg, borderRadius: "22px 22px 0 0", boxShadow: isDark ? "0 -10px 32px rgba(0,0,0,0.55)" : "0 -10px 32px rgba(0,0,0,0.14)", padding: `14px 16px calc(14px + env(safe-area-inset-bottom))`, transform: `translateY(${ctaVisible ? "0" : "110%"})`, transition: "transform 0.3s ease" }}>
           {ctaDecision.principal.action === "rdv" ? (
-            <Link href={ctaHref("rdv")} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+            <Link href={ctaHref("rdv")} onClick={() => trackerCtaClic("rdv")} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "999px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
               <Icons.Cal /> {ctaDecision.principal.label}
             </Link>
           ) : (
-            <a href={ctaHref(ctaDecision.principal.action)} target={ctaDecision.principal.action === "phone" ? undefined : "_blank"} rel={ctaDecision.principal.action === "phone" ? undefined : "noreferrer"} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "14px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
+            <a href={ctaHref(ctaDecision.principal.action)} target={ctaDecision.principal.action === "phone" ? undefined : "_blank"} rel={ctaDecision.principal.action === "phone" ? undefined : "noreferrer"} className="tap" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", backgroundColor: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "15px", padding: "15px", borderRadius: "999px", textDecoration: "none", boxShadow: "0 6px 20px rgba(245,166,35,0.35)" }}>
               {ctaDecision.principal.action === "website" ? <Icons.Globe /> : ctaDecision.principal.action === "whatsapp" ? <Icons.Whatsapp /> : <Icons.Phone />}
               {" "}{ctaDecision.principal.label}
             </a>

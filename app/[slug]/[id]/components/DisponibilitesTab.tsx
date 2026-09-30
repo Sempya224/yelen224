@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { generateSlotsInRange } from "@/lib/disponibilites";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 type DayKey = "lundi" | "mardi" | "mercredi" | "jeudi" | "vendredi" | "samedi" | "dimanche";
 type DayRule = { active: boolean; start: string; end: string; duration: 15 | 30 | 45 | 60 };
@@ -469,6 +470,7 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
           </div>
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <HelpCenterGuide tab="disponibilites" />
           {peutVoirHistorique && (
             <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm"
               icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>}
@@ -490,6 +492,17 @@ export function DisponibilitesTab({ disponibilites, modifieLe, modifieParNom, pe
             <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.4px", marginTop: "3px" }}>{k.label}</div>
           </Card>
         ))}
+      </div>
+
+      {/* Note T5 — réciproque de la note "Horaires" de ProfilEntrepriseTab.tsx
+          (même texte de dette technique, même traitement visuel C.blue).
+          Rendu hôtel exclu (return anticipé ci-dessus, a déjà son propre
+          renvoi vers "Horaires Ouvert / Fermé"). */}
+      <div style={{ backgroundColor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: "12px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.6 }}>
+          Ces créneaux déterminent uniquement ce qui est réservable par les citoyens. Le badge <strong style={{ color: C.blue }}>Ouvert / Fermé</strong> affiché sur votre fiche publique se règle séparément dans l&apos;onglet <strong style={{ color: C.t1 }}>Profil Entreprise</strong> — les deux restent séparés pour le moment.
+        </div>
       </div>
 
       {/* ── Corps : liste des jours en contenu principal, Capacité par

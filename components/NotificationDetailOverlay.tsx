@@ -77,7 +77,7 @@ export function NotificationDetailOverlay({ notif, onClose, bg, t1, t2, t3, card
             href={cta.href}
             onClick={onClose}
             className="tap"
-            style={{ display: "block", width: "100%", padding: "16px", borderRadius: "16px", background: "#F5A623", color: "#080812", fontSize: "15px", fontWeight: "800", textAlign: "center", textDecoration: "none", marginTop: "20px" }}
+            style={{ display: "block", width: "100%", padding: "16px", borderRadius: "999px", background: "#F5A623", color: "#080812", fontSize: "15px", fontWeight: "800", textAlign: "center", textDecoration: "none", marginTop: "20px" }}
           >
             {cta.label}
           </Link>
@@ -101,7 +101,7 @@ export function NotificationDetailOverlay({ notif, onClose, bg, t1, t2, t3, card
         <button
           onClick={onClose}
           className="tap"
-          style={{ width: "100%", padding: "16px", borderRadius: "16px", background: cta ? "transparent" : "#F5A623", border: cta ? `1px solid ${brd}` : "none", color: cta ? t1 : "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer", marginTop: "10px" }}
+          style={{ width: "100%", padding: "16px", borderRadius: "999px", background: cta ? "transparent" : "#F5A623", border: cta ? `1px solid ${brd}` : "none", color: cta ? t1 : "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer", marginTop: "10px" }}
         >
           Fermer
         </button>

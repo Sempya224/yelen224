@@ -66,6 +66,11 @@ const Icon = {
   balcony: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><rect x="3" y="3" width="18" height="8" rx="1"/><path d="M5 11v10M19 11v10M5 21h14M5 15h14"/></svg>,
   desk: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><path d="M3 8h18M3 8v11M21 8v11M6 8v4h5V8"/></svg>,
   wardrobe: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><rect x="5" y="2" width="14" height="20" rx="1.5"/><path d="M12 2v20"/><circle cx="10" cy="12" r="0.8" fill={c} stroke="none"/><circle cx="14" cy="12" r="0.8" fill={c} stroke="none"/></svg>,
+  bedDouble: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><path d="M3 18v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5"/><path d="M3 18h18"/><path d="M5 11V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4"/></svg>,
+  bedTwin: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><path d="M2 18v-5a1.5 1.5 0 0 1 1.5-1.5h6A1.5 1.5 0 0 1 11 13v5"/><path d="M13 18v-5a1.5 1.5 0 0 1 1.5-1.5h6a1.5 1.5 0 0 1 1.5 1.5v5"/><path d="M2 18h20"/><path d="M4 11.5V8a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 9 8v3.5"/><path d="M15 11.5V8a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5v3.5"/></svg>,
+  bedSingle: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><path d="M6 18v-5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v5"/><path d="M4 18h16"/><path d="M8 11V8a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 16 8v3"/></svg>,
+  sofaBed: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><path d="M4 12V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5"/><path d="M2 12h20v5H2z"/><path d="M4 17v3M20 17v3"/></svg>,
+  cribBed: (c: string) => <svg width="18" height="18" viewBox="0 0 24 24" {...s(c)}><rect x="4" y="9" width="16" height="8" rx="1.5"/><path d="M7 9V6M11 9V6M13 9V6M17 9V6"/><path d="M4 17v2M20 17v2"/></svg>,
 };
 
 export const EQUIPEMENTS_ETABLISSEMENT: EquipementCategorie[] = [
@@ -118,6 +123,19 @@ export const EQUIPEMENTS_ETABLISSEMENT: EquipementCategorie[] = [
 ];
 
 export const EQUIPEMENTS_CHAMBRE: EquipementCategorie[] = [
+  {
+    // Literie/configuration (chantier "Créer une chambre" V2, 25/09/2026)
+    // — réutilise le mécanisme de checkboxes déjà existant plutôt qu'un
+    // nouveau système structuré type/quantité, décision explicite pour ne
+    // pas dupliquer une logique déjà en place (equipements_chambre jsonb).
+    id: "literie", label: "Literie", items: [
+      { code: "lit_double", label: "Lit double", icon: Icon.bedDouble },
+      { code: "lits_jumeaux", label: "Lits jumeaux", icon: Icon.bedTwin },
+      { code: "lit_simple", label: "Lit simple", icon: Icon.bedSingle },
+      { code: "canape_lit", label: "Canapé-lit", icon: Icon.sofaBed },
+      { code: "lit_bebe", label: "Lit bébé", icon: Icon.cribBed },
+    ],
+  },
   {
     id: "confort", label: "Confort", items: [
       { code: "climatisation", label: "Climatisation", icon: Icon.ac },

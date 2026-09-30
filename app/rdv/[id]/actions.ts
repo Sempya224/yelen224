@@ -3,7 +3,7 @@
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { createAuthedSupabaseClient } from "@/lib/supabase";
-import { notifierReservation } from "@/lib/notificationEngine";
+import { notifierReservation, notifierReservationChambre } from "@/lib/notificationEngine";
 import { generateSlotsInRange } from "@/lib/disponibilites";
 import { chargerRestrictionActive, RDV_RESTRICTION_MESSAGE_CREATION } from "@/lib/rdvRestrictions";
 
@@ -299,6 +299,162 @@ export async function creerReservationPayante(payload: {
       });
     } catch (e) {
       console.error("[rdv] notification réservation payante:", e);
+    }
+  }
+
+  return { ok: true, code: confirmationCode };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Réservation de chambre hôtel (25/09/2026, "vraie disponibilité") — le
+// wizard exige normalement un créneau (date, heure) tiré de
+// institutions.disponibilites, mais DisponibilitesTab.tsx bloque
+// volontairement cet écran pour tout hôtel (n'a pas de sens pour un
+// séjour) : institutions.disponibilites reste donc toujours vide et
+// aucune chambre n'a jamais pu être réservée. Ce Server Action est
+// délibérément séparé de createRdv/creerReservationPayante ci-dessus
+// (jamais une branche à l'intérieur) — même discipline que tout le
+// chantier Hôtel. Inventaire réel : paid_services.nombre_unites,
+// vérifié atomiquement par reserver_chambre_hotel (migration
+// 20260925000001_reservation_chambre_hotel.sql) sur un chevauchement de
+// plages [date_arrivee, date_depart), jamais un simple créneau horaire.
+async function validerChambreServeur(
+  institutionId: string,
+  dateArrivee: string,
+  dateDepart: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: institution, error: instErr } = await sb
+    .from("institutions")
+    .select("statut")
+    .eq("id", institutionId)
+    .maybeSingle();
+  if (instErr || !institution) {
+    return { ok: false, error: "Cet établissement est introuvable." };
+  }
+  if (institution.statut !== "validee") {
+    return { ok: false, error: "Cet établissement n'est plus disponible pour la réservation." };
+  }
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const arrivee = new Date(`${dateArrivee}T00:00:00`);
+  const depart = new Date(`${dateDepart}T00:00:00`);
+  if (isNaN(arrivee.getTime()) || arrivee < today) {
+    return { ok: false, error: "La date d'arrivée n'est plus valide." };
+  }
+  if (isNaN(depart.getTime()) || depart <= arrivee) {
+    return { ok: false, error: "La date de départ doit être après la date d'arrivée." };
+  }
+
+  return { ok: true };
+}
+
+export async function creerReservationChambre(payload: {
+  citoyenId: string;
+  institutionId: string;
+  serviceId: string;
+  dateArrivee: string;
+  dateDepart: string;
+  objet: string;
+  pourAutre: boolean;
+  nomAutre: string | null;
+  phoneAutre: string | null;
+  champsComplementairesReponses: Record<string, string> | null;
+  descriptionBesoin: string | null;
+  provenance: string | null;
+  paysDepart: string;
+  villeDepart: string;
+  accessToken: string;
+}): Promise<CreateRdvResult> {
+  const c = payload.citoyenId?.trim();
+  const i = payload.institutionId?.trim();
+  const s = payload.serviceId?.trim();
+  if (!c || !i || !s) {
+    return { ok: false, error: "Session ou établissement invalide." };
+  }
+  if (!payload.accessToken?.trim()) {
+    return { ok: false, error: "Session expirée, reconnectez-vous." };
+  }
+  const objet = payload.objet.trim();
+  if (!objet) {
+    return { ok: false, error: "L'objet de la réservation est obligatoire." };
+  }
+  const dateArrivee = payload.dateArrivee?.trim();
+  const dateDepart = payload.dateDepart?.trim();
+  if (!dateArrivee || !dateDepart) {
+    return { ok: false, error: "Dates d'arrivée et de départ requises." };
+  }
+  if (payload.pourAutre) {
+    const n = payload.nomAutre?.trim() ?? "";
+    const p = payload.phoneAutre?.trim() ?? "";
+    if (!n || !p) {
+      return { ok: false, error: "Nom et téléphone requis pour une réservation pour autrui." };
+    }
+  }
+  const paysDepart = payload.paysDepart?.trim();
+  const villeDepart = payload.villeDepart?.trim();
+  if (!paysDepart || !villeDepart) {
+    return { ok: false, error: "Pays et ville de départ requis." };
+  }
+
+  const restriction = await chargerRestrictionActive(sb, c);
+  if (restriction) {
+    return { ok: false, error: RDV_RESTRICTION_MESSAGE_CREATION };
+  }
+
+  const verifDates = await validerChambreServeur(i, dateArrivee, dateDepart);
+  if (!verifDates.ok) {
+    return verifDates;
+  }
+
+  const confirmationCode = genererCodeConfirmation();
+  const supabase = createAuthedSupabaseClient(payload.accessToken);
+  const { data: nouveauRdvId, error } = await supabase.rpc("reserver_chambre_hotel", {
+    p_institution_id: i,
+    p_service_id: s,
+    p_date_arrivee: dateArrivee,
+    p_date_depart: dateDepart,
+    p_citoyen_id: c,
+    p_confirmation_code: confirmationCode,
+    p_objet: objet,
+    p_pour_autre: payload.pourAutre,
+    p_nom_autre: payload.pourAutre ? (payload.nomAutre ?? "").trim() : null,
+    p_phone_autre: payload.pourAutre ? (payload.phoneAutre ?? "").trim() : null,
+    p_champs_complementaires_reponses: payload.champsComplementairesReponses,
+    p_description_besoin: payload.descriptionBesoin?.trim() || null,
+    p_provenance: payload.provenance,
+    p_pays_depart: paysDepart,
+    p_ville_depart: villeDepart,
+  });
+
+  if (error) {
+    console.error("[rdv] reserver_chambre_hotel:", error.message);
+    if (error.message.includes("CHAMBRE_COMPLETE")) {
+      return { ok: false, error: "Ces dates ne sont plus disponibles pour ce type de chambre. Merci d'essayer d'autres dates." };
+    }
+    if (error.message.includes("SERVICE_INTROUVABLE")) {
+      return { ok: false, error: "Cette chambre n'est plus disponible." };
+    }
+    return { ok: false, error: "Une erreur est survenue pendant la réservation. Réessayez dans un instant." };
+  }
+
+  const rdvId = nouveauRdvId as string;
+  if (rdvId) {
+    try {
+      const [{ data: citoyen }, { data: institution }] = await Promise.all([
+        sb.from("users").select("prenom,nom").eq("id", c).maybeSingle(),
+        sb.from("institutions").select("name").eq("id", i).maybeSingle(),
+      ]);
+      await notifierReservationChambre({
+        rdvId,
+        citoyenId: c,
+        citoyenPrenom: citoyen?.prenom || citoyen?.nom || "Citoyen",
+        institutionId: i,
+        institutionNom: institution?.name ?? "l'établissement",
+        dateArrivee,
+        dateDepart,
+      });
+    } catch (e) {
+      console.error("[rdv] notification réservation chambre:", e);
     }
   }
 

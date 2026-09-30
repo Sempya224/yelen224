@@ -58,21 +58,45 @@ export async function chargerRestrictionActive(
 export const RDV_RESTRICTION_MESSAGE_CREATION =
   "Votre compte ne peut actuellement pas effectuer de nouvelles réservations. Consultez votre écran de restriction pour plus de détails.";
 
+// Messages structurés en 3 temps (constat → ce qui change/ne change pas →
+// action possible) — retour Bryan 30/09/2026 : le message d'origine
+// (une seule phrase) ne donnait ni le détail du palier ni de chemin vers
+// components/RdvRestrictionScreen.tsx, seule source réelle du détail
+// (compte à rebours, historique des RDV absents, formulaire d'appel). Le
+// CTA "En savoir plus" (lib/notificationContent.tsx::resoudreCta) y renvoie
+// désormais, donc ce texte n'a plus besoin de tout répéter — seulement
+// d'orienter correctement avant que le citoyen ouvre l'écran dédié.
+// Rendu avec whiteSpace:"pre-wrap" (NotificationDetailOverlay.tsx), les
+// sauts de ligne sont donc affichés tels quels.
 const RDV_RESTRICTION_NOTIFICATION: Record<RdvRestrictionNiveau, { type: string; titre: string; message: string }> = {
   restreint_7j: {
     type: "rdv_restriction_7j",
-    titre: "Restriction de vos rendez-vous",
-    message: "Votre compte ne peut plus effectuer de nouvelles réservations pendant 7 jours, suite à plusieurs rendez-vous non honorés. Vous pouvez continuer à utiliser les autres fonctionnalités de Yelen.",
+    titre: "Restriction de vos rendez-vous (7 jours)",
+    message:
+      "Votre compte ne peut plus effectuer de nouvelles réservations pendant 7 jours.\n\n" +
+      "Motif : plusieurs rendez-vous confirmés ont été enregistrés comme non honorés.\n\n" +
+      "Ce qui change : impossible de réserver un nouveau rendez-vous pendant cette période.\n" +
+      "Ce qui ne change pas : le reste de Yelen (rendez-vous déjà pris, messagerie, documents…) reste accessible normalement.\n\n" +
+      "Consultez votre écran de restriction pour voir le détail et la date de réactivation.",
   },
   restreint_30j: {
     type: "rdv_restriction_30j",
-    titre: "Restriction de vos rendez-vous",
-    message: "Votre compte ne peut plus effectuer de nouvelles réservations pendant 30 jours, suite à plusieurs rendez-vous non honorés. Vous pouvez continuer à utiliser les autres fonctionnalités de Yelen.",
+    titre: "Restriction de vos rendez-vous (30 jours)",
+    message:
+      "Votre compte ne peut plus effectuer de nouvelles réservations pendant 30 jours.\n\n" +
+      "Motif : de nouveaux rendez-vous confirmés ont été enregistrés comme non honorés, en plus d'une précédente restriction de 7 jours.\n\n" +
+      "Ce qui change : impossible de réserver un nouveau rendez-vous pendant cette période.\n" +
+      "Ce qui ne change pas : le reste de Yelen (rendez-vous déjà pris, messagerie, documents…) reste accessible normalement.\n\n" +
+      "Consultez votre écran de restriction pour voir le détail et la date de réactivation.",
   },
   clos: {
     type: "rdv_restriction_clos",
-    titre: "Votre compte a été clôturé",
-    message: "Votre compte a été clôturé après l'enregistrement de 10 rendez-vous non honorés. Vous pouvez faire appel de cette décision depuis votre écran de restriction.",
+    titre: "Votre accès aux rendez-vous a été clôturé",
+    message:
+      "Votre accès à la prise de rendez-vous et aux réservations a été clôturé définitivement, après l'enregistrement de 10 rendez-vous non honorés.\n\n" +
+      "Ce qui change : la prise de rendez-vous et les réservations ne sont plus accessibles.\n" +
+      "Ce qui ne change pas : le reste de votre compte Yelen (messagerie, documents, historique…) reste accessible normalement.\n\n" +
+      "Si vous estimez que cette décision est une erreur, vous pouvez faire appel depuis votre écran de restriction.",
   },
 };
 

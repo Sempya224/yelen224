@@ -8,12 +8,16 @@
 // temps que si /api/institution/auth/reauth répond { requiresTotp: true }
 // (membre ayant déjà activé la 2FA). Sur succès, appelle onSuccess() —
 // à charge de l'appelant de rejouer l'action d'origine.
+// `reason` (optionnel, Help Center Phase E) : le modal ne connaît aucune
+// logique métier — l'appelant fournit la phrase expliquant pourquoi cette
+// action précise redemande l'identité, le modal se contente de l'afficher.
+// Comportement inchangé si non fourni (texte générique d'origine).
 import { useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 
-export function ReauthModal({ open, onClose, onSuccess }: { open: boolean; onClose: () => void; onSuccess: () => void }) {
+export function ReauthModal({ open, onClose, onSuccess, reason }: { open: boolean; onClose: () => void; onSuccess: () => void; reason?: string }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const [pin, setPin] = useState("");
@@ -65,7 +69,7 @@ export function ReauthModal({ open, onClose, onSuccess }: { open: boolean; onClo
         <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", marginBottom: "6px" }}>Confirmez votre identité</div>
         <div style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>
           {!needsTotp
-            ? "Cette action est sensible — entrez votre PIN pour continuer."
+            ? (reason || "Cette action est sensible — entrez votre PIN pour continuer.")
             : backupMode ? "Entrez un de vos codes de secours." : "Entrez le code de votre application d'authentification."}
         </div>
         {!needsTotp ? (

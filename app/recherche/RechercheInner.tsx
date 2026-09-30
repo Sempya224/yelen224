@@ -13,13 +13,14 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { YELEN224_USER_ID_KEY, YELEN224_LAST_TAB_KEY } from "@/lib/auth/constants";
 import { deriverTendancesCitoyen, type RdvPourTendance } from "@/lib/citoyenTendances";
 import { urlExterneSure } from "@/lib/urlValidation";
+import { toISODate } from "@/lib/disponibilites";
 import {
   type Institution, type CategorieOption, type CategorieById, categorieVisuel,
   ctaPourInstitution, ctaHrefInstitution, CtaActionIcon, VERIFIE_BLEU,
   MetaVerifiedBadge, InstitutionLogo, Stars, CarteInstitutionCard, ICON_COEUR, ICON_PIN,
   CarteSheet, type TypeIdentite, typeIdentite, scorePertinence, parseLocalisationRequete,
 } from "./shared";
-import { ACTIVITE_CATEGORIE_SHORT, ActiviteCategorieIcon } from "@/lib/activiteVisuels";
+import { ACTIVITE_CATEGORIE_SHORT, ActiviteCategorieIcon, ActiviteCategorieVisuel } from "@/lib/activiteVisuels";
 import { RechercheOverlay } from "./RechercheOverlay";
 
 const CarteMap = dynamic(() => import("@/components/CarteMap"), { ssr: false });
@@ -48,11 +49,16 @@ const CarteMap = dynamic(() => import("@/components/CarteMap"), { ssr: false });
 // avec le reste du produit : vert = positif/disponible). Le gold reste
 // réservé à la note (convention universelle étoiles), au badge Vérifié et
 // au CTA principal — jamais un fond plein en dehors de ces deux usages.
-function CardGrille({ inst, C, categorieById }: { inst: Institution; C: typeof T["dark"]; categorieById?: CategorieById }) {
+function CardGrille({ inst, C, categorieById, sejourQuery }: { inst: Institution; C: typeof T["dark"]; categorieById?: CategorieById; sejourQuery?: string }) {
   const router = useRouter();
   const meta = categorieVisuel(inst, categorieById);
   const hasDispos = inst.disponibilites && (Array.isArray(inst.disponibilites) ? (inst.disponibilites as unknown[]).length > 0 : true);
   const txt2 = C.textSubtle;
+  // Dates choisies dans le bandeau "Vos dates de séjour" (catégorie Hôtels
+  // & restos) — reprises telles quelles par la fiche hôtel, qui les lit en
+  // query params pour présélectionner son propre bandeau (voir
+  // InstitutionPublicClient.tsx). Vide pour toute autre catégorie.
+  const hrefFiche = `/institution/${inst.id}?source=yelen_search${sejourQuery || ""}`;
   // CTA réel (retour Bryan 23/08/2026, voir shared.tsx::ctaPourInstitution)
   // — remplace l'ancien libelleAction(category) toujours affiché ("RDV"
   // partout, même sans capacité réelle). La destination du CTA n'est plus
@@ -62,7 +68,7 @@ function CardGrille({ inst, C, categorieById }: { inst: Institution; C: typeof T
   const cta = ctaPourInstitution(inst);
   const idType = typeIdentite(inst);
   return (
-    <div onClick={() => router.push(`/institution/${inst.id}?source=yelen_search`)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", flexDirection: "column", background: C.cardBg, borderRadius: "16px", overflow: "hidden", position: "relative" }}>
+    <div onClick={() => router.push(hrefFiche)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", flexDirection: "column", background: C.cardBg, borderRadius: "16px", overflow: "hidden", position: "relative" }}>
       <div style={{ padding: "12px 12px 6px", display: "flex", justifyContent: "center" }}>
         <InstitutionLogo inst={inst} size={50} categorieById={categorieById} circular={idType === "profession"}/>
       </div>
@@ -90,7 +96,7 @@ function CardGrille({ inst, C, categorieById }: { inst: Institution; C: typeof T
               <span style={{ color: "#080812", fontSize: "10px", fontWeight: "900" }}>{cta.label}</span>
             </a>
           ) : (
-            <a href={`/institution/${inst.id}?source=yelen_search`} onClick={e => e.stopPropagation()} style={{ width: "100%", padding: "7px", background: C.borderCard, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
+            <a href={hrefFiche} onClick={e => e.stopPropagation()} style={{ width: "100%", padding: "7px", background: C.borderCard, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
               <span style={{ color: C.text, fontSize: "10px", fontWeight: "900" }}>Voir la fiche</span>
             </a>
           )}
@@ -629,6 +635,54 @@ function SignatureYelen({ C, t2 }: { C: typeof T["dark"]; t2: string }) {
   );
 }
 
+// ─── Calendrier séjour (bandeau "Vos dates de séjour", catégorie Hôtels &
+// restos, 29/09/2026) ─────────────────────────────────────────────────────
+// Calque du calendrier hero hôtel de InstitutionPublicClient.tsx (lui-même
+// calque de ChambreCalendar dans app/rdv/[id]/page.tsx) — dupliqué ici selon
+// la même convention déjà actée sur ces 2 fichiers (aucun composant
+// calendrier partagé entre écrans, voir leurs commentaires d'origine).
+// Yelen ne construit jamais son propre moteur de réservation par date ici
+// (voir docs/ui/YELEN_HOTEL_MODEL_AUDIT.md Partie 7) : les 2 dates ne font
+// que présélectionner le bandeau de la fiche hôtel choisie ensuite (query
+// params vers /institution/[id], qui les reprend telles quelles).
+const MOIS_FR_SEJOUR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const JOURS_FR_SEJOUR = ["D", "L", "M", "M", "J", "V", "S"];
+function SejourCalendar({ calendarMonth, onMonthChange, minDate, selected, onSelect, C }: {
+  calendarMonth: Date; onMonthChange: (dir: 1 | -1) => void; minDate: Date; selected: string | null;
+  onSelect: (iso: string) => void; C: typeof T["dark"];
+}) {
+  const first = new Date(calendarMonth);
+  const startOffset = first.getDay();
+  const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const cells: (Date | null)[] = [...Array(startOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => new Date(first.getFullYear(), first.getMonth(), i + 1))];
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+        <button onClick={() => onMonthChange(-1)} className="tap" style={{ width: "32px", height: "32px", borderRadius: "10px", background: C.cardBg, border: `1px solid ${C.borderCard}`, color: C.text, cursor: "pointer" }}>‹</button>
+        <div style={{ color: C.text, fontSize: "14px", fontWeight: "800", textTransform: "capitalize" }}>{MOIS_FR_SEJOUR[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</div>
+        <button onClick={() => onMonthChange(1)} className="tap" style={{ width: "32px", height: "32px", borderRadius: "10px", background: C.cardBg, border: `1px solid ${C.borderCard}`, color: C.text, cursor: "pointer" }}>›</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px", marginBottom: "6px" }}>
+        {JOURS_FR_SEJOUR.map((j, i) => <div key={i} style={{ textAlign: "center", color: C.textSubtle, fontSize: "10px", fontWeight: "700", textTransform: "uppercase" }}>{j}</div>)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px" }}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={i}/>;
+          const iso = toISODate(d);
+          const disabled = d < minDate;
+          const sel = selected === iso;
+          return (
+            <button key={i} disabled={disabled} onClick={() => onSelect(iso)} className={disabled ? "" : "tap"}
+              style={{ aspectRatio: "1", borderRadius: "10px", border: `1px solid ${C.borderCard}`, background: disabled ? "transparent" : C.cardBg, color: disabled ? C.textSubtle : sel ? "#F5A623" : C.text, fontSize: "12px", fontWeight: sel ? "800" : "600", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.35 : 1 }}>
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // `embedded`/`onBack` (09/08/2026, décision CEO — promotion en onglet
 // principal de l'accueil citoyen, discoverability) : par défaut `false`,
 // donc l'écran `/recherche` autonome garde exactement son comportement
@@ -672,6 +726,19 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
   // statut_juridique (voir shared.tsx::typeIdentite), pas une colonne SQL
   // dédiée : filtré côté client après fetch, même pattern que filterDispos.
   const [filterType, setFilterType] = useState<TypeIdentite | "">("");
+  // Bandeau "Vos dates de séjour" (retour Bryan 29/09/2026) — visible en
+  // tête des résultats uniquement pour la catégorie Hôtels & restos,
+  // reprend le même geste que le bandeau équivalent de la fiche hôtel
+  // (InstitutionPublicClient.tsx). Les dates choisies ici ne filtrent
+  // jamais les résultats (aucune disponibilité réelle par date en base,
+  // voir /pieges-techniques-connus) — elles ne font que présélectionner le
+  // bandeau de la fiche hôtel une fois l'établissement choisi.
+  const isCategorieHotel = filterCat === "hebergement_restauration_evenements";
+  const [sejourModalOpen, setSejourModalOpen] = useState(false);
+  const [sejourStep, setSejourStep] = useState<"arrivee" | "depart">("arrivee");
+  const [sejourArrivee, setSejourArrivee] = useState<string | null>(null);
+  const [sejourDepart, setSejourDepart] = useState<string | null>(null);
+  const [sejourCalendarMonth, setSejourCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
   // Défaut "pertinence" (Lot B, 28/08/2026, brief Search §12) — remplace
   // "note" comme tri par défaut, voir shared.tsx::scorePertinence.
   const [sortBy, setSortBy] = useState<"pertinence"|"note"|"avis"|"nom">("pertinence");
@@ -1180,6 +1247,38 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
   const iBrd = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
   const t2   = isDark ? "#6E6E7A" : "#6C6C70";
 
+  // Repris par les liens vers la fiche hôtel (CardGrille + Vue liste) —
+  // vide dès qu'on sort de la catégorie Hôtels & restos ou qu'une des 2
+  // dates manque encore.
+  const sejourQuery = isCategorieHotel && sejourArrivee && sejourDepart
+    ? `&date_arrivee=${sejourArrivee}&date_depart=${sejourDepart}` : "";
+
+  // Bandeau "Vos dates de séjour" — un seul bloc réutilisé en tête des vues
+  // Grille et Liste (jamais dupliqué littéralement, voir insertion plus
+  // bas), n'apparaît que pour la catégorie Hôtels & restos.
+  const sejourBanner = isCategorieHotel && (
+    <button
+      onClick={() => { setSejourStep("arrivee"); setSejourModalOpen(true); }}
+      className="tap"
+      style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "14px 16px", borderRadius: "14px", border: `1px solid ${iBrd}`, background: iBg, marginBottom: "14px", cursor: "pointer" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "rgba(245,166,35,0.12)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ color: t2, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Vos dates de séjour</div>
+          <div style={{ color: C.text, fontSize: "13.5px", fontWeight: "800" }}>
+            {sejourArrivee && sejourDepart
+              ? `${new Date(`${sejourArrivee}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} – ${new Date(`${sejourDepart}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`
+              : "Choisir mes dates pour comparer"}
+          </div>
+        </div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t2} strokeWidth="2" strokeLinecap="round"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+  );
+
   return (
     /* Vrai correctif du bug sticky/fixed cassés (retour Bryan 06/08/2026,
        reproduit après rechargement complet — mon 1er correctif overflowY
@@ -1329,19 +1428,19 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
               masqué au scroll vers le bas) plutôt qu'un offset fixe. */}
           <div style={{ position: "sticky", top: headerHidden ? "env(safe-area-inset-top)" : `${headerH}px`, zIndex: 300, backgroundColor: isDark ? "rgba(8,8,15,0.98)" : "rgba(248,248,251,0.98)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", borderBottom: `1px solid ${isDark ? "rgba(245,166,35,0.1)" : "rgba(245,166,35,0.12)"}`, transition: "top 0.25s ease" }}>
             <div className="no-scroll" style={{ overflowX: "auto" }}>
-              <div style={{ display: "flex", gap: "4px", padding: "10px 10px", width: "max-content" }}>
-                <button onClick={() => setFilterCat("")} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", background: "none", border: "none", cursor: "pointer", padding: "4px 8px", minWidth: "56px" }}>
-                  <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke={!filterCat ? "#F5A623" : t2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
-                  <span style={{ color: !filterCat ? "#F5A623" : t2, fontSize: "10.5px", fontWeight: !filterCat ? "800" : "600", whiteSpace: "nowrap" }}>Tout</span>
-                  <div style={{ width: "16px", height: "2.5px", borderRadius: "2px", background: !filterCat ? "#F5A623" : "transparent" }}/>
+              <div style={{ display: "flex", gap: "6px", padding: "10px 10px", width: "max-content" }}>
+                <button onClick={() => setFilterCat("")} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", padding: "4px 6px", minWidth: "76px" }}>
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={!filterCat ? "#F5A623" : t2} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+                  <span style={{ color: !filterCat ? "#F5A623" : t2, fontSize: "11px", fontWeight: !filterCat ? "800" : "600", whiteSpace: "nowrap" }}>Tout</span>
+                  <div style={{ width: "18px", height: "2.5px", borderRadius: "2px", background: !filterCat ? "#F5A623" : "transparent" }}/>
                 </button>
                 {categories.map(cat => {
                   const actif = filterCat === cat.code;
                   return (
-                    <button key={cat.id} onClick={() => setFilterCat(actif ? "" : cat.code)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", background: "none", border: "none", cursor: "pointer", padding: "4px 8px", minWidth: "56px" }}>
-                      <ActiviteCategorieIcon code={cat.code} color={actif ? "#F5A623" : t2} size={21}/>
-                      <span style={{ color: actif ? "#F5A623" : t2, fontSize: "10.5px", fontWeight: actif ? "800" : "600", whiteSpace: "nowrap" }}>{ACTIVITE_CATEGORIE_SHORT[cat.code] ?? cat.label}</span>
-                      <div style={{ width: "16px", height: "2.5px", borderRadius: "2px", background: actif ? "#F5A623" : "transparent" }}/>
+                    <button key={cat.id} onClick={() => setFilterCat(actif ? "" : cat.code)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", padding: "4px 6px", minWidth: "76px" }}>
+                      <ActiviteCategorieVisuel code={cat.code} color={actif ? "#F5A623" : t2} size={44}/>
+                      <span style={{ color: actif ? "#F5A623" : t2, fontSize: "11px", fontWeight: actif ? "800" : "600", whiteSpace: "nowrap" }}>{ACTIVITE_CATEGORIE_SHORT[cat.code] ?? cat.label}</span>
+                      <div style={{ width: "18px", height: "2.5px", borderRadius: "2px", background: actif ? "#F5A623" : "transparent" }}/>
                     </button>
                   );
                 })}
@@ -1483,19 +1582,19 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
               même style icône-au-dessus-du-libellé que l'onglet 1 (ligne
               1071-1091), plus la pilule "texte seul" d'origine. */}
           <div className="no-scroll" style={{ overflowX: "auto" }}>
-            <div style={{ display: "flex", gap: "4px", padding: "0 10px 11px", width: "max-content" }}>
-              <button onClick={() => setFilterCat("")} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", background: "none", border: "none", cursor: "pointer", padding: "4px 8px", minWidth: "56px" }}>
-                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke={!filterCat ? "#F5A623" : t2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
-                <span style={{ color: !filterCat ? "#F5A623" : t2, fontSize: "10.5px", fontWeight: !filterCat ? "800" : "600", whiteSpace: "nowrap" }}>Tout</span>
-                <div style={{ width: "16px", height: "2.5px", borderRadius: "2px", background: !filterCat ? "#F5A623" : "transparent" }}/>
+            <div style={{ display: "flex", gap: "6px", padding: "0 10px 11px", width: "max-content" }}>
+              <button onClick={() => setFilterCat("")} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", padding: "4px 6px", minWidth: "76px" }}>
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={!filterCat ? "#F5A623" : t2} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+                <span style={{ color: !filterCat ? "#F5A623" : t2, fontSize: "11px", fontWeight: !filterCat ? "800" : "600", whiteSpace: "nowrap" }}>Tout</span>
+                <div style={{ width: "18px", height: "2.5px", borderRadius: "2px", background: !filterCat ? "#F5A623" : "transparent" }}/>
               </button>
               {categories.map(cat => {
                 const actif = filterCat === cat.code;
                 return (
-                  <button key={cat.id} onClick={() => setFilterCat(actif ? "" : cat.code)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "5px", background: "none", border: "none", cursor: "pointer", padding: "4px 8px", minWidth: "56px" }}>
-                    <ActiviteCategorieIcon code={cat.code} color={actif ? "#F5A623" : t2} size={21}/>
-                    <span style={{ color: actif ? "#F5A623" : t2, fontSize: "10.5px", fontWeight: actif ? "800" : "600", whiteSpace: "nowrap" }}>{ACTIVITE_CATEGORIE_SHORT[cat.code] ?? cat.label}</span>
-                    <div style={{ width: "16px", height: "2.5px", borderRadius: "2px", background: actif ? "#F5A623" : "transparent" }}/>
+                  <button key={cat.id} onClick={() => setFilterCat(actif ? "" : cat.code)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", padding: "4px 6px", minWidth: "76px" }}>
+                    <ActiviteCategorieVisuel code={cat.code} color={actif ? "#F5A623" : t2} size={44}/>
+                    <span style={{ color: actif ? "#F5A623" : t2, fontSize: "11px", fontWeight: actif ? "800" : "600", whiteSpace: "nowrap" }}>{ACTIVITE_CATEGORIE_SHORT[cat.code] ?? cat.label}</span>
+                    <div style={{ width: "18px", height: "2.5px", borderRadius: "2px", background: actif ? "#F5A623" : "transparent" }}/>
                   </button>
                 );
               })}
@@ -1747,6 +1846,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
         {/* ── GRILLE 2 colonnes style Amazon ── */}
         {!loading && vue === "grille" && institutions.length > 0 && (
           <div ref={grilleRef}>
+            {sejourBanner}
             {/* En-tête "Comparez N établissements" + tri (retour Bryan
                 28/08/2026) — même en-tête que la Vue Liste (onglet 2),
                 jamais réservé à un seul onglet : le tri était déjà possible
@@ -1769,7 +1869,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", animation: "fadeUp 0.3s ease" }}>
-              {visible.map(inst => <CardGrille key={inst.id} inst={inst} C={C as typeof T["dark"]} categorieById={categorieById}/>)}
+              {visible.map(inst => <CardGrille key={inst.id} inst={inst} C={C as typeof T["dark"]} categorieById={categorieById} sejourQuery={sejourQuery}/>)}
             </div>
             {hasMore && (
               <button onClick={() => setPage(p => p + 1)} className="tap" style={{ width: "100%", marginTop: "12px", padding: "13px", background: iBg, border: "1px solid rgba(245,166,35,0.2)", borderRadius: "14px", color: "#F5A623", fontWeight: "700", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
@@ -1787,6 +1887,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
             filtres avancés. ── */}
         {!loading && vue === "liste" && institutions.length > 0 && (
           <div style={{ animation: "fadeUp 0.3s ease" }}>
+            {sejourBanner}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
               <div style={{ color: C.text, fontSize: "14.5px", fontWeight: "800", letterSpacing: "-0.2px" }}>Comparez {total} établissement{total > 1 ? "s" : ""}{villeDetecteeAffichage ? ` à ${villeDetecteeAffichage}` : ""}</div>
               <div style={{ display: "flex", gap: "6px" }}>
@@ -1815,7 +1916,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
               const cta = ctaPourInstitution(inst);
               const idType = typeIdentite(inst);
               return (
-                <div key={inst.id} onClick={() => router.push(`/institution/${inst.id}?source=yelen_search`)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", gap: "12px", background: C.cardBg, borderRadius: "16px", padding: "14px", position: "relative", overflow: "hidden" }}>
+                <div key={inst.id} onClick={() => router.push(`/institution/${inst.id}?source=yelen_search${sejourQuery}`)} className="tap inst-card" style={{ cursor: "pointer", display: "flex", gap: "12px", background: C.cardBg, borderRadius: "16px", padding: "14px", position: "relative", overflow: "hidden" }}>
                   <InstitutionLogo inst={inst} size={54} categorieById={categorieById} circular={idType === "profession"}/>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "6px", marginBottom: "4px" }}>
@@ -1866,7 +1967,7 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
                           <span style={{ color: "#080812", fontSize: "10px", fontWeight: "900" }}>{cta.label}</span>
                         </a>
                       ) : (
-                        <a href={`/institution/${inst.id}?source=yelen_search`} onClick={e => e.stopPropagation()} style={{ padding: "6px 12px", background: C.borderCard, borderRadius: "8px", display: "flex", alignItems: "center", textDecoration: "none" }}>
+                        <a href={`/institution/${inst.id}?source=yelen_search${sejourQuery}`} onClick={e => e.stopPropagation()} style={{ padding: "6px 12px", background: C.borderCard, borderRadius: "8px", display: "flex", alignItems: "center", textDecoration: "none" }}>
                           <span style={{ color: C.text, fontSize: "10px", fontWeight: "900" }}>Voir la fiche</span>
                         </a>
                       )}
@@ -1941,6 +2042,67 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
           </div>
         )}
       </main>
+
+      {/* POPUP CALENDRIER SÉJOUR — même geste que le bandeau hero hôtel de
+          InstitutionPublicClient.tsx : juste les 2 dates, aucune vérification
+          de disponibilité (Yelen ne construit jamais son propre moteur de
+          réservation par date, voir docs/ui/YELEN_HOTEL_MODEL_AUDIT.md
+          Partie 7). "Terminer" ferme le popup — les dates ne redirigent nulle
+          part depuis Recherche, elles ne font que présélectionner le bandeau
+          de la fiche hôtel une fois l'établissement choisi (sejourQuery). */}
+      {sejourModalOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+          <div style={{ padding: "calc(env(safe-area-inset-top) + 16px) 16px 0" }}>
+            <button onClick={() => sejourStep === "depart" ? setSejourStep("arrivee") : setSejourModalOpen(false)} className="tap" aria-label={sejourStep === "depart" ? "Modifier la date d'arrivée" : "Fermer"} style={{ background: "none", border: "none", padding: 0, marginBottom: "20px", display: "flex", color: C.text, cursor: "pointer" }}>
+              <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <h1 style={{ color: C.text, fontSize: "28px", fontWeight: "900", margin: "0 0 8px", letterSpacing: "-0.6px" }}>{sejourStep === "arrivee" ? "Date d'arrivée" : "Date de départ"}</h1>
+          </div>
+
+          <div style={{ padding: "0 16px 40px" }}>
+            {sejourStep === "arrivee" ? (
+              <>
+                <p style={{ color: t2, fontSize: "13.5px", margin: "0 0 20px" }}>Sélectionnez votre date d&apos;arrivée pour comparer les hôtels disponibles.</p>
+                <SejourCalendar
+                  calendarMonth={sejourCalendarMonth}
+                  onMonthChange={(dir) => setSejourCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() + dir); return d; })}
+                  minDate={(() => { const t = new Date(); t.setHours(0, 0, 0, 0); return t; })()}
+                  selected={sejourArrivee}
+                  onSelect={(iso) => { setSejourArrivee(iso); setSejourDepart(null); setSejourStep("depart"); }}
+                  C={C as typeof T["dark"]}
+                />
+              </>
+            ) : (
+              <>
+                <p style={{ color: t2, fontSize: "13.5px", margin: "0 0 20px", textTransform: "capitalize" }}>Arrivée le {sejourArrivee && new Date(`${sejourArrivee}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}.</p>
+                <SejourCalendar
+                  calendarMonth={sejourCalendarMonth}
+                  onMonthChange={(dir) => setSejourCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() + dir); return d; })}
+                  minDate={(() => { const d = new Date(`${sejourArrivee}T00:00:00`); d.setDate(d.getDate() + 1); return d; })()}
+                  selected={sejourDepart}
+                  onSelect={(iso) => setSejourDepart(iso)}
+                  C={C as typeof T["dark"]}
+                />
+
+                {sejourDepart && (
+                  <div style={{ marginTop: "24px" }}>
+                    <p style={{ color: C.text, fontSize: "14.5px", fontWeight: "700", lineHeight: 1.6, margin: "0 0 18px" }}>
+                      Séjour du {new Date(`${sejourArrivee}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} au {new Date(`${sejourDepart}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} — ces dates seront reprises sur la fiche de l&apos;hôtel que vous choisirez.
+                    </p>
+                    <button
+                      onClick={() => setSejourModalOpen(false)}
+                      className="tap"
+                      style={{ width: "100%", padding: "16px", borderRadius: "26px", border: "none", background: "#F5A623", color: "#080812", fontSize: "15px", fontWeight: "800", cursor: "pointer" }}
+                    >
+                      Terminer
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {overlayOpen && (
         <RechercheOverlay

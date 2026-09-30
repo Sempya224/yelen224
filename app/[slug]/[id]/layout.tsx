@@ -72,11 +72,11 @@ import { QuestionsClientsTab } from "./components/QuestionsClientsTab";
 import { EquipeTab } from "./components/EquipeTab";
 import { JournalTab } from "./components/JournalTab";
 import { EspaceTravailTab } from "./components/EspaceTravailTab";
+import { MaSemaineTab } from "./components/MaSemaineTab";
 import { RdvPasseTab } from "./components/RdvPasseTab";
 import { ParametresDangerZone } from "./components/ParametresTab";
 import { SecuriteCompteTab } from "./components/SecuriteCompteTab";
 import { NotificationsTab } from "./components/NotificationsTab";
-import { AideSupportTab } from "./components/AideSupportTab";
 import { LegalTab } from "./components/LegalTab";
 import { ProfilTab } from "./components/ProfilTab";
 import { FinanceAccueilTab } from "./components/FinanceAccueilTab";
@@ -157,7 +157,7 @@ export type Client = {
   est_nouveau: boolean;
 };
 
-type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "collaboration" | "support" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift" | "parametres-securite" | "parametres-notifications" | "parametres-support" | "parametres-legal" | "yelen-compte" | "yelen-contrat" | "yelen-forfait" | "yelen-paiements" | "yelen-transactions" | "yelen-reconciliation" | "yelen-frais-commissions" | "yelen-facturation" | "yelen-documents" | "yelen-support";
+type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "collaboration" | "support" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift" | "parametres-securite" | "parametres-notifications" | "parametres-legal" | "yelen-compte" | "yelen-contrat" | "yelen-forfait" | "yelen-paiements" | "yelen-transactions" | "yelen-reconciliation" | "yelen-frais-commissions" | "yelen-facturation" | "yelen-documents" | "yelen-support" | "ma-semaine";
 // Onglets encore navigables quand institutions.statut === "suspendue"
 // (décision CEO 17/08/2026, écran dédié "Espace suspendu") — interprétation
 // de "Communication/Support" + "Paramètres/Compte", ajustable ici seul.
@@ -172,7 +172,7 @@ type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communi
 // canal vivait encore dans l'onglet "Yelen" de MessagerieTab.
 const ALLOWED_TABS_SUSPENDU: ReadonlySet<DashboardTab> = new Set([
   "accueil", "messagerie", "support", "parametres", "profil", "profil-entreprise", "profil-responsable", "conditions-informations", "configuration-hotel", "documents",
-  "parametres-securite", "parametres-notifications", "parametres-support", "parametres-legal",
+  "parametres-securite", "parametres-notifications", "parametres-legal",
 ]);
 // Regroupement à 2 niveaux de la section sidebar "Finance" (7 écrans → 2
 // entrées repliables : Opérations / Suivi & documents). Les icônes/labels
@@ -192,7 +192,7 @@ const FINANCE_GROUPS: { key: "operations" | "suivi"; label: string; icon: React.
 const EQUIPE_TRAVAIL_GROUPS: { key: "equipe" | "travail"; label: string; icon: React.ReactNode; tabs: DashboardTab[] }[] = [
   { key: "equipe", label: "Équipe", tabs: ["equipe", "collaboration"],
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-  { key: "travail", label: "Travail", tabs: ["espace-travail", "clock-in-shift"],
+  { key: "travail", label: "Travail", tabs: ["ma-semaine", "espace-travail", "clock-in-shift"],
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> },
 ];
 // "Yelen Business" (17/09/2026, schéma à 4 sections repris de Bryan le
@@ -810,23 +810,6 @@ function supportEstDisponible(maintenant: Date): boolean {
   return jour >= 1 && jour <= 5 && heure >= 8 && heure < 18;
 }
 
-// Index de recherche "Aide Yelen" — miroir volontairement minimal (id +
-// titre uniquement) de app/guide-prestataire/page.tsx::CHAPITRES, tenu à
-// jour manuellement (10 chapitres, liste stable) plutôt que de dupliquer le
-// contenu complet ou d'extraire un module partagé pour si peu.
-const AIDE_CHAPITRES: { id: string; titre: string }[] = [
-  { id: "inscription", titre: "Inscription et vérification" },
-  { id: "profil", titre: "Configuration du profil" },
-  { id: "disponibilites", titre: "Disponibilités et créneaux" },
-  { id: "rdv", titre: "Gestion des rendez-vous" },
-  { id: "statistiques", titre: "Comprendre les statistiques" },
-  { id: "annonces", titre: "Utiliser les annonces" },
-  { id: "badge", titre: "Obtenir le badge vérifié" },
-  { id: "abonnements", titre: "Abonnements Pro & Premium" },
-  { id: "qrcode", titre: "QR Code et partage" },
-  { id: "support", titre: "Support et signalements" },
-];
-
 function buildNom(u: { nom: string | null; prenom: string | null; phone: string } | null): string {
   if (!u) return "Citoyen";
   const parts = [u.prenom, u.nom].filter(Boolean).join(" ");
@@ -846,9 +829,13 @@ function hasDisponibilites(raw: unknown): boolean {
 // ─── Conditions prestataire + célébration de validation (19/07/2026) ──
 // Séquence déclenchée une seule fois : au premier chargement du
 // dashboard après passage de statut à "validee" tant que
-// conditions_prestataire_acceptees_le est encore null. Voir
-// lib/conditionsPrestataire.ts pour le contenu (texte d'exemple,
-// distinct des CGU/Confidentialité génériques).
+// conditions_prestataire_acceptees_le est encore null. Le document qui
+// fait foi est le CGP complet (/conditions-prestataires) — requalifié
+// 23/09/2026 (chantier Légal & Confidentialité, Lot 1) : ce modal
+// n'affiche plus qu'un résumé (lib/conditionsPrestataire.ts) et renvoie
+// explicitement vers le texte complet avant que la case ne puisse être
+// cochée, au lieu de faire accepter un texte "exemple" comme s'il
+// s'agissait du contrat réel.
 function ConditionsPrestataireModal({ onAccept, saving }: { onAccept: () => void; saving: boolean }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
@@ -859,9 +846,9 @@ function ConditionsPrestataireModal({ onAccept, saving }: { onAccept: () => void
         <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "16px" }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
         </div>
-        <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.4px", marginBottom: "6px" }}>Conditions d&apos;utilisation prestataire</h2>
-        <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "18px" }}>Votre établissement vient d&apos;être validé. Avant de continuer, lisez et acceptez les conditions spécifiques aux institutions partenaires de Yelen224.</p>
-        <div style={{ backgroundColor: C.bg3, borderRadius: "14px", padding: "16px", marginBottom: "18px", maxHeight: "260px", overflowY: "auto" }}>
+        <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.4px", marginBottom: "6px" }}>Conditions Générales Prestataires</h2>
+        <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "18px" }}>Votre établissement vient d&apos;être validé. Avant de continuer, prenez connaissance des Conditions Générales Prestataires (CGP) de Yelen224 — voici les points essentiels ; le texte complet est disponible via le lien ci-dessous.</p>
+        <div style={{ backgroundColor: C.bg3, borderRadius: "14px", padding: "16px", marginBottom: "14px", maxHeight: "260px", overflowY: "auto" }}>
           {CONDITIONS_PRESTATAIRE.map((s, i) => (
             <div key={s.titre} style={{ marginBottom: i < CONDITIONS_PRESTATAIRE.length - 1 ? "14px" : 0 }}>
               <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "800", marginBottom: "4px" }}>{s.titre}</div>
@@ -869,9 +856,13 @@ function ConditionsPrestataireModal({ onAccept, saving }: { onAccept: () => void
             </div>
           ))}
         </div>
+        <a href="/conditions-prestataires" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: C.gold, fontSize: "12.5px", fontWeight: "700", textDecoration: "none", marginBottom: "18px" }}>
+          Lire les CGP complètes
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M7 17 17 7M7 7h10v10"/></svg>
+        </a>
         <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer", marginBottom: "18px" }}>
           <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: "18px", height: "18px", marginTop: "1px", accentColor: C.gold, flexShrink: 0, cursor: "pointer" }}/>
-          <span style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5 }}>J&apos;ai lu et j&apos;accepte les conditions d&apos;utilisation prestataire de Yelen224.</span>
+          <span style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5 }}>J&apos;ai lu et j&apos;accepte les Conditions Générales Prestataires (CGP) de Yelen224.</span>
         </label>
         <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!checked} loading={saving} onClick={onAccept}>
           Accepter et continuer
@@ -2080,8 +2071,6 @@ function InstitutionDashboardInner() {
   const [ongletNotif, setOngletNotif] = useState<"utilisateur" | "systeme">("utilisateur");
   const [realtimeStatus, setRealtimeStatus] = useState<"connecte" | "reconnexion" | "hors_ligne">("reconnexion");
   const [searchQuery, setSearchQuery]       = useState("");
-  const [aideQuery, setAideQuery]           = useState("");
-  const aideSearchRef = useRef<HTMLInputElement>(null);
   const [feedbackType, setFeedbackType]     = useState<"bug" | "suggestion" | "ux" | "fonctionnalite">("bug");
   const [feedbackMsg, setFeedbackMsg]       = useState("");
   const [feedbackSending, setFeedbackSending] = useState(false);
@@ -2724,14 +2713,12 @@ function InstitutionDashboardInner() {
     return () => document.removeEventListener("scroll", onScroll, true);
   }, []);
 
-  // Ctrl/Cmd+K ouvre "Aide Yelen" et met le focus direct sur la recherche
-  // (retour Bryan 06/09/2026, "Help Center launcher" façon Intercom/Zendesk).
+  // Ctrl/Cmd+K ouvre "Aide Yelen" (retour Bryan 06/09/2026).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setActivePopover("help");
-        setTimeout(() => aideSearchRef.current?.focus(), 50);
       }
     };
     document.addEventListener("keydown", onKeyDown);
@@ -2950,6 +2937,11 @@ function InstitutionDashboardInner() {
     // Collaboration (déplacé du menu principal vers Compte > Équipe & travail,
     // 16/09/2026) — membre <-> membre, distinct de Messagerie (citoyen <-> institution).
     { group: "Équipe & travail", key: "collaboration", label: "Collaboration", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+    // "Préparer ma semaine" (Phase 1, 26/09/2026, décision CEO) — nouveau
+    // rituel hebdomadaire personnel au membre, place en tête du sous-groupe
+    // "Travail" (porte d'entrée), avant l'outil de gestion Espace de
+    // travail dont il réutilise le moteur (taches/evenements_agenda).
+    { group: "Équipe & travail", key: "ma-semaine", label: "Ma semaine", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg> },
     { group: "Équipe & travail", key: "espace-travail", label: "Espace de travail", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> },
     { group: "Équipe & travail", key: "clock-in-shift", label: "Clock In Shift", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
     { group: "Historique", key: "journal", label: "Journal d'activité", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
@@ -3886,86 +3878,48 @@ function InstitutionDashboardInner() {
                 peut naviguer entre les 2 écrans") — remplace l'ancien
                 mailto, désormais géré en direct dans l'app plutôt qu'en
                 sortie vers le client mail. ── */}
-            <HeaderPopover id="help" active={activePopover === "help"} onOpen={() => setActivePopover("help")} onClose={() => { setActivePopover(null); setAideQuery(""); }} badge={supportUnread} panelTitle="Aide Yelen" wrapperClassName="yelen-header-more-item"
+            <HeaderPopover id="help" active={activePopover === "help"} onOpen={() => setActivePopover("help")} onClose={() => setActivePopover(null)} badge={supportUnread} panelTitle="Aide Yelen" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}
             >
               {(() => {
-                const q = aideQuery.trim().toLowerCase();
-                const resultats = q ? AIDE_CHAPITRES.filter(c => c.titre.toLowerCase().includes(q)) : [];
                 const dispo = supportEstDisponible(new Date());
                 return (
                   <div style={{ display: "flex", flexDirection: "column" }}>
                     <div style={{ color: C.t3, fontSize: "12px", fontWeight: 600, margin: "-8px 0 12px" }}>Comment pouvons-nous vous aider ?</div>
 
-                    <div style={{ position: "relative", marginBottom: q ? 10 : 16 }}>
-                      <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.t3, display: "flex", pointerEvents: "none" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Besoin d&apos;aide ?</div>
+                    <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" onClick={() => setActivePopover(null)} className="tap" style={{ position: "relative", display: "flex", flexDirection: "column", gap: 5, padding: "12px 10px", borderRadius: "12px", border: `1px solid ${C.border}`, background: C.bgCard2, textDecoration: "none", marginBottom: 16 }}>
+                      <span style={{ color: C.gold, display: "flex" }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
+                      <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Support Yelen</span>
+                      <span style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.4 }}>Contacter notre équipe</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: dispo ? C.green : C.orange, flexShrink: 0 }}/>
+                        <span style={{ color: dispo ? C.green : C.orange, fontSize: "9.5px", fontWeight: 700 }}>{dispo ? "Disponible" : "Fermé pour le moment"}</span>
                       </span>
-                      <input
-                        ref={aideSearchRef}
-                        value={aideQuery}
-                        onChange={e => setAideQuery(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter" && resultats[0]) { window.open(`/guide-prestataire?chapitre=${resultats[0].id}`, "_blank"); setActivePopover(null); setAideQuery(""); } }}
-                        placeholder="Rechercher dans l'aide Yelen…"
-                        style={{ width: "100%", boxSizing: "border-box", padding: "9px 10px 9px 30px", borderRadius: "10px", border: `1px solid ${C.border}`, background: C.bgCard2, color: C.t1, fontSize: "12.5px", outline: "none" }}
-                      />
-                      {!q && <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: C.t3, fontSize: "9.5px", fontWeight: 700, border: `1px solid ${C.border}`, borderRadius: 5, padding: "2px 5px", pointerEvents: "none" }}>Ctrl K</span>}
+                      {supportUnread > 0 && (
+                        <span style={{ position: "absolute", top: 8, right: 8, background: C.red, color: "#fff", fontSize: 9.5, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{supportUnread > 9 ? "9+" : supportUnread}</span>
+                      )}
+                    </a>
+
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Ressources</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: 12 }}>
+                      <button onClick={() => { setShowGuide(true); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                        <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+                        <span style={{ flex: 1 }}>Aide & astuces</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                      <button onClick={() => { setTab("parametres"); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                        <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4Z"/></svg></span>
+                        <span style={{ flex: 1 }}>Sécurité du compte</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
                     </div>
 
-                    {q ? (
-                      <div style={{ marginBottom: 4 }}>
-                        {resultats.length === 0 ? (
-                          <div style={{ color: C.t3, fontSize: "12px", padding: "8px 4px" }}>Aucun résultat dans le guide Yelen.</div>
-                        ) : resultats.map(r => (
-                          <a key={r.id} href={`/guide-prestataire?chapitre=${r.id}`} target="_blank" rel="noopener noreferrer" onClick={() => { setActivePopover(null); setAideQuery(""); }} className="tap" style={{ display: "block", padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, textDecoration: "none", borderRadius: "8px" }}>
-                            {r.titre}
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Besoin d&apos;aide ?</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-                          <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" onClick={() => setActivePopover(null)} className="tap" style={{ position: "relative", display: "flex", flexDirection: "column", gap: 5, padding: "12px 10px", borderRadius: "12px", border: `1px solid ${C.border}`, background: C.bgCard2, textDecoration: "none" }}>
-                            <span style={{ color: C.gold, display: "flex" }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
-                            <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Support Yelen</span>
-                            <span style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.4 }}>Contacter notre équipe</span>
-                            <span style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: dispo ? C.green : C.orange, flexShrink: 0 }}/>
-                              <span style={{ color: dispo ? C.green : C.orange, fontSize: "9.5px", fontWeight: 700 }}>{dispo ? "Disponible" : "Fermé pour le moment"}</span>
-                            </span>
-                            {supportUnread > 0 && (
-                              <span style={{ position: "absolute", top: 8, right: 8, background: C.red, color: "#fff", fontSize: 9.5, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{supportUnread > 9 ? "9+" : supportUnread}</span>
-                            )}
-                          </a>
-                          <a href="/guide-prestataire" target="_blank" rel="noopener noreferrer" onClick={() => setActivePopover(null)} className="tap" style={{ display: "flex", flexDirection: "column", gap: 5, padding: "12px 10px", borderRadius: "12px", border: `1px solid ${C.border}`, background: C.bgCard2, textDecoration: "none" }}>
-                            <span style={{ color: C.gold, display: "flex" }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
-                            <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Guide Yelen</span>
-                            <span style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.4 }}>Apprendre à utiliser Yelen</span>
-                          </a>
-                        </div>
-
-                        <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Ressources</div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: 12 }}>
-                          <button onClick={() => { setShowGuide(true); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
-                            <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
-                            <span style={{ flex: 1 }}>Aide & astuces</span>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                          </button>
-                          <button onClick={() => { setTab("parametres"); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
-                            <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4Z"/></svg></span>
-                            <span style={{ flex: 1 }}>Sécurité du compte</span>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                          </button>
-                        </div>
-
-                        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-                          <div style={{ color: C.t3, fontSize: "9px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 4px" }}>Informations légales</div>
-                          <Link href="/cgu" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Conditions d&apos;utilisation</Link>
-                          <Link href="/confidentialite" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Politique de confidentialité</Link>
-                        </div>
-                      </>
-                    )}
+                    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                      <div style={{ color: C.t3, fontSize: "9px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 4px" }}>Informations légales</div>
+                      <Link href="/cgu" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Conditions d&apos;utilisation</Link>
+                      <Link href="/confidentialite" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Politique de confidentialité</Link>
+                    </div>
                   </div>
                 );
               })()}
@@ -4793,8 +4747,7 @@ function InstitutionDashboardInner() {
                 { label: "Annonces",    tab: "communication", href: undefined, icon: C.orange, svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg> },
                 { label: "Mes services",tab: "services",      href: undefined, icon: C.blue,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
                 { label: "Signalements",tab: "signalements",  href: undefined, icon: C.red,    svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-                { label: "FAQ",         tab: undefined,       href: `/guide-prestataire`,    icon: C.teal,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-              ] as { label: string; tab?: typeof tab; href?: string; icon: string; svg: React.ReactNode }[])
+              ] as { label: string; tab?: DashboardTab; href?: string; icon: string; svg: React.ReactNode }[])
                 .filter(item => !item.tab || tabAllowed(membreRole, item.tab, accesRestreints));
               return (
                 <div style={{ display: "grid", gridTemplateColumns: `repeat(${accesRapidesItems.length}, 1fr)` }}>
@@ -4844,7 +4797,6 @@ function InstitutionDashboardInner() {
               <Link href="/confidentialite" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>Confidentialité</Link>
               {/* Guide Yelen — même modale que le panneau "Aide" du header (setShowGuide). */}
               <button onClick={() => setShowGuide(true)} className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "400", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>Guide</button>
-              <a href="/guide-prestataire" target="_blank" rel="noopener noreferrer" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>FAQ</a>
               {/* Support — ouvre SupportYelenTab (tab "support") dans un nouvel onglet navigateur. */}
               <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>Support</a>
               <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700" }}>© 2026 Yelen224 by SemPya224</span>
@@ -5618,6 +5570,10 @@ function InstitutionDashboardInner() {
         <EspaceTravailTab instId={instId} onToast={showToast}/>
       </KeepMounted>
 
+      <KeepMounted tabKey="ma-semaine" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        <MaSemaineTab onToast={showToast}/>
+      </KeepMounted>
+
       {/* ═══════════════════════════════════════════════════════════
           TAB : RENDEZ-VOUS PASSÉS — historique global filtrable,
           suivi par RDV (rdv.notes) et rappel citoyen. Accès via menu Compte.
@@ -5735,10 +5691,9 @@ function InstitutionDashboardInner() {
               ],
             },
             {
-              titre: "Support & Légal",
+              titre: "Légal & confidentialité",
               items: [
-                { label: "Support", href: null, onTab: "parametres-support", color: C.blue },
-                { label: "Légal",   href: null, onTab: "parametres-legal",   color: C.t2 },
+                { label: "Légal & confidentialité",   href: null, onTab: "parametres-legal",   color: C.t2 },
               ],
             },
           ] as SettingsSection[]).map((section, si) => (
@@ -5784,12 +5739,8 @@ function InstitutionDashboardInner() {
         <NotificationsTab instId={instId}/>
       </KeepMounted>
 
-      <KeepMounted tabKey="parametres-support" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <AideSupportTab/>
-      </KeepMounted>
-
       <KeepMounted tabKey="parametres-legal" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <LegalTab/>
+        <LegalTab conditionsAccepteesLe={inst?.conditions_prestataire_acceptees_le ?? null} onGererCompte={() => setTab("parametres")}/>
       </KeepMounted>
 
 
@@ -5817,7 +5768,7 @@ function InstitutionDashboardInner() {
             icon: (a: boolean) => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={a ? C.gold : C.t2} strokeWidth="1.8" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg> },
         ] as { key: typeof tab | "__plus__"; label: string; badge: number; icon: (a: boolean) => React.ReactNode }[])
           .filter(item => navAllowed(item.key)).map(item => {
-          const overflowTabs: (typeof tab)[] = ["services", "communication", "communaute-pro", "signalements", "messagerie", "codeqr", "valider-rdv", "analyse", "parametres", "profil-entreprise", "profil-responsable", "documents", "paiements", "transactions", "historique-financier", "facturation", "rapports", "documents-financiers", "documents-clients", "parametres-securite", "parametres-notifications", "parametres-support", "parametres-legal"];
+          const overflowTabs: (typeof tab)[] = ["services", "communication", "communaute-pro", "signalements", "messagerie", "codeqr", "valider-rdv", "analyse", "parametres", "profil-entreprise", "profil-responsable", "documents", "paiements", "transactions", "historique-financier", "facturation", "rapports", "documents-financiers", "documents-clients", "parametres-securite", "parametres-notifications", "parametres-legal"];
           const active = item.key === "__plus__" ? overflowTabs.includes(tab) : tab === item.key;
           return (
             <button key={item.key} onClick={() => item.key === "__plus__" ? setMobileMoreOpen(true) : setTab(item.key as typeof tab)} className="tap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", background: "none", border: "none", padding: "8px 4px 5px", cursor: "pointer", position: "relative" }}>

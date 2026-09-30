@@ -125,7 +125,7 @@ async function chargerListeClients(authInstId: string) {
 async function chargerDetailClient(authInstId: string, citoyenId: string) {
   const { data: rdvRaw, error: rdvErr } = await sb
     .from("rdv")
-    .select("id,objet,date_rdv,heure_rdv,statut,citoyen_id,notes,qr_token,presence_status,presence_confirmed_at")
+    .select("id,objet,date_rdv,heure_rdv,date_depart,statut,citoyen_id,notes,qr_token,presence_status,presence_confirmed_at")
     .eq("institution_id", authInstId)
     .eq("citoyen_id", citoyenId)
     .order("date_rdv", { ascending: false });
@@ -167,7 +167,7 @@ async function chargerDetailClient(authInstId: string, citoyenId: string) {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   let historique = rdvRaw.map((r) => ({
-    id: r.id, date_rdv: r.date_rdv, heure_rdv: r.heure_rdv, objet: r.objet, statut: r.statut, notes: r.notes,
+    id: r.id, date_rdv: r.date_rdv, heure_rdv: r.heure_rdv, date_depart: r.date_depart ?? null, objet: r.objet, statut: r.statut, notes: r.notes,
     paiement: r.qr_token ? bookingMap.get(r.qr_token) ?? null : null,
     presence_status: r.presence_status, presence_confirmed_at: r.presence_confirmed_at,
   }));
