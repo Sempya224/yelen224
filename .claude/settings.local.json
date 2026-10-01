@@ -237,7 +237,9 @@
       "Bash(echo \"TIMED OUT / FAILED with exit $?\")",
       "Bash(echo \"grep exit: $?\")",
       "Bash(gh run *)",
-      "Bash(NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit)"
+      "Bash(NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit)",
+      "Bash(netlify api *)",
+      "PowerShell(netlify *)"
     ]
   }
 }

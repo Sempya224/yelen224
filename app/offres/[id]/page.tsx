@@ -54,6 +54,12 @@ export async function generateMetadata(
   const title = `${offre.titre} — ${offre.partenaire_nom} · Yelen224`;
   const description = (offre.description_courte || offre.description_longue || "").trim().slice(0, 160);
   const url = `${APP_URL}/offres/${id}`;
+  // Même correctif que app/institution/[id]/page.tsx (retour Bryan
+  // 30/09/2026) : `twitter.card: "summary_large_image"` était déjà déclaré
+  // sans jamais fournir d'image, donc un partage n'affichait que du texte.
+  // `image_url` prioritaire (illustration de l'offre), repli sur le logo
+  // du partenaire.
+  const ogImage = offre.image_url || offre.partenaire_logo || null;
 
   return {
     title,
@@ -65,11 +71,13 @@ export async function generateMetadata(
       siteName: "Yelen224",
       type: "website",
       locale: "fr_FR",
+      ...(ogImage ? { images: [{ url: ogImage, alt: offre.titre }] } : {}),
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
+      ...(ogImage ? { images: [ogImage] } : {}),
     },
   };
 }
