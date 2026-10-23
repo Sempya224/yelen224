@@ -36,15 +36,19 @@
 //   cas limite si une institution configure un service payant à 0) sont
 //   pertinentes ici. La validation d'un RDV gratuit vit sur l'écran Scanner
 //   QR, hors périmètre de ce chantier.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { YelenLoader } from "@/components/YelenLoader";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import {
+  ValidationStyles, ValidationHeader, ValidationStats, CodeEntryCard, DailyActivityCard, ProcessedTodayTable, nomPropre,
+  type ValidationStat, type ActiviteRow, type TraiteeRow,
+} from "./ValiderRdvUi";
 import { DEVISE_LABEL } from "@/lib/devise";
-import { creneauEstOuvert } from "@/lib/rdvGating";
+import { creneauEstOuvert, calculerCheckInStatus, RDV_EXPIRE_MESSAGE } from "@/lib/rdvGating";
+import { heureAmPm, heureDepuisHorodatage } from "@/lib/heure";
 
 type BookingStatut = "en_attente" | "confirme" | "termine" | "no_show" | "annule";
 
@@ -96,9 +100,7 @@ function formatPrix(p: number): string {
 
 
 function formatHeure(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return heureDepuisHorodatage(iso) || "—";
 }
 
 function formatDuree(ms: number): string {
@@ -188,7 +190,7 @@ function MotifModal({ C, titre, description, motif, setMotif, loading, error, co
         }
       `}</style>
       <div onClick={e => e.stopPropagation()} className="valider-annuler-panel" style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "22px 20px 32px", width: "100%", maxWidth: "440px", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-        <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800", marginBottom: "6px" }}>{titre}</div>
+        <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>{titre}</div>
         <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6, marginBottom: requireMotif ? "14px" : 0 }}>{description}</p>
         {requireMotif && (
           <>
@@ -203,19 +205,6 @@ function MotifModal({ C, titre, description, motif, setMotif, loading, error, co
         </div>
       </div>
     </div>
-  );
-}
-
-function SimpleKpiCard({ label, icon, color, value, sousTexte, solid, C }: { label: string; icon: React.ReactNode; color: string; value: string; sousTexte?: string; solid?: boolean; C: ThemeTokens }) {
-  return (
-    <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: solid ? color : `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color: solid ? "#000" : color, flexShrink: 0 }}>{icon}</div>
-        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
-      </div>
-      <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1, letterSpacing: "-0.3px" }}>{value}</div>
-      {sousTexte && <div style={{ color: C.t3, fontSize: "10.5px" }}>{sousTexte}</div>}
-    </Card>
   );
 }
 
@@ -263,7 +252,10 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(false);
   const [showAide, setShowAide] = useState(false);
+  const [paiementOuvert, setPaiementOuvert] = useState(true);
+  const [expireBannerFerme, setExpireBannerFerme] = useState(false);
 
   // "Annuler la validation" (secondaire, réservé confirme→paiements.rembourser
   // / no_show,annule→rdv.write côté serveur, motif obligatoire) — reverse une
@@ -310,7 +302,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
   useEffect(() => {
     if (!preloadBookingId) return;
     (async () => {
-      setSearching(true); setSearchError(null); setBooking(null); setActionSuccess(null); setActionError(null); setActionErrorMeta(null);
+      setSearching(true); setSearchError(null); setBooking(null); setActionSuccess(null); setActionError(null); setActionErrorMeta(null); setExpireBannerFerme(false);
       const res = await fetch(`/api/institution/paid-bookings/valider?id=${preloadBookingId}`);
       const j = await res.json().catch(() => null);
       setSearching(false);
@@ -324,9 +316,12 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
-    const res = await fetch("/api/institution/paid-bookings/valider?history=1");
-    const j = res.ok ? await res.json().catch(() => null) : null;
-    setHistory(j?.history ?? []);
+    try {
+      const res = await fetch("/api/institution/paid-bookings/valider?history=1");
+      const j = res.ok ? await res.json().catch(() => null) : null;
+      setHistoryError(!j);
+      setHistory(j?.history ?? []);
+    } catch { setHistoryError(true); }
     setHistoryLoading(false);
   }, []);
 
@@ -343,6 +338,8 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
 
   function handleKeyDown(index: number, e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Backspace" && !digits[index] && index > 0) inputRefs.current[index - 1]?.focus();
+    if (e.key === "ArrowLeft" && index > 0) { e.preventDefault(); inputRefs.current[index - 1]?.focus(); }
+    if (e.key === "ArrowRight" && index < 5) { e.preventDefault(); inputRefs.current[index + 1]?.focus(); }
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
@@ -360,6 +357,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
     setActionError(null);
     setActionErrorMeta(null);
     setActionSuccess(null);
+    setExpireBannerFerme(false);
     lastAutoSearched.current = "";
     ficheShownAt.current = null;
     setTimeout(() => inputRefs.current[0]?.focus(), 50);
@@ -372,6 +370,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
     setActionSuccess(null);
     setActionError(null);
     setActionErrorMeta(null);
+    setExpireBannerFerme(false);
 
     const res = await fetch(`/api/institution/paid-bookings/valider?code=${code}`);
     const j = await res.json().catch(() => null);
@@ -404,7 +403,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
     const res = await fetch("/api/institution/paid-bookings/valider", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: booking.id, action: newStatut, ...(motif ? { motif } : {}) }),
+      body: JSON.stringify({ id: booking.id, action: newStatut, ...(motif ? { motif } : {}), ...(newStatut === "confirme" ? { montant_vu: booking.service_prix } : {}) }),
     });
     const j = await res.json().catch(() => null);
     if (!res.ok) {
@@ -484,7 +483,6 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
   }, [actionSuccess]);
 
   const codeComplete = digits.every(d => d !== "");
-  const todayLabel = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   const nomCitoyen = booking ? (booking.pour_autre && booking.nom_autre ? booking.nom_autre : `${booking.citoyen_prenom ?? ""} ${booking.citoyen_nom ?? ""}`.trim() || "Citoyen enregistré") : "";
 
   // Alerte proactive "le citoyen est en avance" (section 7 du brief) —
@@ -492,8 +490,15 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
   // de validation refusée par le serveur (creneauEstOuvert, même règle
   // exacte que app/api/institution/paid-bookings/valider/route.ts::PATCH).
   const rdvDateTime = booking ? new Date(`${booking.date_rdv}T${booking.heure_rdv}:00`) : null;
-  const estEnAvance = !!booking && booking.statut === "en_attente" && !creneauEstOuvert(booking.date_rdv, booking.heure_rdv) && !!rdvDateTime && rdvDateTime.getTime() > Date.now();
+  const checkInStatus = booking ? calculerCheckInStatus(booking.date_rdv, booking.heure_rdv) : "CHECK_IN_AVAILABLE";
+  const estEnAvance = !!booking && booking.statut === "en_attente" && checkInStatus === "CHECK_IN_NOT_YET_AVAILABLE";
   const minutesEnAvance = estEnAvance && rdvDateTime ? Math.round((rdvDateTime.getTime() - Date.now()) / 60000) : 0;
+
+  // Journée du rendez-vous entièrement passée — proactif, pas seulement
+  // découvert après un clic refusé (même logique que estEnAvance ci-dessus,
+  // miroir indicatif du CHECK_IN_EXPIRED serveur, voir
+  // CheckInUnavailableDialog.tsx côté RDV gratuit).
+  const estExpire = !!booking && booking.statut === "en_attente" && checkInStatus === "CHECK_IN_EXPIRED";
 
   // Encadré Vérification (section 6 du brief) — voir le commentaire de
   // CheckRow pour ce que chaque contrôle mesure réellement.
@@ -511,29 +516,48 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
   const peutAnnulerValidation = !!booking && booking.statut !== "en_attente" && !!booking.traite_le
     && booking.traite_le.slice(0, 10) === new Date().toISOString().slice(0, 10);
 
-  const kpis: { label: string; value: string; color: string; icon: React.ReactNode; sousTexte?: string; solid?: boolean }[] = [
+  const prixSepare = formatPrix(todayCA);
+  const prixSep = prixSepare.lastIndexOf(" ");
+  const iconKpi = (d: ReactNode) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>;
+  const stats: ValidationStat[] = [
     {
-      label: "Citoyens reçus", value: String(citoyensRecus), color: C.t1,
-      icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-      sousTexte: "traités aujourd'hui",
+      label: "Citoyens reçus", value: String(citoyensRecus), sub: "traités aujourd'hui",
+      icon: iconKpi(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>),
     },
     {
-      label: "Paiements validés", value: String(todayPaye), color: C.green,
-      icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+      label: "Paiements validés", value: String(todayPaye), sub: "Aujourd'hui",
+      icon: iconKpi(<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>),
     },
     {
-      label: "Chiffre du jour", value: formatPrix(todayCA), color: C.gold, solid: true,
-      icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>,
+      label: "Chiffre du jour", value: prixSepare.slice(0, prixSep), unit: prixSepare.slice(prixSep + 1), sub: "Aujourd'hui",
+      icon: iconKpi(<><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></>),
     },
     {
-      label: "Temps moyen", value: avgMs !== null ? formatDuree(avgMs) : "—", color: C.t1,
-      icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-      sousTexte: avgMs !== null ? "par validation, cette session" : "aucune validation encore",
+      label: "Temps moyen", value: avgMs !== null ? formatDuree(avgMs) : "—", sub: avgMs !== null ? "par validation, cette session" : "aucune validation encore",
+      icon: iconKpi(<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>),
     },
   ];
+  const activiteRows: ActiviteRow[] = history.map(h => {
+    const cfg = statutConfig[h.statut];
+    return {
+      id: h.id, statut: h.statut, label: cfg.label, color: cfg.color, bg: cfg.bg,
+      icon: <StatutIcon statut={h.statut} color={cfg.color} size={12}/>,
+      heure: h.traite_le ? formatHeure(h.traite_le) : "—", nom: nomPropre(h.citoyen_nom || h.service_nom),
+    };
+  });
+  const traiteesRows: TraiteeRow[] = history.map(h => {
+    const cfg = statutConfig[h.statut];
+    return {
+      id: h.id, avatar: <Avatar nom={h.citoyen_nom} photoUrl={h.citoyen_photo_url} C={C} size={32}/>,
+      nom: nomPropre(h.citoyen_nom ?? ""), service: h.service_nom, code: h.confirmation_code,
+      prix: h.statut === "confirme" ? formatPrix(h.service_prix) : null,
+      heure: h.traite_le ? formatHeure(h.traite_le) : "—",
+      label: cfg.label, color: cfg.color, bg: cfg.bg, icon: <StatutIcon statut={h.statut} color={cfg.color} size={12}/>,
+    };
+  });
 
   return (
-    <div style={{ padding: "16px", paddingBottom: "40px", animation: "fadeUp 0.2s ease" }}>
+    <div className="vrx-page" style={{ animation: "fadeUp 0.2s ease" }}>
       {showAnnulerModal && booking && (
         <MotifModal
           C={C}
@@ -591,7 +615,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
           Lecture verticale en 5 zones titrées : alertes → Citoyen → Détails
           de la réservation → Paiement → Vérification/Historique → Action. */}
       {booking && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: C.bg, overflowY: "auto", animation: "fadeIn 0.2s ease" }}>
+        <div className="client-fiche-scroll" style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: C.bg, overflowY: "scroll", animation: "fadeIn 0.2s ease" }}>
           <header style={{ position: "sticky", top: 0, zIndex: 10, background: `${C.bg}F2`, backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.border}`, padding: "env(safe-area-inset-top) 16px 0" }}>
             <div style={{ height: "56px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
               <button onClick={resetCode} className="tap" aria-label="Fermer" style={{ justifySelf: "start", width: "36px", height: "36px", borderRadius: "10px", background: C.bg3, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.t1, cursor: "pointer" }}>
@@ -623,21 +647,52 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                   <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.6 }}>
                     {booking.date_depart
                       ? `Arrivée prévue le ${new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}, dans environ ${Math.max(1, Math.round(minutesEnAvance / 1440))} jour${Math.round(minutesEnAvance / 1440) > 1 ? "s" : ""}.`
-                      : `Rendez-vous prévu à ${booking.heure_rdv}, dans environ ${minutesEnAvance} min. La validation ne sera possible qu'à partir de 10 minutes avant l'heure prévue.`}
+                      : `Rendez-vous prévu à ${heureAmPm(booking.heure_rdv) || booking.heure_rdv}, dans environ ${minutesEnAvance} min. La validation ne sera possible qu'à partir de 10 minutes avant l'heure prévue.`}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Hors créneau — "le citoyen est en avance" détecté par le
-                serveur après une tentative refusée (section 12 du brief) */}
+            {/* RDV expiré — journée du rendez-vous entièrement passée, verrou
+                permanent (contrairement à "en avance" ci-dessus, qui se lève
+                de lui-même) : proactif, pas seulement découvert après un clic
+                refusé. Miroir indicatif du CHECK_IN_EXPIRED serveur, voir
+                CheckInUnavailableDialog.tsx côté RDV gratuit. */}
+            {estExpire && !actionErrorMeta && !expireBannerFerme && (
+              <div style={{ marginBottom: "14px", padding: "16px 18px", background: `${C.red}10`, border: `1px solid ${C.red}35`, borderRadius: "16px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: `${C.red}18`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: C.red, fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>{RDV_EXPIRE_MESSAGE.titre}</div>
+                  <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.6 }}>
+                    {booking.date_depart
+                      ? `Arrivée prévue le ${new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — la journée est terminée, plus aucune action n'est possible depuis cet écran.`
+                      : `Rendez-vous prévu le ${new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} à ${heureAmPm(booking.heure_rdv) || booking.heure_rdv} — la journée est terminée, plus aucune action n'est possible depuis cet écran.`}
+                  </div>
+                </div>
+                <button onClick={() => setExpireBannerFerme(true)} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", padding: "2px", cursor: "pointer", color: C.t3, flexShrink: 0 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            )}
+
+            {/* Hors créneau — détecté par le serveur après une tentative
+                refusée (section 12 du brief) : "en avance" (orange, le verrou
+                se lève de lui-même) ou "expiré" (rouge, verrou permanent,
+                voir RDV_EXPIRE_MESSAGE) — même distinction que les deux
+                bandeaux proactifs ci-dessus. */}
             {actionErrorMeta && (
-              <div style={{ marginBottom: "14px", padding: "16px 18px", background: `${C.orange}10`, border: `1px solid ${C.orange}35`, borderRadius: "16px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: `${C.orange}18`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <div style={{ marginBottom: "14px", padding: "16px 18px", background: `${actionErrorMeta.titre === RDV_EXPIRE_MESSAGE.titre ? C.red : C.orange}10`, border: `1px solid ${actionErrorMeta.titre === RDV_EXPIRE_MESSAGE.titre ? C.red : C.orange}35`, borderRadius: "16px", display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: `${actionErrorMeta.titre === RDV_EXPIRE_MESSAGE.titre ? C.red : C.orange}18`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {actionErrorMeta.titre === RDV_EXPIRE_MESSAGE.titre ? (
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                  ) : (
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  )}
                 </div>
                 <div>
-                  <div style={{ color: C.orange, fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>{actionErrorMeta.titre}</div>
+                  <div style={{ color: actionErrorMeta.titre === RDV_EXPIRE_MESSAGE.titre ? C.red : C.orange, fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>{actionErrorMeta.titre}</div>
                   <div style={{ color: C.t2, fontSize: "11.5px", lineHeight: 1.6, whiteSpace: "pre-line" }}>{actionErrorMeta.message}</div>
                 </div>
               </div>
@@ -669,7 +724,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                 <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: `${statutConfig[actionSuccess].color}20`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
                   <StatutIcon statut={actionSuccess} color={statutConfig[actionSuccess].color} size={26}/>
                 </div>
-                <div style={{ color: statutConfig[actionSuccess].color, fontSize: "17px", fontWeight: "800", letterSpacing: "-0.3px" }}>
+                <div style={{ color: statutConfig[actionSuccess].color, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.3px" }}>
                   {actionSuccess === "confirme" && (booking.service_prix > 0 ? "Paiement confirmé." : "Présence confirmée.")}
                   {actionSuccess === "no_show" && "Citoyen marqué absent"}
                   {actionSuccess === "annule" && "Réservation annulée"}
@@ -688,22 +743,22 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
             </div>
 
             {/* Zone 1 — Citoyen (photo, nom, badge) */}
-            <div className="fiche-area-citoyen" style={{ gridArea: "citoyen", background: C.bgCard, borderRadius: "22px", border: `1.5px solid ${booking.statut === "en_attente" ? `${C.gold}30` : C.border2}`, overflow: "hidden", marginBottom: "14px" }}>
-              <div style={{ height: "4px", background: booking.statut === "en_attente" ? `linear-gradient(90deg, ${C.gold}, ${C.goldL})` : statutConfig[booking.statut].color }}/>
+            <div className="fiche-area-citoyen" style={{ gridArea: "citoyen", background: C.bgCard, borderRadius: "22px", border: `1.5px solid ${C.border2}`, overflow: "hidden", marginBottom: "14px" }}>
+              {booking.statut !== "en_attente" && <div style={{ height: "4px", background: statutConfig[booking.statut].color }}/>}
               <div style={{ padding: "20px 20px 20px" }}>
-                <div style={{ color: C.t3, fontSize: "11px", fontWeight: "800", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "16px" }}>{booking.pour_autre ? "Bénéficiaire du rendez-vous" : "Citoyen"}</div>
+                <div style={{ color: C.t3, fontSize: "11px", fontWeight: "800", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "16px" }}>{booking.pour_autre ? "Bénéficiaire du rendez-vous" : "Client"}</div>
                 <div style={{ textAlign: "center" }}>
                   <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}>
                     <Avatar nom={nomCitoyen} photoUrl={booking.pour_autre ? null : booking.citoyen_photo_url} C={C} size={88}/>
                   </div>
-                  <div style={{ color: C.t1, fontSize: "19px", fontWeight: "800", letterSpacing: "-0.3px" }}>{nomCitoyen}</div>
+                  <div style={{ color: C.t1, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.3px" }}>{nomCitoyen}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", marginTop: "10px", flexWrap: "wrap" }}>
-                    <span style={{ padding: "5px 11px", background: statutConfig[booking.statut].bg, border: `1px solid ${statutConfig[booking.statut].color}44`, borderRadius: "20px", display: "flex", alignItems: "center", gap: "5px" }}>
-                      <StatutIcon statut={booking.statut} color={statutConfig[booking.statut].color} size={11}/>
-                      <span style={{ color: statutConfig[booking.statut].color, fontSize: "11px", fontWeight: "800" }}>{statutConfig[booking.statut].label}</span>
+                    <span style={{ padding: "5px 11px", background: booking.statut === "en_attente" ? C.gold : statutConfig[booking.statut].bg, border: booking.statut === "en_attente" ? "none" : `1px solid ${statutConfig[booking.statut].color}44`, borderRadius: "20px", display: "flex", alignItems: "center", gap: "5px" }}>
+                      <StatutIcon statut={booking.statut} color={booking.statut === "en_attente" ? "#000" : statutConfig[booking.statut].color} size={11}/>
+                      <span style={{ color: booking.statut === "en_attente" ? "#000" : statutConfig[booking.statut].color, fontSize: "11px", fontWeight: "800" }}>{statutConfig[booking.statut].label}</span>
                     </span>
                     {!booking.pour_autre ? (
-                      <span style={{ padding: "5px 11px", background: C.bg3, border: `1px solid ${C.border}`, borderRadius: "20px", color: C.t2, fontSize: "10.5px", fontWeight: "700" }}>Citoyen Yelen vérifié</span>
+                      <span style={{ padding: "5px 11px", background: C.bg3, border: `1px solid ${C.border}`, borderRadius: "20px", color: C.t2, fontSize: "10.5px", fontWeight: "700" }}>Client vérifié</span>
                     ) : (
                       <span style={{ padding: "5px 11px", background: `${C.orange}12`, border: `1px solid ${C.orange}40`, borderRadius: "20px", color: C.orange, fontSize: "10.5px", fontWeight: "700" }}>Tiers — identité non vérifiée</span>
                     )}
@@ -726,7 +781,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                   </div>
 
                   {(booking.pour_autre ? booking.phone_autre : booking.citoyen_phone) && (
-                    <a href={`tel:${booking.pour_autre ? booking.phone_autre : booking.citoyen_phone}`} className="tap" style={{ marginTop: "14px", width: "100%", padding: "10px", borderRadius: "10px", border: `1px solid ${C.gold}25`, background: `${C.gold}0A`, color: C.gold, fontSize: "12px", fontWeight: "700", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                    <a href={`tel:${booking.pour_autre ? booking.phone_autre : booking.citoyen_phone}`} className="tap" style={{ marginTop: "14px", width: "100%", padding: "10px", borderRadius: "10px", border: `1px solid ${C.border2}`, background: "transparent", color: C.gold, fontSize: "12px", fontWeight: "700", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                       Appeler
                     </a>
@@ -742,7 +797,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                       en une seule identité. */}
                   {booking.pour_autre && (
                     <div style={{ marginTop: "16px", padding: "14px 16px", borderRadius: "14px", background: C.bg3, border: `1px solid ${C.border2}`, textAlign: "left" }}>
-                      <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "800", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "10px" }}>Réservé par</div>
+                      <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "10px" }}>Réservé par</div>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                         <Avatar nom={`${booking.citoyen_prenom ?? ""} ${booking.citoyen_nom ?? ""}`.trim() || "Compte Yelen"} photoUrl={booking.citoyen_photo_url} C={C} size={38}/>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -767,31 +822,31 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                 // affiché ici, voir ServicesHotelTab.tsx::handleSaveChambre).
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
                   <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Arrivée</div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Arrivée</div>
                     <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
                   </div>
                   <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Départ</div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Départ</div>
                     <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{new Date(`${booking.date_depart}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
                   </div>
                   <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Nuits</div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Nuits</div>
                     <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{Math.round((new Date(`${booking.date_depart}T00:00:00`).getTime() - new Date(`${booking.date_rdv}T00:00:00`).getTime()) / 86400000)}</div>
                   </div>
                 </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: booking.service_duree > 0 ? "1fr 1fr 1fr" : "1fr 1fr", gap: "10px" }}>
                   <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Date</div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Date</div>
                     <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{new Date(`${booking.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</div>
                   </div>
                   <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Heure</div>
-                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{booking.heure_rdv}</div>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Heure</div>
+                    <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{heureAmPm(booking.heure_rdv) || booking.heure_rdv}</div>
                   </div>
                   {booking.service_duree > 0 && (
                     <div>
-                      <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Durée prévue</div>
+                      <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Durée prévue</div>
                       <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{booking.service_duree} min</div>
                     </div>
                   )}
@@ -799,49 +854,61 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
               )}
             </div>
 
-            {/* Zone 3 — Paiement (uniquement si le service est payant) */}
+            {/* Zone 3 — Paiement (uniquement si le service est payant) —
+                refonte "réduisable" (demande Bryan 15/10/2026) : header
+                cliquable toujours visible (montant + statut en un coup
+                d'œil), détails (mode, déclaration citoyen) repliables. */}
             {booking.service_prix > 0 && (
-              <div style={{ background: `${C.gold}08`, border: `1px solid ${C.gold}20`, borderRadius: "18px", padding: "18px 20px", marginBottom: "14px" }}>
-                <div style={{ color: C.t3, fontSize: "11px", fontWeight: "800", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "14px" }}>Paiement</div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Montant</div>
-                    <div style={{ color: C.gold, fontSize: "19px", fontWeight: "800", letterSpacing: "-0.3px" }}>{formatPrix(booking.service_prix)}</div>
+              <div style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "18px", marginBottom: "14px", overflow: "hidden" }}>
+                <button
+                  type="button"
+                  onClick={() => setPaiementOuvert(v => !v)}
+                  className="tap"
+                  aria-expanded={paiementOuvert}
+                  style={{ width: "100%", background: "none", border: "none", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px", cursor: "pointer", textAlign: "left" }}
+                >
+                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Mode</div>
-                    <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700" }}>Paiement sur place</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.8px", textTransform: "uppercase" }}>Paiement</div>
+                    <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", letterSpacing: "-0.3px", marginTop: "2px" }}>{formatPrix(booking.service_prix)}</div>
                   </div>
-                </div>
-                <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ color: C.t3, fontSize: "10.5px" }}>Statut :</span>
                   {booking.statut === "confirme" ? (
-                    <span style={{ color: C.green, fontSize: "11px", fontWeight: "800", display: "flex", alignItems: "center", gap: "4px" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      Paiement confirmé
-                    </span>
+                    <span style={{ padding: "4px 10px", background: C.greenL, borderRadius: "20px", color: C.green, fontSize: "10.5px", fontWeight: "800", flexShrink: 0 }}>Confirmé</span>
                   ) : (
-                    <span style={{ color: C.gold, fontSize: "11px", fontWeight: "800" }}>En attente</span>
+                    <span style={{ padding: "4px 10px", border: `1px solid ${C.border2}`, borderRadius: "20px", color: C.gold, fontSize: "10.5px", fontWeight: "800", flexShrink: 0 }}>En attente</span>
                   )}
-                </div>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: paiementOuvert ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
 
-                {/* Double confirmation (Lot B, décision CEO 05/08/2026) —
-                    déclaration du citoyen, très visible, à comparer avant
-                    de valider. Aucune saisie libre côté agent : il compare
-                    puis valide, le serveur refait la comparaison de toute
-                    façon (source de vérité). */}
-                {booking.statut === "en_attente" && (
-                  booking.declare_le ? (
-                    <div style={{ marginTop: "14px", padding: "14px 16px", borderRadius: "14px", background: `${C.green}12`, border: `1.5px solid ${C.green}40` }}>
-                      <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Le citoyen déclare avoir remis</div>
-                      <div style={{ color: C.green, fontSize: "20px", fontWeight: "800" }}>{formatPrix(booking.montant_declare_citoyen ?? booking.service_prix)}</div>
+                {paiementOuvert && (
+                  <div style={{ padding: "0 20px 18px", animation: "fadeUp 0.2s ease" }}>
+                    <div style={{ height: "1px", background: C.border, marginBottom: "16px" }}/>
+                    <div>
+                      <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "3px" }}>Mode</div>
+                      <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700" }}>Paiement sur place</div>
                     </div>
-                  ) : (
-                    <div style={{ marginTop: "14px", padding: "12px 16px", borderRadius: "14px", background: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", gap: "10px" }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                      <span style={{ color: C.t2, fontSize: "11.5px", fontWeight: "600", lineHeight: 1.5 }}>Le citoyen n&apos;a pas encore déclaré remettre ce paiement depuis son écran.</span>
-                    </div>
-                  )
+
+                    {/* Double confirmation (Lot B, décision CEO 05/08/2026) —
+                        déclaration du citoyen, très visible, à comparer avant
+                        de valider. Aucune saisie libre côté agent : il compare
+                        puis valide, le serveur refait la comparaison de toute
+                        façon (source de vérité). */}
+                    {booking.statut === "en_attente" && (
+                      booking.declare_le ? (
+                        <div style={{ marginTop: "14px", padding: "14px 16px", borderRadius: "14px", background: `${C.green}12`, border: `1.5px solid ${C.green}40` }}>
+                          <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Le citoyen déclare avoir remis</div>
+                          <div style={{ color: C.green, fontSize: "20px", fontWeight: "800" }}>{formatPrix(booking.montant_declare_citoyen ?? booking.service_prix)}</div>
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: "14px", padding: "12px 16px", borderRadius: "14px", background: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", gap: "10px" }}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                          <span style={{ color: C.t2, fontSize: "11.5px", fontWeight: "600", lineHeight: 1.5 }}>Le citoyen n&apos;a pas encore déclaré remettre ce paiement depuis son écran.</span>
+                        </div>
+                      )
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -863,7 +930,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
               ) : (
                 <>
                   <div style={{ display: "flex", alignItems: "baseline", gap: "16px", marginBottom: "8px", flexWrap: "wrap" }}>
-                    <div><span style={{ color: C.t1, fontSize: "18px", fontWeight: "800" }}>{booking.historique.total}</span> <span style={{ color: C.t3, fontSize: "11px" }}>rendez-vous</span></div>
+                    <div><span style={{ color: C.t1, fontSize: "15px", fontWeight: "800" }}>{booking.historique.total}</span> <span style={{ color: C.t3, fontSize: "11px" }}>rendez-vous</span></div>
                     <div><span style={{ color: C.green, fontSize: "13px", fontWeight: "800" }}>{booking.historique.honores}</span> <span style={{ color: C.t3, fontSize: "11px" }}>honoré{booking.historique.honores > 1 ? "s" : ""}</span></div>
                     {booking.historique.absents > 0 && (
                       <div><span style={{ color: C.red, fontSize: "13px", fontWeight: "800" }}>{booking.historique.absents}</span> <span style={{ color: C.t3, fontSize: "11px" }}>absent{booking.historique.absents > 1 ? "s" : ""}</span></div>
@@ -878,7 +945,7 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
 
             {/* Zone 5 — Action */}
             {booking.statut === "en_attente" && !actionSuccess && (
-              <div style={{ background: C.bgCard, border: `1.5px solid ${C.gold}30`, borderRadius: "18px", padding: "18px 20px" }}>
+              <div style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "18px", padding: "18px 20px" }}>
                 <div style={{ color: C.t3, fontSize: "11px", fontWeight: "800", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "14px" }}>Action</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {actionError && (
@@ -891,19 +958,19 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                   <Button
                     tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth
                     onClick={() => handleAction("confirme")}
-                    disabled={declarationRequiseMaisAbsente}
+                    disabled={declarationRequiseMaisAbsente || estExpire}
                     loading={actionLoading}
                     loadingColor="#fff"
                     style={{
-                      backgroundColor: declarationRequiseMaisAbsente ? C.bg3 : C.green,
-                      borderColor: declarationRequiseMaisAbsente ? C.bg3 : C.green,
-                      color: declarationRequiseMaisAbsente ? C.t3 : "#fff",
+                      backgroundColor: declarationRequiseMaisAbsente || estExpire ? C.bg3 : C.green,
+                      borderColor: declarationRequiseMaisAbsente || estExpire ? C.bg3 : C.green,
+                      color: declarationRequiseMaisAbsente || estExpire ? C.t3 : "#fff",
                       fontSize: "14px", letterSpacing: "-0.3px",
-                      boxShadow: declarationRequiseMaisAbsente ? "none" : `0 8px 28px ${C.green}35`,
+                      boxShadow: declarationRequiseMaisAbsente || estExpire ? "none" : `0 8px 28px ${C.green}35`,
                     }}
-                    icon={!declarationRequiseMaisAbsente ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg> : undefined}
+                    icon={!declarationRequiseMaisAbsente && !estExpire ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg> : undefined}
                   >
-                    {actionLoading ? "Traitement en cours…" : declarationRequiseMaisAbsente ? "En attente de la déclaration du citoyen" : (booking.service_prix > 0 ? `Valider le paiement · ${formatPrix(booking.service_prix)}` : "Confirmer gratuitement")}
+                    {actionLoading ? "Traitement en cours…" : estExpire ? "Rendez-vous expiré" : declarationRequiseMaisAbsente ? "En attente de la déclaration du citoyen" : (booking.service_prix > 0 ? `Valider le paiement · ${formatPrix(booking.service_prix)}` : "Confirmer gratuitement")}
                   </Button>
 
                   {booking.service_prix > 0 && (
@@ -919,13 +986,18 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
                       séparément si besoin réel) ; "Historique des rendez-vous"
                       est déjà couvert par le bloc Historique Yelen ci-dessus. */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={actionLoading}
+                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={actionLoading || estExpire}
                       icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>}
                       onClick={() => setShowAbsentModal(true)}>Marquer comme absent</Button>
-                    <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={actionLoading}
+                    <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" disabled={actionLoading || estExpire}
                       icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>}
                       onClick={() => { setAnnulerReservationMotif(""); setAnnulerReservationError(null); setShowAnnulerReservationModal(true); }}>Annuler la réservation</Button>
                   </div>
+                  {estExpire && (
+                    <div style={{ textAlign: "center", color: C.t3, fontSize: "11px", lineHeight: 1.5, padding: "0 8px" }}>
+                      La journée de ce rendez-vous est terminée — aucune action n&apos;est plus possible depuis cet écran.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -940,42 +1012,12 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
         </div>
       )}
 
-      {/* ── Hero header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
-        <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Centre de validation</h1>
-          <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5, maxWidth: "480px" }}>
-            Validez les rendez-vous, confirmez les paiements et enregistrez l&apos;arrivée des citoyens en quelques secondes.
-          </p>
-        </div>
-        <Image src="/illustrations/centre-validation-hero.png" alt="Validation des rendez-vous et paiements en quelques secondes" width={1536} height={1024} style={{ width: "180px", maxWidth: "100%", height: "auto", flexShrink: 0 }}/>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "flex-end", marginBottom: "5px" }}>
-            <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
-            <span style={{ color: C.green, fontSize: "10.5px", fontWeight: 800 }}>Temps réel</span>
-          </div>
-          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Aujourd&apos;hui</div>
-          <div style={{ color: C.t3, fontSize: "11px" }}>{todayLabel}</div>
-        </div>
-      </div>
+      <ValidationStyles C={C}/>
+      <ValidationHeader C={C} helpSlot={<HelpCenterGuide tab="valider-rdv" />} aideOuverte={showAide} onToggleAide={() => setShowAide(v => !v)}/>
 
-      {/* ── KPI exécutifs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px", marginBottom: "18px" }}>
-        {kpis.map(k => <SimpleKpiCard key={k.label} {...k} C={C}/>)}
-      </div>
-
-      {/* Aide — remplace le guide pleine largeur d'origine (section 10 du
-          brief) : une fois l'agent formé, il ne prend plus de place, juste
-          un petit lien qui déplie la procédure à la demande. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
-        <button onClick={() => setShowAide(v => !v)} className="tap" style={{ background: "none", border: "none", color: C.t3, fontSize: "11.5px", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: "5px", padding: "4px 2px" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Besoin d&apos;aide ? Voir la procédure
-        </button>
-      </div>
       {showAide && (
-        <div style={{ marginBottom: "16px", padding: "16px 18px", background: `${C.gold}08`, border: `1px solid ${C.gold}20`, borderRadius: "18px" }}>
-          <div style={{ color: C.t3, fontSize: "9px", fontWeight: "700", letterSpacing: "1.4px", textTransform: "uppercase", marginBottom: "12px" }}>
+        <div style={{ marginBottom: "20px", padding: "16px 18px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px" }}>
+          <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
             Comment valider un paiement
           </div>
           {[
@@ -984,216 +1026,29 @@ export function ValiderRdvTab({ preloadBookingId, onPreloadConsumed }: { instId:
             { num: "3", title: "Vérifiez la fiche et encaissez", desc: "Confirmez le service, le montant, puis validez le paiement." },
           ].map((step, i, arr) => (
             <div key={step.num} style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-              <div style={{ width: "22px", height: "22px", borderRadius: "7px", background: `${C.gold}15`, border: `1px solid ${C.gold}25`, display: "flex", alignItems: "center", justifyContent: "center", color: C.gold, fontSize: "11px", fontWeight: "800", flexShrink: 0, marginTop: "1px" }}>
+              <div style={{ width: "22px", height: "22px", borderRadius: "7px", background: C.bg3, color: C.t2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 600, flexShrink: 0, marginTop: "1px" }}>
                 {step.num}
               </div>
               <div>
-                <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700", marginBottom: "2px" }}>{step.title}</div>
-                <div style={{ color: C.t3, fontSize: "11px", lineHeight: 1.5 }}>{step.desc}</div>
+                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 600, marginBottom: "2px" }}>{step.title}</div>
+                <div style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.5 }}>{step.desc}</div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Corps : Code → Fiche → Action en contenu principal, Timeline de
-          la journée en panneau latéral collant ≥1024px. ── */}
-      <div className="valider-layout" style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px", alignItems: "start", marginBottom: "20px" }}>
-        <style>{`
-          @media(min-width:1024px){
-            .valider-layout{grid-template-columns:1fr 320px!important}
-            .valider-sidebar{position:sticky;top:16px}
-          }
-        `}</style>
+      <ValidationStats C={C} items={stats} loading={historyLoading && history.length === 0}/>
 
-        <div>
-          {/* Saisie code — le héros de l'écran (section 3 du brief) */}
-          <div style={{ background: C.bgCard, borderRadius: "24px", border: `1px solid ${C.gold}25`, overflow: "hidden", marginBottom: "16px" }}>
-            <div style={{ padding: "28px 20px" }}>
-              <div style={{ textAlign: "center", marginBottom: "22px" }}>
-                <div style={{ width: "54px", height: "54px", borderRadius: "16px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                </div>
-                <h2 style={{ color: C.t1, fontSize: "19px", fontWeight: "800", margin: "0 0 6px", letterSpacing: "-0.4px" }}>Entrer le code citoyen</h2>
-                <p style={{ color: C.t3, fontSize: "12px", margin: 0, lineHeight: 1.7 }}>
-                  Le citoyen retrouve ce code dans son application Yelen.
-                </p>
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginBottom: "10px" }}>
-                {digits.map((d, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center" }}>
-                    <input
-                      ref={el => { inputRefs.current[i] = el; }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={d}
-                      onChange={e => handleDigit(i, e.target.value)}
-                      onKeyDown={e => handleKeyDown(i, e)}
-                      onPaste={i === 0 ? handlePaste : undefined}
-                      onFocus={() => setFocusedDigit(i)}
-                      onBlur={() => setFocusedDigit(prev => (prev === i ? null : prev))}
-                      disabled={searching}
-                      style={{
-                        width: "50px", height: "66px", borderRadius: "16px", fontSize: "30px", fontWeight: "800",
-                        textAlign: "center", fontFamily: "'SF Mono',monospace", transition: "all 0.15s", caretColor: C.gold,
-                        background: d ? `${C.gold}15` : focusedDigit === i ? `${C.gold}0C` : C.bg3,
-                        border: `2px solid ${d ? `${C.gold}70` : focusedDigit === i ? C.gold : C.border2}`,
-                        boxShadow: focusedDigit === i ? `0 0 0 3px ${C.gold}25` : "none",
-                        color: d ? C.gold : C.t2,
-                        opacity: searching ? 0.6 : 1,
-                      }}
-                    />
-                    {i === 2 && <div style={{ width: "14px", display: "flex", alignItems: "center", justifyContent: "center", color: C.t3, fontSize: "18px", fontWeight: "300", margin: "0 1px", userSelect: "none" }}>–</div>}
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ textAlign: "center", marginBottom: "16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                <div style={{ height: "3px", width: "80px", borderRadius: "99px", background: C.bg3, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${(digits.filter(d => d !== "").length / 6) * 100}%`, background: `linear-gradient(90deg, ${C.gold}, ${C.goldD})`, transition: "width 0.2s ease", borderRadius: "99px" }}/>
-                </div>
-                <span style={{ color: C.t3, fontSize: "10px", fontWeight: "600" }}>{digits.filter(d => d !== "").length}/6 chiffres</span>
-              </div>
-
-              {searching && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", padding: "10px 0" }}>
-                  <YelenLoader size={16} color={C.gold}/>
-                  <span style={{ color: C.t2, fontSize: "12.5px", fontWeight: "700" }}>Recherche en cours…</span>
-                </div>
-              )}
-
-              {searchError && (
-                <div style={{ marginBottom: "6px", padding: "12px 14px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "12px", display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                  <div>
-                    <div style={{ color: C.red, fontSize: "12.5px", fontWeight: "800" }}>Code introuvable</div>
-                    <div style={{ color: C.red, fontSize: "11.5px", fontWeight: "500", lineHeight: 1.5, marginTop: "2px" }}>{searchError}</div>
-                  </div>
-                </div>
-              )}
-
-              {(codeComplete || booking) && !searching && (
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth style={{ marginTop: "8px" }}
-                  icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>}
-                  onClick={resetCode}>Nouveau code</Button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Timeline de la journée (section 7 du brief) — condensée, panneau
-            latéral collant ≥1024px, même convention que DisponibilitesTab/
-            EquipeTab. */}
-        <Card tokens={toCardTokens(C)} padding="18px" className="valider-sidebar">
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: "800" }}>Timeline de la journée</div>
-          </div>
-
-          {historyLoading ? (
-            <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}><YelenLoader size={20}/></div>
-          ) : history.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "12px 4px" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "11px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="1.8" strokeLinecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-              </div>
-              <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6 }}>Rien traité pour l&apos;instant aujourd&apos;hui — les validations, absences et annulations apparaîtront ici au fil de la journée.</div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", maxHeight: "560px", overflowY: "auto" }}>
-              {history.map((h, i) => {
-                const cfg = statutConfig[h.statut];
-                return (
-                  <div key={h.id} style={{ display: "flex", gap: "10px", paddingBottom: i < history.length - 1 ? "12px" : 0 }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                      <div style={{ width: "22px", height: "22px", borderRadius: "50%", backgroundColor: cfg.bg, border: `1px solid ${cfg.color}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <StatutIcon statut={h.statut} color={cfg.color} size={11}/>
-                      </div>
-                      {i < history.length - 1 && <div style={{ width: "1px", flex: 1, backgroundColor: C.border, marginTop: "4px" }}/>}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0, paddingTop: "1px" }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-                        <span style={{ color: C.t1, fontSize: "12px", fontWeight: "700" }}>{cfg.label}</span>
-                        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", flexShrink: 0 }}>{h.traite_le ? formatHeure(h.traite_le) : "—"}</span>
-                      </div>
-                      <div style={{ color: C.t3, fontSize: "10.5px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.citoyen_nom || h.service_nom}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
+      <div className="vrx-grid">
+        <CodeEntryCard C={C} digits={digits} inputRefs={inputRefs} searching={searching} searchError={searchError}
+          focusedDigit={focusedDigit} onFocusDigit={setFocusedDigit} onBlurDigit={i => setFocusedDigit(prev => (prev === i ? null : prev))}
+          onDigit={handleDigit} onKeyDown={handleKeyDown} onPaste={handlePaste} onReset={resetCode}
+          showNouveauCode={(codeComplete || !!booking) && !searching}/>
+        <DailyActivityCard C={C} rows={activiteRows} loading={historyLoading && history.length === 0} error={historyError} onRetry={loadHistory}/>
       </div>
 
-      {/* Historique du jour — liste enrichie (section 8 du brief) */}
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
-          <div style={{ height: "1px", flex: 1, background: C.border }}/>
-          <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase" }}>Traitées aujourd&apos;hui · {history.length}</span>
-          <div style={{ height: "1px", flex: 1, background: C.border }}/>
-        </div>
-
-        {historyLoading ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "30px" }}>
-            <YelenLoader size={28} label="Chargement de l'historique…" labelColor={C.t3}/>
-          </div>
-        ) : history.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "36px 20px", background: C.bgCard, borderRadius: "18px", border: `1px dashed ${C.border2}` }}>
-            <div style={{ width: "44px", height: "44px", borderRadius: "13px", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="1.8" strokeLinecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-            </div>
-            <div style={{ color: C.t1, fontSize: "14px", fontWeight: "700", marginBottom: "4px" }}>Aucune réservation traitée aujourd&apos;hui</div>
-            <div style={{ color: C.t3, fontSize: "12px", lineHeight: 1.6 }}>Les validations, absences et annulations<br/>apparaîtront ici au fil de la journée.</div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {history.map(entry => {
-              const cfg = statutConfig[entry.statut];
-              return (
-                <div key={entry.id} style={{ background: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: "12px" }}>
-                  <Avatar nom={entry.citoyen_nom} photoUrl={entry.citoyen_photo_url} C={C} size={38}/>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px", gap: "8px" }}>
-                      <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{entry.service_nom}</div>
-                      <div style={{ color: entry.statut === "confirme" ? C.green : C.t3, fontSize: "12px", fontWeight: "800", flexShrink: 0 }}>
-                        {entry.statut === "confirme" ? `+${formatPrix(entry.service_prix)}` : "—"}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span style={{ color: C.t3, fontSize: "10px", fontFamily: "monospace", fontWeight: "700", background: C.bg3, padding: "1px 6px", borderRadius: "4px" }}>{entry.confirmation_code}</span>
-                      {entry.citoyen_nom && <span style={{ color: C.t3, fontSize: "10px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {entry.citoyen_nom}</span>}
-                      {entry.traite_le && <span style={{ color: C.t3, fontSize: "10px" }}>· {formatHeure(entry.traite_le)}</span>}
-                    </div>
-                  </div>
-                  <div style={{ padding: "4px 10px", background: cfg.bg, border: `1px solid ${cfg.color}33`, borderRadius: "20px", display: "flex", alignItems: "center", gap: "5px", flexShrink: 0 }}>
-                    <StatutIcon statut={entry.statut} color={cfg.color} size={11}/>
-                    <span style={{ color: cfg.color, fontSize: "10px", fontWeight: "800" }}>{cfg.label}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {history.length > 0 && (
-          <div style={{ marginTop: "14px", padding: "16px 18px", background: C.greenL, border: `1px solid ${C.green}30`, borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>Total encaissé aujourd&apos;hui</div>
-              <div style={{ color: C.green, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>{formatPrix(todayCA)}</div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "4px" }}>Réservations</div>
-              <div style={{ fontSize: "16px", fontWeight: "800" }}>
-                <span style={{ color: C.green }}>{todayPaye}</span>
-                <span style={{ color: C.t3, fontSize: "12px" }}> / {history.length}</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      <ProcessedTodayTable C={C} rows={traiteesRows} totalEncaisse={formatPrix(todayCA)} payes={todayPaye}/>
     </div>
   );
 }
