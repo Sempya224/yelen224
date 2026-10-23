@@ -3,11 +3,17 @@
 // Composants purement présentationnels du Centre de validation (refonte UI
 // 20/10/2026). Aucun fetch, aucun état métier : ValiderRdvTab.tsx garde la
 // saisie du code, la recherche automatique à 6 chiffres, les actions et les
-// KPI, et passe ici des props prêtes à afficher.
+// KPI, et passe ici des props prêtes à afficher. Fin de fichier (Mission B) :
+// logique PURE de la fiche (contrôles, raison de blocage, lecture des erreurs
+// serveur), sans réseau et sans horloge cachée, couverte par ValiderRdvUi.test.ts.
 import { useSyncExternalStore, type KeyboardEvent, type ClipboardEvent, type MutableRefObject, type ReactNode } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { type ThemeTokens, toUiTokens } from "../theme";
+import { calculerCheckInStatus, MINUTES_AVANT_AUTORISE } from "@/lib/rdvGating";
+import { heureAmPm, heureDepuisHorodatage, jourConakry } from "@/lib/heure";
+import { DEVISE_LABEL } from "@/lib/devise";
 
 export function nomPropre(nom: string): string {
   return nom.trim().toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_m, sep: string, c: string) => sep + c.toUpperCase());
@@ -104,9 +110,10 @@ export function ValidationStats({ C, items, loading }: { C: ThemeTokens; items: 
 }
 
 // ── Saisie du code ───────────────────────────────────────────────────────
-export function CodeEntryCard({ C, digits, inputRefs, searching, searchError, focusedDigit, onFocusDigit, onBlurDigit, onDigit, onKeyDown, onPaste, onReset, showNouveauCode }: {
+export function CodeEntryCard({ C, digits, inputRefs, searching, searchError, searchErrorTitre = "Code introuvable", desactive = false, focusedDigit, onFocusDigit, onBlurDigit, onDigit, onKeyDown, onPaste, onReset, showNouveauCode }: {
   C: ThemeTokens; digits: string[]; inputRefs: MutableRefObject<(HTMLInputElement | null)[]>;
-  searching: boolean; searchError: string | null; focusedDigit: number | null;
+  // desactive : saisie suspendue (limiteur de tentatives, 429) le temps du délai.
+  searching: boolean; searchError: string | null; searchErrorTitre?: string; desactive?: boolean; focusedDigit: number | null;
   onFocusDigit: (i: number) => void; onBlurDigit: (i: number) => void;
   onDigit: (i: number, v: string) => void; onKeyDown: (i: number, e: KeyboardEvent<HTMLInputElement>) => void;
   onPaste: (e: ClipboardEvent<HTMLInputElement>) => void; onReset: () => void; showNouveauCode: boolean;
@@ -130,7 +137,7 @@ export function CodeEntryCard({ C, digits, inputRefs, searching, searchError, fo
               autoComplete={i === 0 ? "one-time-code" : "off"}
               aria-label={`Chiffre ${i + 1} sur 6`}
               value={d}
-              readOnly={searching}
+              readOnly={searching || desactive}
               onChange={e => onDigit(i, e.target.value)}
               onKeyDown={e => onKeyDown(i, e)}
               onPaste={i === 0 ? onPaste : undefined}
@@ -139,7 +146,7 @@ export function CodeEntryCard({ C, digits, inputRefs, searching, searchError, fo
               style={{
                 boxSizing: "border-box", borderRadius: "10px", fontSize: "24px", fontWeight: 600, textAlign: "center",
                 fontFamily: "'SF Mono',ui-monospace,monospace", fontVariantNumeric: "tabular-nums", transition: "border-color 0.15s, box-shadow 0.15s",
-                caretColor: C.gold, backgroundColor: C.bgCard, color: C.t1, opacity: searching ? 0.7 : 1,
+                caretColor: C.gold, backgroundColor: C.bgCard, color: C.t1, opacity: searching || desactive ? 0.7 : 1,
                 border: `1.5px solid ${searchError ? C.red : focusedDigit === i ? C.gold : d ? C.t1 : C.border2}`,
                 boxShadow: focusedDigit === i ? `0 0 0 3px ${C.gold}33` : "none",
               }}
@@ -168,7 +175,7 @@ export function CodeEntryCard({ C, digits, inputRefs, searching, searchError, fo
             <span aria-hidden="true" style={{ width: "12px", height: "12px", borderRadius: "50%", border: `2px solid ${C.border2}`, borderTopColor: C.gold, animation: "vrxSpin 0.8s linear infinite" }}/>
             Recherche en cours…
           </span>
-        ) : "Vérification automatique à 6 chiffres"}
+        ) : desactive ? "Saisie suspendue quelques instants" : "Vérification automatique à 6 chiffres"}
       </div>
 
       <div aria-live="assertive">
@@ -176,7 +183,7 @@ export function CodeEntryCard({ C, digits, inputRefs, searching, searchError, fo
           <div role="alert" style={{ marginTop: "12px", padding: "12px 14px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", textAlign: "left", display: "flex", alignItems: "flex-start", gap: "8px" }}>
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "2px" }}><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             <div>
-              <div style={{ color: C.red, fontSize: "13px", fontWeight: 600 }}>Code introuvable</div>
+              <div style={{ color: C.red, fontSize: "13px", fontWeight: 600 }}>{searchErrorTitre}</div>
               <div style={{ color: C.red, fontSize: "12.5px", lineHeight: 1.5, marginTop: "2px" }}>{searchError}</div>
             </div>
           </div>
@@ -290,4 +297,156 @@ export function ProcessedTodayTable({ C, rows, totalEncaisse, payes }: { C: Them
       </div>
     </section>
   );
+}
+
+// ── Session expirée ──────────────────────────────────────────────────────
+export function BandeauSession({ C }: { C: ThemeTokens }) {
+  return (
+    <div role="alert" style={{ marginBottom: "14px", padding: "14px 16px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "12px", color: C.red, fontSize: "13px", lineHeight: 1.5 }}>
+      <strong style={{ fontWeight: 600 }}>Votre session a expiré.</strong> La fiche reste affichée, mais plus aucune action n&apos;est enregistrée.{" "}
+      <Link href="/institution/connexion" style={{ color: C.red, fontWeight: 600, textDecoration: "underline" }}>Se reconnecter</Link>
+    </div>
+  );
+}
+
+// ── Logique pure de la fiche (testée dans ValiderRdvUi.test.ts) ──────────
+// Aucun accès réseau ni horloge cachée : l'heure est toujours injectée.
+
+function gnf(n: number): string {
+  return `${n.toLocaleString("fr-FR")} ${DEVISE_LABEL}`;
+}
+
+function dateLongue(dateRdv: string): string {
+  return new Date(`${dateRdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+}
+
+// « 01:40:00 » -> heure d'ouverture du créneau (10 minutes avant), en 12 h AM/PM.
+function heureOuverture(heureRdv: string): string {
+  const [hh, mm] = (heureRdv || "00:00").split(":").map(Number);
+  const total = ((hh || 0) * 60 + (mm || 0) - MINUTES_AVANT_AUTORISE + 1440) % 1440;
+  const h = String(Math.floor(total / 60)).padStart(2, "0");
+  const m = String(total % 60).padStart(2, "0");
+  return heureAmPm(`${h}:${m}`) || `${h}:${m}`;
+}
+
+export type EtatControle = "ok" | "echec" | "attention" | "na";
+export type ControleId = "aujourdhui" | "creneau" | "declaration" | "montant" | "attente";
+export type Controle = { id: ControleId; label: string; etat: EtatControle; detail: string; bloquant: boolean };
+
+export type EntreeControles = {
+  statut: string; date_rdv: string; heure_rdv: string; date_depart: string | null;
+  service_prix: number; declare_le: string | null; montant_declare: number | null; prix_courant: number | null;
+};
+
+// Contrôles réels (jamais décoratifs). `bloquant` = le serveur refuserait
+// l'encaissement si le contrôle échoue ; les autres informent seulement.
+// « Rendez-vous aujourd'hui » reste informatif : la règle imposée par le
+// serveur est le créneau (calculerCheckInStatus, même fonction qu'en route).
+export function controlesValidation(b: EntreeControles, maintenant: Date): Controle[] {
+  const hotel = !!b.date_depart;
+  const aujourdhui = jourConakry(maintenant) === b.date_rdv;
+  const statutCreneau = calculerCheckInStatus(b.date_rdv, b.heure_rdv, maintenant);
+
+  const controleJour: Controle = {
+    id: "aujourdhui", label: hotel ? "Arrivée aujourd'hui" : "Rendez-vous aujourd'hui", bloquant: false,
+    etat: aujourdhui ? "ok" : "echec",
+    detail: aujourdhui ? "Prévu aujourd'hui" : `Prévu le ${dateLongue(b.date_rdv)}`,
+  };
+
+  const controleCreneau: Controle = {
+    id: "creneau", label: "Créneau ouvert", bloquant: true,
+    etat: statutCreneau === "CHECK_IN_AVAILABLE" ? "ok" : "echec",
+    detail: statutCreneau === "CHECK_IN_AVAILABLE" ? `Ouvert jusqu'à ${heureAmPm("23:59")}`
+      : statutCreneau === "CHECK_IN_EXPIRED" ? "La journée du rendez-vous est terminée"
+      : aujourdhui ? `Ouvre à ${heureOuverture(b.heure_rdv)}` : `Ouvre le ${dateLongue(b.date_rdv)} à ${heureOuverture(b.heure_rdv)}`,
+  };
+
+  const payant = b.service_prix > 0;
+  const controleDeclaration: Controle = !payant
+    ? { id: "declaration", label: "Déclaration du citoyen reçue", bloquant: false, etat: "na", detail: "Service sans paiement" }
+    : b.declare_le
+      ? { id: "declaration", label: "Déclaration du citoyen reçue", bloquant: true, etat: "ok", detail: `Reçue à ${heureDepuisHorodatage(b.declare_le) || "—"}` }
+      : { id: "declaration", label: "Déclaration du citoyen reçue", bloquant: true, etat: "echec", detail: "Le citoyen n'a pas encore déclaré remettre le paiement" };
+
+  let controleMontant: Controle;
+  if (!payant || !b.declare_le || b.montant_declare === null || b.prix_courant === null) {
+    controleMontant = { id: "montant", label: "Montant déclaré cohérent avec le prix actuel", bloquant: false, etat: "na", detail: "Aucun montant déclaré à comparer" };
+  } else if (b.montant_declare === b.prix_courant) {
+    controleMontant = { id: "montant", label: "Montant déclaré cohérent avec le prix actuel", bloquant: false, etat: "ok", detail: gnf(b.montant_declare) };
+  } else {
+    const ecart = b.prix_courant - b.montant_declare;
+    controleMontant = {
+      id: "montant", label: "Montant déclaré cohérent avec le prix actuel", bloquant: false, etat: "attention",
+      detail: `Déclaré ${gnf(b.montant_declare)}, prix actuel ${gnf(b.prix_courant)} (écart ${ecart > 0 ? "+" : "−"}${gnf(Math.abs(ecart))})`,
+    };
+  }
+
+  const enAttente = b.statut === "en_attente";
+  const controleAttente: Controle = {
+    id: "attente", label: "Réservation en attente", bloquant: true, etat: enAttente ? "ok" : "echec",
+    detail: enAttente ? "Pas encore traitée" : "Cette réservation a déjà été traitée",
+  };
+
+  return [controleJour, controleCreneau, controleDeclaration, controleMontant, controleAttente];
+}
+
+// Raison du blocage de « Valider le paiement », ou null si rien ne bloque.
+// Mêmes causes que le serveur : établissement suspendu, droit rdv.write absent,
+// puis premier contrôle bloquant en échec (ordre : statut, créneau, déclaration).
+export function raisonBlocage(controles: readonly Controle[], droits: { traiter: boolean } | null, suspendu: boolean | null): string | null {
+  if (suspendu) return "Établissement suspendu : aucun traitement possible";
+  if (droits && !droits.traiter) return "Votre rôle ne permet pas de valider ce paiement";
+  for (const id of ["attente", "creneau", "declaration"] as const) {
+    const c = controles.find((x) => x.id === id);
+    if (c && c.bloquant && c.etat === "echec") return c.detail;
+  }
+  return null;
+}
+
+// État final relu en base, joint par le serveur à toute réponse du PATCH (`etat`).
+export type EtatReservation = {
+  statut: string; traite_le: string | null; montant_paye: number | null;
+  montant_declare: number | null; declare_le: string | null; rdv_id: string | null;
+};
+
+export function lireEtat(brut: unknown): EtatReservation | null {
+  if (!brut || typeof brut !== "object") return null;
+  const e = brut as Record<string, unknown>;
+  if (typeof e.statut !== "string") return null;
+  const texte = (v: unknown) => (typeof v === "string" ? v : null);
+  const nombre = (v: unknown) => (typeof v === "number" ? v : null);
+  return {
+    statut: e.statut, traite_le: texte(e.traite_le), montant_paye: nombre(e.montant_paye),
+    montant_declare: nombre(e.montant_declare), declare_le: texte(e.declare_le), rdv_id: texte(e.rdv_id),
+  };
+}
+
+export type GenreErreur = "session" | "montant" | "deja_traitee" | "tentatives" | "hors_creneau" | "message_serveur" | "reseau" | "generique";
+export type ErreurInterpretee = { genre: GenreErreur; message: string; titre: string | null; etat: EtatReservation | null; retrySecondes: number | null };
+
+export const MESSAGE_RESEAU = "Connexion impossible. Vérifiez votre réseau puis réessayez.";
+const CODES_MESSAGE_SERVEUR = ["ANNULATION_PAYEE", "RECU_ARCHIVE_EXISTANT", "CODE_EN_DOUBLE"];
+
+// Traduit une réponse d'échec (status 0 = coupure réseau) en une erreur affichable.
+// Les messages des codes métier (ANNULATION_PAYEE, RECU_ARCHIVE_EXISTANT,
+// CODE_EN_DOUBLE) sont repris tels que le serveur les envoie.
+export function interpreterErreur(status: number, json: Record<string, unknown> | null, retryApres: number | null = null): ErreurInterpretee {
+  const code = typeof json?.code === "string" ? json.code : null;
+  const erreur = typeof json?.error === "string" ? json.error : null;
+  const etat = lireEtat(json?.etat) ?? (typeof json?.statut_actuel === "string" ? lireEtat({ statut: json.statut_actuel }) : null);
+  const base = { titre: null, etat, retrySecondes: null };
+  if (status === 0) return { ...base, genre: "reseau", message: MESSAGE_RESEAU };
+  if (status === 401) return { ...base, genre: "session", message: "Votre session a expiré. Reconnectez-vous pour continuer." };
+  if (status === 429 || code === "TROP_DE_TENTATIVES") {
+    return { ...base, genre: "tentatives", message: erreur ?? "Trop de tentatives. Réessayez dans quelques minutes.", retrySecondes: retryApres ?? 60 };
+  }
+  if (code === "PRIX_MODIFIE" || code === "MONTANT_VU_DIFFERENT") {
+    return { ...base, genre: "montant", message: "Le montant a changé. Rouvrez la fiche pour vérifier le montant." };
+  }
+  if (code === "DEJA_TRAITEE") return { ...base, genre: "deja_traitee", message: "Cette réservation a déjà été traitée." };
+  if (code && CODES_MESSAGE_SERVEUR.includes(code) && erreur) return { ...base, genre: "message_serveur", message: erreur };
+  if (json?.hors_creneau === true) {
+    return { ...base, genre: "hors_creneau", message: erreur ?? "", titre: typeof json.titre === "string" ? json.titre : null };
+  }
+  return { ...base, genre: "generique", message: erreur ?? "Erreur lors de la mise à jour." };
 }

@@ -4,10 +4,13 @@ import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 import { enregistrerTransaction } from "@/lib/transactionsFinancieres";
-import { creneauEstOuvert, RDV_HORS_CRENEAU_MESSAGE, absenceDeclarable, RDV_ABSENT_TROP_TOT_MESSAGE } from "@/lib/rdvGating";
+import { creneauEstOuvert, calculerCheckInStatus, RDV_HORS_CRENEAU_MESSAGE, RDV_EXPIRE_MESSAGE, absenceDeclarable, RDV_ABSENT_TROP_TOT_MESSAGE, depasseFenetreGraceNonTraite, RDV_NON_TRAITE_ABSENT_INTERDIT_MESSAGE } from "@/lib/rdvGating";
 import { chargerDonneesRecu, genererRecuPdf } from "@/lib/recuPdf";
-import { notifierArrivee, notifierPriseEnCharge } from "@/lib/notificationEngine";
+import { notifierArrivee, notifierPriseEnCharge, envoyerNotification, formatDateLongue, formatHeureCourte, salutation } from "@/lib/notificationEngine";
 import { chargerRestrictionActive, notifierSiEscalade } from "@/lib/rdvRestrictions";
+import { toucherActiviteInstitution } from "@/lib/activiteInstitution";
+import { getBookingAccess, bloqueTraitementExistant } from "@/lib/bookingAccess";
+import { peutVoirDemande, statsClient, type RdvStat } from "@/lib/rdvFiche";
 
 // URL de vérification publique — jamais un sous-domaine dédié (décision
 // CEO 05/08/2026 : "zéro complexité DNS" pour la V2), une route interne de
@@ -28,64 +31,222 @@ function construireVerifyUrl(req: NextRequest, recuId: string): string {
 // (même règle déjà appliquée au scan QR gratuit, voir rdv/statut/route.ts).
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-// "Historique Yelen" (refonte fiche de validation, 05/08/2026) — total réel
-// de rendez-vous avec CETTE institution où une présence a été constatée
-// (rdv.presence_status non nul, même table que le rdv jumeau "pour_autre"
-// ci-dessous : couvre payant ET gratuit). Contexte rapide pour l'agent,
-// jamais un CRM complet — pas de citoyen_id exposé au client, uniquement
-// les compteurs agrégés.
+// "Historique Yelen" (refonte fiche de validation, Mission B) — mêmes compteurs
+// que la fiche « Détails du RDV » : calculés par la MÊME fonction
+// (lib/rdvFiche.ts::statsClient) sur les RDV de CE citoyen chez CETTE
+// institution (payant ET gratuit). Pour une réservation faite pour un tiers,
+// c'est l'historique du titulaire du compte. Écart connu avec la fiche « Détails
+// du RDV » : celle-ci calcule sur les 300 derniers RDV de l'établissement (tous
+// clients confondus, LIMITE_LISTE_RDV) ; ici le calcul porte sur tous les RDV du
+// citoyen (plafond HISTORIQUE_MAX_RDV). Les deux écrans divergent donc seulement
+// pour un client dont des RDV sortent de la fenêtre de 300 de la liste.
+// Lecture impossible : null (l'écran affiche « Historique indisponible », jamais
+// « Premier rendez-vous » par défaut). Aucun citoyen_id exposé.
+const HISTORIQUE_MAX_RDV = 1000;
 async function chargerHistoriqueCitoyen(citoyenId: string, institutionId: string) {
-  const { data } = await sb
+  const { data, error } = await sb
     .from("rdv")
-    .select("presence_status,date_rdv")
+    .select("id,citoyen_id,statut,date_rdv,presence_status,annule_par")
     .eq("institution_id", institutionId)
     .eq("citoyen_id", citoyenId)
-    .not("presence_status", "is", null);
-  const rows = data ?? [];
-  const honores = rows.filter(r => r.presence_status === "present").length;
-  const absents = rows.filter(r => r.presence_status === "absent").length;
-  const derniereVisite = rows.filter(r => r.presence_status === "present").map(r => r.date_rdv).sort().pop() ?? null;
-  return { total: rows.length, honores, absents, derniereVisite };
+    .limit(HISTORIQUE_MAX_RDV);
+  if (error || !data) { logAnomalie("lecture de l'historique du citoyen", { erreur: error?.message ?? null }); return null; }
+  const stats = statsClient(data as RdvStat[], citoyenId);
+  if (!stats) return null;
+  return {
+    total: stats.total, termines: stats.termines, absences: stats.absences,
+    annulations_citoyen: stats.annulationsCitoyen, premier_rdv: stats.premierRdv,
+    tronque: data.length >= HISTORIQUE_MAX_RDV,
+  };
 }
 
-async function chargerBooking(filtre: { id: string } | { code: string }, institutionId: string) {
+// Badge « Client vérifié » : lu séparément (jamais dans le select principal) pour
+// qu'une colonne absente ou illisible ne fasse pas échouer toute la fiche. Valeur
+// non booléenne ou erreur : null (badge masqué).
+async function chargerIdentiteVerifiee(citoyenId: string): Promise<boolean | null> {
+  const { data, error } = await sb.from("users").select("identite_verifiee").eq("id", citoyenId).maybeSingle();
+  if (error || !data) return null;
+  return typeof data.identite_verifiee === "boolean" ? data.identite_verifiee : null;
+}
+
+// Détails du RDV lié affichés sur la fiche (référence, guichet, instructions,
+// demande du client). Lecture à part, sans effet sur le ciblage d'écriture
+// (trouverRdvLie reste inchangé). Erreur : null, la fiche s'affiche sans.
+async function chargerDetailsRdv(rdvId: string, institutionId: string) {
+  const { data, error } = await sb.from("rdv")
+    .select("reference,guichet,instructions_accueil,description_besoin,champs_complementaires_reponses")
+    .eq("id", rdvId).eq("institution_id", institutionId).maybeSingle();
+  if (error) { logAnomalie("lecture des détails du rdv lié", { rdv_id: rdvId, erreur: error.message }); return null; }
+  return data ?? null;
+}
+
+// Même test de suspension que le PATCH (getBookingAccess + bloqueTraitementExistant).
+// Lecture impossible : null (inconnu), le serveur refusera de toute façon à l'écriture.
+async function etablissementSuspendu(institutionId: string): Promise<boolean | null> {
+  try {
+    const acces = await getBookingAccess(sb, institutionId);
+    return bloqueTraitementExistant(acces.etat);
+  } catch (e) {
+    logAnomalie("lecture de l'état de l'établissement", { erreur: e instanceof Error ? e.message : String(e) });
+    return null;
+  }
+}
+
+// ─── RDV « jumeau » d'une réservation payante (Mission A, 22/10/2026) ───
+// Avant ce correctif, le jumeau était retrouvé par institution + date + heure,
+// SANS citoyen, et l'update s'appliquait à TOUS les RDV du créneau : valider,
+// marquer absent ou annuler une réservation pouvait modifier le RDV d'un autre
+// citoyen au même horaire (et déclencher une restriction no-show à tort).
+// Clé de ciblage, par ordre : paid_bookings.rdv_id (migration
+// 20261022000001) ; à défaut seulement, rdv.qr_token = confirmation_code ET
+// citoyen_id ET institution_id, à condition qu'UN SEUL RDV corresponde.
+// Aucun repli par date et heure. Sans RDV identifié de façon certaine, on
+// n'écrit rien dans `rdv` et la réponse porte `rdv_lie: false`.
+type RdvLie = { id: string; pour_autre: boolean | null; nom_autre: string | null; phone_autre: string | null };
+type RefReservation = { id: string; rdv_id?: string | null; confirmation_code: string; citoyen_id: string; institution_id: string };
+
+function logAnomalie(contexte: string, details: Record<string, unknown>) {
+  console.error(`[paid-bookings/valider] ${contexte}`, JSON.stringify(details));
+}
+
+// ─── Limiteur de tentatives sur la saisie du code (Mission A, P1-4) ───
+// Le code de confirmation a 6 chiffres et aucune limite n'existait : un agent
+// pouvait énumérer les codes. Fenêtre glissante (table
+// validation_code_tentatives, migration 20261022000002) : seuls les ÉCHECS
+// (code inconnu) comptent, par agent ET par institution. Message volontairement
+// neutre (ne dit pas quel seuil a été atteint). Si la table n'existe pas encore
+// (migration non appliquée) ou si sa lecture échoue, on laisse passer (fail-open)
+// en loggeant : un défaut du limiteur ne doit jamais bloquer le guichet.
+const FENETRE_TENTATIVES_MS = 10 * 60 * 1000;
+const MAX_ECHECS_PAR_AGENT = 10;
+const MAX_ECHECS_PAR_INSTITUTION = 30;
+const MESSAGE_TROP_DE_TENTATIVES = "Trop de tentatives. Réessayez dans quelques minutes.";
+
+async function tentativesBloquees(institutionId: string, membreId: string): Promise<boolean> {
+  const depuis = new Date(Date.now() - FENETRE_TENTATIVES_MS).toISOString();
+  const [agent, institution] = await Promise.all([
+    sb.from("validation_code_tentatives").select("id").eq("membre_id", membreId).eq("reussie", false).gte("tentee_le", depuis).limit(MAX_ECHECS_PAR_AGENT),
+    sb.from("validation_code_tentatives").select("id").eq("institution_id", institutionId).eq("reussie", false).gte("tentee_le", depuis).limit(MAX_ECHECS_PAR_INSTITUTION),
+  ]);
+  if (agent.error || institution.error) {
+    logAnomalie("limiteur de tentatives indisponible (migration appliquée ?)", { institution_id: institutionId, membre_id: membreId, erreur: (agent.error ?? institution.error)?.message ?? null });
+    return false;
+  }
+  return (agent.data?.length ?? 0) >= MAX_ECHECS_PAR_AGENT || (institution.data?.length ?? 0) >= MAX_ECHECS_PAR_INSTITUTION;
+}
+
+async function enregistrerEchecCode(institutionId: string, membreId: string) {
+  const { error } = await sb.from("validation_code_tentatives").insert({ institution_id: institutionId, membre_id: membreId, reussie: false });
+  if (error) logAnomalie("échec de saisie de code non enregistré", { institution_id: institutionId, membre_id: membreId, erreur: error.message });
+}
+
+async function trouverRdvLie(b: RefReservation): Promise<RdvLie | null> {
+  if (b.rdv_id) {
+    const { data, error } = await sb.from("rdv").select("id,pour_autre,nom_autre,phone_autre")
+      .eq("id", b.rdv_id).eq("institution_id", b.institution_id).maybeSingle();
+    if (error) { logAnomalie("lecture rdv lié par rdv_id", { paid_booking_id: b.id, erreur: error.message }); return null; }
+    return data ?? null;
+  }
+  const { data, error } = await sb.from("rdv").select("id,pour_autre,nom_autre,phone_autre")
+    .eq("qr_token", b.confirmation_code).eq("citoyen_id", b.citoyen_id).eq("institution_id", b.institution_id)
+    .limit(2);
+  if (error) { logAnomalie("lecture rdv lié par qr_token", { paid_booking_id: b.id, erreur: error.message }); return null; }
+  if (!data || data.length !== 1) {
+    if (data && data.length > 1) logAnomalie("plusieurs RDV pour ce code : aucun ciblé", { paid_booking_id: b.id, nb: data.length });
+    return null;
+  }
+  return data[0];
+}
+
+// Écrit dans UN rdv, par id, et vérifie que exactement une ligne est touchée.
+async function ecrireRdvLie(rdvId: string, institutionId: string, updates: Record<string, unknown>, paidBookingId: string): Promise<boolean> {
+  const { data, error } = await sb.from("rdv").update(updates).eq("id", rdvId).eq("institution_id", institutionId).select("id");
+  if (error || !data || data.length !== 1) {
+    logAnomalie("écriture rdv non appliquée", { paid_booking_id: paidBookingId, rdv_id: rdvId, lignes: data?.length ?? null, erreur: error?.message ?? null });
+    return false;
+  }
+  return true;
+}
+
+// Message P1-7 : refus d'une revalidation quand un reçu archivé existe (la
+// table recus est UNIQUE par réservation et ses champs de preuve sont
+// immuables : un nouveau reçu ne peut pas être produit pour cette réservation).
+const MESSAGE_REVALIDATION_REFUSEE = "Cette réservation a déjà été validée puis annulée. Un reçu est archivé : créez une nouvelle réservation.";
+
+// 409 commun aux refus de transition (statut de départ non autorisé) : le
+// statut actuel est toujours renvoyé pour que l'écran puisse se resynchroniser.
+function reponseDejaTraitee(statutActuel: string, action: string) {
+  if (action === "annule" && statutActuel === "confirme") {
+    return NextResponse.json({
+      error: "Cette réservation est déjà payée : utilisez « Annuler la validation » pour reverser le paiement avant de l'annuler.",
+      code: "ANNULATION_PAYEE", statut_actuel: statutActuel,
+    }, { status: 409 });
+  }
+  return NextResponse.json({ error: "Réservation déjà traitée", code: "DEJA_TRAITEE", statut_actuel: statutActuel }, { status: 409 });
+}
+
+type MembreAuth = NonNullable<Awaited<ReturnType<typeof getAuthenticatedMembre>>>;
+
+async function chargerBooking(filtre: { id: string } | { code: string }, membre: MembreAuth) {
+  const institutionId = membre.institutionId;
   let query = sb
     .from("paid_bookings")
     .select(`
-      id, confirmation_code, statut, date_rdv, heure_rdv, date_depart, institution_id, traite_le, citoyen_id,
+      id, confirmation_code, statut, date_rdv, heure_rdv, date_depart, institution_id, traite_le, citoyen_id, rdv_id,
       montant_declare_citoyen, declare_le,
       paid_services(nom, prix, duree_minutes),
-      users!paid_bookings_citoyen_id_fkey(prenom, nom, phone, photo_url, date_naissance, sexe)
+      users!paid_bookings_citoyen_id_fkey(prenom, nom, phone, photo_url)
     `)
     .eq("institution_id", institutionId);
   query = "id" in filtre ? query.eq("id", filtre.id) : query.eq("confirmation_code", filtre.code);
-  const { data, error } = await query.maybeSingle();
-  if (error || !data) return null;
+  // Recherche par code : aucune contrainte d'unicité n'existe en base. Avec
+  // .maybeSingle(), deux réservations de même code faisaient échouer la
+  // requête, indistinguable d'un « introuvable ». On lit 2 lignes au plus pour
+  // détecter le doublon et le signaler explicitement (Mission A, P1-4).
+  const { data: lignes, error } = await query.limit(2);
+  if (error || !lignes || lignes.length === 0) return null;
+  // L'identifiant est une clé primaire : seul le filtre par code peut ramener 2 lignes.
+  if (lignes.length > 1) return "CODE_EN_DOUBLE" as const;
+  const data = lignes[0];
 
   // Le bénéficiaire "pour un tiers" vit sur la ligne rdv jumelle (créée en
-  // même temps que la réservation payante), pas sur paid_bookings — jointe
-  // par créneau, même convention que le badge "Payant" côté écran RDV.
-  const [{ data: rdvJumeau }, historique, { data: recu }] = await Promise.all([
-    sb.from("rdv").select("pour_autre,nom_autre,phone_autre")
-      .eq("institution_id", institutionId).eq("date_rdv", data.date_rdv).eq("heure_rdv", data.heure_rdv).maybeSingle(),
+  // même temps que la réservation payante), pas sur paid_bookings — retrouvée
+  // par rdv_id ou, à défaut, par code + citoyen + institution (voir
+  // trouverRdvLie). Jamais par créneau : sans RDV lié certain, `pour_autre`
+  // reste faux et `rdv_lie` vaut false.
+  const [rdvJumeau, historique, { data: recu }, identiteVerifiee, suspendu] = await Promise.all([
+    trouverRdvLie({ id: data.id, rdv_id: data.rdv_id, confirmation_code: data.confirmation_code, citoyen_id: data.citoyen_id, institution_id: institutionId }),
     chargerHistoriqueCitoyen(data.citoyen_id, institutionId),
     // Décision CEO 06/08/2026 — "activer le reçu aussi côté institution" :
     // la fiche de validation doit pouvoir proposer le téléchargement du
     // reçu directement, pas seulement depuis l'onglet Paiements séparé.
     sb.from("recus").select("id").eq("paid_booking_id", data.id).eq("statut", "disponible").maybeSingle(),
+    chargerIdentiteVerifiee(data.citoyen_id),
+    etablissementSuspendu(institutionId),
   ]);
+  const details = rdvJumeau ? await chargerDetailsRdv(rdvJumeau.id, institutionId) : null;
 
   const svc = data.paid_services as unknown as { nom: string | null; prix: number | null; duree_minutes: number | null } | null;
-  const u = data.users as unknown as { prenom: string | null; nom: string | null; phone: string | null; photo_url: string | null; date_naissance: string | null; sexe: string | null } | null;
+  const u = data.users as unknown as { prenom: string | null; nom: string | null; phone: string | null; photo_url: string | null } | null;
   return {
     id: data.id,
     confirmation_code: data.confirmation_code,
+    // Statut renvoyé TEL QUEL depuis paid_bookings (y compris "rembourse",
+    // posé par api/institution/paiements) : le serveur ne le normalise pas ;
+    // le repli d'affichage pour un statut inconnu relève de l'écran.
     statut: data.statut,
+    rdv_lie: !!rdvJumeau,
     date_rdv: data.date_rdv,
     heure_rdv: data.heure_rdv,
     date_depart: data.date_depart ?? null,
     traite_le: data.traite_le,
     montant_declare_citoyen: data.montant_declare_citoyen ?? null,
+    // Écart prix / déclaration (Mission A, P1-3) : `montant_declare` est le
+    // montant figé à la déclaration du citoyen, `prix_courant` le tarif
+    // ACTUEL du service (service_prix, inchangé, vaut la même chose). Les
+    // deux peuvent différer si le tarif a changé après la déclaration.
+    montant_declare: data.montant_declare_citoyen ?? null,
+    prix_courant: svc?.prix ?? null,
     declare_le: data.declare_le ?? null,
     pour_autre: !!rdvJumeau?.pour_autre,
     nom_autre: rdvJumeau?.nom_autre ?? null,
@@ -97,12 +258,28 @@ async function chargerBooking(filtre: { id: string } | { code: string }, institu
     citoyen_nom: u?.nom ?? null,
     citoyen_phone: u?.phone ?? null,
     citoyen_photo_url: u?.photo_url ?? null,
-    // La date de naissance réelle n'est jamais transmise — la fiche ne
-    // l'affiche que masquée (••••••), seule sa présence importe côté agent.
-    citoyen_date_naissance_renseignee: !!u?.date_naissance,
-    citoyen_sexe: u?.sexe === "homme" || u?.sexe === "femme" ? u.sexe : null,
+    // Date de naissance et sexe ne sont plus renvoyés (Mission B, décision
+    // produit) : la fiche de validation n'en a pas besoin pour identifier la
+    // personne au guichet.
+    identite_verifiee: identiteVerifiee,
     historique,
     recu_id: recu?.id ?? null,
+    reference: details?.reference ?? null,
+    guichet: details?.guichet ?? null,
+    instructions_accueil: details?.instructions_accueil ?? null,
+    // Demande du client (peut contenir des données sensibles) : clés ABSENTES
+    // (pas vides) pour les rôles non autorisés, même règle que la fiche RDV.
+    ...(peutVoirDemande(membre.role)
+      ? { description_besoin: details?.description_besoin ?? null, champs_complementaires: details?.champs_complementaires_reponses ?? null }
+      : {}),
+    // Droits calculés par les MÊMES tests que le PATCH : traiter (valider, absent,
+    // annuler) = rdv.write ; annuler une validation = paiements.rembourser si le
+    // paiement a été encaissé, rdv.write sinon.
+    droits: {
+      traiter: can(membre.role, "rdv.write", membre.accesRestreints),
+      annuler_validation: can(membre.role, data.statut === "confirme" ? "paiements.rembourser" : "rdv.write", membre.accesRestreints),
+    },
+    etablissement_suspendu: suspendu,
   };
 }
 
@@ -155,21 +332,65 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get("code");
   if (!id && !code) return NextResponse.json({ error: "id ou code requis" }, { status: 400 });
 
-  const booking = await chargerBooking(id ? { id } : { code: code! }, membre.institutionId);
+  // Recherche par CODE uniquement (la recherche par id vient d'une fiche déjà
+  // ouverte, pas d'une saisie à deviner) : verrou avant toute lecture.
+  const parCode = !id && !!code;
+  if (parCode && await tentativesBloquees(membre.institutionId, membre.membreId)) {
+    return NextResponse.json({ error: MESSAGE_TROP_DE_TENTATIVES, code: "TROP_DE_TENTATIVES" }, { status: 429, headers: { "Retry-After": "60" } });
+  }
+
+  const booking = await chargerBooking(id ? { id } : { code: code! }, membre);
+  if (booking === null && parCode) await enregistrerEchecCode(membre.institutionId, membre.membreId);
+  if (booking === "CODE_EN_DOUBLE") {
+    return NextResponse.json({
+      error: "Plusieurs réservations portent ce code dans votre établissement. Ouvrez la fiche depuis l'onglet Rendez-vous (« Prendre en charge »).",
+      code: "CODE_EN_DOUBLE",
+    }, { status: 409 });
+  }
   if (!booking) return NextResponse.json({ error: "Aucune réservation trouvée pour cette institution." }, { status: 404 });
   return NextResponse.json({ booking });
 }
 
+// État final de la réservation, relu en base (Mission A, P1-6) : joint à toute
+// réponse du PATCH une fois la réservation identifiée (succès comme refus
+// métier 403/409), pour que l'écran puisse se resynchroniser, y compris après
+// une coupure réseau (le GET ?id= permet aussi de le relire à tout moment).
+// Absent (null) des réponses antérieures à l'identification de la réservation
+// (401, 400 de format, 404). Aucun identifiant d'opération : la garde de
+// statut sert d'idempotence.
+async function chargerEtat(bookingId: string, institutionId: string) {
+  const { data } = await sb.from("paid_bookings")
+    .select("statut,traite_le,montant_paye,montant_declare_citoyen,declare_le,rdv_id")
+    .eq("id", bookingId).eq("institution_id", institutionId).maybeSingle();
+  if (!data) return null;
+  return {
+    statut: data.statut as string, traite_le: (data.traite_le as string | null) ?? null,
+    montant_paye: (data.montant_paye as number | null) ?? null,
+    montant_declare: (data.montant_declare_citoyen as number | null) ?? null,
+    declare_le: (data.declare_le as string | null) ?? null,
+    rdv_id: (data.rdv_id as string | null) ?? null,
+  };
+}
+
 export async function PATCH(req: NextRequest) {
+  const ctx: { bookingId?: string; institutionId?: string } = {};
+  const res = await traiterPatch(req, ctx);
+  if (!ctx.bookingId || !ctx.institutionId) return res;
+  const corps: unknown = await res.clone().json().catch(() => null);
+  if (!corps || typeof corps !== "object") return res;
+  return NextResponse.json({ ...(corps as Record<string, unknown>), etat: await chargerEtat(ctx.bookingId, ctx.institutionId) }, { status: res.status });
+}
+
+async function traiterPatch(req: NextRequest, ctx: { bookingId?: string; institutionId?: string }) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  // Même correctif que app/api/institution/rdv/statut/route.ts (trouvé en
-  // conditions réelles le 15/09/2026) — une institution suspendue ne doit
-  // plus pouvoir traiter de réservation payante non plus (confirmer, no-show,
-  // annuler, annuler une validation).
-  const { data: institutionSuspension } = await sb.from("institutions").select("statut").eq("id", membre.institutionId).maybeSingle();
-  if (institutionSuspension?.statut === "suspendue") {
+  // Vérification centralisée depuis le 19/10/2026 (Booking Governance
+  // Lot 3, docs/product/YELEN_BOOKING_GOVERNANCE.md §13) — une
+  // institution suspendue ne doit plus pouvoir traiter de réservation
+  // payante non plus (confirmer, no-show, annuler, annuler une validation).
+  const bookingAccess = await getBookingAccess(sb, membre.institutionId);
+  if (bloqueTraitementExistant(bookingAccess.etat)) {
     return NextResponse.json(
       { error: "Votre établissement est actuellement suspendu — vous ne pouvez plus traiter de réservation tant que cette mesure n'est pas levée. Consultez l'écran « Espace suspendu » pour comprendre pourquoi et, si besoin, demander une révision." },
       { status: 403 }
@@ -185,7 +406,7 @@ export async function PATCH(req: NextRequest) {
 
   const { data: booking, error: lookupErr } = await sb
     .from("paid_bookings").select(`
-      id,institution_id,citoyen_id,date_rdv,heure_rdv,statut,montant_paye,montant_declare_citoyen,declare_le,traite_le,service_id,
+      id,institution_id,citoyen_id,date_rdv,heure_rdv,statut,montant_paye,montant_declare_citoyen,declare_le,traite_le,service_id,rdv_id,confirmation_code,
       paid_services(prix),
       institutions(name),
       users!paid_bookings_citoyen_id_fkey(prenom,nom)
@@ -198,17 +419,44 @@ export async function PATCH(req: NextRequest) {
   // une réservation qui venait pourtant d'être trouvée par la recherche).
   if (lookupErr) { console.error("[paid-bookings/valider PATCH] lookup:", lookupErr.message); return NextResponse.json({ error: lookupErr.message }, { status: 500 }); }
   if (!booking) return NextResponse.json({ error: "Réservation introuvable pour cette institution" }, { status: 404 });
+  ctx.bookingId = id;
+  ctx.institutionId = membre.institutionId;
 
   if (action === "annuler_validation") return handleAnnulerValidation(req, membre, booking, typeof body?.motif === "string" ? body.motif : "");
 
   if (!can(membre.role, "rdv.write", membre.accesRestreints)) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+
+  // Garde de statut (Mission A, P0-2/P1-1) : confirmer, marquer absent ou
+  // annuler ne s'applique QU'À une réservation encore "en_attente". Avant ce
+  // correctif le serveur ne vérifiait pas le statut de départ : rejouer
+  // "valider" créait un second encaissement, et une réservation déjà payée
+  // pouvait être annulée par appel direct sans reversement. Le contrôle
+  // atomique est refait sur l'update lui-même plus bas (concurrence).
+  if (booking.statut !== "en_attente") {
+    return reponseDejaTraitee(booking.statut as string, action);
+  }
+
+  // P1-7 : une validation annulée puis rejouée ne pourrait produire aucun
+  // nouveau reçu (recus UNIQUE par réservation, champs de preuve immuables) —
+  // on refuse AVANT d'encaisser plutôt que de créer un encaissement sans reçu.
+  if (action === "confirme") {
+    const { data: recuArchive, error: recuLookupErr } = await sb.from("recus").select("id").eq("paid_booking_id", id).eq("statut", "archive").maybeSingle();
+    if (recuLookupErr) { logAnomalie("lecture reçu archivé", { paid_booking_id: id, membre_id: membre.membreId, erreur: recuLookupErr.message }); return NextResponse.json({ error: "Vérification impossible, réessayez." }, { status: 500 }); }
+    if (recuArchive) return NextResponse.json({ error: MESSAGE_REVALIDATION_REFUSEE, code: "RECU_ARCHIVE_EXISTANT" }, { status: 409 });
+  }
 
   // "Confirmé" = preuve de présence (paiement encaissé + présence validée en
   // une seule action ici, pas de scan séparé pour le payant) — jamais
   // atteignable hors du créneau autorisé, même via une recherche manuelle par
   // code plutôt que "Prendre en charge".
   if (action === "confirme" && !creneauEstOuvert(booking.date_rdv, booking.heure_rdv)) {
-    return NextResponse.json({ error: RDV_HORS_CRENEAU_MESSAGE.message, hors_creneau: true, titre: RDV_HORS_CRENEAU_MESSAGE.titre }, { status: 403 });
+    // Deux causes distinctes derrière le même verrou : trop tôt (la fenêtre
+    // s'ouvrira d'elle-même) ou la journée du rendez-vous est entièrement
+    // passée (la fenêtre ne se rouvrira jamais) — un seul message générique
+    // invitait auparavant à "patienter" même dans ce second cas.
+    const expire = calculerCheckInStatus(booking.date_rdv, booking.heure_rdv) === "CHECK_IN_EXPIRED";
+    const msg = expire ? RDV_EXPIRE_MESSAGE : RDV_HORS_CRENEAU_MESSAGE;
+    return NextResponse.json({ error: msg.message, hors_creneau: true, titre: msg.titre }, { status: 403 });
   }
 
   // Même règle que rdv/statut/route.ts (trou trouvé 08/09/2026) : une
@@ -216,6 +464,27 @@ export async function PATCH(req: NextRequest) {
   // confirmation de présence elle-même.
   if (action === "no_show" && !absenceDeclarable(booking.date_rdv, booking.heure_rdv)) {
     return NextResponse.json({ error: RDV_ABSENT_TROP_TOT_MESSAGE }, { status: 403 });
+  }
+
+  // Même durcissement que rdv/statut/route.ts (13/10/2026) : une réservation
+  // encore "en_attente" (jamais traitée par l'établissement) passée la
+  // fenêtre de grâce ne peut plus être close en "no_show" — ce serait
+  // imputer au citoyen le retard de traitement de l'établissement.
+  // "en_attente" est ici l'équivalent exact de nouveau/en_attente non résolu
+  // côté rdv (paid_bookings n'a pas de presence_status séparé).
+  if (action === "no_show" && booking.statut === "en_attente" && depasseFenetreGraceNonTraite(booking.date_rdv, booking.heure_rdv)) {
+    return NextResponse.json({ error: RDV_NON_TRAITE_ABSENT_INTERDIT_MESSAGE }, { status: 403 });
+  }
+
+  // Décision CEO 15/10/2026 — une réservation jamais traitée (en_attente)
+  // dont la journée est entièrement passée ne peut plus être annulée depuis
+  // cet écran non plus (jusqu'ici seul "confirme" était bloqué par
+  // creneauEstOuvert ; "annule" n'avait aucun verrou temporel, un agent
+  // pouvait annuler un rendez-vous vieux de plusieurs jours sans aucune
+  // restriction). Reste une réservation consultable telle quelle, non
+  // modifiable.
+  if (action === "annule" && booking.statut === "en_attente" && calculerCheckInStatus(booking.date_rdv, booking.heure_rdv) === "CHECK_IN_EXPIRED") {
+    return NextResponse.json({ error: RDV_EXPIRE_MESSAGE.message, titre: RDV_EXPIRE_MESSAGE.titre }, { status: 403 });
   }
 
   // Motif obligatoire pour "annule" (signalé par Bryan 05/08/2026 : le
@@ -261,6 +530,48 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  // Montant vu par l'agent (Mission A, P1-3), optionnel côté serveur pour rester
+  // compatible avec un écran qui ne l'envoie pas encore : s'il est fourni, il
+  // doit être égal au prix COURANT du service, sinon 409 — l'agent est sur le
+  // point d'encaisser un montant différent de celui qu'il a sous les yeux
+  // (tarif modifié entre l'ouverture de la fiche et la validation). Absent :
+  // validation inchangée, avertissement loggé.
+  //
+  // montant_vu_base (Mission B), optionnel : "prix" (ou absent) = comparaison au
+  // prix courant ci-dessus ; "declare" = comparaison au montant figé à la
+  // déclaration du citoyen (montant_declare_citoyen, sinon montant_paye) quand
+  // la déclaration existe, sinon retombe sur le prix courant. Un écart avec
+  // "declare" renvoie MONTANT_VU_DIFFERENT et n'écrit rien.
+  if (action === "confirme") {
+    const corps = body as { montant_vu?: unknown; montant_vu_base?: unknown } | null;
+    const brut = corps?.montant_vu;
+    const base = corps?.montant_vu_base;
+    if (base !== undefined && base !== null && base !== "prix" && base !== "declare") {
+      return NextResponse.json({ error: "montant_vu_base invalide" }, { status: 400 });
+    }
+    if (brut === undefined || brut === null) {
+      console.warn("[paid-bookings/valider] montant_vu absent : contrôle du prix vu par l'agent ignoré", JSON.stringify({ paid_booking_id: id, membre_id: membre.membreId }));
+    } else if (typeof brut !== "number" || !Number.isFinite(brut)) {
+      return NextResponse.json({ error: "montant_vu invalide" }, { status: 400 });
+    } else {
+      const prixCourant = (booking.paid_services as unknown as { prix: number } | null)?.prix ?? null;
+      const montantFige = base === "declare" && booking.declare_le ? (booking.montant_declare_citoyen ?? booking.montant_paye ?? null) : null;
+      if (montantFige !== null) {
+        if (brut !== montantFige) {
+          return NextResponse.json({
+            error: "Le montant affiché à l'écran ne correspond pas au montant déclaré par le citoyen. Rouvrez la fiche pour vérifier le montant avant de valider.",
+            code: "MONTANT_VU_DIFFERENT", montant_vu: brut, montant_declare: montantFige, prix_courant: prixCourant,
+          }, { status: 409 });
+        }
+      } else if (prixCourant !== null && brut !== prixCourant) {
+        return NextResponse.json({
+          error: "Le prix du service a changé depuis l'ouverture de cette fiche. Rouvrez la fiche pour vérifier le montant avant de valider.",
+          code: "PRIX_MODIFIE", prix_courant: prixCourant, montant_vu: brut, montant_declare: booking.montant_declare_citoyen ?? null,
+        }, { status: 409 });
+      }
+    }
+  }
+
   const bookingUpdate: Record<string, unknown> = { statut: action, traite_le: new Date().toISOString() };
   if (action === "confirme" && booking.montant_paye == null && montantAFiger != null) bookingUpdate.montant_paye = montantAFiger;
 
@@ -268,9 +579,30 @@ export async function PATCH(req: NextRequest) {
   // renvoyé au frontend pour proposer le téléchargement immédiatement,
   // sans round-trip GET supplémentaire (décision CEO 06/08/2026).
   let recuIdDisponible: string | null = null;
+  // Anomalies non bloquantes à signaler à l'appelant (jamais silencieuses).
+  let ledgerOk = true;
+  let recuOk = true;
 
-  const { error: bkErr } = await sb.from("paid_bookings").update(bookingUpdate).eq("id", id);
+  // RDV lié, résolu AVANT d'écrire (lecture seule) : rdv_id d'abord, repli
+  // code + citoyen + institution si rdv_id est vide, sinon null (aucune
+  // écriture dans rdv, `rdv_lie: false`). Voir trouverRdvLie.
+  const rdvLie = await trouverRdvLie({ id, rdv_id: booking.rdv_id, confirmation_code: booking.confirmation_code, citoyen_id: booking.citoyen_id, institution_id: membre.institutionId });
+
+  // Écriture gardée sur le statut de départ (P0-2) : si deux requêtes arrivent
+  // en même temps (double clic, deux agents), une seule voit encore
+  // "en_attente" ; l'autre ne touche aucune ligne et reçoit 409 AVANT tout
+  // effet de bord (encaissement, reçu, journal, notification). C'est ce qui
+  // garantit qu'un double envoi ne crée jamais un second encaissement.
+  const { data: ligneMiseAJour, error: bkErr } = await sb.from("paid_bookings").update(bookingUpdate)
+    .eq("id", id).eq("institution_id", membre.institutionId).eq("statut", "en_attente").select("id");
   if (bkErr) return NextResponse.json({ error: bkErr.message }, { status: 500 });
+  if (!ligneMiseAJour || ligneMiseAJour.length === 0) {
+    const { data: actuel } = await sb.from("paid_bookings").select("statut").eq("id", id).eq("institution_id", membre.institutionId).maybeSingle();
+    return reponseDejaTraitee((actuel?.statut as string | undefined) ?? "inconnu", action);
+  }
+
+  // Action métier qualifiante (chantier COMPTES-INACTIFS.md, Phase 3).
+  await toucherActiviteInstitution(sb, membre.institutionId);
 
   // "confirme" ici = paiement encaissé ET présence validée (pas de scan
   // séparé pour le payant) — mais ne clôt PAS le rendez-vous. Revert du
@@ -289,19 +621,30 @@ export async function PATCH(req: NextRequest) {
   const rdvUpdates: Record<string, unknown> =
     action === "confirme" ? { statut: "confirme", presence_status: "present", presence_confirmed_at: new Date().toISOString() }
     : action === "no_show" ? { presence_status: "absent", presence_confirmed_at: new Date().toISOString() }
-    : { statut: "annule" };
+    // motif_annulation n'était jamais écrit sur le rdv jumeau ici (seul le
+    // journal interne gardait motifSaisi) — la fiche RDV institution n'avait
+    // donc jamais de bandeau "Annulé" à afficher pour un refus de réservation
+    // payante. Corrigé au passage, même annule_par (13/10/2026) que les 3
+    // autres points d'écriture.
+    : { statut: "annule", motif_annulation: motifSaisi, annule_par: "institution" };
 
   // Restriction automatique des rendez-vous (no-show, décision CEO
   // 03/09/2026) — même pont que rdv/statut/route.ts, capturé AVANT l'update
   // pour détecter une éventuelle escalade juste après.
-  const restrictionAvant = action === "no_show" ? await chargerRestrictionActive(sb, booking.citoyen_id) : null;
+  const restrictionAvant = action === "no_show" && rdvLie ? await chargerRestrictionActive(sb, booking.citoyen_id) : null;
 
-  const { data: rdvJumeau } = await sb.from("rdv").update(rdvUpdates)
-    .eq("institution_id", membre.institutionId).eq("date_rdv", booking.date_rdv).eq("heure_rdv", booking.heure_rdv)
-    .select("id").maybeSingle();
+  // Écriture dans UN seul rdv (par id), vérifiée à exactement 1 ligne. Sans RDV
+  // lié certain ou si l'écriture échoue : on n'écrit rien d'autre dans rdv,
+  // rdv_lie vaut false dans la réponse. v1 sans transaction : paid_bookings est
+  // déjà écrit à ce stade (risque consigné, fonction SQL transactionnelle =
+  // ticket séparé).
+  const rdvEcrit = rdvLie ? await ecrireRdvLie(rdvLie.id, membre.institutionId, rdvUpdates, id) : false;
+  const rdvJumeau = rdvEcrit && rdvLie ? { id: rdvLie.id } : null;
 
   if (action === "no_show") {
-    await notifierSiEscalade(sb, booking.citoyen_id, restrictionAvant?.id ?? null);
+    // Le trigger de restriction (rdv.presence_status -> absent) ne se déclenche
+    // que si le rdv lié a réellement été écrit ; sinon rien à escalader.
+    if (rdvEcrit) await notifierSiEscalade(sb, booking.citoyen_id, restrictionAvant?.id ?? null);
     // Pas de journalisation avant ce correctif (trou pré-existant, distinct
     // de la demande en cours) — ajoutée ici pour que le motif désormais
     // obligatoire soit réellement conservé quelque part, même chose que
@@ -342,17 +685,24 @@ export async function PATCH(req: NextRequest) {
     const userRel = booking.users as unknown as { prenom: string | null; nom: string | null } | { prenom: string | null; nom: string | null }[] | null;
     const instRow = Array.isArray(instRel) ? instRel[0] : instRel;
     const userRow = Array.isArray(userRel) ? userRel[0] : userRel;
-    const notifCtx = {
-      rdvId: rdvJumeau?.id ?? id,
-      citoyenId: booking.citoyen_id,
-      citoyenPrenom: userRow?.prenom || userRow?.nom || "Citoyen",
-      institutionId: booking.institution_id,
-      institutionNom: instRow?.name ?? "l'établissement",
-      dateRdv: booking.date_rdv,
-      heureRdv: booking.heure_rdv,
-    };
-    await notifierArrivee(notifCtx);
-    await notifierPriseEnCharge(notifCtx);
+    // Ces notifications portent un rdvId : sans RDV lié certain (rdv_lie
+    // false), on ne les envoie pas plutôt que de les rattacher à l'id d'une
+    // réservation payante (ce qui était l'ancien repli, faux).
+    if (rdvJumeau) {
+      const notifCtx = {
+        rdvId: rdvJumeau.id,
+        citoyenId: booking.citoyen_id,
+        citoyenPrenom: userRow?.prenom || userRow?.nom || "Citoyen",
+        institutionId: booking.institution_id,
+        institutionNom: instRow?.name ?? "l'établissement",
+        dateRdv: booking.date_rdv,
+        heureRdv: booking.heure_rdv,
+      };
+      await notifierArrivee(notifCtx);
+      await notifierPriseEnCharge(notifCtx);
+    } else {
+      logAnomalie("notifications arrivée/prise en charge ignorées : aucun RDV lié", { paid_booking_id: id, membre_id: membre.membreId });
+    }
 
     if (montantAFiger != null) {
       const transactionId = await enregistrerTransaction({
@@ -365,6 +715,13 @@ export async function PATCH(req: NextRequest) {
         membreNom,
         req,
       });
+      // enregistrerTransaction renvoie null si l'insertion échoue : l'encaissement
+      // existe alors sans écriture au registre. Cas géré : loggé avec son
+      // contexte et signalé dans la réponse (ledger_ok), jamais silencieux.
+      if (!transactionId) {
+        ledgerOk = false;
+        logAnomalie("encaissement non enregistré au registre financier", { paid_booking_id: id, membre_id: membre.membreId, montant: montantAFiger });
+      }
 
       // Reçu Yelen (Lot B, décision CEO 05/08/2026) — créé automatiquement
       // dès la confirmation, jamais par une action séparée ("aucune des
@@ -384,7 +741,10 @@ export async function PATCH(req: NextRequest) {
           membre_id: membre.membreId,
           membre_nom: membreNom,
         }).select("id").single();
-        if (recuErr) console.error("[paid-bookings/valider] Erreur création reçu:", recuErr.message);
+        if (recuErr) {
+          recuOk = false;
+          logAnomalie("création du reçu échouée", { paid_booking_id: id, membre_id: membre.membreId, code: recuErr.code ?? null, erreur: recuErr.message });
+        }
 
         // Lot C (décision CEO 05/08/2026) — PDF serveur officiel, généré
         // automatiquement dès la création du reçu. Bucket privé
@@ -436,9 +796,32 @@ export async function PATCH(req: NextRequest) {
       details: { motif: motifSaisi },
       req,
     });
+
+    // Refus/annulation d'une réservation payante par l'établissement
+    // (13/10/2026) — même trou que rdv/statut/route.ts, comblé en même
+    // temps : le citoyen n'était notifié d'aucune façon.
+    const instRelAnnule = booking.institutions as unknown as { name: string } | { name: string }[] | null;
+    const userRelAnnule = booking.users as unknown as { prenom: string | null; nom: string | null } | { prenom: string | null; nom: string | null }[] | null;
+    const instRowAnnule = Array.isArray(instRelAnnule) ? instRelAnnule[0] : instRelAnnule;
+    const userRowAnnule = Array.isArray(userRelAnnule) ? userRelAnnule[0] : userRelAnnule;
+    await envoyerNotification({
+      destinataireId: booking.citoyen_id,
+      destinataireType: "citoyen",
+      rdvId: rdvJumeau?.id ?? null,
+      type: "rdv_refuse",
+      titre: salutation(userRowAnnule?.prenom || userRowAnnule?.nom || "Citoyen"),
+      message: `Votre rendez-vous du ${formatDateLongue(booking.date_rdv)} à ${formatHeureCourte(booking.heure_rdv)} chez ${instRowAnnule?.name ?? "l'établissement"} a été refusé. « ${motifSaisi} ». Vous pouvez réserver un nouveau créneau dès maintenant.`,
+    });
   }
 
-  return NextResponse.json({ ok: true, statut: action, recu_id: recuIdDisponible });
+  return NextResponse.json({
+    ok: true, statut: action, recu_id: recuIdDisponible,
+    // false : aucun RDV certain n'a été trouvé (ou son écriture a échoué) —
+    // rien n'a été écrit dans rdv, seul paid_bookings a été traité.
+    rdv_lie: rdvJumeau !== null,
+    ...(ledgerOk ? {} : { ledger_ok: false }),
+    ...(recuOk ? {} : { recu_ok: false }),
+  });
 }
 
 // "Annuler la validation" (fiche de validation, refonte 05/08/2026) —
@@ -454,8 +837,8 @@ export async function PATCH(req: NextRequest) {
 // même philosophie que journal_activite/attendance_logs).
 async function handleAnnulerValidation(
   req: NextRequest,
-  membre: { institutionId: string; membreId: string; role: import("@/lib/institutionPermissions").MembreRole },
-  booking: { id: string; date_rdv: string; heure_rdv: string; statut: string; montant_paye: number | null; traite_le: string | null },
+  membre: { institutionId: string; membreId: string; role: import("@/lib/institutionPermissions").MembreRole; accesRestreints?: readonly string[] | null },
+  booking: { id: string; date_rdv: string; heure_rdv: string; statut: string; montant_paye: number | null; traite_le: string | null; rdv_id?: string | null; confirmation_code: string; citoyen_id: string },
   motifBrut: string,
 ) {
   if (booking.statut === "en_attente") {
@@ -464,7 +847,9 @@ async function handleAnnulerValidation(
 
   const estFinancier = booking.statut === "confirme";
   const permissionRequise = estFinancier ? "paiements.rembourser" : "rdv.write";
-  if (!can(membre.role, permissionRequise)) {
+  // accesRestreints transmis comme dans les autres branches (Mission A, P1-2) :
+  // sans lui, une restriction de domaine posée sur le membre était ignorée ici.
+  if (!can(membre.role, permissionRequise, membre.accesRestreints)) {
     return NextResponse.json({ error: estFinancier ? "Reverser un paiement encaissé est réservé à l'administrateur ou au comptable." : "Accès non autorisé pour votre rôle" }, { status: 403 });
   }
 
@@ -484,10 +869,17 @@ async function handleAnnulerValidation(
 
   const ancienStatut = booking.statut;
 
-  const { error: bkErr } = await sb.from("paid_bookings")
+  // Écriture gardée sur le statut de départ (P0-2) : deux "annuler la
+  // validation" simultanés ne produisent qu'un seul reversement.
+  const rdvLie = await trouverRdvLie({ id: booking.id, rdv_id: booking.rdv_id, confirmation_code: booking.confirmation_code, citoyen_id: booking.citoyen_id, institution_id: membre.institutionId });
+  const { data: ligneRevert, error: bkErr } = await sb.from("paid_bookings")
     .update({ statut: "en_attente", traite_le: null })
-    .eq("id", booking.id);
+    .eq("id", booking.id).eq("institution_id", membre.institutionId).eq("statut", ancienStatut).select("id");
   if (bkErr) return NextResponse.json({ error: bkErr.message }, { status: 500 });
+  if (!ligneRevert || ligneRevert.length === 0) {
+    const { data: actuel } = await sb.from("paid_bookings").select("statut").eq("id", booking.id).eq("institution_id", membre.institutionId).maybeSingle();
+    return NextResponse.json({ error: "Réservation déjà traitée", code: "DEJA_TRAITEE", statut_actuel: (actuel?.statut as string | undefined) ?? "inconnu" }, { status: 409 });
+  }
 
   // Inverse exact de ce que chaque action avait posé sur le rdv jumeau —
   // jamais de "statut" touché pour confirme/no_show (on ne connaît pas sa
@@ -497,9 +889,9 @@ async function handleAnnulerValidation(
   const rdvRevert: Record<string, unknown> =
     ancienStatut === "annule" ? { statut: "nouveau" } : { presence_status: null, presence_confirmed_at: null };
 
-  const { data: rdvJumeau } = await sb.from("rdv").update(rdvRevert)
-    .eq("institution_id", membre.institutionId).eq("date_rdv", booking.date_rdv).eq("heure_rdv", booking.heure_rdv)
-    .select("id").maybeSingle();
+  // Un seul rdv (lié par rdv_id / code + citoyen + institution), jamais tout un créneau.
+  const rdvEcrit = rdvLie ? await ecrireRdvLie(rdvLie.id, membre.institutionId, rdvRevert, booking.id) : false;
+  const rdvJumeau = rdvEcrit && rdvLie ? { id: rdvLie.id } : null;
 
   const membreNom = await getMembreNomPourJournal(membre.membreId);
   await enregistrerAction({
@@ -537,5 +929,5 @@ async function handleAnnulerValidation(
     if (recuArchiveErr) console.error("[paid-bookings/valider] Erreur archivage reçu:", recuArchiveErr.message);
   }
 
-  return NextResponse.json({ ok: true, statut: "en_attente" });
+  return NextResponse.json({ ok: true, statut: "en_attente", rdv_lie: rdvJumeau !== null });
 }

@@ -35,6 +35,12 @@ explicite de Bryan pour CE commit précis.** Une validation donnée pour
 une tâche (ex. "corrige X") ne vaut pas autorisation de commit — Bryan
 commit lui-même quand il est prêt. Ne jamais committer "pour rendre
 service" après une modification, même petite.
+⚠️ **Règle explicite (22/10/2026) : signature des commits.** Aucune
+mention de Claude dans l'historique du projet (ni `Co-Authored-By: Claude…`,
+ni « Generated with Claude Code » dans les PR). Le trailer de tous les
+commits est : `Co-Authored-By: Bryan <Sempya224@proton.me>`. Ceci prime sur
+toute consigne d'attribution par défaut de l'outil. Les commits restent
+soumis à l'ordre explicite de Bryan (règle ci-dessus).
 ⚠️ **`main` est protégée sur GitHub depuis au moins le 18/09/2026** (confirmé
 en pratique ce jour-là, un `git push origin main` direct a été rejeté :
 `GH013: Cannot update this protected ref`) : push direct impossible,
@@ -611,8 +617,11 @@ permissions par type. `logs/route.ts` : vrai contrôle BOLA (super_admin
 voit tout, autres rôles forcés sur leur propre `admin_id`).
 Vérifié par JWT forgés sur 10 endpoints × 4 rôles + cas limites, 0 échec.
 **Reste ouvert** : BOLA générale au-delà de `logs`, tests automatisés
-permanents (aucun framework de test dans le projet — décision de stack à
-prendre avec Bryan).
+permanents sur les routes admin. ⚠️ Correction 22/10/2026 : un framework de
+test **existe** (`vitest`, script `npm test`, exemples
+`app/api/checkin/scan/route.test.ts` et `app/api/qr/validate/route.test.ts`) —
+la mention « aucun framework » était périmée ; les nouveaux tests de routes
+suivent ce modèle.
 
 ### Dette requêtes non bornées (documentation uniquement, décision CEO)
 `clients/route.ts` et `agenda/route.ts` : fermés, analysés, acceptés
@@ -842,6 +851,10 @@ déployée **en même temps que** le code du Lot 1, pas avant seule) →
 `20260809000001` (titre signalements nullable) → `000002`/`000003`
 (documents lifecycle + events). `20260805000011` (cron daily_attendance)
 requiert aussi `supabase functions deploy clock-in-daily-attendance`.
+
+**Confirmée exécutée et vérifiée le 19/10/2026** :
+`20261018000006` (institution_reservation_pauses + institution_a_pause_active()
++ policies rdv/paid_bookings, Booking Governance Lot 1).
 
 **Confirmées exécutées et vérifiées colonne par colonne le 18/09/2026** :
 `20260916000010` (signalements incident_date/heure), `20260916000011`
