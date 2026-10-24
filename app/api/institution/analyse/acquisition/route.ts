@@ -12,7 +12,7 @@ const SOURCES_VALIDES: AcquisitionSource[] = ["yelen_search", "nearby", "qr_code
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (canAccessTab(membre.role, "analyse") === "none") return NextResponse.json({ error: "Accès non autorisé" }, { status: 403 });
+  if (canAccessTab(membre.role, "analyse", membre.accesRestreints) === "none") return NextResponse.json({ error: "Accès non autorisé" }, { status: 403 });
 
   const joursParam = Number(req.nextUrl.searchParams.get("jours"));
   const fenetreJours: PeriodeJours = PERIODES_VALIDES.includes(joursParam as PeriodeJours) ? (joursParam as PeriodeJours) : FENETRE_JOURS;

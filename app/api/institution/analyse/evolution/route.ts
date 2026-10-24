@@ -9,7 +9,7 @@ import { calculerEvolution } from "@/lib/analyseAggregation";
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (canAccessTab(membre.role, "analyse") === "none") return NextResponse.json({ error: "Accès non autorisé" }, { status: 403 });
+  if (canAccessTab(membre.role, "analyse", membre.accesRestreints) === "none") return NextResponse.json({ error: "Accès non autorisé" }, { status: 403 });
 
   const jours = await calculerEvolution(membre.institutionId);
   return NextResponse.json({ jours });

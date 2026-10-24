@@ -13,7 +13,7 @@ import { calculerVueEnsemble, FENETRE_JOURS, PERIODES_VALIDES } from "@/lib/anal
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (canAccessTab(membre.role, "analyse") === "none") return NextResponse.json({ error: "Accès non autorisé" }, { status: 403 });
+  if (canAccessTab(membre.role, "analyse", membre.accesRestreints) === "none") return NextResponse.json({ error: "Accès non autorisé" }, { status: 403 });
 
   const joursParam = Number(req.nextUrl.searchParams.get("jours"));
   const fenetreJours = PERIODES_VALIDES.includes(joursParam as typeof PERIODES_VALIDES[number]) ? joursParam : FENETRE_JOURS;

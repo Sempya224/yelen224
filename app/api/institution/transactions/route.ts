@@ -70,7 +70,7 @@ async function chargerStats(institutionId: string) {
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (canAccessTab(membre.role, "transactions") === "none") {
+  if (canAccessTab(membre.role, "transactions", membre.accesRestreints) === "none") {
     return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
   }
 

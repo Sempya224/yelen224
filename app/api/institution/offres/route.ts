@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
-import { can } from "@/lib/institutionPermissions";
+import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -12,6 +12,14 @@ const SELECT_FIELDS = "id,titre,description_courte,description_longue,categorie,
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  // GAP-05-05 E2 (23/10/2026) : aucun contrôle de rôle auparavant. Liste
+  // consommée par MesOffresTab et MonPartenariatTab — ouverte si l'un des
+  // deux onglets l'est (même périmètre aujourd'hui : admin/superviseur/
+  // dirigeant ; agent/comptable exclus).
+  if (canAccessTab(membre.role, "mes-offres", membre.accesRestreints) === "none"
+    && canAccessTab(membre.role, "partenariat", membre.accesRestreints) === "none") {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
 
   const { data, error } = await sb
     .from("offres")
