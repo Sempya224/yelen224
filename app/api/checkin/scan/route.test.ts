@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -77,6 +77,16 @@ function rdvBase(overrides: Ligne = {}): Ligne {
 }
 
 async function importRoute() { return await import("./route"); }
+
+// Préchauffage (23/10/2026) : le premier import de la route transforme tout
+// son graphe de modules (next/server, supabase-js...) — sans ce beforeAll,
+// ce coût tombait dans le délai de 5 s du PREMIER test, qui dépassait sous
+// charge ("Test timed out in 5000ms" sur "session absente -> 401", observé
+// 3 fois). vi.resetModules() vide le registre mais garde le cache de
+// transformation : les imports suivants restent rapides.
+beforeAll(async () => {
+  await importRoute();
+}, 60_000);
 
 beforeEach(() => {
   vi.clearAllMocks();

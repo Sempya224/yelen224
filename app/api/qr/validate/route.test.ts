@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -53,6 +53,26 @@ function creerFauxSupabase(seed: { rdv: Ligne[]; users: Ligne[]; institutions: L
   }
   return {
     from(table: string) {
+      // Garde-fou "institution suspendue" (ajouté à la route le 18/09/2026) :
+      // `.from("institutions").select("statut").eq("id", ...).maybeSingle()`
+      // en tête du POST et du PUT.
+      if (table === "institutions") {
+        const filtresInst: [string, unknown][] = [];
+        const builderInst = {
+          select() {
+            return builderInst;
+          },
+          eq(col: string, val: unknown) {
+            filtresInst.push([col, val]);
+            return builderInst;
+          },
+          async maybeSingle() {
+            const rows = appliquerFiltres(seed.institutions, filtresInst);
+            return { data: rows[0] ?? null, error: null };
+          },
+        };
+        return builderInst;
+      }
       if (table !== "rdv") throw new Error(`table non simulée: ${table}`);
       const filtres: [string, unknown][] = [];
       const builder = {
@@ -125,6 +145,12 @@ async function importRoute() {
   return await import("./route");
 }
 
+// Préchauffage : sorti du délai de 5 s du premier test (même cause que
+// app/api/checkin/scan/route.test.ts, "Test timed out" sous charge).
+beforeAll(async () => {
+  await importRoute();
+}, 60_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   // route.ts crée son client Supabase une seule fois au chargement du
@@ -137,9 +163,20 @@ beforeEach(() => {
   fauxSupabaseCourant = creerFauxSupabase({
     rdv: rdvSeedActuel,
     users: [{ id: CITOYEN_ID, nom: "Diallo", prenom: "Aïssatou", phone: "+224600000000" }],
-    institutions: [{ id: INSTITUTION_A, name: "Institution A" }, { id: INSTITUTION_B, name: "Institution B" }],
+    institutions: [
+      { id: INSTITUTION_A, name: "Institution A", statut: "validee" },
+      { id: INSTITUTION_B, name: "Institution B", statut: "validee" },
+    ],
   });
 });
+
+function suspendreInstitutionA() {
+  fauxSupabaseCourant = creerFauxSupabase({
+    rdv: rdvSeedActuel,
+    users: [{ id: CITOYEN_ID, nom: "Diallo", prenom: "Aïssatou", phone: "+224600000000" }],
+    institutions: [{ id: INSTITUTION_A, name: "Institution A", statut: "suspendue" }],
+  });
+}
 
 describe("POST /api/qr/validate — autorisation (GAP-05-01/GAP-07-01)", () => {
   it("1. non authentifié -> 401", async () => {
@@ -203,7 +240,7 @@ describe("POST /api/qr/validate — autorisation (GAP-05-01/GAP-07-01)", () => {
     fauxSupabaseCourant = creerFauxSupabase({
       rdv: [rdvBase({ presence_status: "present" })],
       users: [{ id: CITOYEN_ID, nom: "Diallo", prenom: "Aïssatou", phone: "+224600000000" }],
-      institutions: [{ id: INSTITUTION_A, name: "Institution A" }],
+      institutions: [{ id: INSTITUTION_A, name: "Institution A", statut: "validee" }],
     });
     getAuthenticatedMembre.mockResolvedValue({ institutionId: INSTITUTION_A, membreId: "m1", role: "agent" });
     const { POST } = await importRoute();
@@ -229,6 +266,22 @@ describe("POST /api/qr/validate — autorisation (GAP-05-01/GAP-07-01)", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(403);
+  });
+
+  it("7. agent autorisé, bonne institution, mais institution suspendue -> 403, aucune donnée du RDV renvoyée", async () => {
+    suspendreInstitutionA();
+    getAuthenticatedMembre.mockResolvedValue({ institutionId: INSTITUTION_A, membreId: "m1", role: "agent" });
+    const { POST } = await importRoute();
+    const req = new NextRequest("http://localhost/api/qr/validate", {
+      method: "POST",
+      body: JSON.stringify({ qr_payload: payloadPourRdv(rdvBase()) }),
+    });
+    const res = await POST(req);
+    const body = await res.json();
+    expect(res.status).toBe(403);
+    expect(body.success).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("Diallo");
+    expect(JSON.stringify(body)).not.toContain(RDV_ID);
   });
 });
 
@@ -278,5 +331,18 @@ describe("PUT /api/qr/validate — autorisation (GAP-05-01)", () => {
     });
     const res = await PUT(req);
     expect(res.status).toBe(404);
+  });
+
+  it("5. agent autorisé, bonne institution, mais institution suspendue -> 403, aucune confirmation écrite", async () => {
+    suspendreInstitutionA();
+    getAuthenticatedMembre.mockResolvedValue({ institutionId: INSTITUTION_A, membreId: "m1", role: "agent" });
+    const { PUT } = await importRoute();
+    const req = new NextRequest("http://localhost/api/qr/validate", {
+      method: "PUT",
+      body: JSON.stringify({ rdv_id: RDV_ID, action: "present" }),
+    });
+    const res = await PUT(req);
+    expect(res.status).toBe(403);
+    expect(rdvSeedActuel[0].presence_status).toBeNull();
   });
 });
