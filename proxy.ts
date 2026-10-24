@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { GEO_BYPASS_COOKIE, estRegionAutorisee, parseNetlifyGeo, timingSafeEqual } from '@/lib/geoAccess'
 import { estIpVpnOuProxy, estRateLimite, estUserAgentSuspect, extraireIpClient, logSecurite, seuilEndpointSensible } from '@/lib/edgeSecurity'
 import { cheminExempteMurMobile, estAppareilMobile, estRobotOuApercu } from '@/lib/deviceAccess'
+import { CODE_MFA_REQUISE, evaluerGardeMfaInstitution } from '@/lib/security/institutionMfaGate'
 
 // Routes publiques admin (pas de protection)
 const PUBLIC_ADMIN_ROUTES = ['/admin/login']
@@ -483,6 +484,27 @@ export async function proxy(request: NextRequest) {
     const pageAuthentifiee = reecrireSiBesoin(response)
     pageAuthentifiee.headers.set('Cache-Control', 'no-store')
     return pageAuthentifiee
+  }
+
+  // ═══════════════════════════════════════════
+  // SÉCURITÉ 2 bis — MFA obligatoire des membres institution (GAP-08-05,
+  // 23/10/2026). Avant : seul le calque client SecurityActivationGate
+  // bloquait un membre dont le délai de 24h était dépassé, contournable
+  // par appel direct. Toute route /api/institution/** (et /api/qr/validate)
+  // est désormais refusée en 403 MFA_REQUISE, sauf les exemptions
+  // justifiées une par une dans lib/security/institutionMfaGate.ts.
+  // ═══════════════════════════════════════════
+  const gardeMfa = await evaluerGardeMfaInstitution(request)
+  if (gardeMfa.bloque) {
+    logSecurite('institution_mfa_requise', { path: pathname })
+    return appliquerHeadersSecurite(NextResponse.json(
+      {
+        error: 'Activez une protection (application d\'authentification ou clé d\'accès) pour continuer à utiliser votre espace.',
+        code: CODE_MFA_REQUISE,
+        deadline: gardeMfa.deadline,
+      },
+      { status: 403 }
+    ))
   }
 
   // ═══════════════════════════════════════════
