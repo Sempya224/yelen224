@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { canAccessTab } from "@/lib/institutionPermissions";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -24,6 +25,11 @@ function bucketParJour(rows: { created_at: string }[] | null): Record<string, nu
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  // GAP-05-05 E3 (23/10/2026) : aucun contrôle de rôle auparavant — même
+  // palier que GET /api/institution/offres (onglet mes-offres).
+  if (canAccessTab(membre.role, "mes-offres", membre.accesRestreints) === "none") {
+    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  }
 
   const { data: mesOffres } = await sb.from("offres").select("id").eq("institution_id", membre.institutionId);
   const ids = (mesOffres ?? []).map(o => o.id);

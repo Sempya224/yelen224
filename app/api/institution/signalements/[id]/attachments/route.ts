@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
-import { can } from "@/lib/institutionPermissions";
+import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { validateUpload } from "@/lib/uploadSecurity";
 import { ajouterPieceJointe } from "@/lib/signalements";
 
@@ -14,6 +14,13 @@ const MAX_PREUVE_SIZE = 10 * 1024 * 1024;
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  // GAP-05-05 E1 (23/10/2026) : la lecture des preuves n'avait aucun
+  // contrôle de rôle — agent/comptable ("none" sur l'onglet signalements)
+  // pouvaient lister et télécharger les pièces par appel direct. Même
+  // palier que GET signalements/[id] (admin/superviseur full, dirigeant read).
+  if (canAccessTab(membre.role, "signalements", membre.accesRestreints) === "none") {
+    return NextResponse.json({ error: "Accès non autorisé" }, { status: 403 });
+  }
   const { id } = await params;
   const download = req.nextUrl.searchParams.get("download");
 
