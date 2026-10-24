@@ -4,9 +4,21 @@
 // concept externe différent. Ici on cherche par QUEL parcours Yelen le
 // citoyen a atteint la fiche (recherche interne, à proximité, QR,
 // Community, etc.), pas d'où vient son navigateur.
-export type AcquisitionSource =
-  | "yelen_search" | "nearby" | "qr_code" | "community" | "announcement"
-  | "share" | "external" | "direct" | "unknown";
+//
+// Tableau source unique, type dérivé : la validation serveur de
+// POST /api/acquisition/events (GAP-17-01) et le type ne peuvent pas
+// diverger.
+export const ACQUISITION_SOURCES = [
+  "yelen_search", "nearby", "qr_code", "community", "announcement", "share", "external", "direct", "unknown",
+] as const;
+export type AcquisitionSource = (typeof ACQUISITION_SOURCES)[number];
+
+// Types d'événements réellement émis (InstitutionPublicClient.tsx) et
+// agrégés (lib/analyseAcquisition.ts) — même principe que ci-dessus.
+export const ACQUISITION_EVENT_TYPES = [
+  "profile_view", "profile_share", "favori_ajoute", "appointment_started", "contact_started",
+] as const;
+export type AcquisitionEventType = (typeof ACQUISITION_EVENT_TYPES)[number];
 
 export const ACQUISITION_SOURCE_LABELS: Record<AcquisitionSource, string> = {
   yelen_search: "Recherche Yelen",
@@ -20,10 +32,6 @@ export const ACQUISITION_SOURCE_LABELS: Record<AcquisitionSource, string> = {
   unknown: "Autre",
 };
 
-const SOURCES_VALIDES: AcquisitionSource[] = [
-  "yelen_search", "nearby", "qr_code", "community", "announcement", "share", "external", "direct", "unknown",
-];
-
 // Un seul paramètre `?source=` couvre toutes les valeurs Yelen-native
 // (qr_code compris — le QR pointait déjà vers `?source=qr` avant ce
 // chantier, voir InstitutionPublicClient.tsx, valeur conservée en alias
@@ -33,7 +41,7 @@ const ALIAS_PARAM: Record<string, AcquisitionSource> = { qr: "qr_code" };
 function normaliserParam(sourceParam: string | null): AcquisitionSource | null {
   if (!sourceParam) return null;
   if (ALIAS_PARAM[sourceParam]) return ALIAS_PARAM[sourceParam];
-  return (SOURCES_VALIDES as string[]).includes(sourceParam) ? (sourceParam as AcquisitionSource) : null;
+  return (ACQUISITION_SOURCES as readonly string[]).includes(sourceParam) ? (sourceParam as AcquisitionSource) : null;
 }
 
 // Priorité au paramètre explicite posé par le point d'entrée (Lot C).
