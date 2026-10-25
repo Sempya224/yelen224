@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculerHashContenu, type EnveloppeExport } from "./canonique";
 import { lirePaquets } from "./lirePaquets";
-import { genererCsv, neutraliserFormule, type InfosDocument } from "./rendus";
+import { genererCsv, neutraliserFormule, neutraliserTelephone, type InfosDocument } from "./rendus";
 import { masquerTelephone, nomClientPourExport, telephoneExporte } from "./telephone";
 import {
   construireLignesHistoriqueFinancier, construireLignesPaiements, construireLignesRdv, lireDemandeExport,
@@ -123,8 +123,8 @@ describe("construireLignes*", () => {
     expect(JSON.stringify(m.lignes)).not.toContain("612345678");
   });
   it("Historique financier : téléphone masqué ou clair selon le droit", () => {
-    expect(construireLignesHistoriqueFinancier([paiement()], { telephoneClair: false }).lignes[0].telephone).toBe(neutraliserFormule("+224 ******* 78"));
-    expect(construireLignesHistoriqueFinancier([paiement()], { telephoneClair: true }).lignes[0].telephone).toBe(neutraliserFormule("+224612345678"));
+    expect(construireLignesHistoriqueFinancier([paiement()], { telephoneClair: false }).lignes[0].telephone).toBe("+224 ******* 78");
+    expect(construireLignesHistoriqueFinancier([paiement()], { telephoneClair: true }).lignes[0].telephone).toBe("+224612345678");
   });
   it("citoyen introuvable : repli « Citoyen »/« Client », jamais le téléphone", () => {
     const p = paiement({ citoyen_nom: "+224699999999" }, null);
@@ -143,12 +143,38 @@ describe("construireLignes*", () => {
     };
     const m = construireLignesRdv([item], { telephoneClair: false });
     expect(m.colonnes).toHaveLength(11);
-    expect(m.lignes[0].telephone).toBe(neutraliserFormule("+224 ******* 78"));
+    expect(m.lignes[0].telephone).toBe("+224 ******* 78");
     expect(m.lignes[0].service_objet).toBe("Visa");
   });
   it("neutralise les formules dans les noms", () => {
     const m = construireLignesPaiements([paiement({}, { prenom: "=CMD()", nom: null, phone: null })]);
     expect(String(m.lignes[0].citoyen).startsWith("'")).toBe(true);
+  });
+});
+
+describe("neutraliserTelephone", () => {
+  it("numéros (clairs ou masqués) sans apostrophe", () => {
+    expect(neutraliserTelephone("+224 612 34 56 78")).toBe("+224 612 34 56 78");
+    expect(neutraliserTelephone("+224 ******** 78")).toBe("+224 ******** 78");
+    expect(neutraliserTelephone("+224612345678")).toBe("+224612345678");
+  });
+  it("toute autre valeur dangereuse garde l'apostrophe", () => {
+    expect(neutraliserTelephone("+cmd|' /C calc'!A0")).toBe("'+cmd|' /C calc'!A0");
+    expect(neutraliserTelephone("=1+1")).toBe("'=1+1");
+    expect(neutraliserTelephone("@SUM(A1)")).toBe("'@SUM(A1)");
+    expect(neutraliserTelephone("+224 12; =1+1")).toBe("'+224 12; =1+1");
+    expect(neutraliserTelephone("+224 12\n=1")).toBe("'+224 12\n=1");
+    expect(neutraliserTelephone("+224 12\n")).toBe("'+224 12\n");
+  });
+  it("les autres colonnes gardent l'apostrophe, même pour un numéro", () => {
+    expect(neutraliserFormule("+224 612 34 56 78")).toBe("'+224 612 34 56 78");
+  });
+  it("le hash signé change avec la valeur exportée", () => {
+    const env = (tel: string): EnveloppeExport => ({
+      reference: "YL-EXP-2026-00000009", type: "rdv_passes", format: "csv", institution_id: uuid(5), auteur_id: null, role: "admin",
+      filtres: {}, nb_lignes: 1, version_gabarit: "rdv-passes-1", cree_le: "2026-10-25T10:00:00.000Z", lignes: [{ telephone: tel }],
+    });
+    expect(calculerHashContenu(env(neutraliserTelephone("+224 612 34 56 78") ?? ""))).not.toBe(calculerHashContenu(env(neutraliserFormule("+224 612 34 56 78") ?? "")));
   });
 });
 

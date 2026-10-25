@@ -48,6 +48,16 @@ export function neutraliserFormule(v: string | null): string | null {
   return DEBUT_FORMULE.test(v) ? `'${v}` : v;
 }
 
+// Colonne téléphone uniquement : un numéro (« +224 612 34 56 78 », masqué « +224 ******** 78 »)
+// reste lisible, sans apostrophe. Regex stricte : « + », un chiffre, puis chiffres / espaces / « * »
+// jusqu'à la fin. Sans drapeau `m`, `$` ne tolère pas un saut de ligne final. Toute autre valeur
+// retombe sur neutraliserFormule (apostrophe conservée).
+const NUMERO_TELEPHONE = /^\+[0-9][0-9 *]*$/;
+export function neutraliserTelephone(v: string | null): string | null {
+  if (v === null || v === "") return null;
+  return NUMERO_TELEPHONE.test(v) ? v : neutraliserFormule(v);
+}
+
 // Les 7 lignes « Champ / Valeur » communes (bloc d'en-tête du CSV, feuille
 // Informations du XLSX).
 export function lignesInformations(d: InfosDocument): { champ: string; valeur: string }[] {

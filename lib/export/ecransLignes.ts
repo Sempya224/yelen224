@@ -14,7 +14,7 @@ import { DEVISE_LABEL } from "@/lib/devise";
 import type { RdvHistoAssemble } from "@/lib/rdvHistorique";
 import type { PaiementAssemble } from "@/lib/paiementsListe";
 import { nomClientPourExport, telephoneExporte } from "./telephone";
-import { neutraliserFormule, type ColonneExport, type LigneExport, type ModeleExport } from "./rendus";
+import { neutraliserFormule, neutraliserTelephone, type ColonneExport, type LigneExport, type ModeleExport } from "./rendus";
 
 export const MAX_IDS_EXPORT_ECRAN = 5000;
 
@@ -111,7 +111,7 @@ export function construireLignesRdv(items: RdvHistoAssemble[], opts: { telephone
     date: dateLisible(r.date_rdv),
     heure: heureAmPm(r.heure_rdv) || null,
     client: neutraliserFormule(nomClientPourExport(citoyen, "Client")),
-    telephone: neutraliserFormule(telephoneExporte(citoyen?.phone, opts.telephoneClair) || null),
+    telephone: neutraliserTelephone(telephoneExporte(citoyen?.phone, opts.telephoneClair) || null),
     service_objet: neutraliserFormule(r.service_nom || r.objet || null),
     statut: neutraliserFormule(libelleStatutRdv(r.statut, r.presence_status)),
     motif_annulation: neutraliserFormule(r.motif_annulation),
@@ -152,7 +152,7 @@ export function construireLignesHistoriqueFinancier(items: PaiementAssemble[], o
   const lignes = items.map(({ ligne: p, citoyen }): LigneExport => ({
     reference: neutraliserFormule(p.reference),
     client: neutraliserFormule(nomClientPourExport(citoyen, "Client")),
-    telephone: neutraliserFormule(telephoneExporte(citoyen?.phone, opts.telephoneClair) || null),
+    telephone: neutraliserTelephone(telephoneExporte(citoyen?.phone, opts.telephoneClair) || null),
     service: neutraliserFormule(p.service_nom),
     date: dateLisible(p.date_rdv),
     heure: heureAmPm(p.heure_rdv) || null,
