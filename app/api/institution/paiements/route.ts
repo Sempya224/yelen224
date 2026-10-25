@@ -5,6 +5,7 @@ import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { accesUrgenceAdminDebloque } from "@/lib/comptableProtection";
 import { enregistrerTransaction } from "@/lib/transactionsFinancieres";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import { assemblerPaiements, type BookingRow } from "@/lib/paiementsListe";
 
 // Écran Paiements du comptable — liste complète de paid_bookings (tous
 // statuts, toute période), contrairement à app/api/institution/paid-bookings/
@@ -13,12 +14,6 @@ import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivit
 // action de remboursement, domaine réservé comptable (voir
 // lib/comptableProtection.ts pour l'accès d'urgence admin).
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-
-function buildNom(u: { nom: string | null; prenom: string | null; phone: string | null } | undefined): string {
-  if (!u) return "Citoyen";
-  const parts = [u.prenom, u.nom].filter(Boolean).join(" ");
-  return parts || u.phone || "Citoyen";
-}
 
 // Lot 1 (refonte "Payment Operations Center", décision CEO 05/08/2026).
 // Toutes les métriques ci-dessous sont réellement calculées, jamais
@@ -128,55 +123,8 @@ export async function GET(req: NextRequest) {
   const { data: raw, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  type BookingRow = {
-    id: string; confirmation_code: string; statut: string; date_rdv: string; heure_rdv: string;
-    montant_paye: number | null; montant_declare_citoyen: number | null; declare_le: string | null; traite_le: string | null;
-    methode_paiement: string | null; created_at: string; citoyen_id: string | null; service_id: string | null;
-    paid_services: { nom: string | null } | null;
-  };
-  const rawRows = (raw ?? []) as unknown as BookingRow[];
-  const cids = [...new Set(rawRows.map((b) => b.citoyen_id).filter(Boolean))];
-  const uMap = new Map<string, { nom: string; phone: string; photo_url: string | null }>();
-  if (cids.length > 0) {
-    const { data: usersD } = await sb.from("users").select("id,nom,prenom,phone,photo_url").in("id", cids);
-    (usersD ?? []).forEach(u => uMap.set(u.id, { nom: buildNom(u), phone: u.phone ?? "", photo_url: u.photo_url ?? null }));
-  }
-
-  // Reçu Yelen (Lot D/3) — jointure par paid_booking_id. recuMap garde
-  // l'objet complet (pas seulement l'id "disponible") pour que la Timeline
-  // mini et le badge reçu (Lot 3) distinguent généré/en attente/archivé
-  // sans requête supplémentaire.
-  const bookingIds = rawRows.map((b) => b.id);
-  const recuMap = new Map<string, { id: string; statut: string; membre_nom: string; disponible_le: string | null }>();
-  if (bookingIds.length > 0) {
-    const { data: recusD } = await sb.from("recus").select("id,paid_booking_id,statut,membre_nom,disponible_le").in("paid_booking_id", bookingIds);
-    (recusD ?? []).forEach(r => recuMap.set(r.paid_booking_id, { id: r.id, statut: r.statut, membre_nom: r.membre_nom, disponible_le: r.disponible_le }));
-  }
-
-  const paiements = rawRows.map((b) => {
-    const recu = recuMap.get(b.id) ?? null;
-    return {
-      id: b.id,
-      reference: b.confirmation_code,
-      statut: b.statut,
-      date_rdv: b.date_rdv,
-      heure_rdv: b.heure_rdv,
-      montant: b.montant_paye ?? 0,
-      montant_declare_citoyen: b.montant_declare_citoyen,
-      declare_le: b.declare_le,
-      traite_le: b.traite_le,
-      methode_paiement: b.methode_paiement,
-      created_at: b.created_at,
-      service_nom: b.paid_services?.nom ?? "Service",
-      citoyen_nom: uMap.get(b.citoyen_id ?? "")?.nom ?? "Citoyen",
-      citoyen_phone: uMap.get(b.citoyen_id ?? "")?.phone ?? "",
-      citoyen_photo_url: uMap.get(b.citoyen_id ?? "")?.photo_url ?? null,
-      recu_id: recu?.statut === "disponible" ? recu.id : null,
-      recu_statut: recu?.statut ?? null,
-      recu_disponible_le: recu?.disponible_le ?? null,
-      agent_nom: recu?.membre_nom ?? null,
-    };
-  });
+  // Assemblage partagé avec l'export serveur (lib/paiementsListe.ts) : une seule logique.
+  const paiements = (await assemblerPaiements(sb, (raw ?? []) as unknown as BookingRow[])).map((a) => a.ligne);
 
   const stats = await chargerStats(membre.institutionId);
 

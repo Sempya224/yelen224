@@ -4,26 +4,11 @@ import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { canAccessTab } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 import { envoyerNotification } from "@/lib/notifications";
+import { assemblerRdvHistorique, COLONNES_RDV_HISTORIQUE, type RdvBrut } from "@/lib/rdvHistorique";
 
 // Contourne RLS via service role, même pattern que rdv-jour/route.ts —
 // institution_id vient toujours du JWT vérifié, jamais du client.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-
-function buildNom(u: { nom: string | null; prenom: string | null; phone: string | null } | undefined): string {
-  if (!u) return "Citoyen";
-  const parts = [u.prenom, u.nom].filter(Boolean).join(" ");
-  return parts || u.phone || "Citoyen";
-}
-
-// Libellé humain de la dernière action journalisée — même convention que
-// lib/journalActivite.ts (action: "rdv_accepte", "rdv_confirme", ...).
-const LABEL_ACTION: Record<string, string> = {
-  rdv_accepte: "Accepté",
-  rdv_confirme: "Présence confirmée",
-  rdv_termine: "Marqué terminé",
-  rdv_refuse: "Refusé",
-  rdv_absent: "Marqué absent",
-};
 
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
@@ -41,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   let query = sb
     .from("rdv")
-    .select("id,objet,date_rdv,heure_rdv,statut,citoyen_id,notes,motif_annulation,presence_status,created_at,institution_id")
+    .select(COLONNES_RDV_HISTORIQUE)
     .eq("institution_id", authInstId)
     .lte("date_rdv", dateTo || new Date().toISOString().slice(0, 10))
     .order("date_rdv", { ascending: false })
@@ -64,69 +49,9 @@ export async function GET(req: NextRequest) {
 
   if (!rdvRaw?.length) return NextResponse.json({ rdvs: [] });
 
-  const citoyenIds = [...new Set(rdvRaw.map((r) => r.citoyen_id).filter(Boolean))];
-  const { data: usersD } = await sb.from("users").select("id,nom,prenom,phone").in("id", citoyenIds);
-  const uMap = new Map((usersD ?? []).map((u) => [u.id, u]));
-
-  // Service payant éventuel — même rattachement par créneau que l'écran RDV.
-  const { data: paidRaw } = await sb
-    .from("paid_bookings")
-    .select("date_rdv,heure_rdv,paid_services(nom,prix,duree_minutes)")
-    .eq("institution_id", authInstId)
-    .neq("statut", "annule");
-  const paidMap = new Map<string, { nom: string; prix: number; duree_minutes: number }>();
-  type PaidRow = { date_rdv: string; heure_rdv: string; paid_services: { nom: string; prix: number; duree_minutes: number } | null };
-  ((paidRaw ?? []) as unknown as PaidRow[]).forEach((b) => {
-    if (!b.paid_services) return;
-    paidMap.set(`${b.date_rdv}|${b.heure_rdv}`, b.paid_services);
-  });
-
-  // Traçabilité — dernière action journalisée pour ce RDV (Lots A-D :
-  // rdv_accepte/rdv_confirme/rdv_termine/rdv_refuse/rdv_absent, "Agent" =
-  // membre_nom réel). Une seule requête pour tous les RDV de la page.
-  const rdvIds = rdvRaw.map((r) => r.id);
-  const { data: journalRaw } = await sb
-    .from("journal_activite")
-    .select("cible_id,action,membre_nom,created_at")
-    .eq("institution_id", authInstId)
-    .eq("cible_table", "rdv")
-    .in("cible_id", rdvIds)
-    .order("created_at", { ascending: false });
-  const traceMap = new Map<string, { action: string; membre_nom: string; created_at: string }>();
-  (journalRaw ?? []).forEach((j) => { if (j.cible_id && !traceMap.has(j.cible_id)) traceMap.set(j.cible_id, j); });
-
-  // Référence Yelen — YL-{année}-{MMJJ}-{séquence du jour, stable, calculée
-  // sur TOUS les RDV de ce jour pour cette institution, pas seulement ceux
-  // de la page filtrée, pour qu'elle ne change jamais selon les filtres.
-  const datesUniques = [...new Set(rdvRaw.map((r) => r.date_rdv))];
-  const rangMap = new Map<string, number>();
-  for (const date of datesUniques) {
-    const { data: jourRaw } = await sb
-      .from("rdv").select("id,created_at")
-      .eq("institution_id", authInstId).eq("date_rdv", date)
-      .order("created_at", { ascending: true });
-    (jourRaw ?? []).forEach((r, i) => rangMap.set(r.id, i + 1));
-  }
-  function reference(r: { id: string; date_rdv: string }): string {
-    const rang = rangMap.get(r.id) ?? 1;
-    const [y, m, d] = r.date_rdv.split("-");
-    return `YL-${y}-${m}${d}-${String(rang).padStart(4, "0")}`;
-  }
-
-  let rdvs = rdvRaw.map((r) => {
-    const u = uMap.get(r.citoyen_id);
-    const paid = paidMap.get(`${r.date_rdv}|${r.heure_rdv}`);
-    const trace = traceMap.get(r.id);
-    return {
-      ...r,
-      citoyen_nom: buildNom(u), citoyen_phone: u?.phone ?? "",
-      reference: reference(r),
-      service_nom: paid?.nom ?? null, service_prix: paid?.prix ?? null,
-      derniere_action: trace ? (LABEL_ACTION[trace.action] ?? trace.action) : null,
-      agent_nom: trace?.membre_nom ?? null,
-      derniere_action_le: trace?.created_at ?? null,
-    };
-  });
+  // Assemblage partagé avec l'export serveur (lib/rdvHistorique.ts) : une seule logique.
+  const assembles = await assemblerRdvHistorique(sb, authInstId, rdvRaw as unknown as RdvBrut[]);
+  let rdvs = assembles.map((a) => a.ligne);
 
   if (q) {
     rdvs = rdvs.filter((r) =>

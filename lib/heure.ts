@@ -170,3 +170,21 @@ export function dateHeureCourte(valeur: Date | string): string {
   if (Number.isNaN(d.getTime())) return "";
   return `${FORMAT_DATE_JOUR.format(d)} · ${heureDepuisHorodatage(d)}`;
 }
+
+const FORMAT_DATE_ABREGEE_UTC = new Intl.DateTimeFormat("fr-FR", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
+const FORMAT_DATE_ABREGEE_CONAKRY = new Intl.DateTimeFormat("fr-FR", { timeZone: FUSEAU_GUINEE, day: "numeric", month: "short", year: "numeric" });
+
+// « 2026-10-23 » (valeur murale, colonne `date`) -> « 23 oct. 2026 ». Chaîne vide si le format n'est pas reconnu.
+export function dateMuraleAbregee(dateRdv: string | null | undefined): string {
+  const m = (dateRdv || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "";
+  return FORMAT_DATE_ABREGEE_UTC.format(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))));
+}
+
+// Horodatage -> « 22 oct. 2026 · 3:34 PM » (mois abrégé, fuseau de Conakry). Chaîne vide si invalide.
+export function horodatageAbrege(valeur: Date | string | null | undefined): string {
+  if (valeur === null || valeur === undefined || valeur === "") return "";
+  const d = valeur instanceof Date ? valeur : new Date(valeur);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${FORMAT_DATE_ABREGEE_CONAKRY.format(d)} · ${heureDepuisHorodatage(d)}`;
+}

@@ -65,6 +65,7 @@ import { ApercuStyles, ApercuCard, VoirLien, EtatVideCarte, ApercuHeader, KpiBan
 import { CompteSuspenduScreen } from "./components/CompteSuspenduScreen";
 import { SecurityActivationGate } from "./components/SecurityActivationGate";
 import { LogoutFlow, INSTITUTION_LOGOUT_COPY } from "./components/LogoutFlow";
+import { telechargerExportServeur } from "@/lib/export/telechargementClient";
 
 // Onglets chargés à la demande (next/dynamic) : webpack ne compile plus tout
 // le dashboard à la première ouverture, seulement l'onglet affiché. ssr:false
@@ -1995,6 +1996,7 @@ function InstitutionDashboardInner() {
 
   const [inst, setInst]             = useState<Institution | null>(null);
   const [rdvs, setRdvs]             = useState<RDV[]>([]);
+  const [exportAccueilEnCours, setExportAccueilEnCours] = useState(false);
   const [clients, setClients]       = useState<Client[]>([]);
   // Fail-closed : null tant que le rôle n'est pas connu (chargement, ou
   // échec de fetch) — jamais un défaut permissif. isAdmin dérivé conservé
@@ -2413,27 +2415,16 @@ function InstitutionDashboardInner() {
       .catch(() => {});
   }, [instId, instRefreshKey, handleConfigStatusChange]);
 
-  function exportCsv() {
+  // Export CSV serveur (lib/export) : la sélection de l'accueil (RDV terminés ou annulés)
+  // est envoyée par identifiants vers la MÊME route que « RDV passés » ; le serveur relit,
+  // masque le téléphone selon le rôle, enregistre et signe le document.
+  async function exportCsv() {
     const termines = rdvs.filter(r => ["effectue", "termine", "honore", "annule"].includes(r.statut));
     if (!termines.length) { showToast("Aucun RDV à exporter", C.orange); return; }
-    const header = ["Date", "Heure", "Citoyen", "Téléphone", "Objet", "Statut", "Motif annulation", "Reçu le"];
-    const rows = termines.map(r => [
-      r.date_rdv,
-      r.heure_rdv || "",
-      r.citoyen_nom,
-      r.citoyen_phone || "",
-      r.objet || "RDV général",
-      r.statut,
-      r.motif_annulation || "",
-      r.created_at ? new Date(r.created_at).toLocaleDateString("fr-FR") : "",
-    ]);
-    const csv = [header, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `rdv_${inst?.name || instId}_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click(); URL.revokeObjectURL(url);
-    showToast(`${termines.length} RDV exportés`, C.green);
+    setExportAccueilEnCours(true);
+    const r = await telechargerExportServeur("/api/institution/rdv-historique/export", { ecran: "rdv_accueil", ids: termines.map(x => x.id) }, "rdv_accueil.csv");
+    setExportAccueilEnCours(false);
+    showToast(r.texte, r.ok ? C.green : C.red);
   }
 
   // ── Actions RDV ──
@@ -4724,6 +4715,7 @@ function InstitutionDashboardInner() {
                 size="sm"
                 style={{ flexShrink: 0 }}
                 icon={<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+                loading={exportAccueilEnCours}
                 onClick={exportCsv}
               >
                 Export CSV
