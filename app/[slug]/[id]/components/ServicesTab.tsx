@@ -24,6 +24,8 @@ import { Card } from "@/components/ui/Card";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { FormField } from "./FormField";
 import { heureAmPm } from "@/lib/heure";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { nomCopie, descriptionRecopiable, messageErreurApi } from "@/lib/servicesUi";
 
 // Lot C (refonte wizard RDV citoyen, 16/07/2026) : champs demandés au
 // citoyen à la réservation, configurés par l'institution — jamais imposés
@@ -61,6 +63,13 @@ type PaidBooking = {
   created_at: string;
   citoyen_nom?: string;
   citoyen_phone?: string;
+};
+
+// Données du formulaire service payant. Le prix promo n'est plus saisissable
+// (Lot 1b : la promo n'est appliquée nulle part côté citoyen, l'API l'ignore).
+type ServiceFormData = {
+  nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null;
+  champs_complementaires: ChampComplementaire[]; taux_taxe: number;
 };
 
 type StatutFilter = "tous" | "actif" | "suspendu";
@@ -269,7 +278,7 @@ function ServiceActionsMenu({ service, isOpen, onToggle, onClose, onEdit, onDupl
 }
 
 function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
-  onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null; champs_complementaires: ChampComplementaire[]; taux_taxe: number; prix_promo: number | null; promo_actif: boolean }) => Promise<void>;
+  onSave: (d: ServiceFormData) => Promise<void>;
   onCancel: () => void;
   saving: boolean;
   initial?: PaidService | null;
@@ -283,8 +292,6 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
   const [desc, setDesc]   = useState(initial?.description ?? "");
   const [champs, setChamps] = useState<ChampComplementaire[]>(initial?.champs_complementaires ?? []);
   const [tauxTaxe, setTauxTaxe] = useState(initial ? String(initial.taux_taxe ?? 0) : "0");
-  const [prixPromo, setPrixPromo] = useState(initial?.prix_promo != null ? String(initial.prix_promo) : "");
-  const [promoActif, setPromoActif] = useState(initial?.promo_actif ?? false);
   const initialKnown = !!(initial?.categorie && categorieOptions.includes(initial.categorie) && initial.categorie !== CATEGORIE_AUTRE);
   const [categorieSel, setCategorieSel]       = useState(initial?.categorie ? (initialKnown ? initial.categorie : CATEGORIE_AUTRE) : "");
   const [categorieCustom, setCategorieCustom] = useState(initial?.categorie && !initialKnown ? initial.categorie : "");
@@ -297,11 +304,10 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
     if (!prix || isNaN(+prix) || +prix <= 0)    { setErr(`Entrez un prix valide en ${DEVISE_LABEL} (ex: 5000)`); return; }
     if (!duree || isNaN(+duree) || +duree <= 0) { setErr("Entrez une durée valide en minutes (ex: 30)"); return; }
     if (tauxTaxe && (isNaN(+tauxTaxe) || +tauxTaxe < 0)) { setErr("Le taux de taxe doit être un nombre positif"); return; }
-    if (promoActif && (!prixPromo || isNaN(+prixPromo) || +prixPromo <= 0)) { setErr("Entrez un prix promotionnel valide"); return; }
     const categorieFinal = categorieSel === CATEGORIE_AUTRE ? (categorieCustom.trim() || null) : (categorieSel || null);
     await onSave({
       nom: nom.trim(), prix: +prix, duree_minutes: +duree, description: desc.trim(), categorie: categorieFinal, champs_complementaires: champs,
-      taux_taxe: tauxTaxe ? +tauxTaxe : 0, prix_promo: promoActif && prixPromo ? +prixPromo : null, promo_actif: promoActif,
+      taux_taxe: tauxTaxe ? +tauxTaxe : 0,
     });
   }
 
@@ -362,17 +368,6 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
             <label style={labelStyle}>Taux de taxe (%)</label>
             <input type="number" value={tauxTaxe} onChange={e => setTauxTaxe(e.target.value)} placeholder="0" style={inputStyle}/>
           </div>
-          <div>
-            <label style={labelStyle}>
-              <span onClick={() => setPromoActif(v => !v)} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ width: "28px", height: "16px", borderRadius: "10px", backgroundColor: promoActif ? C.gold : C.bg3, position: "relative", display: "inline-block", border: `1px solid ${promoActif ? C.gold : C.border2}`, transition: "background-color 0.15s" }}>
-                  <span style={{ position: "absolute", top: "1px", left: promoActif ? "13px" : "1px", width: "12px", height: "12px", borderRadius: "50%", backgroundColor: promoActif ? "#000" : C.t3, transition: "left 0.15s" }}/>
-                </span>
-                Prix promo actif
-              </span>
-            </label>
-            <input type="number" value={prixPromo} onChange={e => setPrixPromo(e.target.value)} disabled={!promoActif} placeholder="Prix réduit" style={{ ...inputStyle, opacity: promoActif ? 1 : 0.5 }}/>
-          </div>
         </div>
 
         <div className="svc-form-span2">
@@ -412,7 +407,7 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
 }
 
 function ServiceFormSheet({ target, onSave, onCancel, saving, categorieOptions }: {
-  target: "new" | PaidService; onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null; champs_complementaires: ChampComplementaire[]; taux_taxe: number; prix_promo: number | null; promo_actif: boolean }) => Promise<void>; onCancel: () => void; saving: boolean;
+  target: "new" | PaidService; onSave: (d: ServiceFormData) => Promise<void>; onCancel: () => void; saving: boolean;
   categorieOptions: string[];
 }) {
   const { theme } = useTheme();
@@ -889,6 +884,8 @@ export function ServicesTab({ instId }: { instId: string }) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [guideOpen, setGuideOpen]   = useState(false);
   const [offreOpen, setOffreOpen]   = useState(false);
+  const [confirmSupprimer, setConfirmSupprimer] = useState<PaidService | null>(null);
+  const [confirmSuspendre, setConfirmSuspendre] = useState<PaidService | null>(null);
   // Chantier Taxonomie des activités (Phase 3.5, 20/08/2026) — activités
   // réelles de la catégorie de l'institution, pour peupler le dropdown
   // catégorie du formulaire service payant. null tant que non résolu ou si
@@ -925,7 +922,7 @@ export function ServicesTab({ instId }: { instId: string }) {
 
   const categorieOptions = [...(activiteLabels ?? FALLBACK_CATEGORIE_OPTIONS), CATEGORIE_AUTRE];
 
-  async function handleSaveForm(data: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null; champs_complementaires: ChampComplementaire[]; taux_taxe: number; prix_promo: number | null; promo_actif: boolean }) {
+  async function handleSaveForm(data: ServiceFormData) {
     setSaving(true);
     const isEdit = formTarget && formTarget !== "new";
     const res = await fetch("/api/institution/services", {
@@ -934,7 +931,7 @@ export function ServicesTab({ instId }: { instId: string }) {
       body: JSON.stringify(isEdit ? { id: (formTarget as PaidService).id, ...data } : data),
     });
     const j = await res.json().catch(() => null);
-    if (!res.ok) { showToast("Erreur : " + (j?.error ?? "inconnue"), C.red); setSaving(false); return; }
+    if (!res.ok) { showToast(messageErreurApi(j, "Le service n'a pas pu être enregistré."), C.red); setSaving(false); return; }
     showToast(isEdit ? "Service mis à jour" : "Service créé avec succès", C.green);
     setFormTarget(null);
     await loadData();
@@ -946,14 +943,25 @@ export function ServicesTab({ instId }: { instId: string }) {
     const res = await fetch("/api/institution/services", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nom: `${service.nom} (copie)`, prix: service.prix, duree_minutes: service.duree_minutes, description: service.description, categorie: service.categorie, champs_complementaires: service.champs_complementaires, is_active: service.is_active, taux_taxe: service.taux_taxe, prix_promo: service.prix_promo, promo_actif: service.promo_actif }),
+      // La copie est créée SUSPENDUE : jamais publiée avant relecture. Nom sans
+      // suffixe empilé, jamais de description d'erreur recopiée.
+      body: JSON.stringify({ nom: nomCopie(service.nom, services.map(s => s.nom)), prix: service.prix, duree_minutes: service.duree_minutes, description: descriptionRecopiable(service.description), categorie: service.categorie, champs_complementaires: service.champs_complementaires, is_active: false, taux_taxe: service.taux_taxe }),
     });
-    if (!res.ok) { showToast("Erreur duplication", C.red); return; }
-    showToast("Service dupliqué", C.green);
+    if (!res.ok) { showToast(messageErreurApi(await res.json().catch(() => null), "Le service n'a pas pu être dupliqué."), C.red); return; }
+    showToast("Service dupliqué — la copie est suspendue, activez-la quand elle est prête", C.green);
     await loadData();
   }
 
-  async function handleToggle(service: PaidService) {
+  // Suspendre un service actif qui a déjà des réservations demande une
+  // confirmation (nombre affiché) ; réactiver, ou suspendre sans réservation,
+  // est immédiat.
+  function handleToggle(service: PaidService) {
+    setMenuOpenId(null);
+    if (service.is_active && bookings.some(b => b.service_id === service.id)) { setConfirmSuspendre(service); return; }
+    return appliquerToggle(service);
+  }
+
+  async function appliquerToggle(service: PaidService) {
     setToggling(service.id);
     const res = await fetch("/api/institution/services", {
       method: "PATCH",
@@ -962,25 +970,30 @@ export function ServicesTab({ instId }: { instId: string }) {
     });
     if (res.ok) {
       setServices(prev => prev.map(s => s.id === service.id ? { ...s, is_active: !s.is_active } : s));
-      showToast(service.is_active ? "Service désactivé" : "Service activé", service.is_active ? C.orange : C.green);
+      showToast(service.is_active ? "Service suspendu" : "Service réactivé", service.is_active ? C.orange : C.green);
     } else {
-      showToast("Erreur de mise à jour", C.red);
+      showToast(messageErreurApi(await res.json().catch(() => null), "Le statut du service n'a pas pu être mis à jour."), C.red);
     }
     setToggling(null);
     setMenuOpenId(null);
+    setConfirmSuspendre(null);
   }
 
+  // La confirmation (ConfirmModal) précède cet appel : plus de window.confirm.
   async function handleDelete(id: string) {
     setMenuOpenId(null);
-    const hasBk = bookings.some(b => b.service_id === id);
-    const msg = hasBk ? "Ce service a des réservations. Supprimer quand même ?" : "Supprimer ce service définitivement ?";
-    if (!window.confirm(msg)) return;
     const res = await fetch(`/api/institution/services?id=${id}`, { method: "DELETE" });
-    if (!res.ok) { showToast("Erreur suppression", C.red); return; }
+    setConfirmSupprimer(null);
+    if (!res.ok) { showToast(messageErreurApi(await res.json().catch(() => null), "Le service n'a pas pu être supprimé."), C.red); return; }
     setServices(prev => prev.filter(s => s.id !== id));
     setBookings(prev => prev.filter(b => b.service_id !== id));
     showToast("Service supprimé", C.orange);
   }
+
+  const nbReservationsSupprimer = confirmSupprimer ? bookings.filter(b => b.service_id === confirmSupprimer.id).length : 0;
+  const reservationsSuspendre = confirmSuspendre ? bookings.filter(b => b.service_id === confirmSuspendre.id) : [];
+  const nbReservationsSuspendre = reservationsSuspendre.length;
+  const nbReservationsSuspendreOuvertes = reservationsSuspendre.filter(b => b.statut === "en_attente" || b.statut === "confirme").length;
 
   const servicesActifs = services.filter(s => s.is_active).length;
   const totalResa      = bookings.length;
@@ -1056,6 +1069,50 @@ export function ServicesTab({ instId }: { instId: string }) {
 
       {toast && <Toast msg={toast.msg} color={toast.color} onDismiss={() => setToast(null)}/>}
       {formTarget && <ServiceFormSheet target={formTarget} onSave={handleSaveForm} onCancel={() => setFormTarget(null)} saving={saving} categorieOptions={categorieOptions}/>}
+
+      <ConfirmModal
+        open={!!confirmSupprimer}
+        onClose={() => setConfirmSupprimer(null)}
+        onConfirm={() => { if (confirmSupprimer) return handleDelete(confirmSupprimer.id); }}
+        tokens={toUiTokens(C)}
+        level={1}
+        danger
+        title={confirmSupprimer ? `Supprimer « ${confirmSupprimer.nom} » ?` : "Supprimer ce service ?"}
+        description={nbReservationsSupprimer > 0 ? `${nbReservationsSupprimer} réservation${nbReservationsSupprimer > 1 ? "s sont liées" : " est liée"} à ce service.` : "Aucune réservation n'est liée à ce service."}
+        consequences={[
+          "Suppression définitive : le service ne pourra pas être récupéré.",
+          ...(nbReservationsSupprimer > 0 ? ["Les réservations liées sont supprimées avec lui."] : []),
+          "Si des paiements ou des reçus y sont rattachés, la suppression est refusée : suspendez alors le service.",
+        ]}
+        reversible={false}
+        confirmLabel="Supprimer définitivement"
+      >
+        {confirmSupprimer?.is_active && (
+          <div style={{ marginBottom: "10px" }}>
+            <Button tokens={toUiTokens(C)} variant="secondary" size="md" fullWidth
+              onClick={() => { const s = confirmSupprimer; setConfirmSupprimer(null); if (s) appliquerToggle(s); }}>
+              Suspendre à la place
+            </Button>
+          </div>
+        )}
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={!!confirmSuspendre}
+        onClose={() => setConfirmSuspendre(null)}
+        onConfirm={() => { if (confirmSuspendre) return appliquerToggle(confirmSuspendre); }}
+        tokens={toUiTokens(C)}
+        level={1}
+        title={confirmSuspendre ? `Suspendre « ${confirmSuspendre.nom} » ?` : "Suspendre ce service ?"}
+        description={`${nbReservationsSuspendre} réservation${nbReservationsSuspendre > 1 ? "s existent" : " existe"} pour ce service${nbReservationsSuspendreOuvertes > 0 ? `, dont ${nbReservationsSuspendreOuvertes} en attente ou confirmée${nbReservationsSuspendreOuvertes > 1 ? "s" : ""}` : ""}.`}
+        consequences={[
+          "Le service n'apparaît plus sur votre fiche publique et ne peut plus être réservé.",
+          "Les réservations existantes ne sont pas modifiées : traitez-les normalement.",
+          "Vous pourrez le réactiver à tout moment.",
+        ]}
+        reversible
+        confirmLabel="Suspendre"
+      />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
         <div>
@@ -1182,7 +1239,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                       return (
                         <ServiceRow key={s.id} service={s} resaCount={svcBookings.length} resaDelta={svcBookings.filter(b => isThisMonth(b.created_at)).length}
                           menuOpen={menuOpenId === s.id} onMenuToggle={() => setMenuOpenId(menuOpenId === s.id ? null : s.id)} onMenuClose={() => setMenuOpenId(null)}
-                          onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onToggleActive={() => handleToggle(s)} onDelete={() => handleDelete(s.id)} toggling={toggling === s.id}/>
+                          onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onToggleActive={() => handleToggle(s)} onDelete={() => { setMenuOpenId(null); setConfirmSupprimer(s); }} toggling={toggling === s.id}/>
                       );
                     })}
                   </tbody>
@@ -1198,7 +1255,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                   return (
                     <ServiceCardMobile key={s.id} service={s} bookings={svcBookings} resaDelta={svcBookings.filter(b => isThisMonth(b.created_at)).length}
                       menuOpen={menuOpenId === s.id} onMenuToggle={() => setMenuOpenId(menuOpenId === s.id ? null : s.id)} onMenuClose={() => setMenuOpenId(null)}
-                      onToggleActive={() => handleToggle(s)} onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onDelete={() => handleDelete(s.id)} toggling={toggling === s.id}/>
+                      onToggleActive={() => handleToggle(s)} onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onDelete={() => { setMenuOpenId(null); setConfirmSupprimer(s); }} toggling={toggling === s.id}/>
                   );
                 })}
               </div>

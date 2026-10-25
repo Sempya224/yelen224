@@ -161,6 +161,12 @@ const ACTION_STYLE: Record<string, ActionStyle> = {
   offre_approuvee:      { iconKey: "check", couleur: C => C.green },
   offre_refusee:        { iconKey: "x", couleur: C => C.orange },
   offre_suspendue_admin: { iconKey: "x", couleur: C => C.orange },
+  // Services payants
+  service_cree:          { iconKey: "plus", couleur: C => C.green },
+  service_prix_modifie:  { iconKey: "edit", couleur: C => C.gold },
+  service_suspendu:      { iconKey: "x", couleur: C => C.orange },
+  service_reactive:      { iconKey: "check", couleur: C => C.green },
+  service_supprime:      { iconKey: "trash", couleur: C => C.red },
 };
 
 // Libellé (module partagé) + style (ici). Action sans libellé : code brut.
