@@ -142,6 +142,15 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   offre_approuvee: "offres",
   offre_refusee: "offres",
   offre_suspendue_admin: "offres",
+  // Catalogue de services payants (Lot 1a, API Services) — rangés sous
+  // "paiements" : un changement de prix ou de disponibilité d'un service
+  // payant a un impact financier direct (aucune catégorie "services" n'existe,
+  // pas de nouvelle catégorie créée pour ce lot).
+  service_cree: "paiements",
+  service_prix_modifie: "paiements",
+  service_suspendu: "paiements",
+  service_reactive: "paiements",
+  service_supprime: "paiements",
 };
 
 // Seules les actions dont le niveau par défaut diffère de "info" sont
@@ -186,6 +195,10 @@ export const NIVEAU_PAR_DEFAUT: Partial<Record<string, NiveauJournal>> = {
   offre_suspendue_admin: "attention",
   offre_refusee: "attention",
   offre_approuvee: "succes",
+  service_prix_modifie: "attention",
+  service_suspendu: "attention",
+  service_supprime: "attention",
+  service_reactive: "succes",
 };
 
 export type RisqueJournal = "vert" | "orange" | "rouge";

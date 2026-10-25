@@ -92,6 +92,12 @@ export const LIBELLES_ACTIONS: Readonly<Record<string, string>> = {
   offre_suspendue: "Offre suspendue",
   offre_archivee: "Offre archivée",
   offre_supprimee: "Offre supprimée",
+  // Services payants
+  service_cree: "Service créé",
+  service_prix_modifie: "Prix d'un service modifié",
+  service_suspendu: "Service suspendu",
+  service_reactive: "Service réactivé",
+  service_supprime: "Service supprimé",
   offre_approuvee: "Offre approuvée par Yelen",
   offre_refusee: "Offre refusée par Yelen",
   offre_suspendue_admin: "Offre suspendue par Yelen",

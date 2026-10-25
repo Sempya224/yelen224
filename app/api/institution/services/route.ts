@@ -3,34 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { CODES_EQUIPEMENTS_CHAMBRE } from "@/lib/hotelEquipements";
-
-// Équipements structurés Hôtel (21/08/2026) — vocabulaire contrôlé
-// (lib/hotelEquipements.tsx), jamais un texte libre. Filtre silencieux
-// des codes inconnus plutôt qu'un rejet total (tolère un client
-// légèrement désynchronisé), dédoublonné. Colonne nullable partagée par
-// les 14 autres secteurs (jamais renseignée par eux en pratique).
-function equipementsChambreValides(raw: unknown): string[] | null {
-  if (!Array.isArray(raw)) return null;
-  const valides = raw.filter((code): code is string => typeof code === "string" && CODES_EQUIPEMENTS_CHAMBRE.includes(code));
-  return [...new Set(valides)];
-}
-
-// Fiche service structurée (chantier "Créer un service" V2, 25/09/2026) —
-// inclus/non_inclus : texte libre saisi par le prestataire, jamais une
-// liste pré-remplie. Plafond défensif (pas une règle produit) pour éviter
-// un payload abusif, même esprit que photos.slice(0,5) déjà en place.
-function listeTexteLibre(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  const items = raw.filter((v): v is string => typeof v === "string" && v.trim() !== "").map(v => v.trim());
-  return [...new Set(items)].slice(0, 20);
-}
-
-const PUBLIC_CIBLE_VALEURS = ["individuel", "couple", "famille", "groupe"];
-function publicCibleValide(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  const valides = raw.filter((v): v is string => typeof v === "string" && PUBLIC_CIBLE_VALEURS.includes(v));
-  return [...new Set(valides)];
-}
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import { reponseErreur, reponseErreurServeur } from "@/lib/erreursApi";
+import { validerChampsService } from "@/lib/servicesValidation";
 
 // Contourne RLS via service role — paid_services n'a qu'une policy SELECT
 // anon limitée à is_active=true (migration 20260709000013, pensée pour la
@@ -43,11 +18,38 @@ function publicCibleValide(raw: unknown): string[] {
 // cookie de session JWT, jamais d'un id fourni par le client.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
+const OPTIONS_VALIDATION = { codesEquipementsValides: CODES_EQUIPEMENTS_CHAMBRE };
+
+// Journal non bloquant (Lot 1a) : une panne du journal ne doit jamais faire
+// échouer l'action métier déjà réalisée.
+async function journaliser(
+  req: NextRequest,
+  membre: { institutionId: string; membreId: string },
+  params: { action: string; cibleId: string; details?: Record<string, unknown>; ancienneValeur?: Record<string, unknown>; nouvelleValeur?: Record<string, unknown> },
+): Promise<void> {
+  try {
+    await enregistrerAction({
+      institutionId: membre.institutionId,
+      membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: params.action,
+      cibleTable: "paid_services",
+      cibleId: params.cibleId,
+      details: params.details,
+      ancienneValeur: params.ancienneValeur ?? null,
+      nouvelleValeur: params.nouvelleValeur ?? null,
+      req,
+    });
+  } catch (e) {
+    console.error("[services] journal:", e instanceof Error ? e.message : e);
+  }
+}
+
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
-  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (!membre) return reponseErreur("NON_AUTHENTIFIE", "Non authentifié", 401);
   if (canAccessTab(membre.role, "services") === "none") {
-    return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+    return reponseErreur("ACCES_REFUSE", "Accès non autorisé pour votre rôle", 403);
   }
   const authInstId = membre.institutionId;
 
@@ -59,16 +61,16 @@ export async function GET(req: NextRequest) {
     .from("paid_services")
     .select("id, institution_id, nom, prix, duree_minutes, description, is_active, created_at, categorie, champs_complementaires, taux_taxe, prix_promo, promo_actif, type_prestation, unite_prix, horaires, localisation, est_chambre, photos, video_url, video_duree_secondes, equipements_chambre, nombre_unites, description_courte, inclus, non_inclus, a_savoir, public_cible, capacite_max, capacite_adultes, capacite_enfants, superficie_m2")
     .eq("institution_id", authInstId).order("created_at", { ascending: false });
-  if (svcErr) return NextResponse.json({ error: svcErr.message }, { status: 500 });
+  if (svcErr) return reponseErreurServeur("services GET paid_services", svcErr);
 
   const sids = (services ?? []).map((s) => s.id);
   let bookings: Record<string, unknown>[] = [];
   if (sids.length > 0) {
     const { data: bkRaw, error: bkErr } = await sb
       .from("paid_bookings")
-      .select("id, service_id, citoyen_id, institution_id, date_rdv, heure_rdv, confirmation_code, statut, created_at, champs_complementaires_reponses, montant_paye, methode_paiement, provenance, traite_le, montant_declare_citoyen, declare_le")
+      .select("id, service_id, citoyen_id, institution_id, date_rdv, heure_rdv, confirmation_code, statut, created_at, champs_complementaires_reponses, montant_paye, prix_unitaire_reserve, nuits, montant_total_reserve, methode_paiement, provenance, traite_le, montant_declare_citoyen, declare_le")
       .in("service_id", sids).order("created_at", { ascending: false });
-    if (bkErr) return NextResponse.json({ error: bkErr.message }, { status: 500 });
+    if (bkErr) return reponseErreurServeur("services GET paid_bookings", bkErr);
 
     const cids = [...new Set((bkRaw ?? []).map((b) => b.citoyen_id))];
     const uMap: Record<string, { nom: string; phone: string }> = {};
@@ -87,136 +89,95 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
-  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "services.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!membre) return reponseErreur("NON_AUTHENTIFIE", "Non authentifié", 401);
+  if (!can(membre.role, "services.write")) return reponseErreur("ACCES_REFUSE", "Accès non autorisé pour votre rôle", 403);
   const authInstId = membre.institutionId;
 
   const body = await req.json().catch(() => null);
-  const nom = body?.nom;
-  const prix = body?.prix;
-  const duree_minutes = body?.duree_minutes;
+  const verif = validerChampsService(body, "creation", OPTIONS_VALIDATION);
+  if (!verif.ok) return reponseErreur(verif.code, verif.message, 400);
 
-  if (typeof nom !== "string" || !nom.trim()) return NextResponse.json({ error: "Le nom est obligatoire" }, { status: 400 });
-  if (typeof prix !== "number" || !(prix > 0)) return NextResponse.json({ error: "Prix invalide" }, { status: 400 });
-  if (typeof duree_minutes !== "number" || !(duree_minutes > 0)) return NextResponse.json({ error: "Durée invalide" }, { status: 400 });
-
-  // Chantier Services Hôtel V2 (docs/ui/YELEN_HOTEL_SERVICES_V2_AUDIT.md
-  // §F Option 2, 20/08/2026) — 5 champs additionnels optionnels, ignorés
-  // (null) si absents du body. Aucun changement de comportement pour les
-  // appelants existants (ServicesTab.tsx, tous secteurs) qui ne les
-  // envoient jamais. `prix`/`duree_minutes` restent obligatoires pour
-  // tout le monde, y compris l'hôtel — décision explicite, non modifiée.
-  const TYPES_PRESTATION = ["reservable", "commandable", "supplement", "horaires_limites", "inclus", "sur_demande", "indisponible"];
+  // prix_promo / promo_actif volontairement jamais écrits (Lot 1a : la promo
+  // n'est appliquée nulle part côté citoyen) — défauts de colonne conservés.
   const { data, error } = await sb.from("paid_services").insert({
     institution_id: authInstId,
-    nom: nom.trim(),
-    prix,
-    duree_minutes,
-    description: typeof body?.description === "string" && body.description.trim() ? body.description.trim() : null,
-    categorie: typeof body?.categorie === "string" && body.categorie.trim() ? body.categorie.trim() : null,
-    champs_complementaires: Array.isArray(body?.champs_complementaires) ? body.champs_complementaires : [],
-    is_active: typeof body?.is_active === "boolean" ? body.is_active : true,
-    taux_taxe: typeof body?.taux_taxe === "number" && body.taux_taxe >= 0 ? body.taux_taxe : 0,
-    prix_promo: typeof body?.prix_promo === "number" && body.prix_promo > 0 ? body.prix_promo : null,
-    promo_actif: typeof body?.promo_actif === "boolean" ? body.promo_actif : false,
-    type_prestation: typeof body?.type_prestation === "string" && TYPES_PRESTATION.includes(body.type_prestation) ? body.type_prestation : null,
-    unite_prix: typeof body?.unite_prix === "string" && body.unite_prix.trim() ? body.unite_prix.trim() : null,
-    // horaires : même structure que institutions.horaires (Horaire[] —
-    // {jour, ouvert, debut, fin}), jamais du texte libre.
-    horaires: Array.isArray(body?.horaires) && body.horaires.length > 0 ? body.horaires : null,
-    localisation: typeof body?.localisation === "string" && body.localisation.trim() ? body.localisation.trim() : null,
-    est_chambre: typeof body?.est_chambre === "boolean" ? body.est_chambre : false,
-    // Galerie chambre (retour Bryan 20/08/2026, jusqu'à 5 images + 1
-    // vidéo) — max 5 forcé ici, jamais fait confiance au client seul.
-    photos: Array.isArray(body?.photos) ? body.photos.filter((p: unknown): p is string => typeof p === "string" && p.trim() !== "").slice(0, 5) : [],
-    video_url: typeof body?.video_url === "string" && body.video_url.trim() ? body.video_url.trim() : null,
-    video_duree_secondes: typeof body?.video_duree_secondes === "number" && body.video_duree_secondes > 0 ? Math.round(body.video_duree_secondes) : null,
-    equipements_chambre: equipementsChambreValides(body?.equipements_chambre),
-    // Chambres & prestations V2 (17/09/2026) — nombre d'unités physiques
-    // de ce type de chambre, jamais une disponibilité (voir migration).
-    nombre_unites: typeof body?.nombre_unites === "number" && body.nombre_unites > 0 ? Math.round(body.nombre_unites) : null,
-    // Fiche service structurée V2 (25/09/2026, migration 20260925000004).
-    description_courte: typeof body?.description_courte === "string" && body.description_courte.trim() ? body.description_courte.trim() : null,
-    inclus: listeTexteLibre(body?.inclus),
-    non_inclus: listeTexteLibre(body?.non_inclus),
-    a_savoir: typeof body?.a_savoir === "string" && body.a_savoir.trim() ? body.a_savoir.trim() : null,
-    public_cible: publicCibleValide(body?.public_cible),
-    // Fiche chambre structurée V2 (25/09/2026, migration 20260925000005).
-    capacite_max: typeof body?.capacite_max === "number" && body.capacite_max > 0 ? Math.round(body.capacite_max) : null,
-    capacite_adultes: typeof body?.capacite_adultes === "number" && body.capacite_adultes >= 0 ? Math.round(body.capacite_adultes) : null,
-    capacite_enfants: typeof body?.capacite_enfants === "number" && body.capacite_enfants >= 0 ? Math.round(body.capacite_enfants) : null,
-    superficie_m2: typeof body?.superficie_m2 === "number" && body.superficie_m2 > 0 ? body.superficie_m2 : null,
+    ...verif.champs,
   }).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error || !data) return reponseErreurServeur("services POST insert", error);
+
+  await journaliser(req, membre, {
+    action: "service_cree", cibleId: data.id,
+    details: { nom: data.nom, prix: data.prix, est_chambre: data.est_chambre },
+  });
   return NextResponse.json({ ok: true, service: data });
 }
 
 export async function PATCH(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
-  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "services.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!membre) return reponseErreur("NON_AUTHENTIFIE", "Non authentifié", 401);
+  if (!can(membre.role, "services.write")) return reponseErreur("ACCES_REFUSE", "Accès non autorisé pour votre rôle", 403);
   const authInstId = membre.institutionId;
 
   const body = await req.json().catch(() => null);
   const id = body?.id;
-  if (typeof id !== "string") return NextResponse.json({ error: "id requis" }, { status: 400 });
+  if (typeof id !== "string" || !id) return reponseErreur("CORPS_INVALIDE", "Identifiant du service manquant.", 400);
 
-  const { data: cible } = await sb.from("paid_services").select("id,institution_id").eq("id", id).maybeSingle();
-  if (!cible || cible.institution_id !== authInstId) return NextResponse.json({ error: "Service introuvable pour cette institution" }, { status: 404 });
+  // État AVANT modification : sert à l'appartenance et au journal (ancien prix).
+  const { data: cible, error: cibleErr } = await sb.from("paid_services").select("id,institution_id,nom,prix,is_active").eq("id", id).maybeSingle();
+  if (cibleErr) return reponseErreurServeur("services PATCH lecture cible", cibleErr);
+  if (!cible || cible.institution_id !== authInstId) return reponseErreur("SERVICE_INTROUVABLE", "Service introuvable pour cette institution.", 404);
 
-  const updates: Record<string, unknown> = {};
-  if (typeof body?.nom === "string" && body.nom.trim()) updates.nom = body.nom.trim();
-  if (typeof body?.prix === "number" && body.prix > 0) updates.prix = body.prix;
-  if (typeof body?.duree_minutes === "number" && body.duree_minutes > 0) updates.duree_minutes = body.duree_minutes;
-  if (typeof body?.description === "string") updates.description = body.description.trim() || null;
-  if (typeof body?.categorie === "string" || body?.categorie === null) updates.categorie = body?.categorie || null;
-  if (Array.isArray(body?.champs_complementaires)) updates.champs_complementaires = body.champs_complementaires;
-  if (typeof body?.is_active === "boolean") updates.is_active = body.is_active;
-  if (typeof body?.taux_taxe === "number" && body.taux_taxe >= 0) updates.taux_taxe = body.taux_taxe;
-  if (typeof body?.prix_promo === "number" || body?.prix_promo === null) updates.prix_promo = body?.prix_promo ?? null;
-  if (typeof body?.promo_actif === "boolean") updates.promo_actif = body.promo_actif;
-  // Chantier Services Hôtel V2 — mêmes 5 champs optionnels qu'en POST.
-  const TYPES_PRESTATION = ["reservable", "commandable", "supplement", "horaires_limites", "inclus", "sur_demande", "indisponible"];
-  if (body?.type_prestation === null || (typeof body?.type_prestation === "string" && TYPES_PRESTATION.includes(body.type_prestation))) updates.type_prestation = body.type_prestation;
-  if (typeof body?.unite_prix === "string" || body?.unite_prix === null) updates.unite_prix = body?.unite_prix?.trim() || null;
-  if (Array.isArray(body?.horaires) || body?.horaires === null) updates.horaires = Array.isArray(body?.horaires) && body.horaires.length > 0 ? body.horaires : null;
-  if (typeof body?.localisation === "string" || body?.localisation === null) updates.localisation = body?.localisation?.trim() || null;
-  if (typeof body?.est_chambre === "boolean") updates.est_chambre = body.est_chambre;
-  if (Array.isArray(body?.photos)) updates.photos = body.photos.filter((p: unknown): p is string => typeof p === "string" && p.trim() !== "").slice(0, 5);
-  if (typeof body?.video_url === "string" || body?.video_url === null) updates.video_url = body?.video_url?.trim() || null;
-  if (typeof body?.video_duree_secondes === "number" || body?.video_duree_secondes === null) updates.video_duree_secondes = typeof body?.video_duree_secondes === "number" && body.video_duree_secondes > 0 ? Math.round(body.video_duree_secondes) : null;
-  if (Array.isArray(body?.equipements_chambre) || body?.equipements_chambre === null) updates.equipements_chambre = equipementsChambreValides(body?.equipements_chambre);
-  if (typeof body?.nombre_unites === "number" || body?.nombre_unites === null) updates.nombre_unites = typeof body?.nombre_unites === "number" && body.nombre_unites > 0 ? Math.round(body.nombre_unites) : null;
-  // Fiche service structurée V2 (25/09/2026, migration 20260925000004).
-  if (typeof body?.description_courte === "string" || body?.description_courte === null) updates.description_courte = body?.description_courte?.trim() || null;
-  if (Array.isArray(body?.inclus)) updates.inclus = listeTexteLibre(body.inclus);
-  if (Array.isArray(body?.non_inclus)) updates.non_inclus = listeTexteLibre(body.non_inclus);
-  if (typeof body?.a_savoir === "string" || body?.a_savoir === null) updates.a_savoir = body?.a_savoir?.trim() || null;
-  if (Array.isArray(body?.public_cible)) updates.public_cible = publicCibleValide(body.public_cible);
-  // Fiche chambre structurée V2 (25/09/2026, migration 20260925000005).
-  if (typeof body?.capacite_max === "number" || body?.capacite_max === null) updates.capacite_max = typeof body?.capacite_max === "number" && body.capacite_max > 0 ? Math.round(body.capacite_max) : null;
-  if (typeof body?.capacite_adultes === "number" || body?.capacite_adultes === null) updates.capacite_adultes = typeof body?.capacite_adultes === "number" && body.capacite_adultes >= 0 ? Math.round(body.capacite_adultes) : null;
-  if (typeof body?.capacite_enfants === "number" || body?.capacite_enfants === null) updates.capacite_enfants = typeof body?.capacite_enfants === "number" && body.capacite_enfants >= 0 ? Math.round(body.capacite_enfants) : null;
-  if (typeof body?.superficie_m2 === "number" || body?.superficie_m2 === null) updates.superficie_m2 = typeof body?.superficie_m2 === "number" && body.superficie_m2 > 0 ? body.superficie_m2 : null;
+  const verif = validerChampsService(body, "modification", OPTIONS_VALIDATION);
+  if (!verif.ok) return reponseErreur(verif.code, verif.message, 400);
+  const updates = verif.champs;
 
-  const { data, error } = await sb.from("paid_services").update(updates).eq("id", id).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { data, error } = await sb.from("paid_services").update(updates).eq("id", id).eq("institution_id", authInstId).select("*").single();
+  if (error || !data) return reponseErreurServeur("services PATCH update", error);
+
+  if (typeof updates.prix === "number" && Number(cible.prix) !== updates.prix) {
+    await journaliser(req, membre, {
+      action: "service_prix_modifie", cibleId: id,
+      details: { nom: data.nom },
+      ancienneValeur: { prix: Number(cible.prix) }, nouvelleValeur: { prix: updates.prix },
+    });
+  }
+  if (typeof updates.is_active === "boolean" && updates.is_active !== cible.is_active) {
+    await journaliser(req, membre, {
+      action: updates.is_active ? "service_reactive" : "service_suspendu", cibleId: id,
+      details: { nom: data.nom, prix: Number(data.prix) },
+    });
+  }
   return NextResponse.json({ ok: true, service: data });
 }
 
 export async function DELETE(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
-  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "services.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!membre) return reponseErreur("NON_AUTHENTIFIE", "Non authentifié", 401);
+  if (!can(membre.role, "services.write")) return reponseErreur("ACCES_REFUSE", "Accès non autorisé pour votre rôle", 403);
   const authInstId = membre.institutionId;
 
   const id = new URL(req.url).searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  if (!id) return reponseErreur("CORPS_INVALIDE", "Identifiant du service manquant.", 400);
 
-  const { data: cible } = await sb.from("paid_services").select("id,institution_id").eq("id", id).maybeSingle();
-  if (!cible || cible.institution_id !== authInstId) return NextResponse.json({ error: "Service introuvable pour cette institution" }, { status: 404 });
+  const { data: cible, error: cibleErr } = await sb.from("paid_services").select("id,institution_id,nom,prix,is_active").eq("id", id).maybeSingle();
+  if (cibleErr) return reponseErreurServeur("services DELETE lecture cible", cibleErr);
+  if (!cible || cible.institution_id !== authInstId) return reponseErreur("SERVICE_INTROUVABLE", "Service introuvable pour cette institution.", 404);
 
-  const { error } = await sb.from("paid_services").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { error } = await sb.from("paid_services").delete().eq("id", id).eq("institution_id", authInstId);
+  if (error) {
+    // 23503 = clé étrangère : des paiements/reçus liés (recus.paid_booking_id,
+    // ON DELETE RESTRICT) empêchent la suppression — conflit métier, pas une panne.
+    if (error.code === "23503") {
+      console.error("[services DELETE] service lié à des paiements/reçus:", error.message);
+      return reponseErreur("SERVICE_NON_SUPPRIMABLE", "Ce service est lié à des paiements ou à des reçus et ne peut pas être supprimé. Suspendez-le à la place.", 409);
+    }
+    return reponseErreurServeur("services DELETE", error);
+  }
+
+  await journaliser(req, membre, {
+    action: "service_supprime", cibleId: id,
+    details: { nom: cible.nom },
+    ancienneValeur: { prix: Number(cible.prix), is_active: cible.is_active },
+  });
   return NextResponse.json({ ok: true });
 }
