@@ -375,12 +375,19 @@ function AxeSection({ axe, dossier, documentsActifs, toast, onDecided }: {
           justification,
           complement_demande_motif: typeDecision === 'complement_demande' ? complementMotif : null,
           derniere_decision_vue_id: actuelle?.id ?? null,
-          document_institution_ids: typeDecision === 'rejetee' ? null : selectedDocs,
+          // Refus : les preuves cochées sont celles que le refus concerne
+          // (elles passent à "Rejeté" côté établissement) ; aucune coche =
+          // refus de l'axe sans toucher aux documents, comme avant.
+          document_institution_ids: typeDecision === 'rejetee' && selectedDocs.length === 0 ? null : selectedDocs,
         }),
       })
       const body = await res.json().catch(() => null)
       if (res.ok) {
-        toast(`Décision enregistrée — axe ${AXE_LABEL[axe]}`)
+        if (body?.avertissement_documents) {
+          toast(`Décision enregistrée, mais le statut des documents n'a pas pu être mis à jour (${body.avertissement_documents}) — à corriger.`, 'error')
+        } else {
+          toast(`Décision enregistrée — axe ${AXE_LABEL[axe]}`)
+        }
         resetForm()
         onDecided()
       } else if (body?.code === 'CONFLIT_CONCURRENCE') {
@@ -445,7 +452,7 @@ function AxeSection({ axe, dossier, documentsActifs, toast, onDecided }: {
       {!pending ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div>
-            <p style={{ margin: '0 0 6px', fontSize: '11px', color: D.textMuted }}>Preuves actives examinées pour cet axe</p>
+            <p style={{ margin: '0 0 6px', fontSize: '11px', color: D.textMuted }}>Preuves actives examinées pour cet axe — cochez celles que la décision concerne : leur statut passe à Validé, Complément demandé ou Rejeté côté établissement</p>
             {documentsActifs.length === 0 ? (
               <EmptyNote text="Aucune preuve active — impossible de vérifier cet axe pour le moment." />
             ) : (
@@ -482,7 +489,7 @@ function AxeSection({ axe, dossier, documentsActifs, toast, onDecided }: {
             <div>Axe : <strong style={{ color: D.text }}>{AXE_LABEL[axe]}</strong></div>
             <div>Décision : <strong style={{ color: D.text }}>{TYPE_DECISION_LABEL[pending].label}</strong></div>
             {pending === 'accordee' && <div>Niveau : <strong style={{ color: D.text }}>{NIVEAU_PREUVE_LABEL[niveauPreuve]}</strong></div>}
-            {pending !== 'rejetee' && <div>Preuves : <strong style={{ color: D.text }}>{selectedDocs.length === 0 ? 'aucune' : dossier.documents.filter(d => selectedDocs.includes(d.id)).map(d => `${d.type} v${d.numero_version}`).join(', ')}</strong></div>}
+            <div>Preuves : <strong style={{ color: D.text }}>{selectedDocs.length === 0 ? 'aucune' : dossier.documents.filter(d => selectedDocs.includes(d.id)).map(d => `${d.type} v${d.numero_version}`).join(', ')}</strong></div>
             {pending === 'complement_demande' && <div>Motif du complément : <strong style={{ color: D.text }}>{complementMotif}</strong></div>}
             <div>Justification : <strong style={{ color: D.text }}>{justification}</strong></div>
           </div>

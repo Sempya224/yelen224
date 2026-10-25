@@ -27,6 +27,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       expire_le, derniere_decision_vue_id, document_institution_ids,
     } = body;
 
+    // Faille corrigée le 24/10/2026 : la fonction SQL accepte n'importe quelle
+    // preuve ACTIVE, y compris une pièce rejetée ou en complément demandé — un
+    // admin pouvait donc accorder la vérification en citant une preuve que
+    // l'équipe avait elle-même refusée. Une vérification accordée ne peut
+    // s'appuyer que sur des pièces reçues ou validées.
+    if (type_decision === "accordee" && Array.isArray(document_institution_ids) && document_institution_ids.length > 0) {
+      const { data: citees, error: citeesErr } = await sb.from("documents_institution")
+        .select("id, type, statut").in("id", document_institution_ids.filter((v: unknown): v is string => typeof v === "string")).eq("institution_id", id);
+      if (citeesErr) return NextResponse.json({ error: citeesErr.message }, { status: 500 });
+      const refusees = (citees ?? []).filter((d) => d.statut === "rejete" || d.statut === "complement_demande");
+      if (refusees.length > 0) {
+        return NextResponse.json({ error: `Vérification impossible : ${refusees.map((d) => d.type).join(", ")} est rejeté ou en attente d'un complément. Attendez le renvoi du document.`, code: "PREUVE_REFUSEE" }, { status: 400 });
+      }
+    }
+
     const { data: decision, error } = await sb.rpc("prendre_decision_verification", {
       p_institution_id: id,
       p_axe: axe,
@@ -54,12 +69,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     if (!decision) return NextResponse.json({ error: "Erreur inattendue" }, { status: 500 });
 
+    // B1 (24/10/2026) — le statut de chaque preuve citée suit la décision :
+    // aucun code n'écrivait jamais documents_institution.statut hors 'recu',
+    // donc l'établissement ne voyait jamais ni rejet ni complément au niveau
+    // document. Le trigger documents_institution_immuable_partiel autorise
+    // exactement cette écriture, une seule fois, depuis 'recu' ; le filtre
+    // statut='recu' rend l'opération sans effet sur une preuve déjà tranchée
+    // (ex. citée par les deux axes). Non transactionnel avec la décision
+    // (insert-only déjà validé) : en cas d'échec, la décision reste valide et
+    // on le signale explicitement plutôt que de masquer l'écart.
+    const idsCites: string[] = Array.isArray(document_institution_ids) ? document_institution_ids.filter((v: unknown): v is string => typeof v === "string") : [];
+    let documentsMisAJour: string[] = [];
+    let erreurStatutDocuments: string | null = null;
+    if (idsCites.length > 0) {
+      const statutDocument = type_decision === "accordee" ? "valide" : type_decision === "rejetee" ? "rejete" : "complement_demande";
+      const motifDocument = type_decision === "accordee" ? null : type_decision === "rejetee" ? justification : complement_demande_motif;
+      const { data: maj, error: majErr } = await sb.from("documents_institution")
+        .update({ statut: statutDocument, motif_rejet: motifDocument, examine_le: new Date().toISOString(), examine_par: admin.adminId })
+        .in("id", idsCites).eq("institution_id", id).eq("statut", "recu").eq("statut_actif", true)
+        .select("id");
+      if (majErr) erreurStatutDocuments = majErr.message;
+      else documentsMisAJour = (maj ?? []).map((d) => d.id);
+    }
+
     await sb.from("admin_logs").insert({
       admin_id: admin.adminId,
       action: "DECISION_VERIFICATION",
       cible_table: "verification_decisions",
       cible_id: decision.id,
-      details: { institution_id: id, axe, type_decision, decision_id: decision.decision_id },
+      details: { institution_id: id, axe, type_decision, decision_id: decision.decision_id, documents_mis_a_jour: documentsMisAJour, erreur_statut_documents: erreurStatutDocuments },
     });
 
     const { data: inst } = await sb.from("institutions").select("name").eq("id", id).maybeSingle();
@@ -74,7 +112,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         : "Une décision de vérification a été prise sur votre dossier.",
     });
 
-    return NextResponse.json({ ok: true, decision });
+    // 200 même si le statut des documents n'a pas pu être mis à jour : la
+    // décision, elle, est enregistrée et la notification partie. L'écran admin
+    // affiche l'avertissement au lieu d'un faux "tout est bon".
+    return NextResponse.json({ ok: true, decision, documents_mis_a_jour: documentsMisAJour, avertissement_documents: erreurStatutDocuments });
   } catch (e) {
     return adminAuthErrorResponse(e);
   }

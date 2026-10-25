@@ -22,6 +22,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 import { SectionHeader } from "../dashboardShared";
 import type { InstCompte } from "@/lib/compteYelenDisplay";
 import { can, type MembreRole } from "@/lib/institutionPermissions";
@@ -59,7 +60,10 @@ export function YelenDocumentsTab({ inst, onToast, membreRole }: {
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px", marginBottom: "18px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Documents Yelen</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Documents Yelen</div>
+            <HelpCenterGuide tab="yelen-documents" />
+          </div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "520px" }}>Retrouvez ici vos contrats, factures, relevés et autres documents officiels liés à votre compte Yelen.</p>
         </div>
         {peutExporter && (

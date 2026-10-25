@@ -25,6 +25,7 @@ import { SectionHeader } from "../dashboardShared";
 import type { InstCompte } from "@/lib/compteYelenDisplay";
 import { PAYMENT_STATE_META, fournisseursPourPays, type PaymentProvider } from "@/lib/paymentProviders";
 import { StatusDot } from "./YelenBusinessShared";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 const PAYS_YELEN_ACTUEL = "Guinée";
 
@@ -86,7 +87,10 @@ export function YelenPaiementsTab({ inst, onToast }: {
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px", marginBottom: "6px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Moyens de paiement</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Moyens de paiement</div>
+            <HelpCenterGuide tab="yelen-paiements" />
+          </div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "480px" }}>Gérez les moyens utilisés pour régler vos services et votre abonnement Yelen Business.</p>
         </div>
         <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => onToast("Bientôt disponible — la connexion d'un moyen de paiement arrive dans un prochain chantier.")}>+ Ajouter un moyen de paiement</Button>

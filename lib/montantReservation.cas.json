@@ -1,0 +1,12 @@
+[
+  { "id": "c01", "libelle": "1 nuit", "prix": 150000, "dateRdv": "2026-08-06", "dateDepart": "2026-08-07", "nuits": 1, "montant": 150000, "code": null },
+  { "id": "c02", "libelle": "3 nuits", "prix": 150000, "dateRdv": "2026-08-06", "dateDepart": "2026-08-09", "nuits": 3, "montant": 450000, "code": null },
+  { "id": "c03", "libelle": "sans date de départ (service non hôtel)", "prix": 5000, "dateRdv": "2026-08-06", "dateDepart": null, "nuits": 1, "montant": 5000, "code": null },
+  { "id": "c04", "libelle": "prix 0 sur 2 nuits", "prix": 0, "dateRdv": "2026-08-06", "dateDepart": "2026-08-08", "nuits": 2, "montant": 0, "code": null },
+  { "id": "c05", "libelle": "départ égal à l'arrivée", "prix": 1000, "dateRdv": "2026-08-06", "dateDepart": "2026-08-06", "nuits": null, "montant": null, "code": "DATES_INVALIDES" },
+  { "id": "c06", "libelle": "départ avant l'arrivée", "prix": 1000, "dateRdv": "2026-08-06", "dateDepart": "2026-08-05", "nuits": null, "montant": null, "code": "DATES_INVALIDES" },
+  { "id": "c07", "libelle": "prix négatif", "prix": -1, "dateRdv": "2026-08-06", "dateDepart": null, "nuits": null, "montant": null, "code": "PRIX_INVALIDE" },
+  { "id": "c08", "libelle": "changement d'heure d'été (France)", "prix": 1000, "dateRdv": "2026-03-28", "dateDepart": "2026-03-30", "nuits": 2, "montant": 2000, "code": null },
+  { "id": "c09", "libelle": "fin d'année", "prix": 1000, "dateRdv": "2026-12-30", "dateDepart": "2027-01-02", "nuits": 3, "montant": 3000, "code": null },
+  { "id": "c10", "libelle": "année bissextile (28 février au 1er mars 2028)", "prix": 1000, "dateRdv": "2028-02-28", "dateDepart": "2028-03-01", "nuits": 2, "montant": 2000, "code": null }
+]

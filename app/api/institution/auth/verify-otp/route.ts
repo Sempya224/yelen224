@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
+import bcrypt from 'bcryptjs'
 import {
   mintInstitutionTotpChallengeToken, evaluerAppareilInstitution, enregistrerConnexionInstitution,
   verifierVerrouInstitution, enregistrerEchecConnexionInstitution, reinitialiserEchecsConnexionInstitution,
 } from '@/lib/auth/institutionSession'
 import { enregistrerAction } from '@/lib/journalActivite'
 import { extraireIpClient } from '@/lib/edgeSecurity'
-import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from '@/lib/institutionAuth'
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT, estAppelMobile } from '@/lib/institutionAuth'
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
-  enregistrerTentative, messageSecurite,
+  enregistrerTentative, messageSecurite, destinationInstitution, destinationInstitutionPhone,
 } from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
@@ -35,14 +36,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
-    if (porte.state === 'blocked' || porte.state === 'support_only') {
-      return finaliser(
-        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
-        423
-      )
-    }
-
+    // Format validé AVANT la porte anti-abus (réordonné, Priorités 3/4,
+    // 18/10/2026) — simple parsing, pas une requête Supabase.
     const body = await request.json()
     const { institutionId, phone: rawPhone, code, rememberMe } = body
 
@@ -56,6 +51,15 @@ export async function POST(request: NextRequest) {
 
     if (!code || typeof code !== 'string') {
       return finaliser({ error: 'code requis', code: 'MISSING_FIELDS' }, 400)
+    }
+
+    const destination = hasInstitutionId ? destinationInstitution(institutionId) : destinationInstitutionPhone(rawPhone)
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip, destination }, undefined, request)
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
+      )
     }
 
     // Verrouillage par compte (revue critique 30/08/2026, même jour) —
@@ -83,7 +87,7 @@ export async function POST(request: NextRequest) {
 
       if (dbError || !data) {
         const etat = await enregistrerTentative(supabaseAdmin, {
-          endpointCategory, deviceId, ip, identifiant, outcome: 'not_found', userAgent,
+          endpointCategory, deviceId, ip, identifiant, outcome: 'not_found', userAgent, destination,
         })
         return finaliser({ error: 'Institution introuvable', code: 'NOT_FOUND', security: etat }, 404)
       }
@@ -97,19 +101,35 @@ export async function POST(request: NextRequest) {
     // bypass en dur : seul le code réellement stocké par send-otp/route.ts
     // (via INSTITUTION_OTP_FALLBACK tant qu'aucun SMS_PROVIDER n'est
     // configuré) est accepté.
+    //
+    // Comparaison haché (Priorité 1, 18/10/2026) — code_hash ne peut plus
+    // être comparé par égalité SQL. send-otp invalide désormais les codes
+    // précédents à l'envoi, donc au plus 1 ligne non expirée par numéro en
+    // régime normal ; la limite à 3 lignes est un garde-fou (proposition
+    // technique §1) en cas d'anomalie future sur l'invalidation, jamais la
+    // protection principale. bcrypt.compare sur chaque candidat, jamais un
+    // court-circuit qui traiterait une erreur de comparaison comme valide
+    // (fail-closed, voir proposition technique §"Indisponibilité").
     let verified = false
-    const { data: otpRow } = await supabaseAdmin
+    let otpRowId: string | null = null
+    const { data: otpRows } = await supabaseAdmin
       .from('institution_otp')
-      .select('id')
+      .select('id, code_hash')
       .eq('phone', phone)
-      .eq('code', code)
       .gt('expires_at', new Date().toISOString())
       .order('expires_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .limit(3)
 
-    if (otpRow) {
-      verified = true
+    for (const row of otpRows ?? []) {
+      if (!row.code_hash) continue
+      if (await bcrypt.compare(code, row.code_hash)) {
+        verified = true
+        otpRowId = row.id
+        break
+      }
+    }
+
+    if (verified) {
       // Fix 14/08/2026 (diagnostic Lot 02) : en flux inscription (institution
       // encore null ici), ne pas supprimer la ligne — /register refait
       // exactement la même vérification (phone+code+expires_at) avant de
@@ -118,22 +138,22 @@ export async function POST(request: NextRequest) {
       // INVALID_CODE, bloquant toute inscription sur le chemin nominal.
       // En flux connexion, institution est déjà résolue et cette route est
       // le seul point de vérification : le code doit être consommé ici.
-      if (institution) {
-        await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
+      if (institution && otpRowId) {
+        await supabaseAdmin.from('institution_otp').delete().eq('id', otpRowId)
       }
     }
 
     if (!verified) {
       if (institution) await enregistrerEchecConnexionInstitution(supabaseAdmin, institution.id)
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory, deviceId, ip, identifiant, outcome: 'code_incorrect', userAgent,
+        endpointCategory, deviceId, ip, identifiant, outcome: 'code_incorrect', userAgent, destination,
       })
       return finaliser({ error: 'Code incorrect', code: 'INVALID_CODE', security: etat }, 401)
     }
 
     if (institution) await reinitialiserEchecsConnexionInstitution(supabaseAdmin, institution.id)
     const etatVerifie = await enregistrerTentative(supabaseAdmin, {
-      endpointCategory, deviceId, ip, identifiant, outcome: 'code_correct', userAgent,
+      endpointCategory, deviceId, ip, identifiant, outcome: 'code_correct', userAgent, destination,
     })
 
     // Flux inscription : téléphone confirmé, aucune institution à connecter pour l'instant.
@@ -227,6 +247,12 @@ export async function POST(request: NextRequest) {
       success: true,
       institution: { id: institution.id, name: institution.name },
       suspended,
+      // Yelen Business Mobile (chantier 02/10/2026, décision CEO) : le JWT
+      // n'est renvoyé dans le corps JSON que pour l'appelant mobile
+      // (X-Yelen-Client: mobile) — jamais pour le web, qui continue de
+      // dépendre exclusivement du cookie httpOnly ci-dessous. Un appel web
+      // ne voit jamais ce champ (fetch côté web ignore un champ absent).
+      ...(estAppelMobile(request) ? { token } : {}),
     }, 200)
 
     response.cookies.set('yelen224_institution_session', token, {

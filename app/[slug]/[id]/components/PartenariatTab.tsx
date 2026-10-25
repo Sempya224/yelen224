@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/Button";
 import { DemandePartenariatOverlay } from "@/components/DemandePartenariatOverlay";
 import { YelenLoaderEcran } from "@/components/YelenLoader";
 import { MonPartenariatTab, type InstitutionInfo } from "./MonPartenariatTab";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 type PartenaireStatut = "aucun" | "en_attente" | "approuve" | "refuse";
 export type Demande = { id: string; statut: string; motif_refus: string | null; date_decision: string | null; created_at: string };
@@ -156,14 +157,17 @@ export function PartenariatTab({ instId, access, institution, onNavigate }: {
       `}</style>
 
       {/* Titre */}
-      <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
-        <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: C.goldL, border: `1px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          {ICONS.Handshake(C.gold)}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px", marginBottom: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: C.goldL, border: `1px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {ICONS.Handshake(C.gold)}
+          </div>
+          <div>
+            <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, margin: 0, letterSpacing: "-0.3px" }}>Programme de partenariat Yelen</h1>
+            <p style={{ color: C.t2, fontSize: "13px", margin: "2px 0 0" }}>Mettez vos offres en avant auprès des citoyens Yelen.</p>
+          </div>
         </div>
-        <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, margin: 0, letterSpacing: "-0.3px" }}>Programme de partenariat Yelen</h1>
-          <p style={{ color: C.t2, fontSize: "13px", margin: "2px 0 0" }}>Mettez vos offres en avant auprès des citoyens Yelen.</p>
-        </div>
+        <HelpCenterGuide tab="partenariat" />
       </div>
 
       {/* Bandeau statut — état réel de l'institution, toujours visible en premier */}

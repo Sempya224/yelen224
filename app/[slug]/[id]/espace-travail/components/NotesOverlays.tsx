@@ -32,11 +32,11 @@ export type Membre = { id: string; prenom: string; nom: string };
 export { TYPES_NOTE };
 
 export function typeColor(t: string, C: ThemeTokens): string {
-  if (t === "rappel_admin") return C.red;
+  if (t === "rappel_admin") return C.t2;
   if (t === "consigne_equipe") return C.purple;
   if (t === "idee_interne") return C.teal;
   if (t === "info_client") return C.blue;
-  return C.gold;
+  return C.orange;
 }
 export function typeLabel(t: string): string { return TYPES_NOTE.find(x => x.value === t)?.label ?? t; }
 
@@ -183,17 +183,17 @@ export function TagsEditor({ C, tags, onChange, readOnly }: { C: ThemeTokens; ta
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
       {tags.map(t => (
-        <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: "5px", backgroundColor: C.bg3, color: C.t2, fontSize: "11px", fontWeight: 700, padding: "3px 6px 3px 10px", borderRadius: "20px" }}>
+        <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "32px", boxSizing: "border-box", backgroundColor: C.bg3, color: C.t1, fontSize: "13px", fontWeight: 500, padding: "0 8px 0 10px", borderRadius: "8px" }}>
           #{t}
           {!readOnly && (
-            <button onClick={() => onChange(tags.filter(x => x !== t))} aria-label="Retirer" style={{ background: "none", border: "none", color: C.t3, cursor: "pointer", display: "flex", padding: 0 }}>
+            <button type="button" onClick={() => onChange(tags.filter(x => x !== t))} aria-label={`Retirer le tag ${t}`} style={{ background: "none", border: "none", color: C.t3, cursor: "pointer", display: "flex", padding: 0 }}>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           )}
         </span>
       ))}
       {!readOnly && (
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ajouter(); } }} onBlur={ajouter} placeholder="+ tag" style={{ width: "70px", background: "none", border: "none", color: C.t2, fontSize: "11px", outline: "none" }}/>
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ajouter(); } }} onBlur={ajouter} placeholder="+ tag" aria-label="Ajouter un tag" style={{ width: "88px", height: "32px", boxSizing: "border-box", background: "none", border: `1px dashed ${C.border2}`, borderRadius: "8px", padding: "0 10px", color: C.t1, fontSize: "13px", outline: "none" }}/>
       )}
     </div>
   );

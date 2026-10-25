@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { PRIORITES, prioriteColor, prioriteLabel, toISODate } from "../espace-travail/components/TachesOverlays";
+import { heureAmPm } from "@/lib/heure";
 
 type TacheSemaine = {
   id: string; titre: string; priorite: string; statut: string;
@@ -346,7 +347,7 @@ export function MaSemaineTab({ onToast }: { onToast: (msg: string, color?: strin
                 <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
                   {evAujourdhui.map(e => (
                     <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 4px", borderBottom: `1px solid ${C.border}` }}>
-                      <span style={{ color: C.blue, fontSize: "12px", fontWeight: "800", width: "44px", flexShrink: 0 }}>{e.heure_debut ? e.heure_debut.slice(0, 5) : "—"}</span>
+                      <span style={{ color: C.blue, fontSize: "12px", fontWeight: "800", width: "68px", flexShrink: 0 }}>{e.heure_debut ? heureAmPm(e.heure_debut) || e.heure_debut.slice(0, 5) : "—"}</span>
                       <span style={{ color: C.t1, fontSize: "13px", fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.titre}</span>
                     </div>
                   ))}
@@ -459,7 +460,7 @@ export function MaSemaineTab({ onToast }: { onToast: (msg: string, color?: strin
 
                     {evJour.map(e => (
                       <div key={e.id} style={{ background: C.blueL, borderRadius: "6px", padding: "5px 7px" }}>
-                        <div style={{ color: C.blue, fontSize: "10px", fontWeight: "800" }}>{e.heure_debut ? e.heure_debut.slice(0, 5) : "Engagement"}</div>
+                        <div style={{ color: C.blue, fontSize: "10px", fontWeight: "800" }}>{e.heure_debut ? heureAmPm(e.heure_debut) || e.heure_debut.slice(0, 5) : "Engagement"}</div>
                         <div style={{ color: C.t1, fontSize: "11.5px", fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.titre}</div>
                       </div>
                     ))}

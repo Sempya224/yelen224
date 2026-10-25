@@ -30,7 +30,33 @@ export async function GET(request: NextRequest) {
       // Révisions de suspension (chantier "Espace suspendu" v2, 17/08/2026)
       // — câblage de la réception admin, voir app/admin/revisions/page.tsx.
       supabaseAdmin.from('institution_suspension_revisions').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente'),
+      // Changements sensibles de profil à examiner (politique de revérification,
+      // docs/product/YELEN_REVERIFICATION_POLICY.md §6) : le compteur EST la file
+      // des demandes institution_change_requests à l'état a_examiner.
+      supabaseAdmin.from('institution_change_requests').select('id', { count: 'exact', head: true }).eq('statut', 'a_examiner'),
     ])
+
+    // Compléments fournis par un établissement et à réexaminer (Lot 2) : demandes
+    // ouvertes dont le DERNIER échange est une réponse de l'établissement. Requêtes
+    // bornées (200 demandes ouvertes maximum) ; en cas d'erreur le compteur vaut 0.
+    async function compterComplementsRecus(): Promise<number> {
+      try {
+        const { data: ouvertes } = await supabaseAdmin.from('institution_change_requests').select('id').eq('statut', 'a_examiner').limit(200)
+        if (!ouvertes || ouvertes.length === 0) return 0
+        const { data: evenements } = await supabaseAdmin
+          .from('institution_change_request_events')
+          .select('request_id,type,created_at')
+          .in('request_id', ouvertes.map(o => o.id))
+          .in('type', ['complement_demande', 'complement_fourni'])
+          .order('created_at', { ascending: true })
+        const dernier = new Map<string, string>()
+        for (const e of evenements ?? []) dernier.set(e.request_id, e.type)
+        return [...dernier.values()].filter(t => t === 'complement_fourni').length
+      } catch {
+        return 0
+      }
+    }
+    const complementsRecus = await compterComplementsRecus()
 
     function getCount(r: (typeof settled)[number]): number {
       return r.status === 'fulfilled' ? (r.value as { count: number | null }).count || 0 : 0
@@ -49,6 +75,8 @@ export async function GET(request: NextRequest) {
       { key: 'feedback',      label: 'Nouveau feedback',          count: getCount(settled[7]), href: '/admin/feedback' },
       { key: 'posts',         label: 'Publications à valider',    count: getCount(settled[8]), href: '/admin/posts' },
       { key: 'revisions',     label: 'Révisions de suspension',   count: getCount(settled[9]), href: '/admin/revisions' },
+      { key: 'changements_profil', label: 'Changements de profil à examiner', count: getCount(settled[10]), href: '/admin/changements-profil' },
+      { key: 'complements_recus', label: 'Compléments reçus à réexaminer', count: complementsRecus, href: '/admin/changements-profil' },
     ]
 
     return NextResponse.json({ categories, total: categories.reduce((s, c) => s + c.count, 0) })

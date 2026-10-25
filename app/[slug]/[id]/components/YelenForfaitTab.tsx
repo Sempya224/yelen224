@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { SectionHeader } from "../dashboardShared";
 import { STATUT_META, PLAN_LABELS, formatDateLongue, type InstCompte } from "@/lib/compteYelenDisplay";
 import { SectionBientot, MenuActions, StatusDot } from "./YelenBusinessShared";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   essentiel: "L'essentiel pour démarrer sur Yelen.",
@@ -54,7 +55,10 @@ export function YelenForfaitTab({ inst, onToast, onContacterSupport }: {
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px", marginBottom: "6px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Forfaits Yelen</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Forfaits Yelen</div>
+            <HelpCenterGuide tab="yelen-forfait" />
+          </div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "480px" }}>Découvrez ce que comprend votre compte Yelen et gérez l&apos;évolution de votre offre.</p>
         </div>
         <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => onToast("Bientôt disponible — l'historique de facturation arrive dans un prochain chantier.")}>Voir les factures</Button>

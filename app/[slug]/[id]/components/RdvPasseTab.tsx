@@ -1,116 +1,149 @@
 "use client";
 
-// Onglet "Rendez-vous passés" — centre d'historique (spec CEO 16/07/2026,
-// niveau Salesforce Health Cloud / Stripe Dashboard). 9 sections : titre,
-// export, filtres période, recherche, statuts, tri, liste (cartes 4
-// colonnes), pagination, lignes par page. Filtrage/tri/pagination faits
-// côté client (une seule requête par changement de dates/recherche) pour que
-// les compteurs de statut restent exacts quel que soit le badge actif.
-// "Effectué"/"Honoré" du spec fusionnés en un seul badge "Terminé" — l'enum
-// réel statut_rdv n'a qu'une seule valeur de complétion ("termine"),
-// confirmé cette session ; les afficher séparés aurait montré deux filtres
-// qui ne renvoient jamais rien (décision Bryan, 16/07/2026). "Absent" filtre
-// sur presence_status, pas sur statut (même règle que le reste du dashboard).
-import { useCallback, useEffect, useMemo, useState } from "react";
+// Onglet "Rendez-vous passés" — centre d'historique (spec CEO 16/07/2026), refonte
+// d'affichage 25/10/2026 (lignes denses, barre d'outils, états chargement/vide/erreur).
+// Filtrage/tri/pagination faits côté client (une seule requête par changement de
+// dates/recherche) pour que les compteurs de statut restent exacts quel que soit le
+// chip actif. "Effectué"/"Honoré" fusionnés en "Terminé" (une seule valeur de complétion
+// dans statut_rdv). "Absent" filtre sur presence_status, pas sur statut. "En cours"
+// regroupe en_attente / nouveau / confirme (RDV pas encore clôturés).
+// Pas de setState synchrone dans un effet : l'état de chargement est dérivé de la clé
+// de la requête (résultat.cle !== cle courante).
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
-import { YelenLoader } from "@/components/YelenLoader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/EmptyState";
-import { DEVISE_LABEL } from "@/lib/devise";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import { jourConakry } from "@/lib/heure";
+import { telechargerExportServeur } from "@/lib/export/telechargementClient";
+import {
+  ChampDate, DetailRdvModal, EnteteColonnes, RdvLigne, RdvPasseStyles, SqueletteLignes,
+  isoVersJma, jmaVersIso, type ActionsLigne, type RdvHisto,
+} from "./RdvPasseUi";
 
-type RdvHisto = {
-  id: string; objet: string | null; date_rdv: string; heure_rdv: string;
-  statut: string; citoyen_id: string; citoyen_nom: string; citoyen_phone: string;
-  notes: string | null; motif_annulation: string | null; created_at: string;
-  presence_status: string | null; reference: string;
-  service_nom: string | null; service_prix: number | null;
-  derniere_action: string | null; agent_nom: string | null; derniere_action_le: string | null;
-};
-
-type StatutFiltre = "tous" | "termine" | "annule" | "absent";
+type StatutFiltre = "tous" | "en_cours" | "termine" | "annule" | "absent";
 type SortBy = "recent" | "ancien";
+type Periode = "tout" | "aujourdhui" | "7j" | "30j" | "mois" | "perso";
 
-const STATUTS: { key: StatutFiltre; label: string; color: (C: ThemeTokens) => string; bg: (C: ThemeTokens) => string }[] = [
-  { key: "tous",    label: "Tous",    color: C => C.gold,   bg: C => C.orangeL },
-  { key: "termine", label: "Terminé", color: C => C.green,  bg: C => C.greenL },
-  { key: "annule",  label: "Annulé",  color: C => C.red,    bg: C => C.redL },
-  { key: "absent",  label: "Absent",  color: C => C.t2,     bg: C => C.bg3 },
+const STATUTS: { key: StatutFiltre; label: string }[] = [
+  { key: "tous", label: "Tous" },
+  { key: "en_cours", label: "En cours" },
+  { key: "termine", label: "Terminé" },
+  { key: "annule", label: "Annulé" },
+  { key: "absent", label: "Absent" },
 ];
+const PERIODES: { key: Periode; label: string }[] = [
+  { key: "aujourdhui", label: "Aujourd'hui" },
+  { key: "7j", label: "7 jours" },
+  { key: "30j", label: "30 jours" },
+  { key: "mois", label: "Ce mois" },
+  { key: "perso", label: "Personnalisé" },
+];
+const STATUTS_EN_COURS = ["en_attente", "nouveau", "confirme"];
+const PLAFOND_API = 1000;
+const VIDE: RdvHisto[] = [];
 
-const AVATAR_PALETTE = ["blue", "green", "purple", "orange", "teal", "red"] as const;
-function avatarColor(nom: string, C: ThemeTokens): { c: string; bg: string } {
-  let h = 0; for (let i = 0; i < nom.length; i++) h = (h * 31 + nom.charCodeAt(i)) >>> 0;
-  const key = AVATAR_PALETTE[h % AVATAR_PALETTE.length];
-  const map: Record<string, { c: string; bg: string }> = {
-    blue: { c: C.blue, bg: C.blueL }, green: { c: C.green, bg: C.greenL }, purple: { c: C.purple, bg: C.purpleL },
-    orange: { c: C.orange, bg: C.orangeL }, teal: { c: C.teal, bg: C.tealL }, red: { c: C.red, bg: C.redL },
-  };
-  return map[key];
-}
-
-function statutBadge(r: RdvHisto, C: ThemeTokens): { c: string; bg: string; l: string } {
-  if (r.presence_status === "absent") return { c: C.t2, bg: C.bg3, l: "Absent" };
-  switch (r.statut) {
-    case "confirme":   return { c: C.green,  bg: C.greenL,  l: "Confirmé" };
-    case "en_attente": return { c: C.gold,   bg: `${C.gold}20`, l: "En attente" };
-    case "nouveau":    return { c: C.gold,   bg: `${C.gold}20`, l: "Nouveau" };
-    case "annule":     return { c: C.red,    bg: C.redL,    l: "Annulé" };
-    case "termine":    return { c: C.green,  bg: C.greenL,  l: "Terminé" };
-    default:           return { c: C.t2,     bg: C.bg3,     l: r.statut };
-  }
+function ajouterJours(iso: string, n: number): string {
+  const [a, m, j] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1, j + n));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+function bornesPeriode(p: Periode): { from: string; to: string } {
+  if (p === "tout" || p === "perso") return { from: "", to: "" };
+  const auj = jourConakry(new Date());
+  if (!auj) return { from: "", to: "" };
+  if (p === "aujourdhui") return { from: auj, to: auj };
+  if (p === "7j") return { from: ajouterJours(auj, -6), to: auj };
+  if (p === "30j") return { from: ajouterJours(auj, -29), to: auj };
+  return { from: `${auj.slice(0, 8)}01`, to: auj };
 }
-function formatDateHeure(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + " à " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+function actionsPour(r: RdvHisto): ActionsLigne {
+  if (r.presence_status === "absent" || r.statut === "annule") return "annule";
+  if (r.statut === "termine") return "termine";
+  return "attente";
 }
-function formatPrix(p: number): string { return p.toLocaleString("fr-FR") + " " + DEVISE_LABEL; }
+
+function Coche({ color }: { color: string }) {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>;
+}
 
 export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string, color?: string) => void }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
-  const [rdvs, setRdvs] = useState<RdvHisto[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const ui = toUiTokens(C);
+
+  const [res, setRes] = useState<{ cle: string; rdvs: RdvHisto[]; erreur: boolean } | null>(null);
+  const [essai, setEssai] = useState(0);
+  const [exportEnCours, setExportEnCours] = useState(false);
+  const [periode, setPeriode] = useState<Periode>("tout");
+  const [preset, setPreset] = useState({ from: "", to: "" });
+  const [texteFrom, setTexteFrom] = useState("");
+  const [texteTo, setTexteTo] = useState("");
   const [q, setQ] = useState("");
+  const [qDeb, setQDeb] = useState("");
   const [statutFiltre, setStatutFiltre] = useState<StatutFiltre>("tous");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [reglagesOpen, setReglagesOpen] = useState(false);
+  const [filtresMobile, setFiltresMobile] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [openSuivi, setOpenSuivi] = useState<string | null>(null);
   const [suiviText, setSuiviText] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detailRdv, setDetailRdv] = useState<RdvHisto | null>(null);
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const listeRef = useRef<HTMLDivElement>(null);
+  const reglagesBtn = useRef<HTMLButtonElement>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // Dates effectives : presets calculés au clic (Conakry), champs libres validés ici.
+  const isoFromPerso = jmaVersIso(texteFrom);
+  const isoToPerso = jmaVersIso(texteTo);
+  const dateFrom = periode === "perso" ? isoFromPerso : preset.from;
+  const dateTo = periode === "perso" ? isoToPerso : preset.to;
+  const erreurFrom = periode === "perso" && texteFrom.length > 0 && !isoFromPerso ? "Date invalide (jj/mm/aaaa)" : null;
+  const erreurTo = periode === "perso" && texteTo.length > 0 && !isoToPerso ? "Date invalide (jj/mm/aaaa)" : null;
+  const erreurOrdre = dateFrom && dateTo && dateFrom > dateTo ? "La date de début dépasse la date de fin" : null;
+
+  const cle = `${dateFrom}|${dateTo}|${qDeb}|${essai}`;
+  const loading = res?.cle !== cle;
+  const erreur = !loading && res?.erreur === true;
+  const rdvs = res?.rdvs ?? VIDE;
+
+  useEffect(() => {
+    const t = setTimeout(() => setQDeb(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  useEffect(() => {
+    let annule = false;
     const params = new URLSearchParams();
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
-    if (q) params.set("q", q);
-    const res = await fetch(`/api/institution/rdv-historique?${params.toString()}`);
-    const j = await res.json().catch(() => null);
-    setRdvs(res.ok ? (j?.rdvs ?? []) : []);
-    setLoading(false);
-  }, [dateFrom, dateTo, q]);
-
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [statutFiltre, dateFrom, dateTo, q, sortBy, pageSize]);
+    if (qDeb) params.set("q", qDeb);
+    (async () => {
+      try {
+        const r = await fetch(`/api/institution/rdv-historique?${params.toString()}`);
+        const j = await r.json().catch(() => null);
+        if (annule) return;
+        setRes(r.ok ? { cle, rdvs: j?.rdvs ?? [], erreur: false } : { cle, rdvs: [], erreur: true });
+      } catch {
+        if (!annule) setRes({ cle, rdvs: [], erreur: true });
+      }
+    })();
+    return () => { annule = true; };
+  }, [cle, dateFrom, dateTo, qDeb]);
 
   const counts = useMemo(() => {
-    const c: Record<StatutFiltre, number> = { tous: rdvs.length, termine: 0, annule: 0, absent: 0 };
+    const c: Record<StatutFiltre, number> = { tous: rdvs.length, en_cours: 0, termine: 0, annule: 0, absent: 0 };
     for (const r of rdvs) {
       if (r.presence_status === "absent") c.absent++;
       else if (r.statut === "termine") c.termine++;
       else if (r.statut === "annule") c.annule++;
+      else if (STATUTS_EN_COURS.includes(r.statut)) c.en_cours++;
     }
     return c;
   }, [rdvs]);
@@ -118,6 +151,7 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
   const filtered = useMemo(() => {
     let list = rdvs;
     if (statutFiltre === "absent") list = list.filter(r => r.presence_status === "absent");
+    else if (statutFiltre === "en_cours") list = list.filter(r => r.presence_status !== "absent" && STATUTS_EN_COURS.includes(r.statut));
     else if (statutFiltre !== "tous") list = list.filter(r => r.presence_status !== "absent" && r.statut === statutFiltre);
     return [...list].sort((a, b) => sortBy === "recent"
       ? (b.date_rdv + b.heure_rdv).localeCompare(a.date_rdv + a.heure_rdv)
@@ -127,320 +161,291 @@ export function RdvPasseTab({ onToast }: { instId: string; onToast: (msg: string
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const paged = filtered.slice((pageSafe - 1) * pageSize, pageSafe * pageSize);
+  const filtresActifs = (periode !== "tout" ? 1 : 0) + (statutFiltre !== "tous" ? 1 : 0) + (q ? 1 : 0);
+
+  function choisirPeriode(p: Periode) {
+    setPage(1);
+    if (periode === p) { setPeriode("tout"); setPreset({ from: "", to: "" }); return; }
+    if (p === "perso") {
+      // Les champs partent des bornes courantes pour ne pas perdre le filtre déjà posé.
+      setTexteFrom(isoVersJma(dateFrom)); setTexteTo(isoVersJma(dateTo));
+    }
+    setPeriode(p);
+    setPreset(bornesPeriode(p));
+  }
+  function reinitialiser() {
+    setPeriode("tout"); setPreset({ from: "", to: "" }); setTexteFrom(""); setTexteTo("");
+    setQ(""); setQDeb(""); setStatutFiltre("tous"); setPage(1);
+  }
+  function allerPage(p: number) {
+    setPage(p);
+    listeRef.current?.scrollIntoView({ block: "start" });
+  }
 
   async function saveSuivi(rdvId: string) {
     setBusyId(rdvId);
-    const res = await fetch("/api/institution/rdv-historique", {
+    const res2 = await fetch("/api/institution/rdv-historique", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rdv_id: rdvId, notes: suiviText }),
     });
-    const j = await res.json().catch(() => null);
+    const j = await res2.json().catch(() => null);
     setBusyId(null);
-    if (!res.ok) { onToast(j?.error || "Erreur de sauvegarde", C.red); return; }
-    setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, notes: suiviText } : r));
+    if (!res2.ok) { onToast(j?.error || "Erreur de sauvegarde", C.red); return; }
+    setRes(prev => prev ? { ...prev, rdvs: prev.rdvs.map(r => r.id === rdvId ? { ...r, notes: suiviText } : r) } : prev);
     setOpenSuivi(null);
     onToast("Suivi enregistré", C.purple);
   }
 
   async function envoyerRappel(rdvId: string) {
     setBusyId(rdvId);
-    const res = await fetch("/api/institution/rdv-historique", {
+    const res2 = await fetch("/api/institution/rdv-historique", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rdv_id: rdvId }),
     });
-    const j = await res.json().catch(() => null);
+    const j = await res2.json().catch(() => null);
     setBusyId(null);
-    if (!res.ok) { onToast(j?.error || "Erreur d'envoi", C.red); return; }
+    if (!res2.ok) { onToast(j?.error || "Erreur d'envoi", C.red); return; }
     onToast("Rappel envoyé au client", C.green);
   }
 
-  function exportCsv() {
+  async function exportCsv() {
     if (!filtered.length) { onToast("Aucun rendez-vous à exporter", C.orange); return; }
-    const header = ["Référence", "Date", "Heure", "Client", "Téléphone", "Service/Objet", "Statut", "Motif annulation", "Suivi", "Agent", "Dernière action"];
-    const rows = filtered.map(r => [r.reference, r.date_rdv, r.heure_rdv, r.citoyen_nom, r.citoyen_phone, r.service_nom || r.objet || "", statutBadge(r, C).l, r.motif_annulation || "", r.notes || "", r.agent_nom || "", r.derniere_action || ""]);
-    const csv = [header, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `rdv_passes_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click(); URL.revokeObjectURL(url);
+    // Export serveur (lib/export) : on envoie les identifiants des lignes AFFICHÉES, dans
+    // l'ordre de l'écran ; le serveur relit, masque le téléphone selon le rôle, enregistre
+    // et signe le document.
+    setExportEnCours(true);
+    const r = await telechargerExportServeur("/api/institution/rdv-historique/export", { ecran: "rdv_passes", ids: filtered.map(x => x.id) }, "rdv_passes.csv");
+    setExportEnCours(false);
+    onToast(r.texte, r.ok ? C.green : C.red);
   }
 
-  function actionsPour(r: RdvHisto): "attente" | "termine" | "annule" {
-    if (r.presence_status === "absent" || r.statut === "annule") return "annule";
-    if (r.statut === "termine") return "termine";
-    return "attente";
-  }
+  const champ = { backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", color: C.t1, fontSize: "13px" } as const;
+  const aucunFiltre = rdvs.length === 0 && filtresActifs === 0;
 
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <style>{`
-        .rdvp-card-grid{display:flex;flex-direction:column;gap:14px}
-        .rdvp-actions{flex-direction:row}
-        @media(min-width:1024px){
-          .rdvp-card-grid{display:grid;grid-template-columns:1.3fr 1.5fr 1.3fr auto;gap:20px;align-items:center}
-          .rdvp-actions{flex-direction:column;align-items:stretch}
-        }
-        .rdvp-card{transition:transform 150ms ease, box-shadow 150ms ease}
-        .rdvp-card:hover{transform:translateY(-2px)}
-      `}</style>
+      <RdvPasseStyles/>
+      <div style={{ maxWidth: "1280px", margin: "0 auto" }}>
 
-      {/* 1. Titre */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", marginBottom: "4px" }}>
-        <h1 className="yelen-h1" style={{ color: C.t1 }}>Rendez-vous passés</h1>
-        <div title="Historique en lecture seule" style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: C.bg3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "6px" }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        </div>
-      </div>
-      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>Historique structuré de l&apos;activité passée — organisez vos relances et suivis.</p>
-
-      {/* 2. Export */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
-        <Button
-          tokens={toUiTokens(C)}
-          className="tap"
-          variant="secondary"
-          size="md"
-          icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
-          onClick={exportCsv}
-        >
-          Exporter CSV
-        </Button>
-      </div>
-
-      {/* 3. Filtres période */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-        <div>
-          <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 700, marginBottom: "6px" }}>Du</div>
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width: "100%", height: "48px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "0 12px", fontSize: "13px", color: C.t1 }}/>
-        </div>
-        <div>
-          <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 700, marginBottom: "6px" }}>Au</div>
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width: "100%", height: "48px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "0 12px", fontSize: "13px", color: C.t1 }}/>
-        </div>
-      </div>
-
-      {/* 4. Recherche */}
-      <div style={{ position: "relative", marginBottom: "14px" }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher un client (nom, téléphone, référence…)" style={{ width: "100%", height: "48px", paddingLeft: "38px", paddingRight: "14px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", color: C.t1, fontSize: "13px" }}/>
-      </div>
-
-      {/* 5. Statuts */}
-      <div style={{ display: "flex", gap: "7px", marginBottom: "14px", overflowX: "auto" }}>
-        {STATUTS.map(s => {
-          const active = statutFiltre === s.key;
-          const c = s.color(C), bg = s.bg(C);
-          return (
-            <button key={s.key} onClick={() => setStatutFiltre(s.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? bg : C.bgCard, border: `1px solid ${active ? c + "40" : C.border}`, borderRadius: "20px", padding: "7px 13px", color: active ? c : C.t2, fontSize: "11.5px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
-              {s.label} <span style={{ marginLeft: "4px", fontSize: "9.5px", opacity: 0.8 }}>{counts[s.key]}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 6. Tri */}
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
-        <span style={{ color: C.t3, fontSize: "11.5px", fontWeight: 600 }}>Trier par :</span>
-        <select value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "8px 10px", fontSize: "12px", color: C.t1, fontWeight: 700 }}>
-          <option value="recent">Date (récent)</option>
-          <option value="ancien">Date (ancien)</option>
-        </select>
-        <div style={{ position: "relative" }}>
-          <button onClick={() => setReglagesOpen(o => !o)} className="tap" title="Réglages" style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: reglagesOpen ? `${C.gold}15` : C.bgCard, border: `1px solid ${reglagesOpen ? C.gold + "40" : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={reglagesOpen ? C.gold : C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          </button>
-          {reglagesOpen && (
-            <>
-              <div onClick={() => setReglagesOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 500 }}/>
-              <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "14px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", padding: "14px", width: "180px" }}>
-                <div style={{ color: C.t3, fontSize: "10px", fontWeight: 700, textTransform: "uppercase", marginBottom: "8px" }}>Lignes par page</div>
-                <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "8px 10px", fontSize: "12px", color: C.t1, fontWeight: 700 }}>
-                  {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
+        {/* En-tête */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <h1 style={{ color: C.t1, fontSize: "24px", fontWeight: 600, letterSpacing: "-0.3px", margin: 0 }}>Rendez-vous passés</h1>
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  aria-label="À propos de cet historique"
+                  aria-describedby={infoOpen ? "rdvp-info" : undefined}
+                  onClick={() => setInfoOpen(o => !o)}
+                  onMouseEnter={() => setInfoOpen(true)} onMouseLeave={() => setInfoOpen(false)}
+                  onFocus={() => setInfoOpen(true)} onBlur={() => setInfoOpen(false)}
+                  onKeyDown={e => { if (e.key === "Escape") setInfoOpen(false); }}
+                  className="yelen-focus-ring"
+                  style={{ width: "22px", height: "22px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                </button>
+                {infoOpen && <div id="rdvp-info" role="tooltip" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 20, whiteSpace: "nowrap", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "6px 10px", color: C.t1, fontSize: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }}>Historique en lecture seule</div>}
               </div>
+            </div>
+            <p style={{ color: C.t2, fontSize: "13px", margin: "4px 0 0", lineHeight: 1.5 }}>Historique des rendez-vous passés, relances et suivis.</p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <HelpCenterGuide tab="rdv-historique" />
+            <Button
+              tokens={ui}
+              className="rdvp-btn yelen-focus-ring"
+              variant="secondary"
+              size="md"
+              icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+              loading={exportEnCours}
+              onClick={exportCsv}
+            >
+              Exporter CSV
+            </Button>
+          </div>
+        </div>
+
+        {/* Barre d'outils */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+          <div style={{ position: "relative", flex: "1 1 280px", minWidth: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <label htmlFor="rdvp-recherche" className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Rechercher un client</label>
+            <input id="rdvp-recherche" value={q} onChange={e => { setQ(e.target.value); setPage(1); }} placeholder="Rechercher un client (nom, téléphone, référence…)" className="yelen-focus-ring" style={{ ...champ, width: "100%", height: "40px", paddingLeft: "36px", paddingRight: "12px" }}/>
+          </div>
+          <button type="button" onClick={() => setFiltresMobile(o => !o)} aria-expanded={filtresMobile} aria-controls="rdvp-filtres" className="rdvp-filtres-btn rdvp-btn yelen-focus-ring" style={{ ...champ, height: "44px", padding: "0 14px", alignItems: "center", gap: "8px", fontWeight: 600, cursor: "pointer" }}>
+            Filtres{filtresActifs > 0 ? ` (${filtresActifs})` : ""}
+          </button>
+          <div className="rdvp-filtres" data-open={filtresMobile} style={{ display: "contents" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+              <label htmlFor="rdvp-tri" style={{ color: C.t2, fontSize: "12.5px", fontWeight: 600 }}>Trier par</label>
+              <select id="rdvp-tri" value={sortBy} onChange={e => { setSortBy(e.target.value as SortBy); setPage(1); }} className="yelen-focus-ring" style={{ ...champ, height: "40px", padding: "0 10px", fontWeight: 600 }}>
+                <option value="recent">Date (récent)</option>
+                <option value="ancien">Date (ancien)</option>
+              </select>
+              <div style={{ position: "relative" }}>
+                <button
+                  ref={reglagesBtn}
+                  type="button"
+                  onClick={() => setReglagesOpen(o => !o)}
+                  onKeyDown={e => { if (e.key === "Escape") { setReglagesOpen(false); reglagesBtn.current?.focus(); } }}
+                  aria-label="Réglages d'affichage"
+                  aria-haspopup="dialog"
+                  aria-expanded={reglagesOpen}
+                  className="rdvp-icobtn yelen-focus-ring"
+                  style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: C.bgCard, border: `1px solid ${reglagesOpen ? C.gold : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+                {reglagesOpen && (
+                  <>
+                    <div onClick={() => setReglagesOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 500 }}/>
+                    <div role="dialog" aria-label="Réglages d'affichage" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", padding: "14px", width: "190px" }}>
+                      <label htmlFor="rdvp-lignes-reglage" style={{ display: "block", color: C.t2, fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Lignes par page</label>
+                      <select id="rdvp-lignes-reglage" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} className="yelen-focus-ring" style={{ ...champ, width: "100%", height: "36px", padding: "0 10px", fontWeight: 600 }}>
+                        {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="rdvp-filtres" className="rdvp-filtres" data-open={filtresMobile} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
+          <div role="group" aria-label="Période" style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {PERIODES.map(p => {
+              const actif = periode === p.key;
+              return (
+                <button key={p.key} type="button" aria-pressed={actif} onClick={() => choisirPeriode(p.key)} className="rdvp-chip yelen-focus-ring" style={{ display: "inline-flex", alignItems: "center", gap: "5px", backgroundColor: actif ? `${C.gold}1F` : C.bgCard, border: `1px solid ${actif ? C.gold : C.border}`, borderRadius: "999px", padding: "0 12px", color: C.t1, fontSize: "12.5px", fontWeight: actif ? 600 : 500, cursor: "pointer" }}>
+                  {actif && <Coche color={C.gold}/>}{p.label}
+                </button>
+              );
+            })}
+          </div>
+          <span aria-hidden="true" style={{ width: "1px", height: "20px", backgroundColor: C.border2, margin: "0 4px" }}/>
+          <div role="group" aria-label="Statut" style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {STATUTS.map(s => {
+              const actif = statutFiltre === s.key;
+              return (
+                <button key={s.key} type="button" aria-pressed={actif} onClick={() => { setStatutFiltre(s.key); setPage(1); }} className="rdvp-chip yelen-focus-ring" style={{ display: "inline-flex", alignItems: "center", gap: "5px", backgroundColor: actif ? `${C.gold}1F` : C.bgCard, border: `1px solid ${actif ? C.gold : C.border}`, borderRadius: "999px", padding: "0 12px", color: C.t1, fontSize: "12.5px", fontWeight: actif ? 600 : 500, cursor: "pointer" }}>
+                  {actif && <Coche color={C.gold}/>}{s.label}
+                  <span style={{ color: C.t2, fontVariantNumeric: "tabular-nums", fontSize: "12px" }}>{counts[s.key]}</span>
+                </button>
+              );
+            })}
+          </div>
+          {filtresActifs > 0 && (
+            <button type="button" onClick={reinitialiser} className="rdvp-chip yelen-focus-ring" style={{ background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 600, textDecoration: "underline", cursor: "pointer", padding: "0 6px" }}>Réinitialiser les filtres</button>
+          )}
+        </div>
+
+        {periode === "perso" && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "12px", marginBottom: "14px" }}>
+            <ChampDate C={C} id="rdvp-du" libelle="Du" texte={texteFrom} onTexte={t => { setTexteFrom(t); setPage(1); }} erreur={erreurFrom}/>
+            <ChampDate C={C} id="rdvp-au" libelle="Au" texte={texteTo} onTexte={t => { setTexteTo(t); setPage(1); }} erreur={erreurTo ?? erreurOrdre}/>
+          </div>
+        )}
+
+        {/* Liste */}
+        <div ref={listeRef} style={{ scrollMarginTop: "16px" }}>
+          <h2 className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Liste des rendez-vous passés</h2>
+          <div aria-live="polite" style={{ minHeight: 0 }}>
+            {!loading && !erreur && rdvs.length >= PLAFOND_API && (
+              <p style={{ color: C.t2, fontSize: "12.5px", margin: "0 0 10px" }}>{PLAFOND_API} plus récents affichés. Affinez la période pour voir les plus anciens.</p>
+            )}
+          </div>
+
+          {loading ? (
+            <SqueletteLignes C={C} n={Math.min(pageSize, 6)}/>
+          ) : erreur ? (
+            <Card tokens={toCardTokens(C)} padding="40px 20px" style={{ textAlign: "center" }}>
+              <p role="alert" style={{ color: C.t1, fontSize: "15px", fontWeight: 600, margin: "0 0 4px" }}>Historique indisponible</p>
+              <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 14px" }}>Le chargement a échoué. Vérifiez votre connexion puis réessayez.</p>
+              <Button tokens={ui} className="rdvp-btn yelen-focus-ring" variant="secondary" size="md" onClick={() => setEssai(n => n + 1)}>Réessayer</Button>
+            </Card>
+          ) : filtered.length === 0 ? (
+            <Card tokens={toCardTokens(C)} padding={aucunFiltre ? "12px" : "40px 20px"} style={{ textAlign: "center" }}>
+              {aucunFiltre ? (
+                <EmptyState
+                  variant="historique"
+                  title="Votre historique commence ici"
+                  message="Une fois vos premiers rendez-vous terminés, ils apparaîtront ici avec tout ce qu'il faut pour organiser vos relances et suivis."
+                  color={C.gold}
+                  titleColor={C.t1}
+                  textColor={C.t2}
+                />
+              ) : (
+                <>
+                  <p style={{ color: C.t1, fontSize: "14px", fontWeight: 600, margin: "0 0 12px" }}>Aucun rendez-vous pour ces filtres</p>
+                  <Button tokens={ui} className="rdvp-btn yelen-focus-ring" variant="secondary" size="md" onClick={reinitialiser}>Réinitialiser les filtres</Button>
+                </>
+              )}
+            </Card>
+          ) : (
+            <>
+              <EnteteColonnes C={C}/>
+              <ul className="rdvp-list" role="list">
+                {paged.map(r => (
+                  <RdvLigne
+                    key={r.id}
+                    C={C}
+                    r={r}
+                    actions={actionsPour(r)}
+                    busy={busyId === r.id}
+                    suiviOuvert={openSuivi === r.id}
+                    suiviText={suiviText}
+                    onSuiviText={setSuiviText}
+                    onSuiviToggle={() => { setOpenSuivi(openSuivi === r.id ? null : r.id); setSuiviText(r.notes || ""); }}
+                    onSuiviSave={() => saveSuivi(r.id)}
+                    onSuiviCancel={() => setOpenSuivi(null)}
+                    onRappel={() => envoyerRappel(r.id)}
+                    onDetails={() => setDetailRdv(r)}
+                    onCopier={() => { navigator.clipboard?.writeText(r.reference); onToast("Référence copiée", C.gold); }}
+                  />
+                ))}
+              </ul>
             </>
           )}
         </div>
+
+        {/* Pagination */}
+        {!loading && !erreur && filtered.length > 0 && (
+          <nav aria-label="Pagination" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginTop: "18px" }}>
+            <span style={{ color: C.t2, fontSize: "12.5px", fontVariantNumeric: "tabular-nums" }}>
+              {(pageSafe - 1) * pageSize + 1} à {Math.min(pageSafe * pageSize, filtered.length)} sur {filtered.length} rendez-vous
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <button type="button" aria-label="Page précédente" onClick={() => allerPage(Math.max(1, pageSafe - 1))} disabled={pageSafe <= 1} className="rdvp-icobtn yelen-focus-ring" style={{ width: "36px", height: "36px", borderRadius: "10px", border: `1px solid ${C.border}`, backgroundColor: C.bgCard, color: C.t1, cursor: pageSafe <= 1 ? "default" : "pointer", opacity: pageSafe <= 1 ? 0.4 : 1 }}>‹</button>
+              {(() => {
+                const pages: (number | "…")[] = [];
+                for (let p = 1; p <= totalPages; p++) {
+                  if (p === 1 || p === totalPages || Math.abs(p - pageSafe) <= 1) pages.push(p);
+                  else if (pages[pages.length - 1] !== "…") pages.push("…");
+                }
+                return pages.map((p, i) => p === "…" ? (
+                  <span key={`e${i}`} aria-hidden="true" style={{ color: C.t2, fontSize: "12px", padding: "0 4px" }}>…</span>
+                ) : (
+                  <button key={p} type="button" aria-label={`Page ${p}`} aria-current={p === pageSafe ? "page" : undefined} onClick={() => allerPage(p)} className="rdvp-icobtn yelen-focus-ring" style={{ minWidth: "36px", height: "36px", borderRadius: "10px", backgroundColor: p === pageSafe ? C.gold : C.bgCard, color: p === pageSafe ? "#000" : C.t1, border: `1px solid ${p === pageSafe ? C.gold : C.border}`, fontSize: "12.5px", fontWeight: p === pageSafe ? 700 : 500, cursor: "pointer", fontVariantNumeric: "tabular-nums" }}>{p}</button>
+                ));
+              })()}
+              <button type="button" aria-label="Page suivante" onClick={() => allerPage(Math.min(totalPages, pageSafe + 1))} disabled={pageSafe >= totalPages} className="rdvp-icobtn yelen-focus-ring" style={{ width: "36px", height: "36px", borderRadius: "10px", border: `1px solid ${C.border}`, backgroundColor: C.bgCard, color: C.t1, cursor: pageSafe >= totalPages ? "default" : "pointer", opacity: pageSafe >= totalPages ? 0.4 : 1 }}>›</button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <label htmlFor="rdvp-lignes" style={{ color: C.t2, fontSize: "12.5px" }}>Lignes par page</label>
+              <select id="rdvp-lignes" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }} className="yelen-focus-ring" style={{ ...champ, height: "36px", padding: "0 10px", fontWeight: 600 }}>
+                {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          </nav>
+        )}
+
+        {detailRdv && <DetailRdvModal C={C} r={detailRdv} onClose={() => setDetailRdv(null)}/>}
       </div>
-
-      {/* 7. Liste */}
-      {loading ? (
-        <div style={{ padding: "48px 16px", display: "flex", justifyContent: "center" }}>
-          <YelenLoader size={28}/>
-        </div>
-      ) : filtered.length === 0 ? (
-        <Card tokens={toCardTokens(C)} padding={rdvs.length === 0 && !dateFrom && !dateTo && !q ? "12px" : "44px 20px"} style={{ textAlign: "center" }}>
-          {rdvs.length === 0 && !dateFrom && !dateTo && !q ? (
-            <EmptyState
-              variant="historique"
-              title="Votre historique commence ici"
-              message="Une fois vos premiers rendez-vous terminés, ils apparaîtront ici avec tout ce qu'il faut pour organiser vos relances et suivis."
-              color={C.gold}
-              titleColor={C.t1}
-              textColor={C.t3}
-            />
-          ) : (
-            <p style={{ color: C.t2, fontSize: "13px" }}>Aucun rendez-vous trouvé pour ces filtres.</p>
-          )}
-        </Card>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {paged.map(r => {
-            const badge = statutBadge(r, C);
-            const av = avatarColor(r.citoyen_nom, C);
-            const menuOpen = menuOpenId === r.id;
-            const suiviOuvert = openSuivi === r.id;
-            const actions = actionsPour(r);
-            return (
-              <Card key={r.id} tokens={toCardTokens(C)} padding="20px" className="rdvp-card" style={{ position: "relative", boxShadow: C.shadow }}>
-                <div className="rdvp-card-grid">
-                  {/* Colonne 1 — Client */}
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
-                    <div style={{ width: "42px", height: "42px", borderRadius: "50%", backgroundColor: av.bg, color: av.c, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: 800, flexShrink: 0 }}>
-                      {r.citoyen_nom.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>{r.citoyen_nom}</div>
-                      {r.citoyen_phone && <div style={{ color: C.t3, fontSize: "11.5px", marginTop: "1px" }}>{r.citoyen_phone}</div>}
-                      <span style={{ display: "inline-block", marginTop: "6px", backgroundColor: C.bg3, color: C.t3, fontSize: "10px", fontWeight: 700, padding: "3px 9px", borderRadius: "8px", fontFamily: "monospace" }}>{r.reference}</span>
-                    </div>
-                  </div>
-
-                  {/* Colonne 2 — Service */}
-                  <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Service</div>
-                    <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "2px" }}>{r.service_nom || r.objet || "RDV général"}</div>
-                    {r.service_nom && r.objet && <div style={{ color: C.t2, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: "4px" }}>{r.objet}</div>}
-                    {r.service_prix != null && <div style={{ color: C.gold, fontSize: "11.5px", fontWeight: 700, marginBottom: "4px" }}>{formatPrix(r.service_prix)}</div>}
-                    <div style={{ display: "flex", alignItems: "center", gap: "5px", color: C.t3, fontSize: "11px" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                      {formatDate(r.date_rdv)} à {r.heure_rdv}
-                    </div>
-                  </div>
-
-                  {/* Colonne 3 — Statut */}
-                  <div>
-                    <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "6px" }}>Statut</div>
-                    <span style={{ display: "inline-block", backgroundColor: badge.bg, color: badge.c, fontSize: "10.5px", fontWeight: 800, padding: "4px 10px", borderRadius: "20px", marginBottom: "8px" }}>{badge.l}</span>
-                    <div style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.6 }}>
-                      Créé le {formatDateHeure(r.created_at)}
-                      {r.motif_annulation ? <div style={{ color: C.red, marginTop: "2px" }}>Suivi : RDV annulé — {r.motif_annulation}</div>
-                        : r.notes ? <div style={{ color: C.t2, marginTop: "2px" }}>Suivi : {r.notes}</div>
-                        : r.derniere_action ? <div style={{ color: C.t2, marginTop: "2px" }}>{r.derniere_action}{r.agent_nom ? ` · Agent : ${r.agent_nom}` : ""}</div>
-                        : null}
-                    </div>
-                  </div>
-
-                  {/* Colonne 4 — Actions */}
-                  <div className="rdvp-actions" style={{ display: "flex", gap: "8px", position: "relative" }}>
-                    {actions === "attente" && (
-                      <>
-                        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} onClick={() => { setOpenSuivi(suiviOuvert ? null : r.id); setSuiviText(r.notes || ""); }}>Marquer un suivi</Button>
-                        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} loading={busyId === r.id} onClick={() => envoyerRappel(r.id)}>Rappeler ce client</Button>
-                      </>
-                    )}
-                    {actions === "termine" && (
-                      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} onClick={() => setDetailRdv(r)}>Voir le dossier</Button>
-                    )}
-                    {actions === "annule" && (
-                      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" style={{ whiteSpace: "nowrap" }} onClick={() => setDetailRdv(r)}>Détails</Button>
-                    )}
-                    <button onClick={() => setMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "40px", height: "40px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                    </button>
-                    {menuOpen && (
-                      <>
-                        <div onClick={() => setMenuOpenId(null)} style={{ position: "fixed", inset: 0, zIndex: 500 }}/>
-                        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", minWidth: "180px", overflow: "hidden" }}>
-                          <button onClick={() => { setDetailRdv(r); setMenuOpenId(null); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Voir les détails</button>
-                          <div style={{ height: "1px", backgroundColor: C.border }}/>
-                          <button onClick={() => { navigator.clipboard?.writeText(r.reference); onToast("Référence copiée", C.gold); setMenuOpenId(null); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Copier la référence</button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {suiviOuvert && (
-                  <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${C.border}` }}>
-                    <textarea value={suiviText} onChange={e => setSuiviText(e.target.value)} placeholder="Note de suivi pour ce rendez-vous…" rows={2} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "10px 12px", fontSize: "12.5px", lineHeight: 1.6, resize: "none", color: C.t1, marginBottom: "8px" }}/>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                      <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setOpenSuivi(null)}>Annuler</Button>
-                      <button onClick={() => saveSuivi(r.id)} disabled={busyId === r.id} className="tap" style={{ height: "32px", backgroundColor: `${C.purple}20`, border: `1px solid ${C.purple}40`, color: C.purple, fontSize: "12px", fontWeight: 700, padding: "0 12px", borderRadius: "10px", cursor: "pointer", opacity: busyId === r.id ? 0.6 : 1 }}>{busyId === r.id ? "Enregistrement…" : "Enregistrer"}</button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 8. Pagination + 9. Lignes par page */}
-      {filtered.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginTop: "20px" }}>
-          <span style={{ color: C.t3, fontSize: "12px" }}>
-            Affichage de {(pageSafe - 1) * pageSize + 1} à {Math.min(pageSafe * pageSize, filtered.length)} sur {filtered.length} rendez-vous
-          </span>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1} className="tap" style={{ width: "32px", height: "32px", borderRadius: "9px", border: `1px solid ${C.border}`, backgroundColor: C.bgCard, color: C.t2, cursor: pageSafe <= 1 ? "default" : "pointer", opacity: pageSafe <= 1 ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>‹</button>
-            {(() => {
-              const pages: (number | "…")[] = [];
-              for (let p = 1; p <= totalPages; p++) {
-                if (p === 1 || p === totalPages || Math.abs(p - pageSafe) <= 1) pages.push(p);
-                else if (pages[pages.length - 1] !== "…") pages.push("…");
-              }
-              return pages.map((p, i) => p === "…" ? (
-                <span key={`e${i}`} style={{ color: C.t3, fontSize: "12px", padding: "0 4px" }}>…</span>
-              ) : (
-                <button key={p} onClick={() => setPage(p)} className="tap" style={{ minWidth: "32px", height: "32px", borderRadius: "9px", backgroundColor: p === pageSafe ? C.gold : C.bgCard, color: p === pageSafe ? "#000" : C.t2, border: `1px solid ${p === pageSafe ? C.gold : C.border}`, fontSize: "12px", fontWeight: p === pageSafe ? 800 : 600, cursor: "pointer" }}>{p}</button>
-              ));
-            })()}
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages} className="tap" style={{ width: "32px", height: "32px", borderRadius: "9px", border: `1px solid ${C.border}`, backgroundColor: C.bgCard, color: C.t2, cursor: pageSafe >= totalPages ? "default" : "pointer", opacity: pageSafe >= totalPages ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>›</button>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ color: C.t3, fontSize: "12px" }}>Lignes par page</span>
-            <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "8px 10px", fontSize: "12px", color: C.t1, fontWeight: 700 }}>
-              {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-        </div>
-      )}
-
-      {/* Détails / dossier */}
-      {detailRdv && (
-        <div onClick={() => setDetailRdv(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}>
-          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "22px", border: `1px solid ${C.border2}`, maxWidth: "440px", width: "100%", maxHeight: "86svh", overflowY: "auto", padding: "24px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800 }}>Détails du rendez-vous</div>
-              <button onClick={() => setDetailRdv(null)} style={{ width: "30px", height: "30px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", cursor: "pointer" }}>✕</button>
-            </div>
-            <div style={{ backgroundColor: C.bg3, borderRadius: "14px", padding: "14px 16px" }}>
-              {[
-                { label: "Référence", value: detailRdv.reference },
-                { label: "Client", value: detailRdv.citoyen_nom },
-                { label: "Téléphone", value: detailRdv.citoyen_phone || "—" },
-                { label: "Service", value: detailRdv.service_nom || detailRdv.objet || "RDV général" },
-                { label: "Date et heure", value: `${formatDate(detailRdv.date_rdv)} à ${detailRdv.heure_rdv}` },
-                { label: "Statut", value: statutBadge(detailRdv, C).l },
-                { label: "Créé le", value: formatDateHeure(detailRdv.created_at) },
-                ...(detailRdv.agent_nom ? [{ label: "Agent", value: detailRdv.agent_nom }] : []),
-                ...(detailRdv.derniere_action ? [{ label: "Dernière action", value: detailRdv.derniere_action }] : []),
-                ...(detailRdv.motif_annulation ? [{ label: "Motif annulation", value: detailRdv.motif_annulation }] : []),
-                ...(detailRdv.notes ? [{ label: "Suivi", value: detailRdv.notes }] : []),
-              ].map((row, i, arr) => (
-                <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "8px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                  <span style={{ color: C.t3, fontSize: "11px", fontWeight: 600, flexShrink: 0 }}>{row.label}</span>
-                  <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700, textAlign: "right" }}>{row.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

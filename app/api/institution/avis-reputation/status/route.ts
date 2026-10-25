@@ -4,15 +4,14 @@ import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { canAccessTab } from "@/lib/institutionPermissions";
 import {
   TAILLE_FENETRE, MIN_AVIS_POUR_SCORE, NOTE_POSITIVE_MIN, NOTE_NEGATIVE_MAX,
-  extraireServiceDepuisObjet, estAnnuleParInstitution, calculerSignaux,
+  extraireServiceDepuisObjet, calculerSignaux,
   calculerScoreReputation, genererRecommandationsIA, type StatService,
 } from "@/lib/reputationScore";
 import { creerSignalement } from "@/lib/signalements";
 
-// avis/rdv/rdv_events/signalements n'ont aucune policy RLS exploitable
-// depuis ce contexte (mêmes raisons que rdv/events/route.ts et
-// avis/repondre/route.ts) — passerelle service_role, tout est filtré par
-// authInstId avant retour.
+// avis/rdv/signalements n'ont aucune policy RLS exploitable depuis ce
+// contexte (mêmes raisons que rdv/events/route.ts et avis/repondre/route.ts)
+// — passerelle service_role, tout est filtré par authInstId avant retour.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 // Fenêtre de données chargée pour calculer les signaux "période" (annulation
@@ -34,7 +33,14 @@ const ALERTE_ANTI_SPAM_JOURS = 7;
 type AvisRow = {
   id: string; note: number; commentaire: string | null; titre: string | null;
   reponse_institution: string | null; reponse_le: string | null; rdv_id: string | null; created_at: string;
+  citoyen_id: string | null;
 };
+
+function buildNomClient(u: { nom: string | null; prenom: string | null; phone: string | null } | undefined): string {
+  if (!u) return "Client";
+  const parts = [u.prenom, u.nom].filter(Boolean).join(" ");
+  return parts || u.phone || "Client";
+}
 
 function finDeJournee(d: Date): Date {
   const f = new Date(d);
@@ -55,7 +61,7 @@ export async function GET(req: NextRequest) {
 
   const { data: avisRaw, error: errAvis } = await sb
     .from("avis")
-    .select("id,note,commentaire,titre,reponse_institution,reponse_le,rdv_id,created_at")
+    .select("id,note,commentaire,titre,reponse_institution,reponse_le,rdv_id,citoyen_id,created_at")
     .eq("institution_id", authInstId)
     .eq("brouillon", false)
     .eq("masque", false)
@@ -84,22 +90,27 @@ export async function GET(req: NextRequest) {
 
   const { data: rdvPeriodeData } = await sb
     .from("rdv")
-    .select("id,statut,created_at")
+    .select("id,statut,created_at,annule_par")
     .eq("institution_id", authInstId)
     .gte("created_at", debutPeriode.toISOString());
   const rdvPeriode = rdvPeriodeData ?? [];
 
-  const rdvAnnulesIds = rdvPeriode.filter(r => r.statut === "annule").map(r => r.id);
-  const { data: eventsData } = rdvAnnulesIds.length
-    ? await sb.from("rdv_events").select("rdv_id,auteur_type,action").in("rdv_id", rdvAnnulesIds).eq("action", "annulation")
-    : { data: [] as { rdv_id: string; auteur_type: string; action: string }[] };
-  const rdvIdsAnnulesParCitoyen = new Set((eventsData ?? []).filter(e => e.auteur_type === "citoyen").map(e => e.rdv_id));
-
+  // Réclamations résolues (Phase "arbitrages CEO" 17/10/2026) : uniquement
+  // une vraie réclamation citoyen contre cette institution — exclut les
+  // alertes système auto-générées par ce même écran (plus bas,
+  // type_signaleur="system") et les signalements où l'institution est elle
+  // -même signaleur contre un citoyen (type_cible="citoyen"), qui portaient
+  // tous les deux le même institution_id et se faisaient compter à tort.
+  // "resolu" ET "cloture" comptent (un dossier clôturé reste un dossier
+  // résolu, la clôture n'annule pas la décision) — fenêtre ancrée sur
+  // created_at (date de création du dossier, pas de résolution), inchangé.
   const { data: reclamationsData } = await sb
     .from("signalements")
     .select("id,created_at")
     .eq("institution_id", authInstId)
-    .eq("statut", "resolu")
+    .eq("type_signaleur", "citoyen")
+    .eq("type_cible", "institution")
+    .in("statut", ["resolu", "cloture"])
     .gte("created_at", debutPeriode.toISOString());
   const reclamations = reclamationsData ?? [];
 
@@ -113,7 +124,7 @@ export async function GET(req: NextRequest) {
       const t = new Date(r.created_at);
       return t >= borneBasse && t <= borneHaute;
     });
-    const nbRdvAnnulesInstitution = rdvFenetre.filter(r => r.statut === "annule" && estAnnuleParInstitution(r.id, rdvIdsAnnulesParCitoyen)).length;
+    const nbRdvAnnulesInstitution = rdvFenetre.filter(r => r.statut === "annule" && r.annule_par === "institution").length;
     const nbReclamationsResolues = reclamations.filter(s => {
       const t = new Date(s.created_at);
       return t >= borneBasse && t <= borneHaute;
@@ -171,12 +182,18 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const evolution: { date: string; score: number }[] = [];
+  const evolution: { date: string; score: number; nbAvis: number }[] = [];
   for (let i = JOURS_EVOLUTION - 1; i >= 0; i--) {
     const jour = new Date();
     jour.setDate(jour.getDate() - i);
-    const r = signauxEtScoreAuJour(finDeJournee(jour));
-    if (r) evolution.push({ date: toISODateOnly(jour), score: r.score });
+    const finJour = finDeJournee(jour);
+    const r = signauxEtScoreAuJour(finJour);
+    if (r) {
+      const debutJour = new Date(jour);
+      debutJour.setHours(0, 0, 0, 0);
+      const nbAvis = avis.filter(a => { const t = new Date(a.created_at); return t >= debutJour && t <= finJour; }).length;
+      evolution.push({ date: toISODateOnly(jour), score: r.score, nbAvis });
+    }
   }
 
   const now = new Date();
@@ -213,7 +230,7 @@ export async function GET(req: NextRequest) {
   const tauxAnnulationInstitutionMoisPct = (() => {
     const rdvMois = rdvPeriode.filter(r => new Date(r.created_at) >= debutMois);
     if (rdvMois.length === 0) return 0;
-    const annulesInst = rdvMois.filter(r => r.statut === "annule" && estAnnuleParInstitution(r.id, rdvIdsAnnulesParCitoyen)).length;
+    const annulesInst = rdvMois.filter(r => r.statut === "annule" && r.annule_par === "institution").length;
     return (annulesInst / rdvMois.length) * 100;
   })();
   const nbReclamationsResoluesMois = reclamations.filter(s => new Date(s.created_at) >= debutMois).length;
@@ -225,8 +242,18 @@ export async function GET(req: NextRequest) {
     nbReclamationsResoluesMois,
   });
 
-  const citations = avis.filter(a => a.note >= NOTE_POSITIVE_MIN && a.commentaire && a.commentaire.trim()).slice(0, 5)
-    .map(a => ({ note: a.note, commentaire: a.commentaire, created_at: a.created_at }));
+  const citationsBrutes = avis.filter(a => a.note >= NOTE_POSITIVE_MIN && a.commentaire && a.commentaire.trim()).slice(0, 5);
+  const citoyenIdsCitations = [...new Set(citationsBrutes.map(c => c.citoyen_id).filter((x): x is string => !!x))];
+  const { data: usersCitations } = citoyenIdsCitations.length
+    ? await sb.from("users").select("id,nom,prenom,phone").in("id", citoyenIdsCitations)
+    : { data: [] as { id: string; nom: string | null; prenom: string | null; phone: string | null }[] };
+  const userParId = new Map((usersCitations ?? []).map(u => [u.id, u]));
+
+  const citations = citationsBrutes.map(a => ({
+    note: a.note, commentaire: a.commentaire, created_at: a.created_at,
+    client: buildNomClient(userParId.get(a.citoyen_id ?? "")),
+    service: a.rdv_id ? extraireServiceDepuisObjet(objetParRdv.get(a.rdv_id) ?? null) : null,
+  }));
 
   return NextResponse.json({
     score: resultatCourant.score, niveau: resultatCourant.niveau, phrase: resultatCourant.phrase,

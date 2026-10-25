@@ -14,6 +14,8 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { ReauthModal } from "./ReauthModal";
 import { HelpCenterGuide } from "./HelpCenterGuide";
+import { heureAmPm, heureDepuisHorodatage } from "@/lib/heure";
+import { telechargerExportServeur } from "@/lib/export/telechargementClient";
 
 type Paiement = {
   id: string; reference: string; statut: string; date_rdv: string; heure_rdv: string;
@@ -55,7 +57,7 @@ type Stats = {
 
 function formatPrix(p: number): string { return Math.round(p).toLocaleString("fr-FR") + " " + DEVISE_LABEL; }
 function formatDate(iso: string): string { return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }); }
-function formatHeure(iso: string): string { return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+function formatHeure(iso: string): string { return heureDepuisHorodatage(iso); }
 function formatDateHeure(iso: string): string { return formatDate(iso) + " à " + formatHeure(iso); }
 
 // Badge de variation — jamais affiché si variationPct est null (solde
@@ -182,6 +184,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
   const [paiements, setPaiements] = useState<Paiement[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exportEnCours, setExportEnCours] = useState(false);
   const [ongletActif, setOngletActif] = useState("tous");
   const [periodeFiltre, setPeriodeFiltre] = useState("tout");
   const [agentFiltre, setAgentFiltre] = useState("tous");
@@ -251,22 +254,14 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
       .filter(p => !search || p.citoyen_nom.toLowerCase().includes(search.toLowerCase()) || p.reference.toLowerCase().includes(search.toLowerCase()));
   }, [paiements, ongletActif, periodeFiltre, agentFiltre, search]);
 
-  // Export CSV — 100% client, même convention que les autres exports
-  // "légers" du dashboard (une page à la fois, pas de génération serveur
-  // pour un simple tableau).
-  function exporterCsv() {
-    const header = ["Référence", "Citoyen", "Service", "Agent", "Date", "Heure", "Montant", "Statut"];
-    const rows = filtered.map(p => [
-      p.reference, p.citoyen_nom, p.service_nom, p.agent_nom ?? "", formatDate(p.date_rdv), p.heure_rdv,
-      String(Math.round(p.montant)), STATUT_LABEL[p.statut]?.label ?? p.statut,
-    ]);
-    const csv = "﻿" + [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `paiements_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Export CSV serveur (lib/export) : on envoie les identifiants des lignes AFFICHÉES, dans
+  // l'ordre de l'écran ; le serveur relit, enregistre et signe le document.
+  async function exporterCsv() {
+    if (filtered.length === 0) { onToast("Aucun paiement à exporter", C.orange); return; }
+    setExportEnCours(true);
+    const r = await telechargerExportServeur("/api/institution/paiements/export", { ecran: "paiements", ids: filtered.map(p => p.id) }, "paiements.csv");
+    setExportEnCours(false);
+    onToast(r.texte, r.ok ? C.green : C.red);
   }
 
   async function confirmerRemboursement() {
@@ -385,7 +380,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
             {agentsDisponibles.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         )}
-        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={filtered.length === 0}
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" disabled={filtered.length === 0} loading={exportEnCours}
           icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
           onClick={exporterCsv}>Exporter</Button>
         <button onClick={load} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px", fontSize: "12.5px", fontWeight: "700", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center" }} aria-label="Actualiser">
@@ -434,7 +429,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
                   <Avatar nom={p.citoyen_nom} photoUrl={p.citoyen_photo_url} C={C} size={38}/>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.citoyen_nom}</div>
-                    <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.service_nom} · {formatDate(p.date_rdv)} {p.heure_rdv}</div>
+                    <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.service_nom} · {formatDate(p.date_rdv)} {heureAmPm(p.heure_rdv) || p.heure_rdv}</div>
                   </div>
                 </div>
 
@@ -510,7 +505,7 @@ export function PaiementsTab({ instId, onToast, isAdmin }: { instId: string; onT
               <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Détails</div>
               {[
                 ["Service", detailOuvert.service_nom],
-                ["Rendez-vous prévu", `${formatDate(detailOuvert.date_rdv)} ${detailOuvert.heure_rdv}`],
+                ["Rendez-vous prévu", `${formatDate(detailOuvert.date_rdv)} ${heureAmPm(detailOuvert.heure_rdv) || detailOuvert.heure_rdv}`],
                 ["Agent", detailOuvert.agent_nom ?? "—"],
               ].map(([label, valeur]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>

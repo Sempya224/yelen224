@@ -73,6 +73,21 @@ export async function accorderPoints(params: AccorderPointsParams): Promise<void
     }
     if (!rule || !rule.actif) return;
 
+    // Filtre identité (ADR-001 E0.1) : un invité vérifié par OTP seulement
+    // (compte_complete_le NULL) ne cumule aucun point. Se base sur
+    // compte_complete_le, jamais sur phone_verifie_le (universel depuis la
+    // réservation invité). Fail-closed : erreur de lecture = aucun point.
+    const { data: identite, error: identiteErr } = await sb
+      .from("users")
+      .select("compte_complete_le")
+      .eq("id", params.citoyenId)
+      .maybeSingle();
+    if (identiteErr) {
+      console.error("[rewardsEngine] lecture users.compte_complete_le échouée:", identiteErr.message);
+      return;
+    }
+    if (!identite?.compte_complete_le) return;
+
     // Plafond anti-abus (22/08/2026, décision CEO) — seul type de condition
     // supporté à ce jour, cohérent avec la philosophie déjà écrite dans la
     // migration reward_rules ("ajouter une règle sur un type de condition

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T } from "@/lib/theme";
 import { VILLES_GUINEE } from "@/lib/villes";
-import { deleteCitoyenAccount, updateCitoyenProfile } from "./actions";
+import { updateCitoyenProfile } from "./actions";
 import { LogoutFlow, CITOYEN_LOGOUT_COPY } from "@/components/LogoutFlow";
 import { YelenLoader } from "@/components/YelenLoader";
 
@@ -63,7 +63,6 @@ export function ProfilClient() {
   const [preview, setPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
 
@@ -165,22 +164,14 @@ export function ProfilClient() {
     void loadUser(userId);
   }
 
-  async function handleDelete() {
-    if (!userId) return;
-    if (!window.confirm("Supprimer définitivement votre compte ? Cette action est irréversible.")) return;
-    setDeleting(true);
-    setFormError(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) { setFormError("Session expirée, reconnectez-vous."); return; }
-      const result = await deleteCitoyenAccount(userId, session.access_token);
-      if (!result.ok) { setFormError(result.error); return; }
-      await supabase.auth.signOut();
-      localStorage.removeItem(YELEN224_USER_ID_KEY);
-      router.replace("/");
-    } finally {
-      setDeleting(false);
-    }
+  // Lot B (18/10/2026) — cette page (ancienne, voir CLAUDE.md
+  // /chantiers-citoyen-clos) ne supprimait le compte sans AUCUNE
+  // vérification d'identité (window.confirm puis DELETE direct). Redirige
+  // désormais vers le parcours officiel (OTP + PIN/TOTP + confirmation
+  // "SUPPRIMER") plutôt que de dupliquer cette logique sur un 2e écran —
+  // deleteCitoyenAccount a été retiré, voir app/profil/actions.ts.
+  function handleDelete() {
+    router.push("/compte/confidentialite");
   }
 
   const displayPhoto = preview ?? (user?.photo_url ? String(user.photo_url) : null);
@@ -358,8 +349,8 @@ export function ProfilClient() {
                 <button type="button" onClick={() => setLogoutOpen(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "12px 14px", borderRadius: "12px", background: "transparent", border: `1px solid ${cardBord}`, color: C.text, fontWeight: 700, fontSize: "13px", cursor: "pointer" }}>
                   <Ic.Out/> Déconnexion
                 </button>
-                <button type="button" onClick={handleDelete} disabled={deleting} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "12px 14px", borderRadius: "12px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", fontWeight: 700, fontSize: "13px", cursor: deleting ? "default" : "pointer" }}>
-                  <Ic.Trash/> {deleting ? "Suppression…" : "Supprimer mon compte"}
+                <button type="button" onClick={handleDelete} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "12px 14px", borderRadius: "12px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", fontWeight: 700, fontSize: "13px", cursor: "pointer" }}>
+                  <Ic.Trash/> Supprimer mon compte
                 </button>
               </div>
             </div>

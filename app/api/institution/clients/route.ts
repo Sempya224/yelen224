@@ -136,9 +136,23 @@ async function chargerDetailClient(authInstId: string, citoyenId: string) {
     sb.from("users").select("id,nom,prenom,phone").eq("id", citoyenId).maybeSingle(),
     sb.from("notes_clients").select("note").eq("institution_id", authInstId).eq("citoyen_id", citoyenId).maybeSingle(),
     // brouillon=false — un avis non publié (Lot G, chantier Avis + Favoris
-    // citoyen) ne doit jamais être visible côté institution.
-    sb.from("avis").select("id,citoyen_id,note,commentaire,reponse_institution,reponse_le,created_at").eq("institution_id", authInstId).eq("brouillon", false).eq("citoyen_id", citoyenId),
-    sb.from("signalements").select("citoyen_id,titre,motif,statut,created_at").eq("institution_id", authInstId).eq("type_signaleur", "citoyen").eq("citoyen_id", citoyenId),
+    // citoyen) ne doit jamais être visible côté institution. `rdv_id`
+    // ajouté (retour Bryan 04/10/2026, fiche client mobile) pour relier
+    // l'avis au RDV concerné — colonne réelle déjà utilisée ailleurs
+    // (app/mes-rdv/page.tsx), jamais sélectionnée par cette route jusqu'ici.
+    sb.from("avis").select("id,citoyen_id,rdv_id,note,commentaire,reponse_institution,reponse_le,created_at").eq("institution_id", authInstId).eq("brouillon", false).eq("citoyen_id", citoyenId),
+    // Les deux sens (retour Bryan 04/10/2026, fiche client mobile) : un
+    // signalement soumis PAR le client contre l'établissement, ET un
+    // signalement soumis PAR l'établissement contre ce client — même table,
+    // `type_signaleur` distingue (voir lib/signalementsConstants.ts,
+    // même schéma que app/api/institution/signalements/route.ts). Avant
+    // ce correctif, le filtre `type_signaleur="citoyen"` ne renvoyait
+    // jamais les signalements institution→client. `titre` gardé (même si
+    // souvent vide pour les signalements récents, colonne legacy rendue
+    // nullable) : MesClientsTab.tsx (PC, app/[slug]/[id]/components/
+    // MesClientsTab.tsx:306) le consomme directement, jamais retiré d'une
+    // réponse déjà utilisée ailleurs.
+    sb.from("signalements").select("id,numero_public,titre,motif,description,statut,type_signaleur,created_at").eq("institution_id", authInstId).eq("citoyen_id", citoyenId),
     // paid_bookings n'a aucune policy publique (verrouillé volontairement,
     // migration 20260709000013) — lecture via service role uniquement,
     // même pattern que le reste de cette route. Jointure paid_services
@@ -207,8 +221,17 @@ async function chargerDetailClient(authInstId: string, citoyenId: string) {
     est_nouveau: new Date(premiere_visite) >= thirtyDaysAgo,
     note: (notesD as { note: string } | null)?.note ?? "",
     historique,
-    avis: (avisD ?? []).map((a) => ({ id: a.id, note: a.note, commentaire: a.commentaire, reponse_institution: a.reponse_institution, reponse_le: a.reponse_le, created_at: a.created_at })),
-    signalements: (signalementsD ?? []).map((s) => ({ titre: s.titre, motif: s.motif, statut: s.statut, created_at: s.created_at })),
+    avis: (avisD ?? []).map((a) => ({ id: a.id, rdv_id: a.rdv_id, note: a.note, commentaire: a.commentaire, reponse_institution: a.reponse_institution, reponse_le: a.reponse_le, created_at: a.created_at })),
+    signalements: (signalementsD ?? []).map((s) => ({
+      id: s.id,
+      numero_public: s.numero_public,
+      titre: s.titre,
+      motif: s.motif,
+      description: s.description,
+      statut: s.statut,
+      type_signaleur: s.type_signaleur,
+      created_at: s.created_at,
+    })),
     taches: (tachesD ?? []).map((t) => ({ id: t.id, titre: t.titre, statut: t.statut, created_at: t.created_at })),
     factures_resume: (() => {
       const liste = (facturesD ?? []) as { statut: string; montant_ttc: number; montant_paye: number }[];

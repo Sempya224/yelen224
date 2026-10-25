@@ -11,6 +11,7 @@ import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
+import { telechargerExportServeur, type ResultatTelechargement } from "@/lib/export/telechargementClient";
 
 type Paiement = {
   id: string; reference: string; statut: string; date_rdv: string; heure_rdv: string;
@@ -35,6 +36,8 @@ export function HistoriqueFinancierTab({ instId }: { instId: string }) {
   const [dateTo, setDateTo] = useState("");
   const [serviceFiltre, setServiceFiltre] = useState("tous");
   const [search, setSearch] = useState("");
+  const [exportEnCours, setExportEnCours] = useState(false);
+  const [messageExport, setMessageExport] = useState<ResultatTelechargement | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -58,24 +61,29 @@ export function HistoriqueFinancierTab({ instId }: { instId: string }) {
 
   const total = filtered.reduce((s, p) => s + (["confirme", "termine"].includes(p.statut) ? p.montant : 0), 0);
 
-  function exporterCsv() {
-    const header = ["Référence", "Client", "Téléphone", "Service", "Date", "Heure", "Statut", "Montant"];
-    const rows = filtered.map(p => [p.reference, p.citoyen_nom, p.citoyen_phone, p.service_nom, p.date_rdv, p.heure_rdv, p.statut, String(p.montant)]);
-    const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `historique-financier-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Export produit, masqué selon le rôle et signé par le serveur : le navigateur
+  // n'envoie que les identifiants des lignes affichées.
+  async function exporterCsv() {
+    setExportEnCours(true);
+    setMessageExport(null);
+    const r = await telechargerExportServeur(
+      "/api/institution/paiements/export",
+      { ecran: "historique_financier", ids: filtered.map(p => p.id) },
+      `historique-financier-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
+    setMessageExport(r);
+    setExportEnCours(false);
   }
 
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px", flexWrap: "wrap", gap: "10px" }}>
         <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Historique financier</h1>
-        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter CSV</Button>
+        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv} loading={exportEnCours} disabled={filtered.length === 0}>Exporter CSV</Button>
       </div>
+      {messageExport && (
+        <p role={messageExport.ok ? "status" : "alert"} style={{ color: messageExport.ok ? C.t2 : C.red, fontSize: "13px", marginBottom: "10px" }}>{messageExport.texte}</p>
+      )}
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Consultation seule — {filtered.length} paiement{filtered.length > 1 ? "s" : ""}, total confirmé {formatPrix(total)}.</p>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>

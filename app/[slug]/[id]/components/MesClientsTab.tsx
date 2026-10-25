@@ -10,16 +10,14 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { YelenLogo } from "@/components/YelenLogo";
 import { EmptyState } from "@/components/EmptyState";
-import { YelenLoader } from "@/components/YelenLoader";
+import { ClientsTable, ClientsSkeleton } from "./clients/ClientsTable";
+import { ClientsToolbar } from "./clients/ClientsToolbar";
+import { ClientsSummary } from "./clients/ClientsSummary";
 import { DEVISE_LABEL } from "@/lib/devise";
-
-// Icône humaine locale — même convention que ACCES_LABEL ci-dessous,
-// petit helper dupliqué par fichier plutôt que sur-partagé.
-function HumanIcon({ color }: { color: string }) {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
-}
+import { SIGNALEMENT_MOTIFS_INSTITUTION, SIGNALEMENT_MOTIFS_CITOYEN } from "@/lib/signalementsConstants";
+import { ClientFiche } from "./clients/ClientFiche";
+import { heureAmPm, heureDepuisHorodatage } from "@/lib/heure";
 
 type Paiement = { service_nom: string; prix: number; statut: string };
 // date_depart : chambre hôtel uniquement (chantier "Vraie réservation
@@ -35,19 +33,11 @@ type Client = {
   note: string; historique: Historique[]; avis: Avis[]; signalements: Signalement[]; taches: Tache[];
   factures_resume?: FacturesResume;
 };
-type TimelineItem = { id: string; date: string; label: string; sublabel?: string; color: string; bg: string };
+type TimelineItem = { id: string; date: string; label: string; sublabel?: string; color: string; bg: string; kind: "rdv" | "message" | "signalement" | "autre" };
 type AccesEntree = { id: string; membre_nom: string; action: string; created_at: string };
 type Message = { id: string; contenu: string; lu: boolean; cree_le: string; emetteur: "citoyen" | "institution" };
 type TypeNote = "privee" | "publique" | "commentaire" | "observation" | "compte_rendu";
 type NoteEntry = { id: string; type: TypeNote; contenu: string; created_at: string; auteur_nom: string; auteur_moi: boolean };
-
-const NOTE_TYPES: { key: TypeNote; label: string }[] = [
-  { key: "privee", label: "Privées" },
-  { key: "publique", label: "Publiques" },
-  { key: "commentaire", label: "Commentaires" },
-  { key: "observation", label: "Observations" },
-  { key: "compte_rendu", label: "Compte rendu" },
-];
 
 // Sous-ensemble minimal du statut des paid_bookings — même esprit que
 // statutInfo() dans ServicesTab.tsx, pas de nouvel export partagé.
@@ -55,6 +45,15 @@ const PAIEMENT_STATUT: Record<string, string> = {
   en_attente: "En attente", confirme: "Confirmé", termine: "Terminé",
   no_show: "No-show", annule: "Annulé",
 };
+// Affichage seulement : motif brut (arnaque_fraude…) → libellé des tables
+// partagées, repli tolérant si inconnu. La donnée n'est jamais modifiée.
+function motifLabel(m: string | null | undefined): string | undefined {
+  if (!m) return undefined;
+  const connu = SIGNALEMENT_MOTIFS_INSTITUTION.find(x => x.value === m) ?? SIGNALEMENT_MOTIFS_CITOYEN.find(x => x.value === m);
+  if (connu) return connu.label;
+  const brut = m.replace(/_/g, " ");
+  return brut.charAt(0).toUpperCase() + brut.slice(1);
+}
 function paiementColor(statut: string, C: ThemeTokens): { c: string; bg: string } {
   switch (statut) {
     case "confirme":
@@ -103,7 +102,7 @@ function dayLabel(iso: string): string {
   return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 }
 function formatHeure(iso: string): string {
-  return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return heureDepuisHorodatage(iso);
 }
 
 function stColor(statut: string, C: ThemeTokens): { c: string; bg: string; l: string } {
@@ -287,13 +286,13 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
       const label = h.date_depart
         ? `${h.objet || "Réservation"} — jusqu'au ${new Date(`${h.date_depart}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`
         : h.objet || "RDV général";
-      items.push({ id: `rdv-${h.id}`, date: `${h.date_rdv}T${h.heure_rdv || "00:00"}`, label, sublabel: sc.l, color: sc.c, bg: sc.bg });
+      items.push({ id: `rdv-${h.id}`, date: `${h.date_rdv}T${h.heure_rdv || "00:00"}`, label, sublabel: sc.l, color: sc.c, bg: sc.bg, kind: "rdv" });
       if (h.presence_status === "present" && h.presence_confirmed_at) {
-        items.push({ id: `presence-${h.id}`, date: h.presence_confirmed_at, label: "Présence confirmée", sublabel: "Arrivée enregistrée (QR)", color: C.teal, bg: C.tealL });
+        items.push({ id: `presence-${h.id}`, date: h.presence_confirmed_at, label: "Présence confirmée", sublabel: "Arrivée enregistrée (QR)", color: C.teal, bg: C.tealL, kind: "rdv" });
       }
       if (h.paiement) {
         const pc = paiementColor(h.paiement.statut, C);
-        items.push({ id: `paiement-${h.id}`, date: `${h.date_rdv}T${h.heure_rdv || "00:00"}`, label: `${h.paiement.service_nom} · ${formatPrix(h.paiement.prix)}`, sublabel: PAIEMENT_STATUT[h.paiement.statut] ?? h.paiement.statut, color: pc.c, bg: pc.bg });
+        items.push({ id: `paiement-${h.id}`, date: `${h.date_rdv}T${h.heure_rdv || "00:00"}`, label: `${h.paiement.service_nom} · ${formatPrix(h.paiement.prix)}`, sublabel: PAIEMENT_STATUT[h.paiement.statut] ?? h.paiement.statut, color: pc.c, bg: pc.bg, kind: "rdv" });
       }
     }
     // Avis retirés de ce fil générique (Lot E, chantier Avis + Favoris
@@ -303,33 +302,23 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
     // message, aucun autre type n'a besoin d'une action interactive).
     if (isAdmin) {
       for (const s of selected.signalements) {
-        items.push({ id: `signal-${s.created_at}`, date: s.created_at, label: `Signalement : ${s.titre}`, sublabel: s.motif, color: C.red, bg: C.redL });
+        items.push({ id: `signal-${s.created_at}`, date: s.created_at, label: s.titre ? `Signalement : ${s.titre}` : "Signalement", sublabel: motifLabel(s.motif), color: C.red, bg: C.redL, kind: "signalement" });
       }
     }
     for (const t of selected.taches) {
-      items.push({ id: `tache-${t.id}`, date: t.created_at, label: `Tâche : ${t.titre}`, sublabel: t.statut, color: C.teal, bg: C.tealL });
+      items.push({ id: `tache-${t.id}`, date: t.created_at, label: `Tâche : ${t.titre}`, sublabel: t.statut, color: C.teal, bg: C.tealL, kind: "autre" });
     }
     if (isAdmin) {
       for (const a of acces) {
-        items.push({ id: `acces-${a.id}`, date: a.created_at, label: `${a.membre_nom} ${ACCES_LABEL[a.action] ?? a.action}`, color: C.t2, bg: C.bg3 });
+        items.push({ id: `acces-${a.id}`, date: a.created_at, label: `${a.membre_nom} ${ACCES_LABEL[a.action] ?? a.action}`, color: C.t2, bg: C.bg3, kind: "autre" });
       }
     }
     for (const m of messages) {
-      items.push({ id: `msg-${m.id}`, date: m.cree_le, label: m.emetteur === "institution" ? "Message envoyé" : "Message reçu", sublabel: m.contenu, color: C.blue, bg: C.blueL });
+      items.push({ id: `msg-${m.id}`, date: m.cree_le, label: m.emetteur === "institution" ? "Message envoyé" : "Message reçu", sublabel: m.contenu, color: C.blue, bg: C.blueL, kind: "message" });
     }
 
     return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [selected, acces, messages, isAdmin, C]);
-
-  const timelineGroups = useMemo(() => {
-    const map = new Map<string, TimelineItem[]>();
-    for (const item of timeline) {
-      const key = dayLabel(item.date);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(item);
-    }
-    return [...map.entries()];
-  }, [timeline]);
 
   async function envoyerReponse(avisId: string) {
     if (!reponseTexte.trim()) return;
@@ -387,356 +376,86 @@ export function MesClientsTab({ instId, onToast, isAdmin, access = "full", onOuv
     setTimeout(() => setPhoneCopied(false), 1600);
   }
 
+  const pagePad = { maxWidth: "1600px", margin: "0 auto", padding: "24px clamp(24px, 2.5vw, 32px)", paddingBottom: "100px" } as const;
+
   if (loading) {
     return (
-      <div style={{ padding: "16px" }}>
-        <style>{`@keyframes client-shimmer{0%{background-position:-120% 0}100%{background-position:120% 0}}`}</style>
-        <div style={{ width: "140px", height: "22px", borderRadius: "6px", backgroundColor: C.bg3, marginBottom: "16px" }}/>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "8px", marginBottom: "14px" }}>
-          {[0, 1, 2].map(i => <div key={i} style={{ height: "52px", borderRadius: "12px", backgroundColor: C.bgCard, border: `1px solid ${C.border}` }}/>)}
-        </div>
-        <Card tokens={toCardTokens(C)} noPadding>
-          {[0, 1, 2, 3].map(i => (
-            <div key={i} style={{ padding: "13px 16px", borderBottom: i < 3 ? `1px solid ${C.border}` : "none", display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ width: "40px", height: "40px", borderRadius: "50%", backgroundColor: C.bg3, flexShrink: 0 }}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ width: "45%", height: "12px", borderRadius: "4px", background: `linear-gradient(90deg, ${C.bg3} 25%, ${C.border2} 50%, ${C.bg3} 75%)`, backgroundSize: "200% 100%", animation: "client-shimmer 1.4s ease-in-out infinite", marginBottom: "8px" }}/>
-                <div style={{ width: "65%", height: "10px", borderRadius: "4px", background: `linear-gradient(90deg, ${C.bg3} 25%, ${C.border2} 50%, ${C.bg3} 75%)`, backgroundSize: "200% 100%", animation: "client-shimmer 1.4s ease-in-out infinite" }}/>
-              </div>
-            </div>
-          ))}
-        </Card>
+      <div style={pagePad}>
+        <div style={{ width: "160px", height: "26px", borderRadius: "6px", backgroundColor: C.bg3, marginBottom: "8px" }}/>
+        <div style={{ width: "50%", height: "14px", borderRadius: "5px", backgroundColor: C.bg3, marginBottom: "24px" }}/>
+        <ClientsSkeleton C={C}/>
       </div>
     );
   }
 
+  const nbFideles = clients.filter(c => c.nb_rdv >= 3).length;
+  const nbNouveaux = clients.filter(c => c.est_nouveau).length;
+  const nbOccasionnels = clients.filter(c => c.nb_rdv >= 2 && c.nb_rdv <= 5).length;
+  const reinitialiser = () => { setSearch(""); setSortBy("recents"); };
+
   return (
-    <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Mes clients</h1>
-      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px", lineHeight: 1.5 }}>
-        Chaque citoyen ayant déjà eu au moins un rendez-vous avec votre établissement, avec son historique complet.
-      </p>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "8px", marginBottom: "14px" }}>
-        {[
-          { label: "Total", value: clients.length, color: C.purple },
-          { label: "Fidèles (3+)", value: clients.filter(c => c.nb_rdv >= 3).length, color: C.green },
-          { label: "Nouveaux (30j)", value: clients.filter(c => c.est_nouveau).length, color: C.gold },
-        ].map(s => (
-          <Card key={s.label} tokens={toCardTokens(C)} padding="12px 8px" style={{ textAlign: "center" }}>
-            <div style={{ color: s.color, fontSize: "18px", fontWeight: "800" }}>{s.value}</div>
-            <div style={{ color: C.t3, fontSize: "9px", fontWeight: "700" }}>{s.label}</div>
-          </Card>
-        ))}
+    <div style={{ ...pagePad, animation: "fadeUp 0.2s ease" }}>
+      <div style={{ marginBottom: "24px" }}>
+        <h1 style={{ color: C.t1, fontSize: "24px", fontWeight: 600, letterSpacing: "-0.3px", margin: "0 0 4px" }}>Mes clients</h1>
+        <p style={{ color: C.t3, fontSize: "13.5px", margin: 0 }}>
+          Chaque citoyen ayant déjà eu au moins un rendez-vous avec votre établissement, avec son historique complet.
+        </p>
       </div>
 
-      <Card tokens={toCardTokens(C)} padding="0 12px" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un client (nom, téléphone)…" style={{ flex: 1, padding: "11px 0", fontSize: "13px" }}/>
-      </Card>
+      <ClientsSummary<TriClients>
+        C={C} active={sortBy} onSelect={setSortBy}
+        items={[
+          { key: "recents", label: "Total", value: clients.length },
+          { key: "fideles", label: "Fidèles (3+)", value: nbFideles },
+          { key: "nouveaux", label: "Nouveaux (30 j)", value: nbNouveaux },
+        ]}
+      />
 
-      <div style={{ display: "flex", gap: "6px", marginBottom: "14px" }}>
-        {([{ key: "recents", label: "Récents" }, { key: "fideles", label: "Fidèles" }, { key: "nouveaux", label: "Nouveaux" }, { key: "occasionnels", label: "Occasionnels" }, { key: "a_reactiver", label: "À réactiver" }] as const).map(s => (
-          <button key={s.key} onClick={() => setSortBy(s.key)} className="tap" style={{ flex: 1, backgroundColor: sortBy === s.key ? `${C.purple}20` : C.bgCard, border: `1px solid ${sortBy === s.key ? C.purple + "40" : C.border}`, borderRadius: "10px", padding: "8px", color: sortBy === s.key ? C.purple : C.t2, fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>{s.label}</button>
-        ))}
-      </div>
+      {clients.length > 0 && (
+        <ClientsToolbar<TriClients>
+          C={C} search={search} onSearch={setSearch} active={sortBy} onActive={setSortBy}
+          total={filtered.length} resetVisible={search !== "" || sortBy !== "recents"} onReset={reinitialiser}
+          segments={[
+            { key: "recents", label: "Récents", count: clients.length },
+            { key: "fideles", label: "Fidèles", count: nbFideles },
+            { key: "nouveaux", label: "Nouveaux", count: nbNouveaux },
+            { key: "occasionnels", label: "Occasionnels", count: nbOccasionnels },
+            { key: "a_reactiver", label: "À réactiver" },
+          ]}
+        />
+      )}
 
-      {filtered.length === 0 ? (
-        <Card tokens={toCardTokens(C)} padding={clients.length === 0 ? "12px" : "40px 20px"} style={{ textAlign: "center" }}>
-          {clients.length === 0 ? (
-            <EmptyState
-              variant="clients"
-              title="Vos premiers clients apparaîtront ici"
-              message="Dès qu'un citoyen prend rendez-vous avec votre établissement, il devient automatiquement un client — avec tout son historique de rendez-vous au même endroit."
-              color={C.purple}
-              titleColor={C.t1}
-              textColor={C.t3}
-            />
-          ) : (
-            <p style={{ color: C.t2, fontSize: "13px" }}>Aucun client ne correspond à votre recherche.</p>
-          )}
+      {clients.length === 0 ? (
+        <Card tokens={toCardTokens(C)} padding="12px" style={{ textAlign: "center" }}>
+          <EmptyState
+            variant="clients"
+            title="Vos premiers clients apparaîtront ici"
+            message="Dès qu'un citoyen prend rendez-vous avec votre établissement, il devient automatiquement un client — avec tout son historique de rendez-vous au même endroit."
+            color={C.gold}
+            titleColor={C.t1}
+            textColor={C.t3}
+          />
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card tokens={toCardTokens(C)} padding="40px 20px" style={{ textAlign: "center" }}>
+          <p style={{ color: C.t1, fontSize: "14px", fontWeight: 600, margin: "0 0 4px" }}>Aucun résultat pour « {search} »</p>
+          <p style={{ color: C.t3, fontSize: "13px", margin: "0 0 16px" }}>Aucun client ne correspond à votre recherche.</p>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={reinitialiser}>Réinitialiser les filtres</Button>
         </Card>
       ) : (
-        <Card tokens={toCardTokens(C)} noPadding>
-          {filtered.map(c => {
-            const sc = c.dernier_statut ? stColor(c.dernier_statut, C) : null;
-            return (
-              <div key={c.id} onClick={() => setSelected(c)} className="tap" style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "12px", cursor: "pointer", backgroundColor: selected?.id === c.id ? `${C.purple}08` : "transparent" }}>
-                <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "800", color: C.purple, flexShrink: 0, position: "relative" }}>
-                  {c.nom.slice(0, 2).toUpperCase()}
-                  {c.est_nouveau && <div style={{ position: "absolute", top: "-2px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", backgroundColor: C.gold, border: `1.5px solid ${C.bgCard}` }}/>}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span style={{ color: C.t1, fontSize: "13px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nom}</span>
-                    {c.nb_rdv >= 5 && <span style={{ backgroundColor: `${C.gold}20`, color: C.gold, fontSize: "8px", fontWeight: "800", padding: "1px 6px", borderRadius: "6px", flexShrink: 0 }}>VIP</span>}
-                  </div>
-                  <div style={{ color: C.t3, fontSize: "10.5px", marginTop: "2px" }}>
-                    <span style={{ fontVariantNumeric: "tabular-nums" }}>{c.nb_rdv}</span> RDV{c.phone ? ` · ${c.phone}` : ""}
-                  </div>
-                  {c.note && <div style={{ color: C.t2, fontSize: "10.5px", fontStyle: "italic", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>&quot;{c.note}&quot;</div>}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
-                  {sc && <span style={{ backgroundColor: sc.bg, color: sc.c, fontSize: "8.5px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px", whiteSpace: "nowrap" }}>{sc.l}</span>}
-                  <span style={{ color: C.t3, fontSize: "9.5px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{timeAgo(c.dernier_rdv)}</span>
-                </div>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-              </div>
-            );
-          })}
-        </Card>
+        <ClientsTable C={C} clients={filtered} total={clients.length} selectedId={selected?.id ?? null} onSelect={setSelected}/>
       )}
 
       {selected && (
-        <div className="client-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={() => setSelected(null)}>
-          <style>{`
-            /* ── Fiche client — bottom sheet mobile par défaut, dialogue
-                centré 2 colonnes ≥1024px (même convention que les popovers
-                du header dans page.tsx : mobile-first, override desktop) ── */
-            @media(min-width:1024px){
-              .client-fiche-overlay{align-items:center!important}
-              .client-fiche-panel{max-width:920px!important;border-radius:20px!important;max-height:86svh!important}
-              .client-fiche-grip{display:none!important}
-              .client-fiche-close-x{display:flex!important}
-              .client-fiche-body{display:grid!important;grid-template-columns:1.1fr 1fr;gap:24px;align-items:start}
-            }
-          `}</style>
-          <div onClick={e => e.stopPropagation()} className="client-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-            <div className="client-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
-            <button onClick={() => setSelected(null)} className="client-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-
-            <div className="client-fiche-body">
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
-                  <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "800", color: C.purple, flexShrink: 0 }}>
-                    {selected.nom.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800" }}>{selected.nom}</div>
-                    {selected.phone && <div style={{ color: C.t3, fontSize: "12px" }}>{selected.phone}</div>}
-                  </div>
-                  {selected.phone && (
-                    <button onClick={copyPhone} className="tap" style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }} title="Copier le numéro">
-                      {phoneCopied
-                        ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
-                    </button>
-                  )}
-                  {selected.phone && (
-                    <a href={`tel:${selected.phone}`} style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: C.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                    </a>
-                  )}
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "8px", marginBottom: "18px" }}>
-                  {[
-                    { label: "RDV total", value: selected.nb_rdv, color: C.purple },
-                    { label: "Client depuis", value: timeAgo(selected.premiere_visite), color: C.blue },
-                    { label: "Statut", value: selected.est_nouveau ? "Nouveau" : "Régulier", color: C.green },
-                  ].map(s => (
-                    <div key={s.label} style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "9px 10px", textAlign: "center" }}>
-                      <div style={{ color: s.color, fontSize: "13px", fontWeight: "800" }}>{s.value}</div>
-                      <div style={{ color: C.t3, fontSize: "9px", marginTop: "2px" }}>{s.label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {prochaineEtape && (
-                  <div style={{ marginBottom: "16px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ color: C.gold, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px" }}>Prochaine étape</div>
-                      <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", marginTop: "2px" }}>
-                        {prochaineEtape.date_depart
-                          ? `Arrivée le ${new Date(`${prochaineEtape.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} → départ le ${new Date(`${prochaineEtape.date_depart}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} — ${prochaineEtape.objet || "Réservation"}`
-                          : `${dayLabel(`${prochaineEtape.date_rdv}T${prochaineEtape.heure_rdv || "00:00"}`)} ${prochaineEtape.heure_rdv ? `à ${prochaineEtape.heure_rdv}` : ""} — ${prochaineEtape.objet || "RDV général"}`}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selected.avis.length > 0 && (
-                  <div style={{ marginBottom: "16px" }}>
-                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.6px" }}>Avis ({selected.avis.length})</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                      {selected.avis.map(a => (
-                        <div key={a.id} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px" }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-                            <span style={{ color: C.gold, fontSize: "13px" }}>{"★".repeat(a.note)}{"☆".repeat(5 - a.note)}</span>
-                            <span style={{ color: C.t3, fontSize: "10.5px" }}>{dayLabel(a.created_at)}</span>
-                          </div>
-                          {a.commentaire && <div style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "8px" }}>{a.commentaire}</div>}
-
-                          {a.reponse_institution ? (
-                            <div style={{ background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 10px" }}>
-                              <div style={{ color: C.gold, fontSize: "10px", fontWeight: "800", marginBottom: "3px" }}>Votre réponse{a.reponse_le ? ` · ${dayLabel(a.reponse_le)}` : ""}</div>
-                              <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.4 }}>{a.reponse_institution}</div>
-                            </div>
-                          ) : reponseOuverte === a.id ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                              <textarea
-                                value={reponseTexte} onChange={e => setReponseTexte(e.target.value)} rows={2} placeholder="Votre réponse..."
-                                style={{ width: "100%", background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 10px", fontSize: "12.5px", color: C.t1, resize: "none" }}
-                              />
-                              <div style={{ display: "flex", gap: "8px" }}>
-                                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ flex: 1 }} loading={savingReponse} disabled={!reponseTexte.trim()} onClick={() => envoyerReponse(a.id)}>Envoyer</Button>
-                                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => { setReponseOuverte(null); setReponseTexte(""); }}>Annuler</Button>
-                              </div>
-                            </div>
-                          ) : !readOnly && (
-                            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold, border: `1px solid ${C.gold}40` }} onClick={() => { setReponseOuverte(a.id); setReponseTexte(""); }}>Répondre</Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ marginBottom: "16px" }}>
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.6px" }}>Timeline</div>
-                  <div>
-                    {timelineGroups.map(([label, items]) => (
-                      <div key={label} style={{ marginBottom: "14px" }}>
-                        <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", marginBottom: "8px", textTransform: "capitalize" as const }}>{label}</div>
-                        <div style={{ position: "relative", paddingLeft: "16px" }}>
-                          <div style={{ position: "absolute", left: "3px", top: "4px", bottom: "4px", width: "2px", backgroundColor: C.border }}/>
-                          {items.map(item => (
-                            <div key={item.id} style={{ position: "relative", marginBottom: "12px" }}>
-                              <div style={{ position: "absolute", left: "-16px", top: "3px", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: item.color, border: `2px solid ${C.bgCard}` }}/>
-                              <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginBottom: "2px" }}>
-                                <span style={{ color: C.t3, fontSize: "10px", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{formatHeure(item.date)}</span>
-                                <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{item.label}</span>
-                              </div>
-                              {item.sublabel && <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.5, marginLeft: "0" }}>{item.sublabel}</div>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div style={{ marginBottom: "16px" }}>
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.6px" }}>Bloc Notes</div>
-                  <div style={{ display: "flex", gap: "6px", marginBottom: "10px", overflowX: "auto" }}>
-                    {NOTE_TYPES.map(t => {
-                      const active = noteTypeSelected === t.key;
-                      return (
-                        <button key={t.key} onClick={() => setNoteTypeSelected(t.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? `${C.purple}20` : C.bgCard, border: `1px solid ${active ? C.purple + "40" : C.border}`, borderRadius: "20px", padding: "6px 12px", color: active ? C.purple : C.t2, fontSize: "11px", fontWeight: "700", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
-                      );
-                    })}
-                  </div>
-                  <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "4px 10px", maxHeight: "200px", overflowY: "auto", marginBottom: "8px" }}>
-                    {notesLoading ? (
-                      <div style={{ padding: "14px", display: "flex", justifyContent: "center" }}><YelenLoader size={18}/></div>
-                    ) : (() => {
-                      const entries = notesEntries.filter(n => n.type === noteTypeSelected);
-                      return entries.length === 0 ? (
-                        <div style={{ padding: "16px 6px", color: C.t3, fontSize: "11.5px", textAlign: "center", lineHeight: 1.6 }}>
-                          Aucune note &quot;{NOTE_TYPES.find(t => t.key === noteTypeSelected)?.label.toLowerCase()}&quot; pour l&apos;instant — ajoutez la première ci-dessous.
-                        </div>
-                      ) : (
-                        entries.map((n, i, arr) => (
-                          <div key={n.id} style={{ padding: "10px 4px", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px" }}>
-                              <span style={{ color: C.t1, fontSize: "11.5px", fontWeight: "700" }}>{n.auteur_moi ? "Vous" : n.auteur_nom}</span>
-                              <span style={{ color: C.t3, fontSize: "10px" }}>{timeAgo(n.created_at)}</span>
-                            </div>
-                            <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6 }}>{n.contenu}</div>
-                          </div>
-                        ))
-                      );
-                    })()}
-                  </div>
-                  {!readOnly && (
-                    <div style={{ display: "flex", gap: "8px" }}>
-                      <input
-                        value={newNoteText}
-                        onChange={e => setNewNoteText(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter" && !savingNote) ajouterNote(); }}
-                        placeholder={`Ajouter une note ${NOTE_TYPES.find(t => t.key === noteTypeSelected)?.label.toLowerCase()}…`}
-                        style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12px", color: C.t1, outline: "none" }}
-                      />
-                      <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" loading={savingNote} loadingColor="#fff" disabled={!newNoteText.trim()} style={{ backgroundColor: C.purple, borderColor: C.purple, color: "#fff" }} onClick={ajouterNote}>Ajouter</Button>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ marginBottom: "16px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px" }}>Messagerie</div>
-                    {onOuvrirMessagerie && (
-                      <button onClick={() => onOuvrirMessagerie(selected.id)} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "800", cursor: "pointer", padding: 0 }}>Ouvrir la conversation</button>
-                    )}
-                  </div>
-                  <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "10px", maxHeight: "260px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {messagesLoading ? (
-                      <div style={{ padding: "10px", display: "flex", justifyContent: "center" }}><YelenLoader size={18}/></div>
-                    ) : messages.length === 0 ? (
-                      <EmptyState
-                        title="Aucun échange pour l'instant"
-                        message={`Vos échanges avec ${selected.nom} apparaîtront ici dès qu'une conversation aura eu lieu.`}
-                        color={C.gold}
-                        titleColor={C.t1}
-                        textColor={C.t3}
-                      />
-                    ) : (
-                      messages.map(m => {
-                        const isInstitution = m.emetteur === "institution";
-                        const avatar = (
-                          <div style={{ width: "24px", height: "24px", borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isInstitution ? `${C.purple}20` : C.bg3, border: `1px solid ${isInstitution ? C.purple + "40" : C.border2}` }}>
-                            {isInstitution ? <YelenLogo size={12} color={C.purple}/> : <HumanIcon color={C.t2}/>}
-                          </div>
-                        );
-                        return (
-                          <div key={m.id} style={{ display: "flex", flexDirection: isInstitution ? "row-reverse" : "row", alignItems: "flex-end", gap: "6px" }}>
-                            {avatar}
-                            <div style={{ maxWidth: "72%", backgroundColor: isInstitution ? `${C.purple}20` : C.bgCard, border: `1px solid ${isInstitution ? C.purple + "40" : C.border}`, borderRadius: "12px", padding: "8px 11px" }}>
-                              <div style={{ color: C.t1, fontSize: "12px", lineHeight: 1.5 }}>{m.contenu}</div>
-                              <div style={{ color: C.t3, fontSize: "9px", marginTop: "3px", textAlign: "right" }}>{timeAgo(m.cree_le)}</div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-                {selected.factures_resume && (
-                  <div style={{ marginBottom: "16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-                      <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px" }}>Factures</div>
-                      {onVoirFacturation && (
-                        <button onClick={onVoirFacturation} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "800", cursor: "pointer", padding: 0 }}>Voir toutes les factures</button>
-                      )}
-                    </div>
-                    {selected.factures_resume.total === 0 ? (
-                      <div style={{ color: C.t3, fontSize: "11.5px" }}>Aucune facture pour ce client.</div>
-                    ) : (
-                      <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "10px 12px" }}>
-                        <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>{selected.factures_resume.total} facture{selected.factures_resume.total > 1 ? "s" : ""}</div>
-                        <div style={{ color: C.t3, fontSize: "11px" }}>{selected.factures_resume.payees} payée{selected.factures_resume.payees > 1 ? "s" : ""} · {selected.factures_resume.en_attente} en attente</div>
-                        {selected.factures_resume.a_encaisser > 0 && (
-                          <div style={{ color: C.orange, fontSize: "12px", fontWeight: "800", marginTop: "4px" }}>{formatPrix(selected.factures_resume.a_encaisser)} à encaisser</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {!readOnly && (
-              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth loading={sendingRappel} style={{ color: C.gold, border: `1px solid ${C.gold}40` }} onClick={envoyerRappel}>Envoyer un rappel</Button>
-            )}
-            <button onClick={() => setSelected(null)} style={{ width: "100%", marginTop: "8px", background: "none", border: "none", color: C.t3, fontSize: "12px", cursor: "pointer", padding: "8px" }}>Fermer</button>
-          </div>
-        </div>
+        <ClientFiche C={C} client={selected} readOnly={readOnly}
+          prochaineLabel={prochaineEtape ? (prochaineEtape.date_depart
+            ? `Arrivée le ${new Date(`${prochaineEtape.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} → départ le ${new Date(`${prochaineEtape.date_depart}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} — ${prochaineEtape.objet || "Réservation"}`
+            : `${dayLabel(`${prochaineEtape.date_rdv}T${prochaineEtape.heure_rdv || "00:00"}`)} ${prochaineEtape.heure_rdv ? `à ${heureAmPm(prochaineEtape.heure_rdv) || prochaineEtape.heure_rdv}` : ""} — ${prochaineEtape.objet || "RDV général"}`) : null}
+          timeline={timeline} messages={messages} messagesLoading={messagesLoading} notes={notesEntries} notesLoading={notesLoading}
+          noteType={noteTypeSelected} onNoteType={setNoteTypeSelected} newNoteText={newNoteText} onNewNoteText={setNewNoteText} savingNote={savingNote} onAddNote={ajouterNote}
+          reponseOuverte={reponseOuverte} reponseTexte={reponseTexte} onReponseOuverte={setReponseOuverte} onReponseTexte={setReponseTexte} savingReponse={savingReponse} onSendReponse={envoyerReponse}
+          sendingRappel={sendingRappel} onRappel={envoyerRappel} phoneCopied={phoneCopied} onCopy={copyPhone}
+          onOuvrirMessagerie={onOuvrirMessagerie} onVoirFacturation={onVoirFacturation} onClose={() => setSelected(null)}/>
       )}
     </div>
   );

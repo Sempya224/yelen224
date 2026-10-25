@@ -35,9 +35,11 @@ import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { POST_CATEGORIES, POST_CATEGORIE_LABELS, POST_CATEGORIE_COULEURS, type PostCategorie } from "@/lib/communauteCategories";
 import { DemandeCommunauteOverlay } from "@/components/DemandeCommunauteOverlay";
 import { Button } from "@/components/ui/Button";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 import { Card } from "@/components/ui/Card";
 import { AvatarInstitution, CategorieBadge } from "@/components/CommunautePostCard";
 import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 type PostInstitution = {
   id: string;
@@ -161,7 +163,7 @@ function fmt(d: string) {
 function fmtDateHeure(d: string) {
   const date = new Date(d);
   const jour = date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-  const heure = date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const heure = heureDepuisHorodatage(date);
   return `${jour} à ${heure}`;
 }
 
@@ -511,14 +513,17 @@ export function CommunauteProTab({ instId, instName, canPublish, onNavigate, ref
 
   return (
     <div style={{ padding: "16px", maxWidth: "1180px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
-        <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: C.gold, border: `1px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          {ICONS.Megaphone("#080812")}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px", marginBottom: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: C.gold, border: `1px solid ${C.gold}40`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {ICONS.Megaphone("#080812")}
+          </div>
+          <div>
+            <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, margin: 0, letterSpacing: "-0.3px" }}>Yelen Community</h1>
+            <p style={{ color: C.t2, fontSize: "13px", margin: "2px 0 0" }}>Partagez la voix de votre établissement auprès des citoyens Yelen.</p>
+          </div>
         </div>
-        <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, margin: 0, letterSpacing: "-0.3px" }}>Yelen Community</h1>
-          <p style={{ color: C.t2, fontSize: "13px", margin: "2px 0 0" }}>Partagez la voix de votre établissement auprès des citoyens Yelen.</p>
-        </div>
+        <HelpCenterGuide tab="communaute-pro" />
       </div>
 
       {/* ── FAQ en panneau latéral collant ≥1024px, comble le vide à droite
@@ -1391,7 +1396,7 @@ function ActionConfirmModal({ C, action, saving, erreur, onConfirm, onClose }: {
 
 function fmtDateHeurePlanif(d: string) {
   const date = new Date(d);
-  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + " à " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + " à " + heureDepuisHorodatage(date);
 }
 
 // Publications — centre de gestion du contenu de l'établissement

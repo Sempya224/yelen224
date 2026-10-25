@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   const { data: rdvRaw, error: rdvErr } = await sb
     .from("rdv")
-    .select("id,objet,date_rdv,heure_rdv,statut,citoyen_id,pour_autre,nom_autre,phone_autre,presence,presence_status,presence_confirmed_at,conversation_terminee,motif_annulation,motif_report,created_at,termine_at,guichet,duree_minutes,description_besoin")
+    .select("id,objet,date_rdv,heure_rdv,statut,citoyen_id,pour_autre,nom_autre,phone_autre,presence,presence_status,presence_confirmed_at,conversation_terminee,motif_annulation,annule_par,motif_report,created_at,termine_at,guichet,instructions_accueil,preparation_confirmee_le,duree_minutes,description_besoin,champs_complementaires_reponses,date_depart,pays_depart,ville_depart,reference,accepte_le,qr_token")
     .eq("institution_id", authInstId)
     .order("created_at", { ascending: false })
     .limit(300);
@@ -47,23 +47,50 @@ export async function GET(req: NextRequest) {
   }
 
   // Un RDV payant crée toujours une ligne rdv en plus de sa ligne
-  // paid_bookings (voir app/rdv/[id]/page.tsx) — jusqu'ici invisible côté
-  // institution, aucune mention "Payant" nulle part sur cet écran. On
-  // rattache chaque rdv à sa réservation payante par créneau (date + heure).
+  // paid_bookings (voir app/rdv/[id]/actions.ts) — jusqu'ici invisible côté
+  // institution, aucune mention "Payant" nulle part sur cet écran.
+  //
+  // Rattachement (Mission A, 22/10/2026) : AUCUNE jointure par créneau (date +
+  // heure) — deux citoyens sur le même horaire se voyaient attribuer le
+  // paiement l'un de l'autre. Clé : paid_bookings.rdv_id = rdv.id ; seulement
+  // si rdv_id est vide, repli qr_token = confirmation_code + citoyen_id (+
+  // institution, déjà filtrée), à condition qu'UN SEUL rdv et UNE SEULE
+  // réservation correspondent (même règle que paid-bookings/valider). Une
+  // réservation sans lien fiable ne marque aucun RDV « Payant ».
+  // Les réservations annulées sont incluses : un RDV payant annulé ne doit
+  // plus apparaître « Gratuit ».
   const { data: paidRaw } = await sb
     .from("paid_bookings")
-    .select("id,date_rdv,heure_rdv,confirmation_code,paid_services(nom,prix)")
-    .eq("institution_id", authInstId)
-    .neq("statut", "annule");
-  const paidMap = new Map<string, { id: string; nom: string; prix: number; code: string }>();
-  type PaidRow = { id: string; date_rdv: string; heure_rdv: string; confirmation_code: string; paid_services: { nom: string; prix: number } | null };
-  ((paidRaw ?? []) as unknown as PaidRow[]).forEach((b) => {
-    if (!b.paid_services) return;
-    paidMap.set(`${b.date_rdv}|${b.heure_rdv}`, { id: b.id, nom: b.paid_services.nom, prix: b.paid_services.prix, code: b.confirmation_code });
-  });
+    .select("id,rdv_id,citoyen_id,confirmation_code,paid_services(nom,prix)")
+    .eq("institution_id", authInstId);
+  type PaidRow = { id: string; rdv_id: string | null; citoyen_id: string; confirmation_code: string; paid_services: { nom: string; prix: number } | null };
+  type PaidInfo = { id: string; nom: string; prix: number };
+  const paidList = ((paidRaw ?? []) as unknown as PaidRow[]).filter((b) => b.paid_services);
+  const info = (b: PaidRow): PaidInfo => ({ id: b.id, nom: b.paid_services!.nom, prix: b.paid_services!.prix });
 
-  const rdvs = rdvList.map((r) => {
-    const paid = paidMap.get(`${r.date_rdv}|${r.heure_rdv}`);
+  const paidParRdvId = new Map<string, PaidInfo>();
+  const reservationsSansLien = new Map<string, PaidRow[]>();
+  for (const b of paidList) {
+    if (b.rdv_id) { paidParRdvId.set(b.rdv_id, info(b)); continue; }
+    const cle = `${b.citoyen_id}|${b.confirmation_code}`;
+    reservationsSansLien.set(cle, [...(reservationsSansLien.get(cle) ?? []), b]);
+  }
+  const rdvParCle = new Map<string, number>();
+  for (const r of rdvList) {
+    if (!r.qr_token) continue;
+    const cle = `${r.citoyen_id}|${r.qr_token}`;
+    rdvParCle.set(cle, (rdvParCle.get(cle) ?? 0) + 1);
+  }
+
+  const rdvs = rdvList.map((rdvBrut) => {
+    // qr_token n'est lu QUE pour la jointure : jamais renvoyé au navigateur.
+    const { qr_token: qrToken, ...r } = rdvBrut;
+    let paid = paidParRdvId.get(r.id);
+    if (!paid && qrToken) {
+      const cle = `${r.citoyen_id}|${qrToken}`;
+      const candidates = reservationsSansLien.get(cle);
+      if (candidates && candidates.length === 1 && rdvParCle.get(cle) === 1) paid = info(candidates[0]);
+    }
     return {
       ...r,
       citoyen_nom: uMap[r.citoyen_id]?.nom ?? "Citoyen", citoyen_phone: uMap[r.citoyen_id]?.phone ?? "",

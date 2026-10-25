@@ -7,15 +7,25 @@
 // .client-fiche-overlay/panel/grip/close-x de MesClientsTab.tsx, reprise
 // ici sous .cis-fiche-*). API déjà livrée : app/api/institution/clock-in/*.
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { FormField } from "./FormField";
 import { APP_URL } from "@/lib/config";
 import { generateBrandedQR } from "@/lib/qrBrand";
+import {
+  ClockStyles, ClockHeader, ClockConfigMenu, ClockTabs, LiveIndicator, AttendanceToolbar, AttendanceSummary, AttendanceAlerts,
+  AttendanceTable, AttendanceSkeleton, AttendanceError, heure12, dureeAffichee,
+  EmployeesToolbar, EmployeesTable, DistributionCard, DepartmentsToolbar, DepartmentGrid,
+  ClockModal, ModalField, ModalSection, champStyle, ScheduleTypeCards, WeekPlanEditor, InfoLine, ScheduleGrid,
+  DateField, IconInput, ComboField, PinInput,
+  ProfileHeader, ProfileCard, InfoGrid, WeekRows, HistoryTable, FileDropzone, StatusPill, nomPropre,
+  type AttendanceKpi, type AttendanceAlert, type AttendanceRow, type EmployeeTableRow, type DepartmentCardData, type JourPlanning, type ScheduleCardData, type HistoryRow,
+} from "./ClockInShiftUi";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 type EmployeeRole = "admin" | "manager" | "employe";
 type EmployeeStatut = "actif" | "suspendu" | "en_conge" | "archive" | "desactive" | "teletravail" | "mission";
@@ -97,16 +107,9 @@ function defaultPattern(type: TypeHoraire): Pattern {
   return { jours };
 }
 
-function IconChevron({ C }: { C: ThemeTokens }) {
-  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>;
-}
 function IconClose({ C }: { C: ThemeTokens }) {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 }
-function IconClock() {
-  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>;
-}
-
 // Illustrations sur mesure Yelen pour les états vides — pas d'icône Feather
 // isolée, une petite scène en ligne (même langage que le reste du module :
 // trait, un seul accent doré, jamais de fond noir). Une par écran, pensées
@@ -178,7 +181,6 @@ function EmptyState({ C, illustration, titre, texte, cta }: {
   );
 }
 
-const labelStyle = (C: ThemeTokens): React.CSSProperties => ({ display: "block", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "5px" });
 const inputStyle = (C: ThemeTokens): React.CSSProperties => ({ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "9px 11px", fontSize: "13px", color: C.t1 });
 
 export function ClockInShiftTab({ instId, instSlug, onToast, access, active = true }: { instId: string; instSlug: string; onToast: (msg: string, color?: string) => void; access: "full" | "read"; active?: boolean }) {
@@ -213,6 +215,9 @@ export function ClockInShiftTab({ instId, instSlug, onToast, access, active = tr
   const [forbidden, setForbidden] = useState(false);
   const [showPortail, setShowPortail] = useState(false);
   const [showZone, setShowZone] = useState(false);
+  // Emplacement (à droite de la barre d'onglets) où PresencesView affiche le témoin Live.
+  const [liveHost, setLiveHost] = useState<HTMLDivElement | null>(null);
+  const [erreurChargement, setErreurChargement] = useState(false);
 
   // silencieux=true pour le rafraîchissement d'arrière-plan (60s, "Live",
   // appelé par EmployesView/DepartementsView/HorairesView) — sans ça,
@@ -229,6 +234,7 @@ export function ClockInShiftTab({ instId, instSlug, onToast, access, active = tr
       fetch("/api/institution/clock-in/schedule-assignments"),
     ]);
     if (rE.status === 403) { setForbidden(true); setLoading(false); return; }
+    setErreurChargement(!rE.ok);
     const [jE, jD, jW, jA] = await Promise.all([rE.json().catch(() => null), rD.json().catch(() => null), rW.json().catch(() => null), rA.json().catch(() => null)]);
     setEmployees(rE.ok ? (jE?.employees ?? []) : []);
     setDepartments(rD.ok ? (jD?.departments ?? []) : []);
@@ -250,74 +256,39 @@ export function ClockInShiftTab({ instId, instSlug, onToast, access, active = tr
     );
   }
 
-  const vues: { key: typeof subView; label: string }[] = [
-    { key: "presences", label: "Présences" },
-    { key: "employes", label: `Employés · ${employees.length}` },
-    { key: "departements", label: `Départements · ${departments.length}` },
-    { key: "horaires", label: `Horaires · ${workSchedules.length}` },
-  ];
+  const SUB_LABELS: Record<SubView, string> = { presences: "Présences", employes: "Employés", departements: "Départements", horaires: "Horaires" };
+  const sousTitre = readOnly ? "Consultation du pointage — la gestion (employés, départements, horaires) est réservée à l'administrateur." : "Gérez vos employés, départements et horaires de pointage.";
 
   return (
-    <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: "6px" }}>Clock In Shift</h1>
-      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>
-        {readOnly ? "Consultation du pointage — la gestion (employés, départements, horaires) est réservée à l'administrateur." : "Gérez vos employés, départements et horaires de pointage."}
-      </p>
+    <div className="cix-page" style={{ animation: "fadeUp 0.2s ease" }}>
+      <ClockStyles C={C}/>
+      <ClockHeader C={C} description={sousTitre}
+        config={
+          <ClockConfigMenu C={C} portailUrl={instSlug ? clockPortalUrl(instSlug) : null}
+            onPortail={() => setShowPortail(true)} onZone={() => setShowZone(true)}
+            onCopy={() => { navigator.clipboard.writeText(clockPortalUrl(instSlug)).then(() => onToast("Lien copié.", C.green), () => onToast("Copie impossible.", C.red)); }}/>
+        }/>
 
-      {/* Portail employé — QR brandé Yelen (lib/qrBrand.ts, même source que
-          Mon code QR) + lien partageable vers /clock/{slug} (retour Bryan
-          10/09/2026 : ce lien n'était affiché nulle part dans le dashboard,
-          uniquement tapable à la main). */}
-      {instSlug && (
-        <button onClick={() => setShowPortail(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: "14px", border: `1px solid ${C.gold}30`, background: `${C.gold}0d`, cursor: "pointer", marginBottom: "16px" }}>
-          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `${C.gold}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M17 20v.01M20 20v.01"/></svg>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Portail employé — QR &amp; lien</div>
-            <div style={{ color: C.t2, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{APP_URL.replace(/^https?:\/\//, "")}/clock/{instSlug}</div>
-          </div>
-          <IconChevron C={C}/>
-        </button>
-      )}
-
-      {/* Zone de travail géolocalisée (Phase 2 roadmap §5.6) — un pointage
-          hors-zone se signale, il ne bloque jamais (décision Bryan
-          21/09/2026), voir migration 20260921000003_clock_in_work_zones.sql. */}
-      <button onClick={() => setShowZone(true)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left", padding: "12px 14px", borderRadius: "14px", border: `1px solid ${C.border}`, background: C.bg3, cursor: "pointer", marginBottom: "16px" }}>
-        <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: C.bgCard, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Zone de travail géolocalisée</div>
-          <div style={{ color: C.t2, fontSize: "11.5px" }}>Signale les pointages hors-zone, sans jamais les bloquer</div>
-        </div>
-        <IconChevron C={C}/>
-      </button>
-
-      <div style={{ display: "flex", gap: "6px", marginBottom: "18px", overflowX: "auto" }}>
-        {vues.map(v => (
-          <button key={v.key} onClick={() => setSubView(v.key)} className="tap" style={{
-            backgroundColor: subView === v.key ? C.gold : C.bg3,
-            color: subView === v.key ? "#000" : C.t2,
-            border: `1px solid ${subView === v.key ? C.gold : C.border}`,
-            fontWeight: 800, fontSize: "12px", padding: "8px 14px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap",
-          }}>{v.label}</button>
-        ))}
-      </div>
+      <ClockTabs C={C} active={subView} onChange={k => { const v = SUB_VIEWS.find(x => x === k); if (v) setSubView(v); }} hostRef={setLiveHost}
+        tabs={[
+          { key: "presences", label: SUB_LABELS.presences },
+          { key: "employes", label: SUB_LABELS.employes, count: employees.length },
+          { key: "departements", label: SUB_LABELS.departements, count: departments.length },
+          { key: "horaires", label: SUB_LABELS.horaires, count: workSchedules.length },
+        ]}/>
 
       {subView === "presences" && (
-        <PresencesView C={C} employees={employees} onToast={onToast} active={active}/>
+        <PresencesView C={C} employees={employees} departments={departments} liveHost={liveHost} onToast={onToast} active={active}/>
       )}
       {subView === "employes" && (
         <EmployesView C={C} departments={departments} workSchedules={workSchedules} employees={employees} assignments={assignments}
-          readOnly={readOnly} onToast={onToast} onReload={load} active={active}/>
+          readOnly={readOnly} onToast={onToast} onReload={load} active={active} liveHost={liveHost} erreur={erreurChargement}/>
       )}
       {subView === "departements" && (
-        <DepartementsView C={C} departments={departments} employees={employees} assignments={assignments} workSchedules={workSchedules} readOnly={readOnly} onToast={onToast} onReload={load} active={active}/>
+        <DepartementsView C={C} departments={departments} employees={employees} assignments={assignments} workSchedules={workSchedules} readOnly={readOnly} onToast={onToast} onReload={load} active={active} liveHost={liveHost} erreur={erreurChargement}/>
       )}
       {subView === "horaires" && (
-        <HorairesView C={C} workSchedules={workSchedules} employees={employees} departments={departments} assignments={assignments} readOnly={readOnly} onToast={onToast} onReload={load} active={active}/>
+        <HorairesView C={C} workSchedules={workSchedules} employees={employees} departments={departments} assignments={assignments} readOnly={readOnly} onToast={onToast} onReload={load} active={active} liveHost={liveHost} erreur={erreurChargement}/>
       )}
 
       {showPortail && instSlug && <PortailEmployeModal C={C} instSlug={instSlug} onClose={() => setShowPortail(false)}/>}
@@ -563,74 +534,10 @@ function ZoneTravailModal({ C, readOnly, onToast, onClose }: { C: ThemeTokens; r
 // d'historique de statut employé (pas de table d'audit sur "combien
 // d'actifs il y a 7 jours") : afficher un delta inventé serait une donnée
 // non vérifiable. Simplification assumée pour cette refonte, pas un oubli.
-function SimpleKpiCard({ label, icon, color, value, C }: { label: string; icon: React.ReactNode; color: string; value: string | number; C: ThemeTokens }) {
-  return (
-    <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
-        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
-      </div>
-      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
-    </Card>
-  );
-}
-function IconUsers() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
-}
-function IconUserPlus() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="17" y1="11" x2="23" y2="11"/></svg>;
-}
-function IconBriefcase() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>;
-}
-function IconUserCheck() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>;
-}
-
-function AlerteRhLigne({ C, texte, onCorriger }: { C: ThemeTokens; texte: string; onCorriger?: () => void }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-      <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>{texte}</span>
-      {onCorriger && (
-        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ flexShrink: 0, color: C.gold }} onClick={onCorriger}>Corriger</Button>
-      )}
-    </div>
-  );
-}
-
-// Donut SVG manuel (stroke-dasharray par segment sur un cercle) — même
-// discipline "aucune librairie de charts" que Sparkline/CisSparkline.
-function StatutDonut({ C, employees }: { C: ThemeTokens; employees: Employee[] }) {
-  const total = employees.length || 1;
-  const segments: { statut: EmployeeStatut; n: number }[] = (["actif", "en_conge", "mission", "teletravail", "suspendu", "archive", "desactive"] as const)
-    .map(s => ({ statut: s, n: employees.filter(e => e.statut === s).length }))
-    .filter(s => s.n > 0);
-
-  const r = 34, cx = 40, cy = 40, circonf = 2 * Math.PI * r;
-  let cumul = 0;
-
-  return (
-    <svg width="80" height="80" viewBox="0 0 80 80" style={{ flexShrink: 0 }}>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.bg3} strokeWidth="10"/>
-      {segments.map(s => {
-        const frac = s.n / total;
-        const dash = frac * circonf;
-        const offset = -cumul * circonf;
-        cumul += frac;
-        return (
-          <circle key={s.statut} cx={cx} cy={cy} r={r} fill="none" stroke={statutColor(s.statut, C)} strokeWidth="10"
-            strokeDasharray={`${dash} ${circonf - dash}`} strokeDashoffset={offset}
-            transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt"/>
-        );
-      })}
-      <text x={cx} y={cy + 4} textAnchor="middle" fontSize="14" fontWeight="900" fill={C.t1}>{employees.length}</text>
-    </svg>
-  );
-}
-
-function EmployesView({ C, employees, departments, workSchedules, assignments, readOnly, onToast, onReload, active = true }: {
+function EmployesView({ C, employees, departments, workSchedules, assignments, readOnly, onToast, onReload, active = true, liveHost, erreur }: {
   C: ThemeTokens; employees: Employee[]; departments: Department[]; workSchedules: WorkSchedule[]; assignments: Assignment[];
   readOnly: boolean; onToast: (msg: string, color?: string) => void; onReload: (silencieux?: boolean) => void; active?: boolean;
+  liveHost: HTMLElement | null; erreur: boolean;
 }) {
   const [recherche, setRecherche] = useState("");
   const [filtreRapide, setFiltreRapide] = useState<"tous" | EmployeeStatut | "manager">("tous");
@@ -675,15 +582,6 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
   // conçu comme optionnel dès le schéma d'origine.
   const profilsIncomplets = employees.filter(e => !e.telephone || !e.poste || !e.department_id).length;
 
-  const kpisEmployes: { label: string; value: string | number; color: string; icon: React.ReactNode }[] = [
-    { label: "Employés actifs", value: employesActifs.length, color: C.green, icon: <IconUsers/> },
-    { label: "Nouveaux ce mois", value: nouveauxCeMois, color: C.blue, icon: <IconUserPlus/> },
-    { label: "Départements", value: departments.length, color: C.purple, icon: <IconBriefcase/> },
-    { label: "Managers", value: managers, color: C.teal, icon: <IconUserCheck/> },
-    { label: "En congé", value: enConge, color: C.orange, icon: <IconAlertTriangle/> },
-    { label: "Profils incomplets", value: profilsIncomplets, color: profilsIncomplets > 0 ? C.red : C.t3, icon: <IconXCircle/> },
-  ];
-
   // "IA Insights" — règles déterministes par seuils, jamais un appel LLM
   // (philosophie systématique du projet, voir lib/reputationScore.ts et
   // CLAUDE.md /stack-specifique). Calculées uniquement à partir des
@@ -725,6 +623,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
   const [dateEmbauche, setDateEmbauche] = useState(todayStr());
   const [role, setRole] = useState<EmployeeRole>("employe");
   const [pin, setPin] = useState("");
+  const [erreurServeur, setErreurServeur] = useState<string | null>(null);
 
   const deptNom = (id: string | null) => departments.find(d => d.id === id)?.nom ?? "—";
 
@@ -757,6 +656,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
   function resetForm() {
     setMatricule(""); setNom(""); setPrenom(""); setTelephone(""); setEmail("");
     setDepartmentId(""); setPoste(""); setManagerId(""); setDateEmbauche(todayStr()); setRole("employe"); setPin("");
+    setErreurServeur(null);
   }
 
   const formValide = matricule.trim() && nom.trim() && prenom.trim() && dateEmbauche && PIN_REGEX.test(pin);
@@ -764,6 +664,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
   async function creer() {
     if (!formValide) return;
     setSaving(true);
+    setErreurServeur(null);
     const res = await fetch("/api/institution/clock-in/employees", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -774,97 +675,155 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Erreur de création", C.red); return; }
+    if (!res.ok) { setErreurServeur(j?.error || "Erreur de création"); onToast(j?.error || "Erreur de création", C.red); return; }
     setShowForm(false); resetForm();
     onToast(`${prenom} a été ajouté(e) — identifiant : ${matricule}, PIN : ${pin}`, C.green);
     onReload();
   }
 
+  // ── Présentation (aucune logique métier modifiée) ─────────────────────
+  const sansHoraire = employees.filter(e => e.statut === "actif" && !horaireParEmploye.has(e.id));
+  const pinNonChanges = employees.filter(e => e.statut === "actif" && e.doit_changer_pin);
+  const telephoneManquant = employees.filter(e => e.statut === "actif" && !e.telephone);
+  const pluriel = (n: number) => (n > 1 ? "s" : "");
+  const alertesRh: AttendanceAlert[] = [
+    ...(sansHoraire.length > 0 ? [{ key: "sh", texte: `${sansHoraire.length} employé${pluriel(sansHoraire.length)} sans horaire`, noms: [] as string[], action: { label: "Corriger", onClick: () => setSelected(sansHoraire[0]) } }] : []),
+    ...(pinNonChanges.length > 0 ? [{ key: "pin", texte: `${pinNonChanges.length} PIN pas encore changé${pluriel(pinNonChanges.length)} depuis la création`, noms: [] as string[], action: { label: "Corriger", onClick: () => setSelected(pinNonChanges[0]) } }] : []),
+    ...(telephoneManquant.length > 0 ? [{ key: "tel", texte: `${telephoneManquant.length} téléphone${pluriel(telephoneManquant.length)} manquant${pluriel(telephoneManquant.length)}`, noms: [] as string[], action: { label: "Corriger", onClick: () => setSelected(telephoneManquant[0]) } }] : []),
+    ...(profilsIncomplets > 0 ? [{ key: "inc", texte: `${profilsIncomplets} profil${pluriel(profilsIncomplets)} incomplet${pluriel(profilsIncomplets)}`, noms: [] as string[] }] : []),
+  ];
+
+  const basculerFiltre = (k: "manager" | "en_conge") => setFiltreRapide(filtreRapide === k ? "tous" : k);
+  const kpiItems: AttendanceKpi[] = [
+    { key: "actifs", label: "Employés actifs", value: String(employesActifs.length) },
+    { key: "nouveaux", label: "Nouveaux ce mois", value: String(nouveauxCeMois) },
+    { key: "depts", label: "Départements", value: String(departments.length) },
+    { key: "managers", label: "Managers", value: String(managers), onClick: () => basculerFiltre("manager"), active: filtreRapide === "manager" },
+    { key: "conge", label: "En congé", value: String(enConge), onClick: () => basculerFiltre("en_conge"), active: filtreRapide === "en_conge" },
+    { key: "incomplets", label: "Profils incomplets", value: String(profilsIncomplets), ambre: profilsIncomplets > 0 },
+  ];
+
+  const STATUTS_FILTRE = [
+    { value: "tous", label: "Tous" }, { value: "actif", label: "Actifs" }, { value: "en_conge", label: "En congé" },
+    { value: "teletravail", label: "Télétravail" }, { value: "mission", label: "Mission" },
+  ] as const;
+  const nbAvances = [filtreDepartement, filtrePoste, filtreManager, filtreHoraire].filter(Boolean).length;
+  const filtreActif = filtreRapide !== "tous" || nbAvances > 0 || recherche.trim() !== "";
+  function reinitialiserFiltres() {
+    setRecherche(""); setFiltreRapide("tous"); setFiltreDepartement(""); setFiltrePoste(""); setFiltreManager(""); setFiltreHoraire("");
+  }
+  const chips = [
+    ...(recherche.trim() ? [{ key: "q", label: `Recherche : ${recherche.trim()}`, onRemove: () => setRecherche("") }] : []),
+    ...(filtreRapide === "manager" ? [{ key: "r", label: "Rôle : Managers", onRemove: () => setFiltreRapide("tous") }]
+      : filtreRapide !== "tous" ? [{ key: "s", label: `Statut : ${statutLabelAffiche(filtreRapide)}`, onRemove: () => setFiltreRapide("tous") }] : []),
+    ...(filtreDepartement ? [{ key: "d", label: `Département : ${deptNom(filtreDepartement)}`, onRemove: () => setFiltreDepartement("") }] : []),
+    ...(filtrePoste ? [{ key: "p", label: `Poste : ${filtrePoste}`, onRemove: () => setFiltrePoste("") }] : []),
+    ...(filtreManager ? [{ key: "m", label: `Manager : ${(() => { const m = employees.find(x => x.id === filtreManager); return m ? `${m.prenom} ${m.nom}` : "—"; })()}`, onRemove: () => setFiltreManager("") }] : []),
+    ...(filtreHoraire ? [{ key: "h", label: `Horaire : ${workSchedules.find(w => w.id === filtreHoraire)?.nom ?? "—"}`, onRemove: () => setFiltreHoraire("") }] : []),
+  ];
+
+  const affichageStatut = (st: EmployeeStatut) => (st === "mission" ? C.blue : st === "teletravail" ? C.purple : statutColor(st, C));
+  const affichageRole = (r: EmployeeRole) => (r === "admin" ? C.purple : r === "manager" ? C.blue : C.t2);
+  const lignes: EmployeeTableRow[] = employesFiltres.map(e => ({
+    id: e.id, nom: `${e.prenom} ${e.nom}`, matricule: e.matricule,
+    departement: e.department_id ? (departments.find(d => d.id === e.department_id)?.nom ?? null) : null,
+    poste: e.poste, horaire: horaireNom(e.id),
+    role: ROLES.find(r => r.value === e.role)?.label ?? e.role, roleColor: affichageRole(e.role),
+    statut: statutLabelAffiche(e.statut), statutColor: affichageStatut(e.statut),
+    inactif: !(e.statut === "actif" || e.statut === "teletravail" || e.statut === "mission"),
+    peutAssigner: e.statut === "actif", onOpen: () => setSelected(e), onAssigner: () => setSelected(e),
+  }));
+
+  const repartitionDepts = departments.map(d => ({ id: d.id, nom: d.nom, n: employees.filter(e => e.department_id === d.id).length }));
+  const sansDepartement = employees.filter(e => !e.department_id).length;
+  const ordreStatuts: EmployeeStatut[] = ["actif", "en_conge", "mission", "teletravail", "suspendu", "archive", "desactive"];
+  const repartitionStatuts = ordreStatuts
+    .map(st => ({ key: st, label: statutLabelAffiche(st), color: affichageStatut(st), n: employees.filter(e => e.statut === st).length }))
+    .filter(x => x.n > 0)
+    .reduce<{ key: string; label: string; color: string; n: number }[]>((acc, x) => {
+      // archive + désactivé s'affichent tous deux "Inactif" : une seule ligne.
+      const deja = acc.find(a => a.label === x.label);
+      if (deja) deja.n += x.n; else acc.push({ ...x });
+      return acc;
+    }, []);
+
+  function exporterEmployesCsv() {
+    const lignes = [
+      ["Prénom", "Nom", "Matricule", "Département", "Poste", "Rôle", "Statut", "Téléphone", "Email"],
+      ...employesFiltres.map(e => [e.prenom, e.nom, e.matricule, deptNom(e.department_id), e.poste ?? "", ROLES.find(r => r.value === e.role)?.label ?? "", statutLabelAffiche(e.statut), e.telephone ?? "", e.email ?? ""]),
+    ];
+    const csv = lignes.map(l => l.map(c => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "employes.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
-      {/* ── Hero header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
-        <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Employés</h2>
-          <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Administration des collaborateurs, des accès et des informations professionnelles.</p>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
-              Live
-            </span>
-            <span style={{ color: C.t3, fontSize: "10.5px" }}>Dernière synchronisation : {ilYA(lastSync, maintenant)}</span>
-          </div>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          {!readOnly && (
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>
-              + Nouvel employé
-            </Button>
-          )}
-          <Button
-            tokens={toUiTokens(C)} className="tap"
-            variant="secondary"
-            size="sm"
-            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
-            onClick={() => onReload()}
-          >
-            Actualiser
-          </Button>
-        </div>
-      </div>
-
-      {/* ── KPI exécutifs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-        {kpisEmployes.map(k => <SimpleKpiCard key={k.label} {...k} C={C}/>)}
-      </div>
-
-      {/* ── Répartition ── */}
-      {employees.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-          <Card tokens={toCardTokens(C)} padding="16px">
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Employés par département</div>
-            {departments.length === 0 ? (
-              <div style={{ color: C.t3, fontSize: "12px" }}>Aucun département créé.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {(() => {
-                  const max = Math.max(...departments.map(d => employees.filter(e => e.department_id === d.id).length), 1);
-                  return departments.map(d => {
-                    const n = employees.filter(e => e.department_id === d.id).length;
-                    return (
-                      <div key={d.id}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11.5px", marginBottom: "3px" }}>
-                          <span style={{ color: C.t2, fontWeight: 600 }}>{d.nom}</span>
-                          <span style={{ color: C.t1, fontWeight: 800 }}>{n}</span>
-                        </div>
-                        <div style={{ height: "6px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${(n / max) * 100}%`, backgroundColor: C.gold, borderRadius: "3px" }}/>
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            )}
-          </Card>
-
-          <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", alignItems: "center", gap: "18px" }}>
-            <StatutDonut C={C} employees={employees}/>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {(["actif", "en_conge", "mission", "teletravail"] as const).map(s => {
-                const n = employees.filter(e => e.statut === s).length;
-                const pct = employees.length > 0 ? Math.round((n / employees.length) * 100) : 0;
-                return (
-                  <div key={s} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px" }}>
-                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: statutColor(s, C), flexShrink: 0 }}/>
-                    <span style={{ color: C.t2 }}>{STATUTS.find(x => x.value === s)?.label} <strong style={{ color: C.t1 }}>{pct}%</strong></span>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
+      {liveHost && active && createPortal(
+        <LiveIndicator C={C} sync={`synchronisé ${ilYA(lastSync, maintenant)}`} calcul={null} calculPerime={false}/>,
+        liveHost,
       )}
+
+      {erreur && employees.length === 0 ? (
+        <AttendanceError C={C} onRetry={() => onReload()}/>
+      ) : (
+        <>
+          <AttendanceSummary C={C} items={kpiItems} repli={3}/>
+          <AttendanceAlerts C={C} lignes={alertesRh} titre={alertesRh.length > 0 ? `Alertes RH · ${alertesRh.length} point${pluriel(alertesRh.length)} d'attention` : undefined} suggestions={insights}/>
+
+          <EmployeesToolbar C={C} avecDonnees={employees.length > 0} search={recherche} onSearch={setRecherche}
+            statutOptions={STATUTS_FILTRE.map(o => ({ value: o.value, label: o.label }))}
+            statut={filtreRapide === "manager" ? "tous" : filtreRapide}
+            onStatut={v => { const o = STATUTS_FILTRE.find(x => x.value === v); if (o) setFiltreRapide(o.value); }}
+            roleOptions={[{ value: "tous", label: "Tous les rôles" }, { value: "manager", label: "Managers" }]}
+            role={filtreRapide === "manager" ? "manager" : "tous"}
+            onRole={v => { if (v === "manager") setFiltreRapide("manager"); else if (filtreRapide === "manager") setFiltreRapide("tous"); }}
+            avancesOuvert={filtresAvances} onToggleAvances={() => setFiltresAvances(v => !v)} avancesCount={nbAvances}
+            chips={chips} onReset={reinitialiserFiltres} filtreActif={filtreActif} total={employesFiltres.length}
+            canCreate={!readOnly} onCreate={() => setShowForm(v => !v)} onRefresh={() => onReload()}
+            onPrint={() => window.print()} onExport={exporterEmployesCsv}/>
+
+          {employees.length > 0 && filtresAvances && (
+            <Card tokens={toCardTokens(C)} padding="12px" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px" }}>
+              <select aria-label="Filtrer par département" value={filtreDepartement} onChange={e => setFiltreDepartement(e.target.value)} style={inputStyle(C)}>
+                <option value="">Tous les départements</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
+              </select>
+              <select aria-label="Filtrer par poste" value={filtrePoste} onChange={e => setFiltrePoste(e.target.value)} style={inputStyle(C)}>
+                <option value="">Tous les postes</option>
+                {postesDisponibles.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <select aria-label="Filtrer par manager" value={filtreManager} onChange={e => setFiltreManager(e.target.value)} style={inputStyle(C)}>
+                <option value="">Tous les managers</option>
+                {managersDisponibles.map(m => <option key={m.id} value={m.id}>{m.prenom} {m.nom}</option>)}
+              </select>
+              <select aria-label="Filtrer par horaire" value={filtreHoraire} onChange={e => setFiltreHoraire(e.target.value)} style={inputStyle(C)}>
+                <option value="">Tous les horaires</option>
+                {workSchedules.map(w => <option key={w.id} value={w.id}>{w.nom}</option>)}
+              </select>
+            </Card>
+          )}
+
+          {employees.length === 0 && !showForm ? (
+            <EmptyState C={C} illustration={<IllustrationEquipe C={C}/>}
+              titre="Votre équipe commence ici"
+              texte="Ajoutez votre premier employé pour activer le pointage — il recevra un identifiant et un code PIN pour se connecter au portail."
+              cta={!readOnly ? { label: "+ Ajouter mon premier employé", onClick: () => setShowForm(true) } : undefined}/>
+          ) : employees.length > 0 && employesFiltres.length === 0 ? (
+            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "32px", textAlign: "center" }}>
+              <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Aucun résultat</div>
+              <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Aucun employé ne correspond à ces critères.</div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={reinitialiserFiltres}>Réinitialiser</Button>
+            </div>
+          ) : employees.length > 0 ? (
+            <>
+              <EmployeesTable C={C} rows={lignes}/>
+              <div style={{ color: C.t2, fontSize: "13px", marginTop: "10px", fontVariantNumeric: "tabular-nums" }}>1–{lignes.length} sur {employees.length}</div>
+            </>
+          ) : null}
 
       {/* ── Nouveaux employés ── */}
       {(() => {
@@ -874,7 +833,7 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
         }).sort((a, b) => b.date_embauche.localeCompare(a.date_embauche)).slice(0, 5);
         if (recents.length === 0) return null;
         return (
-          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "20px" }}>
+          <Card tokens={toCardTokens(C)} padding="16px" style={{ marginTop: "20px", marginBottom: "0" }}>
             <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Bienvenue aux nouveaux employés</div>
             <div style={{ display: "flex", gap: "10px", overflowX: "auto" }}>
               {recents.map(e => {
@@ -895,233 +854,109 @@ function EmployesView({ C, employees, departments, workSchedules, assignments, r
         );
       })()}
 
-      {/* ── Alertes RH ── */}
-      {(() => {
-        const sansHoraire = employees.filter(e => e.statut === "actif" && !horaireParEmploye.has(e.id));
-        const pinNonChanges = employees.filter(e => e.statut === "actif" && e.doit_changer_pin);
-        const telephoneManquant = employees.filter(e => e.statut === "actif" && !e.telephone);
-        if (sansHoraire.length === 0 && pinNonChanges.length === 0 && telephoneManquant.length === 0 && profilsIncomplets === 0) return null;
-        return (
-          <div style={{ backgroundColor: `${C.orange}0c`, border: `1px solid ${C.orange}30`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-              <span style={{ color: C.orange }}><IconAlertTriangle/></span>
-              <span style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800 }}>Alertes RH</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {sansHoraire.length > 0 && <AlerteRhLigne C={C} texte={`${sansHoraire.length} employé${sansHoraire.length > 1 ? "s" : ""} sans horaire`} onCorriger={() => setSelected(sansHoraire[0])}/>}
-              {pinNonChanges.length > 0 && <AlerteRhLigne C={C} texte={`${pinNonChanges.length} PIN pas encore changé${pinNonChanges.length > 1 ? "s" : ""} depuis la création`} onCorriger={() => setSelected(pinNonChanges[0])}/>}
-              {telephoneManquant.length > 0 && <AlerteRhLigne C={C} texte={`${telephoneManquant.length} téléphone${telephoneManquant.length > 1 ? "s" : ""} manquant${telephoneManquant.length > 1 ? "s" : ""}`} onCorriger={() => setSelected(telephoneManquant[0])}/>}
-              {profilsIncomplets > 0 && <AlerteRhLigne C={C} texte={`${profilsIncomplets} profil${profilsIncomplets > 1 ? "s" : ""} incomplet${profilsIncomplets > 1 ? "s" : ""}`}/>}
-            </div>
-          </div>
-        );
-      })()}
 
-      {/* ── IA Insights (règles déterministes, zéro LLM) ── */}
-      {insights.length > 0 && (
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20`, marginBottom: "20px" }}>
-          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>Analyse automatique</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {insights.map((texte, i) => (
-              <div key={i} style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>{texte}</div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {employees.length > 0 && (
-        <div style={{ display: "flex", gap: "6px", marginBottom: "16px" }}>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => window.print()}>Imprimer</Button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => {
-            const lignes = [
-              ["Prénom", "Nom", "Matricule", "Département", "Poste", "Rôle", "Statut", "Téléphone", "Email"],
-              ...employesFiltres.map(e => [e.prenom, e.nom, e.matricule, deptNom(e.department_id), e.poste ?? "", ROLES.find(r => r.value === e.role)?.label ?? "", statutLabelAffiche(e.statut), e.telephone ?? "", e.email ?? ""]),
-            ];
-            const csv = lignes.map(l => l.map(c => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
-            const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url; a.download = "employes.csv"; a.click();
-            URL.revokeObjectURL(url);
-          }}>Exporter</Button>
-        </div>
-      )}
-
-      {showForm && (
-        <div className="cis-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={() => { setShowForm(false); resetForm(); }}>
-        <style>{`
-          @media(min-width:1024px){
-            .cis-fiche-overlay{align-items:center!important}
-            .cis-fiche-panel{max-width:560px!important;border-radius:20px!important;max-height:86svh!important}
-            .cis-fiche-grip{display:none!important}
-            .cis-fiche-close-x{display:flex!important}
-          }
-        `}</style>
-        <div onClick={e => e.stopPropagation()} className="cis-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-          <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
-          <button onClick={() => { setShowForm(false); resetForm(); }} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
-
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "16px" }}>Nouvel employé</div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-            <FormField C={C} label="Matricule" placeholder="ex: ECO-00123" value={matricule} onChange={setMatricule} name="matricule"/>
-            <div>
-              <label style={labelStyle(C)}>Date d&apos;embauche</label>
-              <input type="date" value={dateEmbauche} onChange={e => setDateEmbauche(e.target.value)} style={inputStyle(C)}/>
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-            <FormField C={C} label="Prénom" placeholder="Prénom" value={prenom} onChange={setPrenom} name="prenom" autoComplete="given-name"/>
-            <FormField C={C} label="Nom" placeholder="Nom" value={nom} onChange={setNom} name="nom" autoComplete="family-name"/>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-            <FormField C={C} label="Téléphone (optionnel)" placeholder="+224..." value={telephone} onChange={setTelephone} name="telephone" autoComplete="tel"/>
-            <FormField C={C} label="Email (optionnel)" placeholder="email@..." value={email} onChange={setEmail} name="email" autoComplete="email"/>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-            <div>
-              <label style={labelStyle(C)}>Département (optionnel)</label>
-              <select value={departmentId} onChange={e => setDepartmentId(e.target.value)} style={inputStyle(C)}>
-                <option value="">Aucun</option>
-                {departments.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
-              </select>
-            </div>
-            <FormField C={C} label="Poste (optionnel)" placeholder="ex: Caissier" value={poste} onChange={setPoste} name="poste"/>
-          </div>
-
-          <label style={labelStyle(C)}>Manager (optionnel)</label>
-          <select value={managerId} onChange={e => setManagerId(e.target.value)} style={{ ...inputStyle(C), marginBottom: "12px" }}>
-            <option value="">Aucun</option>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>)}
-          </select>
-
-          <label style={labelStyle(C)}>Rôle Clock In Shift</label>
-          <div style={{ display: "flex", gap: "6px", marginBottom: "12px" }}>
-            {ROLES.map(r => (
-              <button key={r.value} onClick={() => setRole(r.value)} className="tap" style={{
-                flex: 1, backgroundColor: role === r.value ? `${roleColor(r.value, C)}15` : C.bg3,
-                border: `1px solid ${role === r.value ? roleColor(r.value, C) + "50" : C.border2}`,
-                color: role === r.value ? roleColor(r.value, C) : C.t2, fontWeight: 700, fontSize: "12px",
-                padding: "9px", borderRadius: "8px", cursor: "pointer",
-              }}>{r.label}</button>
-            ))}
-          </div>
-
-          <label style={labelStyle(C)}>PIN initial (4 chiffres)</label>
-          <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" maxLength={4} placeholder="4 chiffres" style={{ ...inputStyle(C), textAlign: "center", letterSpacing: "4px", marginBottom: "4px" }}/>
-          <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Communiquez ce code à l&apos;employé — il devra en choisir un nouveau à sa première connexion.</p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => { setShowForm(false); resetForm(); }}>Annuler</Button>
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!formValide} loading={saving} onClick={creer}>
-              Créer l&apos;employé
-            </Button>
-          </div>
-        </div>
-        </div>
-      )}
-
-      {employees.length > 0 && (
-        <>
-          <input
-            value={recherche} onChange={e => setRecherche(e.target.value)}
-            placeholder="Rechercher un employé, un matricule, un téléphone, un département, un poste..."
-            style={{ ...inputStyle(C), marginBottom: "10px" }}
-          />
-
-          <div style={{ display: "flex", gap: "6px", marginBottom: "10px", overflowX: "auto" }}>
-            {([
-              { key: "tous", label: "Tous" },
-              { key: "actif", label: "Actifs" },
-              { key: "en_conge", label: "En congé" },
-              { key: "teletravail", label: "Télétravail" },
-              { key: "mission", label: "Mission" },
-              { key: "manager", label: "Managers" },
-            ] as const).map(f => (
-              <button key={f.key} onClick={() => setFiltreRapide(f.key)} className="tap" style={{
-                backgroundColor: filtreRapide === f.key ? C.gold : C.bg3, color: filtreRapide === f.key ? "#000" : C.t2,
-                border: `1px solid ${filtreRapide === f.key ? C.gold : C.border}`, fontWeight: 700, fontSize: "11.5px",
-                padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap",
-              }}>{f.label}</button>
-            ))}
-            <button onClick={() => setFiltresAvances(v => !v)} className="tap" style={{
-              backgroundColor: filtresAvances ? `${C.gold}15` : C.bg3, color: filtresAvances ? C.gold : C.t2,
-              border: `1px solid ${filtresAvances ? C.gold + "50" : C.border}`, fontWeight: 700, fontSize: "11.5px",
-              padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap",
-            }}>Filtres avancés</button>
-          </div>
-
-          {filtresAvances && (
-            <Card tokens={toCardTokens(C)} padding="12px" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px" }}>
-              <select value={filtreDepartement} onChange={e => setFiltreDepartement(e.target.value)} style={inputStyle(C)}>
-                <option value="">Tous les départements</option>
-                {departments.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
-              </select>
-              <select value={filtrePoste} onChange={e => setFiltrePoste(e.target.value)} style={inputStyle(C)}>
-                <option value="">Tous les postes</option>
-                {postesDisponibles.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <select value={filtreManager} onChange={e => setFiltreManager(e.target.value)} style={inputStyle(C)}>
-                <option value="">Tous les managers</option>
-                {managersDisponibles.map(m => <option key={m.id} value={m.id}>{m.prenom} {m.nom}</option>)}
-              </select>
-              <select value={filtreHoraire} onChange={e => setFiltreHoraire(e.target.value)} style={inputStyle(C)}>
-                <option value="">Tous les horaires</option>
-                {workSchedules.map(w => <option key={w.id} value={w.id}>{w.nom}</option>)}
-              </select>
-            </Card>
+          {employees.length > 0 && (
+            <DistributionCard C={C} departements={repartitionDepts} sansDepartement={sansDepartement} statuts={repartitionStatuts} total={employees.length}/>
           )}
         </>
       )}
 
-      {employees.length === 0 && !showForm ? (
-        <EmptyState C={C} illustration={<IllustrationEquipe C={C}/>}
-          titre="Votre équipe commence ici"
-          texte="Ajoutez votre premier employé pour activer le pointage — il recevra un identifiant et un code PIN pour se connecter au portail."
-          cta={!readOnly ? { label: "+ Ajouter mon premier employé", onClick: () => setShowForm(true) } : undefined}/>
-      ) : employesFiltres.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 16px" }}>
-          <div style={{ color: C.t2, fontSize: "13px" }}>Aucun employé ne correspond à ces critères.</div>
-        </div>
-      ) : (
-        <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: "14px", backgroundColor: C.bgCard }}>
-          <table style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", fontSize: "12.5px" }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                {["Employé", "Matricule", "Département", "Poste", "Horaire", "Rôle", "Statut", ""].map(h => (
-                  <th key={h} style={{ textAlign: "left", padding: "10px 14px", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {employesFiltres.map((e, i, arr) => (
-                <tr key={e.id} onClick={() => setSelected(e)} className="tap" style={{ borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer", opacity: e.statut === "actif" || e.statut === "teletravail" || e.statut === "mission" ? 1 : 0.5 }}>
-                  <td style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px", whiteSpace: "nowrap" }}>
-                    <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: `linear-gradient(135deg, ${roleColor(e.role, C)}30, ${roleColor(e.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, color: roleColor(e.role, C), flexShrink: 0 }}>
-                      {e.prenom.slice(0, 1).toUpperCase()}{e.nom.slice(0, 1).toUpperCase()}
-                    </div>
-                    <span style={{ fontWeight: 700, color: C.t1 }}>{e.prenom} {e.nom}</span>
-                  </td>
-                  <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{e.matricule}</td>
-                  <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{deptNom(e.department_id)}</td>
-                  <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{e.poste ?? "—"}</td>
-                  <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{horaireNom(e.id) ?? "—"}</td>
-                  <td style={{ padding: "12px 14px" }}>
-                    <span style={{ color: roleColor(e.role, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${roleColor(e.role, C)}15`, padding: "2px 8px", borderRadius: "20px", whiteSpace: "nowrap" }}>{ROLES.find(r => r.value === e.role)?.label}</span>
-                  </td>
-                  <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                    <span style={{ color: statutColor(e.statut, C), fontSize: "11px", fontWeight: 700 }}>{statutLabelAffiche(e.statut)}</span>
-                  </td>
-                  <td style={{ padding: "12px 14px" }}><IconChevron C={C}/></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {showForm && (() => {
+        const initialesDe = (e: Employee) => `${e.prenom.slice(0, 1)}${e.nom.slice(0, 1)}`.toUpperCase();
+        const manquants = [
+          !prenom.trim() && "le prénom", !nom.trim() && "le nom", !matricule.trim() && "le matricule",
+          !dateEmbauche && "la date d'embauche", !PIN_REGEX.test(pin) && "un PIN à 4 chiffres",
+        ].filter((x): x is string => !!x);
+        const aide = manquants.length > 0
+          ? `Renseignez ${manquants.length > 1 ? `${manquants.slice(0, -1).join(", ")} et ${manquants[manquants.length - 1]}` : manquants[0]}.`
+          : undefined;
+        const modifieForm = !!(matricule || nom || prenom || telephone || email || departmentId || poste || managerId || pin) || role !== "employe" || dateEmbauche !== todayStr();
+        const erreurMatricule = erreurServeur && /matricule/i.test(erreurServeur) ? erreurServeur : null;
+        const DESC_ROLE: Record<EmployeeRole, string> = {
+          admin: "Accès complet à la configuration", manager: "Gère son équipe et ses horaires", employe: "Pointe et consulte ses présences",
+        };
+        const ui = toUiTokens(C);
+        return (
+          <ClockModal C={C} titre="Nouvel employé" sousTitre="Ajoutez un collaborateur au pointage." labelId="employe-modal-titre" largeur={680}
+            onClose={() => { setShowForm(false); resetForm(); }} modifie={modifieForm}
+            onSubmit={() => { if (formValide && !saving) creer(); }} aide={aide}
+            actions={
+              <>
+                <Button tokens={ui} className="tap" variant="secondary" size="md" disabled={saving} onClick={() => { setShowForm(false); resetForm(); }}>Annuler</Button>
+                <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!formValide} loading={saving} onClick={creer}>
+                  {saving ? "Enregistrement…" : "Enregistrer"}
+                </Button>
+              </>
+            }>
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              {erreurServeur && (
+                <div role="alert" style={{ padding: "10px 14px", borderRadius: "8px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, color: C.red, fontSize: "13.5px" }}>{erreurServeur}</div>
+              )}
+
+              <ModalSection C={C} titre="Identité">
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                  <ModalField C={C} id="employe-prenom" label="Prénom" requis>
+                    <input id="employe-prenom" data-autofocus className="cix-input" autoComplete="given-name" readOnly={saving} value={prenom} onChange={e => setPrenom(e.target.value)} style={champStyle(C)}/>
+                  </ModalField>
+                  <ModalField C={C} id="employe-nom" label="Nom" requis>
+                    <input id="employe-nom" className="cix-input" autoComplete="family-name" readOnly={saving} value={nom} onChange={e => setNom(e.target.value)} style={champStyle(C)}/>
+                  </ModalField>
+                  <ModalField C={C} id="employe-matricule" label="Matricule" requis aide="Identifiant unique de l'employé. Exemple : ECO-00123" erreur={erreurMatricule}>
+                    <input id="employe-matricule" className="cix-input" readOnly={saving} value={matricule} onChange={e => setMatricule(e.target.value)} placeholder="ECO-00123"
+                      aria-invalid={erreurMatricule ? true : undefined} aria-describedby={erreurMatricule ? "employe-matricule-erreur" : "employe-matricule-aide"}
+                      style={{ ...champStyle(C), fontFamily: "ui-monospace, monospace", borderColor: erreurMatricule ? C.red : C.border2 }}/>
+                  </ModalField>
+                  <ModalField C={C} id="employe-date" label="Date d'embauche" requis>
+                    <DateField C={C} id="employe-date" value={dateEmbauche} onChange={setDateEmbauche} readOnly={saving}/>
+                  </ModalField>
+                </div>
+              </ModalSection>
+
+              <ModalSection C={C} titre="Contact">
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                  <ModalField C={C} id="employe-tel" label="Téléphone" optionnel>
+                    <IconInput C={C} id="employe-tel" type="tel" autoComplete="tel" readOnly={saving} value={telephone} onChange={e => setTelephone(e.target.value)} placeholder="+224 6xx xx xx xx"
+                      icone={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>}/>
+                  </ModalField>
+                  <ModalField C={C} id="employe-email" label="Email" optionnel>
+                    <IconInput C={C} id="employe-email" type="email" autoComplete="email" readOnly={saving} value={email} onChange={e => setEmail(e.target.value)} placeholder="prenom@entreprise.com"
+                      icone={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>}/>
+                  </ModalField>
+                </div>
+              </ModalSection>
+
+              <ModalSection C={C} titre="Organisation">
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                  <ModalField C={C} id="employe-dept" label="Département" optionnel>
+                    <ComboField C={C} id="employe-dept" valeur={departmentId} onChange={setDepartmentId} readOnly={saving}
+                      options={departments.map(d => ({ value: d.id, label: d.nom }))}
+                      vide={{ titre: "Aucun département", aide: "Créez-en un dans l'onglet Départements." }}/>
+                  </ModalField>
+                  <ModalField C={C} id="employe-poste" label="Poste" optionnel>
+                    <input id="employe-poste" className="cix-input" readOnly={saving} value={poste} onChange={e => setPoste(e.target.value)} placeholder="ex : Caissier" style={champStyle(C)}/>
+                  </ModalField>
+                </div>
+                <ModalField C={C} id="employe-manager" label="Manager" optionnel>
+                  <ComboField C={C} id="employe-manager" valeur={managerId} onChange={setManagerId} readOnly={saving}
+                    options={employees.map(e => ({ value: e.id, label: `${e.prenom} ${e.nom}`, sub: ROLES.find(r => r.value === e.role)?.label, avatar: initialesDe(e) }))}/>
+                </ModalField>
+              </ModalSection>
+
+              <ModalSection C={C} titre="Accès Clock In Shift">
+                <div>
+                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: 500, marginBottom: "6px" }}>Rôle<span aria-hidden="true" style={{ color: C.red, marginLeft: "3px" }}>*</span></div>
+                  <ScheduleTypeCards C={C} ariaLabel="Rôle Clock In Shift" minCarte={170} readOnly={saving} value={role}
+                    onChange={v => { const r = ROLES.find(x => x.value === v); if (r) setRole(r.value); }}
+                    options={ROLES.map(r => ({ value: r.value, label: r.label, desc: DESC_ROLE[r.value] }))}/>
+                </div>
+                <ModalField C={C} id="employe-pin" label="PIN initial (4 chiffres)" requis aide="Communiqué à l'employé pour son premier pointage. Il devra en choisir un nouveau à sa première connexion.">
+                  <PinInput C={C} id="employe-pin" valeur={pin} onChange={v => setPin(v.replace(/\D/g, "").slice(0, 4))} readOnly={saving}/>
+                </ModalField>
+              </ModalSection>
+            </div>
+          </ClockModal>
+        );
+      })()}
 
       {selected && (
         <EmployeDetailModal C={C} employe={selected} departments={departments} employees={employees} workSchedules={workSchedules}
@@ -1161,6 +996,15 @@ function DrawerSection({ C, titre, children }: { C: ThemeTokens; titre: string; 
 // abandonné par Bryan (05/08/2026, refonte Employés/Départements) : "pas
 // identique au projet" — revenu à la convention standard pour rester
 // cohérent avec le reste du dashboard.
+function Sk({ h = 16 }: { h?: number }) {
+  return <div className="cix-skel" style={{ height: h + "px", marginBottom: "8px" }}/>;
+}
+
+const joursPlanning = (pat: Pattern): JourPlanning[] => JOURS.map(j => ({
+  key: j.key, label: j.label, repos: pat.jours[j.key]?.repos ?? true,
+  segments: (pat.jours[j.key]?.segments ?? []).map(g => ({ debut: g.debut, fin: g.fin })),
+}));
+
 function EmployeDetailModal({ C, employe, departments, employees, workSchedules, readOnly, onClose, onToast, onReload }: {
   C: ThemeTokens; employe: Employee; departments: Department[]; employees: Employee[]; workSchedules: WorkSchedule[];
   readOnly: boolean; onClose: () => void; onToast: (msg: string, color?: string) => void; onReload: () => void;
@@ -1194,6 +1038,9 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
   const [corrRaisonJour, setCorrRaisonJour] = useState("");
 
   const [modeEdition, setModeEdition] = useState(false);
+  const [onglet, setOnglet] = useState<"apercu" | "planning" | "presence" | "documents" | "securite">("apercu");
+  const [statutChoisi, setStatutChoisi] = useState<EmployeeStatut>(employe.statut);
+  const [showAddDoc, setShowAddDoc] = useState(false);
   const [editNom, setEditNom] = useState(employe.nom);
   const [editPrenom, setEditPrenom] = useState(employe.prenom);
   const [editTelephone, setEditTelephone] = useState(employe.telephone ?? "");
@@ -1202,7 +1049,6 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
   const [editDepartmentId, setEditDepartmentId] = useState(employe.department_id ?? "");
   const [editManagerId, setEditManagerId] = useState(employe.manager_id ?? "");
 
-  const deptNom = departments.find(d => d.id === employe.department_id)?.nom ?? "Aucun";
   const managerNom = employees.find(m => m.id === employe.manager_id);
   const horaireActuel = assignment ? workSchedules.find(w => w.id === assignment.work_schedule_id) : null;
 
@@ -1391,281 +1237,309 @@ function EmployeDetailModal({ C, employe, departments, employees, workSchedules,
     chargerDocuments();
   }
 
+  const ui = toUiTokens(C);
+  const nomAffiche = nomPropre(`${employe.prenom} ${employe.nom}`);
+  const deptReel = departments.find(d => d.id === employe.department_id)?.nom ?? null;
+  const managerReel = managerNom ? nomPropre(`${managerNom.prenom} ${managerNom.nom}`) : null;
+  const couleurStatut = (st: EmployeeStatut) => (st === "mission" ? C.blue : st === "teletravail" ? C.purple : statutColor(st, C));
+  const roleAff = { label: ROLES.find(r => r.value === employe.role)?.label ?? employe.role, color: employe.role === "admin" ? C.purple : employe.role === "manager" ? C.blue : C.t2 };
+  const modifieFiche = modeEdition && (editNom !== employe.nom || editPrenom !== employe.prenom || editTelephone !== (employe.telephone ?? "") || editEmail !== (employe.email ?? "")
+    || editPoste !== (employe.poste ?? "") || editDepartmentId !== (employe.department_id ?? "") || editManagerId !== (employe.manager_id ?? ""));
+  const joursHoraire = horaireActuel ? joursPlanning(horaireActuel.pattern) : [];
+  const dernierJourCompte = derniers30.length > 0 ? derniers30[derniers30.length - 1].date_jour : null;
+
+  const indicateursPresence = (
+    <>
+      {loadingHistorique ? <Sk h={88}/> : (
+        <AttendanceSummary C={C} items={[
+          { key: "retards", label: "Retards", value: String(retards30), ambre: retards30 > 0 },
+          { key: "absences", label: "Absences", value: String(absences30), alerte: absences30 > 0 },
+          { key: "temps", label: "Temps moyen", titre: "Temps moyen travaillé", value: dureeAffichee(tempsMoyen30) },
+        ]}/>
+      )}
+      {!loadingHistorique && (
+        <div style={{ color: C.t3, fontSize: "12px", marginTop: "-6px", marginBottom: "12px" }}>
+          Sur {derniers30.length < 30 ? `les ${derniers30.length} derniers jours enregistrés` : "les 30 derniers jours"}
+          {dernierJourCompte ? ` · période comptée depuis le ${formatDate(dernierJourCompte)}` : ""}
+        </div>
+      )}
+    </>
+  );
+
   return (
-    <div className="cis-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={onClose}>
-      <style>{`
-        @media(min-width:1024px){
-          .cis-fiche-overlay{align-items:center!important}
-          .cis-fiche-panel{max-width:560px!important;border-radius:20px!important;max-height:86svh!important}
-          .cis-fiche-grip{display:none!important}
-          .cis-fiche-close-x{display:flex!important}
-        }
-      `}</style>
-      <div onClick={e => e.stopPropagation()} className="cis-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-        <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
-        <button onClick={onClose} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <IconClose C={C}/>
-        </button>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
-          <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: `linear-gradient(135deg, ${roleColor(employe.role, C)}30, ${roleColor(employe.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "19px", fontWeight: 800, color: roleColor(employe.role, C), flexShrink: 0 }}>
-            {employe.prenom.slice(0, 1).toUpperCase()}{employe.nom.slice(0, 1).toUpperCase()}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: C.t1, fontSize: "18px", fontWeight: 800 }}>{employe.prenom} {employe.nom}</div>
-            <div style={{ color: C.t3, fontSize: "12px" }}>{employe.poste ?? "Poste non renseigné"} · {deptNom}</div>
-            <div style={{ color: C.t3, fontSize: "11.5px", marginTop: "1px" }}>Manager : {managerNom ? `${managerNom.prenom} ${managerNom.nom}` : "Aucun"}</div>
-          </div>
+    <ClockModal C={C} titre={nomAffiche} labelId="fiche-employe-titre" largeur={760} onClose={onClose} modifie={modifieFiche}
+      entete={<ProfileHeader C={C} labelId="fiche-employe-titre" nom={nomAffiche} poste={employe.poste} departement={deptReel} manager={managerReel}
+        role={roleAff} statut={{ label: statutLabelAffiche(employe.statut), color: couleurStatut(employe.statut) }}/>}
+      sousEntete={
+        <div style={{ padding: "0 24px", flexShrink: 0 }}>
+          <ClockTabs C={C} marge={0} idPrefix="fiche-tab" ariaLabel="Sections de la fiche employé" active={onglet}
+            onChange={k => { if (k === "apercu" || k === "planning" || k === "presence" || k === "documents" || k === "securite") setOnglet(k); }}
+            tabs={[{ key: "apercu", label: "Aperçu" }, { key: "planning", label: "Planning" }, { key: "presence", label: "Présence" }, { key: "documents", label: "Documents", count: documents.length || undefined }, { key: "securite", label: "Sécurité" }]}/>
         </div>
-
-        <div style={{ display: "flex", gap: "6px", marginBottom: "20px" }}>
-          <span style={{ color: roleColor(employe.role, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${roleColor(employe.role, C)}15`, padding: "3px 9px", borderRadius: "20px" }}>{ROLES.find(r => r.value === employe.role)?.label}</span>
-          <span style={{ color: statutColor(employe.statut, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${statutColor(employe.statut, C)}15`, padding: "3px 9px", borderRadius: "20px" }}>{statutLabelAffiche(employe.statut)}</span>
-        </div>
-
-        {/* ── Informations ── */}
-        <DrawerSection C={C} titre="Informations">
-          {modeEdition ? (
-            <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "12px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-                <input value={editPrenom} onChange={e => setEditPrenom(e.target.value)} placeholder="Prénom" style={inputStyle(C)}/>
-                <input value={editNom} onChange={e => setEditNom(e.target.value)} placeholder="Nom" style={inputStyle(C)}/>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-                <input value={editTelephone} onChange={e => setEditTelephone(e.target.value)} placeholder="Téléphone" style={inputStyle(C)}/>
-                <input value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="Email" style={inputStyle(C)}/>
-              </div>
-              <input value={editPoste} onChange={e => setEditPoste(e.target.value)} placeholder="Poste" style={{ ...inputStyle(C), marginBottom: "8px" }}/>
-              <select value={editDepartmentId} onChange={e => setEditDepartmentId(e.target.value)} style={{ ...inputStyle(C), marginBottom: "8px" }}>
-                <option value="">Aucun département</option>
-                {departments.map(d => <option key={d.id} value={d.id}>{d.nom}</option>)}
-              </select>
-              <select value={editManagerId} onChange={e => setEditManagerId(e.target.value)} style={{ ...inputStyle(C), marginBottom: "10px" }}>
-                <option value="">Aucun manager</option>
-                {employees.filter(e => e.id !== employe.id).map(e => <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>)}
-              </select>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setModeEdition(false)}>Annuler</Button>
-                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth loading={saving} onClick={enregistrerInformations}>Enregistrer</Button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              <InfoLigne C={C} label="Téléphone" valeur={employe.telephone ?? "—"}/>
-              <InfoLigne C={C} label="Email" valeur={employe.email ?? "—"}/>
-              <InfoLigne C={C} label="Matricule" valeur={employe.matricule}/>
-              <InfoLigne C={C} label="Date d'embauche" valeur={formatDate(employe.date_embauche)}/>
-              {!readOnly && (
-                <button onClick={() => setModeEdition(true)} style={{ marginTop: "2px", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "12px", cursor: "pointer", padding: 0, textAlign: "left" }}>Modifier les informations</button>
-              )}
-            </div>
-          )}
-        </DrawerSection>
-
-        {/* ── Planning ── */}
-        <DrawerSection C={C} titre="Planning">
-          <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "12px" }}>
-            {loadingAssignment ? (
-              <YelenLoader size={14}/>
-            ) : horaireActuel ? (
-              <>
-                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700, marginBottom: "8px" }}>{horaireActuel.nom} <span style={{ color: C.t3, fontWeight: 500, fontSize: "11px" }}>· depuis le {formatDate(assignment!.date_debut)}</span></div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  {JOURS.map(j => {
-                    const jc = horaireActuel.pattern.jours[j.key];
-                    return (
-                      <div key={j.key} style={{ display: "flex", justifyContent: "space-between", fontSize: "11.5px" }}>
-                        <span style={{ color: C.t2 }}>{j.label}</span>
-                        <span style={{ color: jc?.repos ? C.t3 : C.t1, fontWeight: 600 }}>
-                          {jc?.repos || !jc?.segments.length ? "Repos" : jc.segments.map(s => `${s.debut}-${s.fin}`).join(", ")}
-                        </span>
-                      </div>
-                    );
-                  })}
+      }>
+      {onglet === "apercu" && (
+        <div role="tabpanel" id="fiche-tab-panel-apercu" aria-labelledby="fiche-tab-apercu">
+          <ProfileCard C={C} titre="Informations"
+            action={!readOnly && !modeEdition ? (
+              <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={() => setModeEdition(true)}
+                icon={<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>}>Modifier les informations</Button>
+            ) : undefined}>
+            {modeEdition ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                  <ModalField C={C} id="fiche-prenom" label="Prénom"><input id="fiche-prenom" className="cix-input" value={editPrenom} onChange={e => setEditPrenom(e.target.value)} style={champStyle(C)}/></ModalField>
+                  <ModalField C={C} id="fiche-nom" label="Nom"><input id="fiche-nom" className="cix-input" value={editNom} onChange={e => setEditNom(e.target.value)} style={champStyle(C)}/></ModalField>
+                  <ModalField C={C} id="fiche-tel" label="Téléphone"><input id="fiche-tel" type="tel" className="cix-input" value={editTelephone} onChange={e => setEditTelephone(e.target.value)} style={champStyle(C)}/></ModalField>
+                  <ModalField C={C} id="fiche-email" label="Email"><input id="fiche-email" type="email" className="cix-input" value={editEmail} onChange={e => setEditEmail(e.target.value)} style={champStyle(C)}/></ModalField>
+                  <ModalField C={C} id="fiche-poste" label="Poste"><input id="fiche-poste" className="cix-input" value={editPoste} onChange={e => setEditPoste(e.target.value)} style={champStyle(C)}/></ModalField>
+                  <ModalField C={C} id="fiche-dept" label="Département">
+                    <ComboField C={C} id="fiche-dept" valeur={editDepartmentId} onChange={setEditDepartmentId} aucunLabel="Aucun département" options={departments.map(d => ({ value: d.id, label: d.nom }))}
+                      vide={{ titre: "Aucun département", aide: "Créez-en un dans l'onglet Départements." }}/>
+                  </ModalField>
                 </div>
-              </>
+                <ModalField C={C} id="fiche-manager" label="Manager">
+                  <ComboField C={C} id="fiche-manager" valeur={editManagerId} onChange={setEditManagerId} aucunLabel="Aucun manager"
+                    options={employees.filter(e => e.id !== employe.id).map(e => ({ value: e.id, label: `${e.prenom} ${e.nom}`, sub: ROLES.find(r => r.value === e.role)?.label, avatar: `${e.prenom.slice(0, 1)}${e.nom.slice(0, 1)}`.toUpperCase() }))}/>
+                </ModalField>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                  <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => setModeEdition(false)}>Annuler</Button>
+                  <Button tokens={ui} className="tap" variant="primary" size="md" loading={saving} onClick={enregistrerInformations}>Enregistrer</Button>
+                </div>
+              </div>
             ) : (
-              <div style={{ color: C.t3, fontSize: "12px" }}>Aucun horaire affecté</div>
+              <InfoGrid C={C} items={[
+                { label: "Téléphone", valeur: employe.telephone, href: employe.telephone ? `tel:${employe.telephone.replace(/\s+/g, "")}` : undefined },
+                { label: "Email", valeur: employe.email, href: employe.email ? `mailto:${employe.email}` : undefined },
+                { label: "Matricule", valeur: employe.matricule },
+                { label: "Date d'embauche", valeur: formatDate(employe.date_embauche) },
+                { label: "Département", valeur: deptReel },
+                { label: "Poste", valeur: employe.poste },
+                { label: "Manager", valeur: managerReel },
+              ]}/>
             )}
-            {!readOnly && !showReassign && (
-              <button onClick={() => setShowReassign(true)} style={{ marginTop: "10px", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "12px", cursor: "pointer", padding: 0 }}>
-                {assignment ? "Changer d'horaire" : "Affecter un horaire"}
-              </button>
+          </ProfileCard>
+          <ProfileCard C={C} titre="Présence · 30 derniers jours">{indicateursPresence}</ProfileCard>
+        </div>
+      )}
+
+      {onglet === "planning" && (
+        <div role="tabpanel" id="fiche-tab-panel-planning" aria-labelledby="fiche-tab-planning">
+          <ProfileCard C={C} titre={horaireActuel ? horaireActuel.nom : "Planning"}
+            sousTitre={horaireActuel && assignment ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <StatusPill label={TYPES_HORAIRE.find(t => t.value === horaireActuel.type_horaire)?.label ?? horaireActuel.type_horaire} color={C.blue}/>
+                <span>depuis le {formatDate(assignment.date_debut)}</span>
+              </span>
+            ) : undefined}
+            action={!readOnly && !showReassign && horaireActuel ? (
+              <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={() => setShowReassign(true)}>Changer d&apos;horaire</Button>
+            ) : undefined}>
+            {loadingAssignment ? <><Sk h={32}/><Sk h={32}/><Sk h={32}/></> : horaireActuel ? (
+              <WeekRows C={C} jours={joursHoraire} nuit={horaireActuel.type_horaire === "nuit"}/>
+            ) : (
+              <div style={{ textAlign: "center", padding: "16px 8px" }}>
+                <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Aucun horaire assigné</div>
+                <div style={{ color: C.t2, fontSize: "13px", marginBottom: "12px" }}>Cet employé n&apos;a pas encore de modèle d&apos;horaire.</div>
+                {!readOnly && !showReassign && <Button tokens={ui} className="tap" variant="primary" size="sm" onClick={() => setShowReassign(true)}>Assigner un horaire</Button>}
+              </div>
             )}
             {showReassign && (
-              <div style={{ marginTop: "10px" }}>
-                <select value={nouvelHoraireId} onChange={e => setNouvelHoraireId(e.target.value)} style={{ ...inputStyle(C), marginBottom: "6px" }}>
-                  <option value="">Sélectionner un horaire</option>
-                  {workSchedules.filter(w => w.actif).map(w => <option key={w.id} value={w.id}>{w.nom}</option>)}
-                </select>
-                <input type="date" value={nouvelleDate} onChange={e => setNouvelleDate(e.target.value)} style={{ ...inputStyle(C), marginBottom: "8px" }}/>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setShowReassign(false)}>Annuler</Button>
-                  <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!nouvelHoraireId} loading={saving} onClick={reassigner}>Confirmer</Button>
+              <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+                  <ModalField C={C} id="fiche-horaire" label="Nouvel horaire">
+                    <ComboField C={C} id="fiche-horaire" valeur={nouvelHoraireId} onChange={setNouvelHoraireId} aucunLabel="Sélectionner un horaire" options={workSchedules.filter(w => w.actif).map(w => ({ value: w.id, label: w.nom }))}/>
+                  </ModalField>
+                  <ModalField C={C} id="fiche-horaire-date" label="À partir du">
+                    <DateField C={C} id="fiche-horaire-date" value={nouvelleDate} onChange={setNouvelleDate}/>
+                  </ModalField>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                  <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => setShowReassign(false)}>Annuler</Button>
+                  <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!nouvelHoraireId} loading={saving} onClick={reassigner}>Confirmer</Button>
                 </div>
               </div>
             )}
-          </div>
-        </DrawerSection>
+          </ProfileCard>
+        </div>
+      )}
 
-        {/* ── Présence (30 derniers jours calculés) ── */}
-        <DrawerSection C={C} titre="Présence (30 derniers jours)">
-          {loadingHistorique ? <YelenLoader size={14}/> : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-              <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-                <div style={{ color: C.orange, fontSize: "18px", fontWeight: 800 }}>{retards30}</div>
-                <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Retards</div>
+      {onglet === "presence" && (
+        <div role="tabpanel" id="fiche-tab-panel-presence" aria-labelledby="fiche-tab-presence">
+          {indicateursPresence}
+          <ProfileCard C={C} titre="Historique des derniers pointages"
+            action={!readOnly && !showAjoutPointage ? (
+              <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={() => setShowAjoutPointage(true)}
+                icon={<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}>Ajouter un pointage oublié</Button>
+            ) : undefined}>
+            {showAjoutPointage && (
+              <div style={{ marginBottom: "16px", padding: "14px", border: `1px solid ${C.border}`, borderRadius: "10px", backgroundColor: C.bgCard2, display: "flex", flexDirection: "column", gap: "14px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px" }}>
+                  <ModalField C={C} id="fiche-corr-type" label="Type de pointage">
+                    <select id="fiche-corr-type" className="cix-input" value={corrTypeAction} onChange={e => setCorrTypeAction(e.target.value as "entree" | "sortie")} style={champStyle(C)}>
+                      <option value="entree">Arrivée</option><option value="sortie">Départ</option>
+                    </select>
+                  </ModalField>
+                  <ModalField C={C} id="fiche-corr-date" label="Date et heure">
+                    <input id="fiche-corr-date" type="datetime-local" className="cix-input" value={corrHorodatage} onChange={e => setCorrHorodatage(e.target.value)} style={champStyle(C)}/>
+                  </ModalField>
+                </div>
+                <ModalField C={C} id="fiche-corr-raison" label="Raison" requis aide="Obligatoire, par exemple : oubli signalé par l'employé.">
+                  <input id="fiche-corr-raison" className="cix-input" value={corrRaison} onChange={e => setCorrRaison(e.target.value)} style={champStyle(C)}/>
+                </ModalField>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                  <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => { setShowAjoutPointage(false); setCorrHorodatage(""); setCorrRaison(""); }}>Annuler</Button>
+                  <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!corrHorodatage || !corrRaison.trim()} loading={corrSaving} onClick={ajouterPointageOublie}>Valider</Button>
+                </div>
               </div>
-              <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-                <div style={{ color: C.red, fontSize: "18px", fontWeight: 800 }}>{absences30}</div>
-                <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Absences</div>
-              </div>
-              <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-                <div style={{ color: C.blue, fontSize: "18px", fontWeight: 800 }}>{formatMinutes(tempsMoyen30)}</div>
-                <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: 700 }}>Temps moyen</div>
-              </div>
-            </div>
-          )}
-        </DrawerSection>
-
-        {/* ── Historique (derniers jours) ── */}
-        <DrawerSection C={C} titre="Historique — derniers pointages">
-          {loadingHistorique ? <YelenLoader size={14}/> : historique.slice(0, 7).length === 0 ? (
-            <div style={{ color: C.t3, fontSize: "12px" }}>Aucun historique pour l&apos;instant.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {historique.slice(0, 7).map(h => (
-                <div key={h.id} style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px 10px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ color: C.t2, fontSize: "11.5px" }}>{formatDate(h.date_jour)}</span>
-                    <span style={{ color: C.t3, fontSize: "11px" }}>{formatHeure(h.premiere_entree)} → {formatHeure(h.derniere_sortie)}</span>
-                    <span style={{ color: presenceStatutColor(h.statut, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${presenceStatutColor(h.statut, C)}15`, padding: "2px 8px", borderRadius: "20px" }}>{h.statut}</span>
+            )}
+            {loadingHistorique ? <><Sk h={36}/><Sk h={36}/><Sk h={36}/></> : historique.slice(0, 7).length === 0 ? (
+              <div style={{ color: C.t2, fontSize: "13px" }}>Aucun historique pour l&apos;instant.</div>
+            ) : (
+              <HistoryTable C={C} rows={historique.slice(0, 7).map<HistoryRow>(h => ({
+                id: h.id, date: formatDate(h.date_jour), entree: heure12(h.premiere_entree), sortie: heure12(h.derniere_sortie),
+                statut: h.statut, statutColor: presenceStatutColor(h.statut, C),
+                supp: h.heures_supplementaires_minutes && h.heures_supplementaires_minutes > 0 ? dureeAffichee(h.heures_supplementaires_minutes) : null,
+                horsZone: !!h.horsZone,
+                onCorriger: !readOnly && jourEnCorrection !== h.id ? () => { setJourEnCorrection(h.id); setCorrStatutJour(h.statut); setCorrRaisonJour(""); } : undefined,
+                extra: !readOnly && jourEnCorrection === h.id ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px" }}>
+                      <ModalField C={C} id="fiche-corr-statut" label="Statut du jour">
+                        <select id="fiche-corr-statut" className="cix-input" value={corrStatutJour} onChange={e => setCorrStatutJour(e.target.value as PresenceStatut)} style={champStyle(C)}>
+                          {STATUTS_JOUR.map(st => <option key={st} value={st}>{st}</option>)}
+                        </select>
+                      </ModalField>
+                      <ModalField C={C} id="fiche-corr-raison-jour" label="Raison de la correction" requis>
+                        <input id="fiche-corr-raison-jour" className="cix-input" value={corrRaisonJour} onChange={e => setCorrRaisonJour(e.target.value)} style={champStyle(C)}/>
+                      </ModalField>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                      <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => { setJourEnCorrection(null); setCorrRaisonJour(""); }}>Annuler</Button>
+                      <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!corrRaisonJour.trim()} loading={corrSaving} onClick={() => corrigerStatutJour(h.id)}>Valider</Button>
+                    </div>
                   </div>
-                  {!!h.heures_supplementaires_minutes && h.heures_supplementaires_minutes > 0 && (
-                    <div style={{ color: C.blue, fontSize: "10px", fontWeight: 700, marginTop: "3px" }}>+{formatMinutes(h.heures_supplementaires_minutes)} heures sup.</div>
-                  )}
-                  {h.horsZone && (
-                    <div style={{ color: C.red, fontSize: "10px", fontWeight: 700, marginTop: "3px" }} title="Au moins un pointage de ce jour a eu lieu en dehors de la zone de travail définie">Pointage hors zone ce jour-là</div>
-                  )}
-                  {!readOnly && (jourEnCorrection === h.id ? (
-                    <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: `1px solid ${C.border}` }}>
-                      <select value={corrStatutJour} onChange={e => setCorrStatutJour(e.target.value as PresenceStatut)} style={{ ...inputStyle(C), marginBottom: "6px" }}>
-                        {STATUTS_JOUR.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <input value={corrRaisonJour} onChange={e => setCorrRaisonJour(e.target.value)} placeholder="Raison de la correction (obligatoire)" style={{ ...inputStyle(C), marginBottom: "8px" }}/>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                        <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setJourEnCorrection(null); setCorrRaisonJour(""); }}>Annuler</Button>
-                        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!corrRaisonJour.trim()} loading={corrSaving} onClick={() => corrigerStatutJour(h.id)}>Valider</Button>
+                ) : undefined,
+              }))}/>
+            )}
+          </ProfileCard>
+
+          <ProfileCard C={C} titre="Journal des corrections">
+            {loadingAuditLogs ? <><Sk h={36}/><Sk h={36}/></> : auditLogs.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "12px 8px", color: C.t2, fontSize: "13px" }}>
+                <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: "0 auto 8px" }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Aucune correction enregistrée pour cet employé.
+              </div>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                {auditLogs.map((a, i) => (
+                  <li key={a.id} style={{ padding: "10px 0", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
+                      <span style={{ color: C.t1, fontSize: "14px", fontWeight: 500 }}>{libelleActionAudit(a.action_type)}</span>
+                      <span style={{ color: C.t3, fontSize: "13px" }}>{formatDate(a.created_at.slice(0, 10))}</span>
+                    </div>
+                    <div style={{ color: C.t2, fontSize: "13px", marginTop: "2px" }}>{a.raison}</div>
+                    <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px" }}>Par {a.membre_nom} · {a.audit_id}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </ProfileCard>
+        </div>
+      )}
+
+      {onglet === "documents" && (
+        <div role="tabpanel" id="fiche-tab-panel-documents" aria-labelledby="fiche-tab-documents">
+          <ProfileCard C={C} titre="Documents"
+            action={!readOnly && !showAddDoc ? (
+              <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={() => setShowAddDoc(true)}
+                icon={<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}>Ajouter un document</Button>
+            ) : undefined}>
+            {showAddDoc && !readOnly && (
+              <div style={{ marginBottom: "16px", padding: "14px", border: `1px solid ${C.border}`, borderRadius: "10px", backgroundColor: C.bgCard2, display: "flex", flexDirection: "column", gap: "14px" }}>
+                <ModalField C={C} id="fiche-doc-label" label="Libellé" requis>
+                  <input id="fiche-doc-label" className="cix-input" value={uploadLabel} onChange={e => setUploadLabel(e.target.value)} placeholder="ex : Contrat de travail" style={champStyle(C)}/>
+                </ModalField>
+                <FileDropzone C={C} id="fiche-doc-fichier" fichier={uploadFile} onFichier={setUploadFile} accept="application/pdf,image/jpeg,image/png"/>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                  <Button tokens={ui} className="tap" variant="secondary" size="md" disabled={uploading} onClick={() => { setShowAddDoc(false); setUploadLabel(""); setUploadFile(null); }}>Annuler</Button>
+                  <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!uploadFile || !uploadLabel.trim()} loading={uploading} onClick={televerserDocument}>Ajouter</Button>
+                </div>
+              </div>
+            )}
+            {loadingDocuments ? <><Sk h={40}/><Sk h={40}/></> : documents.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "16px 8px" }}>
+                <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: "0 auto 8px" }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600 }}>Aucun document</div>
+                <div style={{ color: C.t2, fontSize: "13px", marginTop: "2px" }}>Contrat, pièce d&apos;identité, attestation… ajoutez les documents de cet employé.</div>
+              </div>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                {documents.map((doc, i) => (
+                  <li key={doc.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 0", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {doc.signedUrl ? (
+                        <a href={doc.signedUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.t1, fontSize: "14px", fontWeight: 500, textDecoration: "underline", textDecorationColor: C.border2, overflowWrap: "anywhere" }}>{doc.label}</a>
+                      ) : (
+                        <span style={{ color: C.t1, fontSize: "14px", fontWeight: 500, overflowWrap: "anywhere" }}>{doc.label}</span>
+                      )}
+                      <div style={{ color: C.t3, fontSize: "12px" }}>
+                        {formatDate(doc.created_at.slice(0, 10))}{doc.taille ? ` · ${doc.taille > 1048576 ? `${(doc.taille / 1048576).toFixed(1).replace(".", ",")} Mo` : `${Math.max(1, Math.round(doc.taille / 1024))} Ko`}` : ""}
                       </div>
                     </div>
-                  ) : (
-                    <button onClick={() => { setJourEnCorrection(h.id); setCorrStatutJour(h.statut); setCorrRaisonJour(""); }} style={{ marginTop: "6px", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "11px", cursor: "pointer", padding: 0 }}>Corriger le statut de ce jour</button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!readOnly && (
-            showAjoutPointage ? (
-              <div style={{ marginTop: "10px", backgroundColor: C.bg3, borderRadius: "10px", padding: "12px" }}>
-                <select value={corrTypeAction} onChange={e => setCorrTypeAction(e.target.value as "entree" | "sortie")} style={{ ...inputStyle(C), marginBottom: "6px" }}>
-                  <option value="entree">Arrivée</option>
-                  <option value="sortie">Départ</option>
-                </select>
-                <input type="datetime-local" value={corrHorodatage} onChange={e => setCorrHorodatage(e.target.value)} style={{ ...inputStyle(C), marginBottom: "6px" }}/>
-                <input value={corrRaison} onChange={e => setCorrRaison(e.target.value)} placeholder="Raison (obligatoire, ex: oubli signalé par l'employé)" style={{ ...inputStyle(C), marginBottom: "8px" }}/>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setShowAjoutPointage(false); setCorrHorodatage(""); setCorrRaison(""); }}>Annuler</Button>
-                  <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!corrHorodatage || !corrRaison.trim()} loading={corrSaving} onClick={ajouterPointageOublie}>Valider</Button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setShowAjoutPointage(true)} style={{ marginTop: "10px", background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "12px", cursor: "pointer", padding: 0 }}>Ajouter un pointage oublié</button>
-            )
-          )}
-        </DrawerSection>
-
-        {/* ── Journal des corrections (audit trail, lecture seule) ── */}
-        <DrawerSection C={C} titre="Journal des corrections">
-          {loadingAuditLogs ? <YelenLoader size={14}/> : auditLogs.length === 0 ? (
-            <div style={{ color: C.t3, fontSize: "12px" }}>Aucune correction enregistrée pour cet employé.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {auditLogs.map(a => (
-                <div key={a.id} style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px 10px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "3px" }}>
-                    <span style={{ color: C.t1, fontSize: "11.5px", fontWeight: 700 }}>{libelleActionAudit(a.action_type)}</span>
-                    <span style={{ color: C.t3, fontSize: "10px" }}>{formatDate(a.created_at.slice(0, 10))}</span>
-                  </div>
-                  <div style={{ color: C.t2, fontSize: "11px" }}>{a.raison}</div>
-                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>Par {a.membre_nom} · {a.audit_id}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </DrawerSection>
-
-        {/* ── Documents ── */}
-        <DrawerSection C={C} titre="Documents">
-          {loadingDocuments ? <YelenLoader size={14}/> : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: !readOnly ? "10px" : 0 }}>
-              {documents.length === 0 && <div style={{ color: C.t3, fontSize: "12px" }}>Aucun document.</div>}
-              {documents.map(doc => (
-                <div key={doc.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: C.bg3, borderRadius: "8px", padding: "8px 10px" }}>
-                  {doc.signedUrl ? (
-                    <a href={doc.signedUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.t1, fontSize: "12px", fontWeight: 700, textDecoration: "none" }}>{doc.label}</a>
-                  ) : (
-                    <span style={{ color: C.t1, fontSize: "12px", fontWeight: 700 }}>{doc.label}</span>
-                  )}
-                  {!readOnly && (
-                    <button onClick={() => supprimerDocument(doc.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px" }}><IconClose C={C}/></button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {!readOnly && (
-            <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px" }}>
-              <input value={uploadLabel} onChange={e => setUploadLabel(e.target.value)} placeholder="Libellé (ex: Contrat de travail)" style={{ ...inputStyle(C), marginBottom: "6px" }}/>
-              <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} style={{ ...inputStyle(C), marginBottom: "6px", padding: "7px" }}/>
-              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!uploadFile || !uploadLabel.trim()} loading={uploading} onClick={televerserDocument}>
-                Ajouter le document
-              </Button>
-            </div>
-          )}
-        </DrawerSection>
-
-        {!readOnly && (
-          <>
-            {showResetPin ? (
-              <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "12px", marginBottom: "12px" }}>
-                <div style={{ color: C.t2, fontSize: "11.5px", marginBottom: "8px" }}>Nouveau PIN à 4 chiffres pour {employe.prenom} :</div>
-                <input value={nouveauPin} onChange={e => setNouveauPin(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" maxLength={4} placeholder="4 chiffres" style={{ ...inputStyle(C), textAlign: "center", letterSpacing: "4px", marginBottom: "8px" }}/>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => { setShowResetPin(false); setNouveauPin(""); }}>Annuler</Button>
-                  <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" fullWidth disabled={!PIN_REGEX.test(nouveauPin)} loading={saving} onClick={reinitialiserPin}>Valider</Button>
-                </div>
-              </div>
-            ) : (
-              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth style={{ marginBottom: "10px" }} onClick={() => setShowResetPin(true)}>Réinitialiser le PIN</Button>
+                    {!readOnly && (
+                      <button type="button" className="cix-btn tap" aria-label={`Supprimer le document ${doc.label}`} title="Supprimer" onClick={() => supprimerDocument(doc.id)}
+                        style={{ width: "32px", height: "32px", background: "none", border: `1px solid ${C.border}`, borderRadius: "8px", color: C.red, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
+          </ProfileCard>
+        </div>
+      )}
 
-            <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", margin: "12px 0 8px" }}>Changer le statut</div>
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
-              {STATUTS.map(s => (
-                <button key={s.value} onClick={() => changerStatut(s.value)} disabled={s.value === employe.statut || saving} style={{
-                  backgroundColor: s.value === employe.statut ? `${statutColor(s.value, C)}15` : C.bg3,
-                  border: `1px solid ${s.value === employe.statut ? statutColor(s.value, C) + "40" : C.border}`,
-                  color: s.value === employe.statut ? statutColor(s.value, C) : C.t2, fontSize: "11.5px", fontWeight: 700,
-                  padding: "8px 12px", borderRadius: "8px", cursor: s.value === employe.statut ? "default" : "pointer",
-                }}>{s.label}</button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+      {onglet === "securite" && (
+        <div role="tabpanel" id="fiche-tab-panel-securite" aria-labelledby="fiche-tab-securite">
+          {readOnly ? (
+            <div style={{ color: C.t2, fontSize: "13px" }}>Vue en lecture seule : le statut et le PIN ne peuvent pas être modifiés.</div>
+          ) : (
+            <>
+              <ProfileCard C={C} titre="Statut du compte" sousTitre={<span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>Statut actuel <StatusPill label={statutLabelAffiche(employe.statut)} color={couleurStatut(employe.statut)}/></span>}>
+                <ScheduleTypeCards C={C} ariaLabel="Nouveau statut" minCarte={200} value={statutChoisi} readOnly={saving}
+                  onChange={v => { const st = STATUTS.find(x => x.value === v); if (st) setStatutChoisi(st.value); }}
+                  options={STATUTS.map(st => ({
+                    value: st.value, label: st.label,
+                    desc: ({ actif: "Pointage normal", teletravail: "Travaille à distance", mission: "En déplacement professionnel", en_conge: "Absence planifiée", suspendu: "Pointage suspendu", archive: "Ne fait plus partie de l'équipe active", desactive: "Compte désactivé" } as Record<EmployeeStatut, string>)[st.value],
+                    badge: st.value === "suspendu" || st.value === "archive" || st.value === "desactive" ? "Restreint" : undefined,
+                  }))}/>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "14px" }}>
+                  <Button tokens={ui} className="tap" variant="primary" size="md" disabled={statutChoisi === employe.statut} loading={saving} onClick={() => changerStatut(statutChoisi)}>Enregistrer le statut</Button>
+                </div>
+              </ProfileCard>
+
+              <ProfileCard C={C} titre="PIN" sousTitre="Le PIN permet à l'employé de pointer.">
+                {showResetPin ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                    <ModalField C={C} id="fiche-pin" label={`Nouveau PIN à 4 chiffres pour ${employe.prenom}`}>
+                      <PinInput C={C} id="fiche-pin" valeur={nouveauPin} onChange={v => setNouveauPin(v.replace(/\D/g, "").slice(0, 4))} readOnly={saving}/>
+                    </ModalField>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                      <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => { setShowResetPin(false); setNouveauPin(""); }}>Annuler</Button>
+                      <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!PIN_REGEX.test(nouveauPin)} loading={saving} onClick={reinitialiserPin}>Valider</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => setShowResetPin(true)}
+                    icon={<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>}>Réinitialiser le PIN</Button>
+                )}
+              </ProfileCard>
+            </>
+          )}
+        </div>
+      )}
+    </ClockModal>
   );
 }
 
@@ -1689,14 +1563,16 @@ function tailleEquipe(n: number): "petit" | "moyen" | "grand" {
   return "petit";
 }
 
-function DepartementsView({ C, departments, employees, assignments, workSchedules, readOnly, onToast, onReload, active = true }: {
+function DepartementsView({ C, departments, employees, assignments, workSchedules, readOnly, onToast, onReload, active = true, liveHost, erreur }: {
   C: ThemeTokens; departments: Department[]; employees: Employee[]; assignments: Assignment[]; workSchedules: WorkSchedule[];
   readOnly: boolean; onToast: (msg: string, color?: string) => void; onReload: (silencieux?: boolean) => void; active?: boolean;
+  liveHost: HTMLElement | null; erreur: boolean;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [nom, setNom] = useState("");
   const [description, setDescription] = useState("");
   const [responsableId, setResponsableId] = useState("");
+  const [erreurServeur, setErreurServeur] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<Department | null>(null);
   const [recherche, setRecherche] = useState("");
@@ -1773,15 +1649,6 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
   const departementsComplets = departments.filter(d => d.responsable_id && employesDe(d.id).length > 0).length;
   const conformiteGlobale = jourDuJour?.conformite ?? null;
 
-  const kpisDepartements: { label: string; value: string | number; color: string; icon: React.ReactNode }[] = [
-    { label: "Départements", value: departments.length, color: C.purple, icon: <IconBriefcase/> },
-    { label: "Employés", value: employesActifsTotal, color: C.green, icon: <IconUsers/> },
-    { label: "Managers", value: managersUniques, color: C.teal, icon: <IconUserCheck/> },
-    { label: "Départements complets", value: departementsComplets, color: C.blue, icon: <IconCheck/> },
-    { label: "Avec alertes", value: departementsAvecAlerte.length, color: departementsAvecAlerte.length > 0 ? C.orange : C.t3, icon: <IconAlertTriangle/> },
-    { label: "Conformité globale", value: conformiteGlobale === null ? "—" : `${conformiteGlobale}%`, color: C.gold, icon: <IconShield/> },
-  ];
-
   const insights: string[] = [];
   if (departments.length > 0 && jourDuJour) {
     const parPonctualite = departments.map(d => { const s = statsDept(d.id); return { nom: d.nom, retards: s.retards, emps: s.emps.length }; }).filter(d => d.emps > 0);
@@ -1806,13 +1673,14 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
   async function creer() {
     if (!nom.trim()) return;
     setSaving(true);
+    setErreurServeur(null);
     const res = await fetch("/api/institution/clock-in/departments", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nom, description: description || undefined, responsableId: responsableId || undefined }),
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Ce département n'a pas pu être créé.", C.red); return; }
+    if (!res.ok) { setErreurServeur(j?.error || "Ce département n'a pas pu être créé."); onToast(j?.error || "Ce département n'a pas pu être créé.", C.red); return; }
     setShowForm(false); setNom(""); setDescription(""); setResponsableId("");
     onToast("Département créé", C.green);
     onReload();
@@ -1831,212 +1699,149 @@ function DepartementsView({ C, departments, employees, assignments, workSchedule
     URL.revokeObjectURL(url);
   }
 
+  // ── Présentation (aucune logique métier modifiée) ─────────────────────
+  const pluriel = (n: number) => (n > 1 ? "s" : "");
+  const basculerAlertes = () => setFiltreRapide(filtreRapide === "alertes" ? "tous" : "alertes");
+  const kpiItems: AttendanceKpi[] = [
+    { key: "depts", label: "Départements", value: String(departments.length) },
+    { key: "employes", label: "Employés", value: String(employesActifsTotal) },
+    { key: "managers", label: "Managers", value: String(managersUniques) },
+    { key: "complets", label: "Départements complets", value: String(departementsComplets) },
+    { key: "alertes", label: "Avec alertes", value: String(departementsAvecAlerte.length), ambre: departementsAvecAlerte.length > 0, onClick: basculerAlertes, active: filtreRapide === "alertes" },
+    { key: "conformite", label: "Conformité globale", value: conformiteGlobale === null ? "—" : String(conformiteGlobale), unit: conformiteGlobale === null ? undefined : "%" },
+  ];
+  const raisonsDe = (d: Department) => {
+    const s = statsDept(d.id);
+    return [
+      !d.responsable_id && "sans manager",
+      s.emps.length === 0 && "sans employé",
+      s.sansHoraire && s.emps.length > 0 && "au moins un employé sans horaire",
+      s.tauxPresence !== null && s.tauxPresence < 80 && `présence à ${s.tauxPresence}%`,
+    ].filter(Boolean).join(", ");
+  };
+  // Un résumé unique seulement quand plusieurs départements sont en alerte ;
+  // sinon l'alerte reste portée par la carte du département concerné.
+  const alertesGroupees: AttendanceAlert[] = departementsAvecAlerte.length > 1
+    ? departementsAvecAlerte.slice(0, 6).map(d => ({ key: d.id, texte: `${d.nom} — ${raisonsDe(d)}`, noms: [] as string[], action: { label: "Corriger", onClick: () => setSelected(d) } }))
+    : [];
+
+  const FILTRES_DEPT = [
+    { key: "tous", label: "Tous", count: departments.length },
+    { key: "actifs", label: "Actifs", count: departments.filter(d => d.actif === true).length },
+    { key: "alertes", label: "Avec alertes", count: departementsAvecAlerte.length },
+    { key: "sans_manager", label: "Sans manager", count: departments.filter(d => !d.responsable_id).length },
+  ] as const;
+  const aFiltre = filtreRapide !== "tous" || recherche.trim() !== "";
+  function reinitialiserFiltres() { setFiltreRapide("tous"); setRecherche(""); }
+  const chips = [
+    ...(recherche.trim() ? [{ key: "q", label: `Recherche : ${recherche.trim()}`, onRemove: () => setRecherche("") }] : []),
+    ...(filtreRapide !== "tous" ? [{ key: "f", label: FILTRES_DEPT.find(f => f.key === filtreRapide)?.label ?? filtreRapide, onRemove: () => setFiltreRapide("tous") }] : []),
+  ];
+
+  const cartes: DepartmentCardData[] = departementsFiltres.map(d => {
+    const st = statsDept(d.id);
+    const m = managerDe(d.id);
+    const enAlerte = departementsAvecAlerte.includes(d);
+    return {
+      id: d.id, nom: d.nom, nbEmployes: st.emps.length, manager: m ? `${m.prenom} ${m.nom}` : null,
+      badges: [
+        ...(!d.responsable_id ? ["Sans manager"] : []),
+        ...(st.emps.length === 0 ? ["Sans employé"] : []),
+        ...(st.sansHoraire && st.emps.length > 0 ? ["Employé sans horaire"] : []),
+        ...(st.tauxPresence !== null && st.tauxPresence < 80 ? [`Présence à ${st.tauxPresence} %`] : []),
+      ],
+      retards: st.retards, absences: st.absences, taux: st.tauxPresence, horaire: st.horairePrincipal?.nom ?? null,
+      enAlerte, peutAssigner: !readOnly, onOpen: () => setSelected(d), onCorriger: () => setSelected(d),
+    };
+  });
+
+  const repartitionDepts = departments.map(d => ({ id: d.id, nom: d.nom, n: employesDe(d.id).length }));
+  const sansDepartement = employees.filter(e => !e.department_id).length;
+  const tailles = ([["grand", "Très grands (21+)", C.purple], ["moyen", "Moyens (6-20)", C.blue], ["petit", "Petits (1-5)", C.teal]] as const)
+    .map(([key, label, color]) => ({ key, label, color, n: departments.filter(d => tailleEquipe(employesDe(d.id).length) === key).length }))
+    .filter(t => t.n > 0);
+
   return (
     <div>
-      {/* ── Hero header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
-        <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Départements</h2>
-          <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Structurez votre organisation et suivez la performance de chaque département.</p>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
-              Live
-            </span>
-            <span style={{ color: C.t3, fontSize: "10.5px" }}>Dernière synchronisation : {ilYA(lastSync, maintenant)}</span>
-          </div>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          {!readOnly && (
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>+ Nouveau département</Button>
-          )}
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter</Button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => onReload()}>Actualiser</Button>
-        </div>
-      </div>
-
-      {/* ── KPI exécutifs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-        {kpisDepartements.map(k => <SimpleKpiCard key={k.label} {...k} C={C}/>)}
-      </div>
-
-      {showForm && (
-        <div className="cis-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={() => setShowForm(false)}>
-        <style>{`
-          @media(min-width:1024px){
-            .cis-fiche-overlay{align-items:center!important}
-            .cis-fiche-panel{max-width:560px!important;border-radius:20px!important;max-height:86svh!important}
-            .cis-fiche-grip{display:none!important}
-            .cis-fiche-close-x{display:flex!important}
-          }
-        `}</style>
-        <div onClick={e => e.stopPropagation()} className="cis-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-          <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
-          <button onClick={() => setShowForm(false)} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
-
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "16px" }}>Nouveau département</div>
-          <div style={{ marginBottom: "12px" }}>
-            <FormField C={C} label="Nom" placeholder="ex: Comptabilité" value={nom} onChange={setNom} name="nom"/>
-          </div>
-          <div style={{ marginBottom: "12px" }}>
-            <FormField C={C} label="Description (optionnel)" value={description} onChange={setDescription} name="description"/>
-          </div>
-          <label style={labelStyle(C)}>Manager (optionnel)</label>
-          <select value={responsableId} onChange={e => setResponsableId(e.target.value)} style={{ ...inputStyle(C), marginBottom: "14px" }}>
-            <option value="">Aucun</option>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.prenom} {e.nom}</option>)}
-          </select>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setShowForm(false)}>Annuler</Button>
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!nom.trim()} loading={saving} onClick={creer}>
-              Créer
-            </Button>
-          </div>
-        </div>
-        </div>
+      {liveHost && active && createPortal(
+        <LiveIndicator C={C} sync={`synchronisé ${ilYA(lastSync, maintenant)}`} calcul={null} calculPerime={false}/>,
+        liveHost,
       )}
+
+      {erreur && departments.length === 0 ? (
+        <AttendanceError C={C} onRetry={() => onReload()}/>
+      ) : (
+        <>
+          <AttendanceSummary C={C} items={kpiItems} repli={3}/>
+          <AttendanceAlerts C={C} lignes={alertesGroupees} titre={alertesGroupees.length > 0 ? `${alertesGroupees.length} point${pluriel(alertesGroupees.length)} d'attention` : undefined} suggestions={insights}/>
+          <DepartmentsToolbar C={C} avecDonnees={departments.length > 0} search={recherche} onSearch={setRecherche}
+            filtres={FILTRES_DEPT.map(f => ({ key: f.key, label: f.label, count: f.count }))} filtreActif={filtreRapide}
+            onFiltre={k => { const f = FILTRES_DEPT.find(x => x.key === k); if (f) setFiltreRapide(f.key); }}
+            chips={chips} onReset={reinitialiserFiltres} aFiltre={aFiltre} total={departementsFiltres.length}
+            canCreate={!readOnly} onCreate={() => setShowForm(v => !v)} onRefresh={() => onReload()} onExport={exporterCsv}/>
+        </>
+      )}
+
+      {showForm && (() => {
+        const fermer = () => { setShowForm(false); setNom(""); setDescription(""); setResponsableId(""); setErreurServeur(null); };
+        const ui = toUiTokens(C);
+        const erreurNom = erreurServeur && /nom|exist|utilis|doublon/i.test(erreurServeur) ? erreurServeur : null;
+        return (
+          <ClockModal C={C} titre="Nouveau département" sousTitre="Regroupez vos employés par équipe." labelId="departement-modal-titre" largeur={500}
+            onClose={fermer} modifie={!!(nom.trim() || description.trim() || responsableId)}
+            onSubmit={() => { if (nom.trim() && !saving) creer(); }}
+            aide={!nom.trim() ? "Renseignez le nom du département." : undefined}
+            actions={
+              <>
+                <Button tokens={ui} className="tap" variant="secondary" size="md" disabled={saving} onClick={fermer}>Annuler</Button>
+                <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!nom.trim()} loading={saving} onClick={creer}>
+                  {saving ? "Création…" : "Créer"}
+                </Button>
+              </>
+            }>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {erreurServeur && (
+                <div role="alert" style={{ padding: "10px 14px", borderRadius: "8px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, color: C.red, fontSize: "13.5px" }}>{erreurServeur}</div>
+              )}
+              <ModalField C={C} id="departement-nom" label="Nom" requis erreur={erreurNom}>
+                <input id="departement-nom" data-autofocus className="cix-input" readOnly={saving} value={nom} onChange={e => setNom(e.target.value)} placeholder="ex : Comptabilité"
+                  aria-invalid={erreurNom ? true : undefined} aria-describedby={erreurNom ? "departement-nom-erreur" : undefined}
+                  style={{ ...champStyle(C), borderColor: erreurNom ? C.red : C.border2 }}/>
+              </ModalField>
+              <ModalField C={C} id="departement-description" label="Description" optionnel>
+                <textarea id="departement-description" className="cix-input" rows={3} readOnly={saving} value={description} onChange={e => setDescription(e.target.value)}
+                  style={{ ...champStyle(C), height: "auto", minHeight: "88px", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }}/>
+              </ModalField>
+              <ModalField C={C} id="departement-manager" label="Manager" optionnel>
+                <ComboField C={C} id="departement-manager" valeur={responsableId} onChange={setResponsableId} readOnly={saving}
+                  options={employees.map(e => ({ value: e.id, label: `${e.prenom} ${e.nom}`, sub: ROLES.find(r => r.value === e.role)?.label, avatar: `${e.prenom.slice(0, 1)}${e.nom.slice(0, 1)}`.toUpperCase() }))}
+                  vide={{ titre: "Aucun employé disponible", aide: "Ajoutez des employés dans l'onglet Employés." }}/>
+              </ModalField>
+            </div>
+          </ClockModal>
+        );
+      })()}
 
       {departments.length === 0 && !showForm ? (
         <EmptyState C={C} illustration={<IllustrationDepartements C={C}/>}
           titre="Organisez votre entreprise"
           texte="Créez vos départements pour regrouper vos employés et suivre leur présence équipe par équipe."
           cta={!readOnly ? { label: "+ Créer mon premier département", onClick: () => setShowForm(true) } : undefined}/>
-      ) : (
+      ) : departments.length > 0 && !(erreur && departments.length === 0) ? (
         <>
-          {/* ── Répartition ── */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-            <Card tokens={toCardTokens(C)} padding="16px">
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Employés par département</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {(() => {
-                  const max = Math.max(...departments.map(d => employesDe(d.id).length), 1);
-                  return departments.map(d => {
-                    const n = employesDe(d.id).length;
-                    return (
-                      <div key={d.id}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11.5px", marginBottom: "3px" }}>
-                          <span style={{ color: C.t2, fontWeight: 600 }}>{d.nom}</span>
-                          <span style={{ color: C.t1, fontWeight: 800 }}>{n}</span>
-                        </div>
-                        <div style={{ height: "6px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${(n / max) * 100}%`, backgroundColor: C.gold, borderRadius: "3px" }}/>
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </Card>
-
-            <Card tokens={toCardTokens(C)} padding="16px">
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Taille des équipes</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {([["grand", "Très grands (21+)", C.purple], ["moyen", "Moyens (6-20)", C.blue], ["petit", "Petits (1-5)", C.teal]] as const).map(([key, label, color]) => {
-                  const n = departments.filter(d => tailleEquipe(employesDe(d.id).length) === key).length;
-                  return (
-                    <div key={key} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11.5px" }}>
-                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: color, flexShrink: 0 }}/>
-                      <span style={{ color: C.t2, flex: 1 }}>{label}</span>
-                      <span style={{ color: C.t1, fontWeight: 800 }}>{n}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          </div>
-
-          {/* ── Recherche + filtres ── */}
-          <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher un département..." style={{ ...inputStyle(C), marginBottom: "10px" }}/>
-          <div style={{ display: "flex", gap: "6px", marginBottom: "16px", overflowX: "auto" }}>
-            {([
-              { key: "tous", label: "Tous" }, { key: "actifs", label: "Actifs" },
-              { key: "alertes", label: "Avec alertes" }, { key: "sans_manager", label: "Sans manager" },
-            ] as const).map(f => (
-              <button key={f.key} onClick={() => setFiltreRapide(f.key)} className="tap" style={{
-                backgroundColor: filtreRapide === f.key ? C.gold : C.bg3, color: filtreRapide === f.key ? "#000" : C.t2,
-                border: `1px solid ${filtreRapide === f.key ? C.gold : C.border}`, fontWeight: 700, fontSize: "11.5px",
-                padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap",
-              }}>{f.label}</button>
-            ))}
-          </div>
-
-          {/* ── Alertes ── */}
-          {departementsAvecAlerte.length > 0 && (
-            <div style={{ backgroundColor: `${C.orange}0c`, border: `1px solid ${C.orange}30`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-                <span style={{ color: C.orange }}><IconAlertTriangle/></span>
-                <span style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800 }}>Attention</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {departementsAvecAlerte.slice(0, 6).map(d => {
-                  const s = statsDept(d.id);
-                  const raisons = [
-                    !d.responsable_id && "sans manager",
-                    s.emps.length === 0 && "sans employé",
-                    s.sansHoraire && s.emps.length > 0 && "au moins un employé sans horaire",
-                    s.tauxPresence !== null && s.tauxPresence < 80 && `présence à ${s.tauxPresence}%`,
-                  ].filter(Boolean).join(", ");
-                  return <AlerteRhLigne key={d.id} C={C} texte={`${d.nom} — ${raisons}`} onCorriger={() => setSelected(d)}/>;
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── IA Insights ── */}
-          {insights.length > 0 && (
-            <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20`, marginBottom: "20px" }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>Analyse automatique</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {insights.map((texte, i) => <div key={i} style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>{texte}</div>)}
-              </div>
-            </Card>
-          )}
-
-          {/* ── Cartes département ── */}
           {departementsFiltres.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "48px 16px" }}><div style={{ color: C.t2, fontSize: "13px" }}>Aucun département ne correspond à ces critères.</div></div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
-              {departementsFiltres.map(d => {
-                const s = statsDept(d.id);
-                const manager = managerDe(d.id);
-                return (
-                  <Card key={d.id} tokens={toCardTokens(C)} padding="16px" onClick={() => setSelected(d)} className="tap">
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
-                      <div>
-                        <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.3px" }}>{d.nom}</div>
-                        <div style={{ color: C.t3, fontSize: "11.5px", marginTop: "2px" }}>{s.emps.length} employé{s.emps.length > 1 ? "s" : ""}</div>
-                      </div>
-                      <IconChevron C={C}/>
-                    </div>
-                    <div style={{ color: C.t2, fontSize: "11.5px", marginBottom: "10px" }}>Manager : <strong style={{ color: C.t1 }}>{manager ? `${manager.prenom} ${manager.nom}` : "Aucun"}</strong></div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "10px" }}>
-                      <div style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: C.orange, fontSize: "14px", fontWeight: 800 }}>{s.retards}</div>
-                        <div style={{ color: C.t3, fontSize: "9px", fontWeight: 700 }}>Retards</div>
-                      </div>
-                      <div style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px", textAlign: "center" }}>
-                        <div style={{ color: C.red, fontSize: "14px", fontWeight: 800 }}>{s.absences}</div>
-                        <div style={{ color: C.t3, fontSize: "9px", fontWeight: 700 }}>Absences</div>
-                      </div>
-                    </div>
-                    {s.horairePrincipal && (
-                      <div style={{ color: C.t3, fontSize: "10.5px", marginBottom: "8px" }}>Horaire principal : {s.horairePrincipal.nom}</div>
-                    )}
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "4px" }}>
-                      <span style={{ color: C.t3 }}>Présence aujourd&apos;hui</span>
-                      <span style={{ color: C.t1, fontWeight: 800 }}>{s.tauxPresence === null ? "—" : `${s.tauxPresence}%`}</span>
-                    </div>
-                    <div style={{ height: "6px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${s.tauxPresence ?? 0}%`, backgroundColor: s.tauxPresence !== null && s.tauxPresence < 80 ? C.red : C.green, borderRadius: "3px" }}/>
-                    </div>
-                  </Card>
-                );
-              })}
+            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "32px", textAlign: "center" }}>
+              <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Aucun résultat</div>
+              <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Aucun département ne correspond à ces critères.</div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={reinitialiserFiltres}>Réinitialiser</Button>
             </div>
+          ) : (
+            <DepartmentGrid C={C} cartes={cartes}/>
           )}
+          <DistributionCard C={C} departements={repartitionDepts} sansDepartement={sansDepartement} statuts={tailles} total={employees.length}
+            titreDroite="Taille des équipes" totalDroite={departments.length}/>
         </>
-      )}
+      ) : null}
 
       {selected && (
         <DepartementDetailDrawer C={C} departement={selected} employees={employees} stats={statsDept(selected.id)} manager={managerDe(selected.id)}
@@ -2197,9 +2002,10 @@ function estFlexible(t: TypeHoraire): boolean {
   return t !== "fixe";
 }
 
-function HorairesView({ C, workSchedules, employees, departments, assignments, readOnly, onToast, onReload, active = true }: {
+function HorairesView({ C, workSchedules, employees, departments, assignments, readOnly, onToast, onReload, active = true, liveHost, erreur }: {
   C: ThemeTokens; workSchedules: WorkSchedule[]; employees: Employee[]; departments: Department[]; assignments: Assignment[];
   readOnly: boolean; onToast: (msg: string, color?: string) => void; onReload: (silencieux?: boolean) => void; active?: boolean;
+  liveHost: HTMLElement | null; erreur: boolean;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [nom, setNom] = useState("");
@@ -2212,6 +2018,8 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
   const [heuresSupSeuil, setHeuresSupSeuil] = useState(480);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<WorkSchedule | null>(null);
+  const [recherche, setRecherche] = useState("");
+  const [filtreType, setFiltreType] = useState<"tous" | TypeHoraire>("tous");
   const [lastSync, setLastSync] = useState(new Date());
   const [maintenant, setMaintenant] = useState(Date.now());
 
@@ -2235,13 +2043,6 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
   }
 
   const employesPlanifies = new Set(assignationsOuvertes.map(a => a.employee_id)).size;
-  const kpisHoraires: { label: string; value: string | number; color: string; icon: React.ReactNode }[] = [
-    { label: "Modèles actifs", value: workSchedules.filter(w => w.actif).length, color: C.green, icon: <IconClock/> },
-    { label: "Employés planifiés", value: employesPlanifies, color: C.blue, icon: <IconUsers/> },
-    { label: "Horaires flexibles", value: workSchedules.filter(w => estFlexible(w.type_horaire)).length, color: C.purple, icon: <IconAlertTriangle/> },
-    { label: "Horaires fixes", value: workSchedules.filter(w => w.type_horaire === "fixe").length, color: C.teal, icon: <IconCheck/> },
-  ];
-
   const horairesSansEmploye = workSchedules.filter(w => w.actif && employesDuHoraire(w.id).length === 0);
   const insights: string[] = [];
   if (workSchedules.length > 0) {
@@ -2338,152 +2139,131 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
     onReload();
   }
 
+  // ── Présentation (aucune logique métier modifiée) ─────────────────────
+  const pluriel = (n: number) => (n > 1 ? "s" : "");
+  const DESC_TYPE: Record<TypeHoraire, string> = {
+    fixe: "Mêmes horaires chaque jour", fractionne: "Deux plages par jour", nuit: "Travail de nuit", variable: "Horaires différents selon les jours",
+  };
+  const joursDe = (pat: Pattern): JourPlanning[] => JOURS.map(j => ({
+    key: j.key, label: j.label, repos: pat.jours[j.key]?.repos ?? true,
+    segments: (pat.jours[j.key]?.segments ?? []).map(g => ({ debut: g.debut, fin: g.fin })),
+  }));
+  const kpiItems: AttendanceKpi[] = [
+    { key: "actifs", label: "Modèles actifs", value: String(workSchedules.filter(w => w.actif).length) },
+    { key: "planifies", label: "Employés planifiés", value: String(employesPlanifies) },
+    { key: "flexibles", label: "Horaires flexibles", value: String(workSchedules.filter(w => estFlexible(w.type_horaire)).length) },
+    { key: "fixes", label: "Horaires fixes", value: String(workSchedules.filter(w => w.type_horaire === "fixe").length) },
+  ];
+  const terme = recherche.trim().toLowerCase();
+  const horairesFiltres = workSchedules.filter(w => (filtreType === "tous" || w.type_horaire === filtreType) && (!terme || w.nom.toLowerCase().includes(terme)));
+  const filtresType = [
+    { key: "tous", label: "Tous", count: workSchedules.length },
+    ...TYPES_HORAIRE.map(t => ({ key: t.value as string, label: t.label, count: workSchedules.filter(w => w.type_horaire === t.value).length })),
+  ];
+  const aFiltre = filtreType !== "tous" || terme !== "";
+  function reinitialiserFiltres() { setFiltreType("tous"); setRecherche(""); }
+  const chips = [
+    ...(terme ? [{ key: "q", label: `Recherche : ${recherche.trim()}`, onRemove: () => setRecherche("") }] : []),
+    ...(filtreType !== "tous" ? [{ key: "t", label: `Type : ${TYPES_HORAIRE.find(t => t.value === filtreType)?.label ?? filtreType}`, onRemove: () => setFiltreType("tous") }] : []),
+  ];
+  const cartes: ScheduleCardData[] = horairesFiltres.map(w => ({
+    id: w.id, nom: w.nom, typeKey: w.type_horaire, typeLabel: TYPES_HORAIRE.find(t => t.value === w.type_horaire)?.label ?? w.type_horaire,
+    actif: w.actif, nbEmployes: employesDuHoraire(w.id).length, tolerance: w.tolerance_retard_minutes,
+    jours: joursDe(w.pattern), onOpen: () => setSelected(w),
+  }));
+  const alertes = horairesSansEmploye.length > 0 ? [{
+    key: "se", noms: [] as string[],
+    texte: `${horairesSansEmploye.length} horaire${pluriel(horairesSansEmploye.length)} actif${pluriel(horairesSansEmploye.length)} sans employé assigné`,
+  }] : [];
+
+  const joursForm = joursDe(pattern);
+  const modifie = nom.trim() !== "" || type !== "fixe" || JSON.stringify(pattern) !== JSON.stringify(defaultPattern(type))
+    || toleranceRetard !== 10 || toleranceDepart !== 0 || pauseObligatoire !== 0 || heuresSupAutorisees || heuresSupSeuil !== 480;
+  const fermerForm = () => { setShowForm(false); resetForm(); };
+  const avertissements = joursForm.some(j => j.segments.some(g => g.fin <= g.debut) && !j.repos) && type !== "nuit";
+  const ui = toUiTokens(C);
+
   return (
     <div>
-      {/* ── Hero header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
-        <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Horaires</h2>
-          <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Configurez les modèles d&apos;horaires — un modèle modifié met automatiquement à jour tous les employés qui l&apos;utilisent.</p>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
-              Live
-            </span>
-            <span style={{ color: C.t3, fontSize: "10.5px" }}>Dernière synchronisation : {ilYA(lastSync, maintenant)}</span>
-          </div>
-        </div>
-        {!readOnly && (
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>+ Nouveau modèle</Button>
-        )}
-      </div>
-
-      {/* ── KPI exécutifs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-        {kpisHoraires.map(k => <SimpleKpiCard key={k.label} {...k} C={C}/>)}
-      </div>
-
-      {horairesSansEmploye.length > 0 && (
-        <div style={{ backgroundColor: `${C.orange}0c`, border: `1px solid ${C.orange}30`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <span style={{ color: C.orange }}><IconAlertTriangle/></span>
-            <span style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800 }}>Attention</span>
-          </div>
-          <AlerteRhLigne C={C} texte={`${horairesSansEmploye.length} horaire${horairesSansEmploye.length > 1 ? "s" : ""} actif${horairesSansEmploye.length > 1 ? "s" : ""} sans employé assigné`}/>
-        </div>
+      {liveHost && active && createPortal(
+        <LiveIndicator C={C} sync={`synchronisé ${ilYA(lastSync, maintenant)}`} calcul={null} calculPerime={false}/>,
+        liveHost,
       )}
 
-      {insights.length > 0 && (
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ border: `1px solid ${C.gold}20`, marginBottom: "20px" }}>
-          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "10px" }}>Analyse automatique</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {insights.map((texte, i) => <div key={i} style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>{texte}</div>)}
-          </div>
-        </Card>
+      {erreur && workSchedules.length === 0 ? (
+        <AttendanceError C={C} onRetry={() => onReload()}/>
+      ) : (
+        <>
+          <AttendanceSummary C={C} items={kpiItems} repli={2}/>
+          <AttendanceAlerts C={C} lignes={alertes}/>
+          <InfoLine C={C} textes={insights}/>
+          <DepartmentsToolbar C={C} avecDonnees={workSchedules.length > 0} search={recherche} onSearch={setRecherche}
+            filtres={filtresType} filtreActif={filtreType}
+            onFiltre={k => { if (k === "tous") setFiltreType("tous"); else { const t = TYPES_HORAIRE.find(x => x.value === k); if (t) setFiltreType(t.value); } }}
+            chips={chips} onReset={reinitialiserFiltres} aFiltre={aFiltre} total={horairesFiltres.length}
+            canCreate={!readOnly} onCreate={() => setShowForm(v => !v)}
+            unite="modèle" placeholder="Rechercher un modèle…" createLabel="Nouveau modèle"/>
+        </>
       )}
 
       {showForm && (
-        <div className="cis-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={() => { setShowForm(false); resetForm(); }}>
-        <style>{`
-          @media(min-width:1024px){
-            .cis-fiche-overlay{align-items:center!important}
-            .cis-fiche-panel{max-width:560px!important;border-radius:20px!important;max-height:86svh!important}
-            .cis-fiche-grip{display:none!important}
-            .cis-fiche-close-x{display:flex!important}
-          }
-        `}</style>
-        <div onClick={e => e.stopPropagation()} className="cis-fiche-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "560px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-          <div className="cis-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
-          <button onClick={() => { setShowForm(false); resetForm(); }} className="cis-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
+        <ClockModal C={C} titre="Nouveau modèle d'horaire" labelId="horaire-modal-titre" onClose={fermerForm} modifie={modifie}
+          aide={!nom.trim() ? "Renseignez le nom du modèle pour pouvoir l'enregistrer." : avertissements ? "Vérifiez les plages horaires signalées avant d'enregistrer." : undefined}
+          actions={
+            <>
+              <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={fermerForm}>Annuler</Button>
+              <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!nom.trim()} loading={saving} onClick={creer}>
+                {saving ? "Enregistrement…" : "Enregistrer"}
+              </Button>
+            </>
+          }>
+          <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+            <ModalField C={C} id="horaire-nom" label="Nom" requis>
+              <input id="horaire-nom" data-autofocus className="cix-input" value={nom} onChange={e => setNom(e.target.value)} placeholder="ex : Équipe de jour" style={champStyle(C)}/>
+            </ModalField>
 
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "16px" }}>Nouveau modèle d&apos;horaire</div>
-          <div style={{ marginBottom: "12px" }}>
-            <FormField C={C} label="Nom" placeholder="ex: Équipe de jour" value={nom} onChange={setNom} name="nom"/>
-          </div>
+            <div>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 500, marginBottom: "6px" }}>Type</div>
+              <ScheduleTypeCards C={C} value={type} onChange={v => { const t = TYPES_HORAIRE.find(x => x.value === v); if (t) changerType(t.value); }}
+                options={TYPES_HORAIRE.map(t => ({ value: t.value, label: t.label, desc: DESC_TYPE[t.value] }))}/>
+            </div>
 
-          <label style={labelStyle(C)}>Type</label>
-          <div style={{ display: "flex", gap: "6px", marginBottom: "14px", flexWrap: "wrap" }}>
-            {TYPES_HORAIRE.map(t => (
-              <button key={t.value} onClick={() => changerType(t.value)} className="tap" style={{
-                backgroundColor: type === t.value ? `${C.gold}15` : C.bg3, border: `1px solid ${type === t.value ? C.gold + "50" : C.border2}`,
-                color: type === t.value ? C.gold : C.t2, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer",
-              }}>{t.label}</button>
-            ))}
-          </div>
+            <WeekPlanEditor C={C} jours={joursForm} nuit={type === "nuit"}
+              onToggle={toggleRepos} onUpdate={updateSegment} onAdd={ajouterSegment} onRemove={retirerSegment} onApplyAll={appliquerATous}/>
 
-          <label style={labelStyle(C)}>Planning hebdomadaire</label>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "14px" }}>
-            {JOURS.map(j => {
-              const config = pattern.jours[j.key];
-              return (
-                <div key={j.key} style={{ backgroundColor: C.bg3, borderRadius: "8px", padding: "8px 10px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: config.repos ? 0 : "6px" }}>
-                    <span style={{ color: C.t1, fontSize: "12px", fontWeight: 700, width: "36px" }}>{j.label}</span>
-                    <button onClick={() => toggleRepos(j.key)} style={{
-                      backgroundColor: config.repos ? C.bgCard : `${C.green}15`, border: `1px solid ${config.repos ? C.border2 : C.green + "40"}`,
-                      color: config.repos ? C.t3 : C.green, fontWeight: 700, fontSize: "10.5px", padding: "4px 10px", borderRadius: "20px", cursor: "pointer",
-                    }}>{config.repos ? "Repos" : "Travaillé"}</button>
-                  </div>
-                  {!config.repos && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {config.segments.map((s, idx) => (
-                        <div key={idx} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <input type="time" value={s.debut} onChange={e => updateSegment(j.key, idx, "debut", e.target.value)} style={{ ...inputStyle(C), padding: "6px 8px", fontSize: "12px" }}/>
-                          <span style={{ color: C.t3, fontSize: "11px" }}>→</span>
-                          <input type="time" value={s.fin} onChange={e => updateSegment(j.key, idx, "fin", e.target.value)} style={{ ...inputStyle(C), padding: "6px 8px", fontSize: "12px" }}/>
-                          {config.segments.length > 1 && (
-                            <button onClick={() => retirerSegment(j.key, idx)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "4px" }}><IconClose C={C}/></button>
-                          )}
-                        </div>
-                      ))}
-                      <div style={{ display: "flex", gap: "10px" }}>
-                        <button onClick={() => ajouterSegment(j.key)} style={{ background: "none", border: "none", color: C.gold, fontWeight: 700, fontSize: "10.5px", cursor: "pointer", padding: 0 }}>+ Segment</button>
-                        <button onClick={() => appliquerATous(j.key)} style={{ background: "none", border: "none", color: C.t3, fontWeight: 700, fontSize: "10.5px", cursor: "pointer", padding: 0 }}>Appliquer à tous les jours travaillés</button>
-                      </div>
-                    </div>
-                  )}
+            <div>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 500, marginBottom: "6px" }}>Tolérances (minutes)</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px" }}>
+                <ModalField C={C} id="horaire-tol-retard" label="Retard">
+                  <input id="horaire-tol-retard" type="number" min={0} className="cix-input" value={toleranceRetard} onChange={e => setToleranceRetard(Number(e.target.value))} style={champStyle(C)}/>
+                </ModalField>
+                <ModalField C={C} id="horaire-tol-depart" label="Départ anticipé">
+                  <input id="horaire-tol-depart" type="number" min={0} className="cix-input" value={toleranceDepart} onChange={e => setToleranceDepart(Number(e.target.value))} style={champStyle(C)}/>
+                </ModalField>
+                <ModalField C={C} id="horaire-pause" label="Pause obligatoire">
+                  <input id="horaire-pause" type="number" min={0} className="cix-input" value={pauseObligatoire} onChange={e => setPauseObligatoire(Number(e.target.value))} style={champStyle(C)}/>
+                </ModalField>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: "10px" }}>
+                <span id="horaire-hs-label" style={{ color: C.t1, fontSize: "14px" }}>Heures supplémentaires autorisées</span>
+                <button type="button" role="switch" aria-checked={heuresSupAutorisees} aria-labelledby="horaire-hs-label" onClick={() => setHeuresSupAutorisees(v => !v)} className="cix-btn tap"
+                  style={{ width: "40px", height: "22px", borderRadius: "11px", border: "none", backgroundColor: heuresSupAutorisees ? C.green : C.border2, position: "relative", cursor: "pointer", flexShrink: 0 }}>
+                  <span style={{ position: "absolute", top: "3px", left: heuresSupAutorisees ? "21px" : "3px", width: "16px", height: "16px", borderRadius: "50%", backgroundColor: "#fff", transition: "left .15s" }}/>
+                </button>
+              </div>
+              {heuresSupAutorisees && (
+                <div style={{ marginTop: "12px" }}>
+                  <ModalField C={C} id="horaire-hs-seuil" label="Seuil de déclenchement" aide="Minutes travaillées par jour">
+                    <input id="horaire-hs-seuil" type="number" min={0} className="cix-input" value={heuresSupSeuil} onChange={e => setHeuresSupSeuil(Number(e.target.value))} style={champStyle(C)}/>
+                  </ModalField>
                 </div>
-              );
-            })}
-          </div>
-
-          <label style={labelStyle(C)}>Tolérances (minutes)</label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", marginBottom: "14px" }}>
-            <div>
-              <div style={{ color: C.t3, fontSize: "10px", marginBottom: "3px" }}>Retard</div>
-              <input type="number" min={0} value={toleranceRetard} onChange={e => setToleranceRetard(Number(e.target.value))} style={inputStyle(C)}/>
-            </div>
-            <div>
-              <div style={{ color: C.t3, fontSize: "10px", marginBottom: "3px" }}>Départ anticipé</div>
-              <input type="number" min={0} value={toleranceDepart} onChange={e => setToleranceDepart(Number(e.target.value))} style={inputStyle(C)}/>
-            </div>
-            <div>
-              <div style={{ color: C.t3, fontSize: "10px", marginBottom: "3px" }}>Pause obligatoire</div>
-              <input type="number" min={0} value={pauseObligatoire} onChange={e => setPauseObligatoire(Number(e.target.value))} style={inputStyle(C)}/>
+              )}
             </div>
           </div>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: C.bg3, borderRadius: "8px", padding: "10px 12px", marginBottom: heuresSupAutorisees ? "8px" : "14px" }}>
-            <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Heures supplémentaires autorisées</span>
-            <button onClick={() => setHeuresSupAutorisees(v => !v)} style={{ width: "40px", height: "22px", borderRadius: "20px", border: "none", backgroundColor: heuresSupAutorisees ? C.green : C.border2, position: "relative", cursor: "pointer" }}>
-              <div style={{ width: "16px", height: "16px", borderRadius: "50%", backgroundColor: "#fff", position: "absolute", top: "3px", left: heuresSupAutorisees ? "21px" : "3px", transition: "left 0.15s" }}/>
-            </button>
-          </div>
-          {heuresSupAutorisees && (
-            <div style={{ marginBottom: "14px" }}>
-              <div style={{ color: C.t3, fontSize: "10px", marginBottom: "3px" }}>Seuil de déclenchement (minutes travaillées/jour)</div>
-              <input type="number" min={0} value={heuresSupSeuil} onChange={e => setHeuresSupSeuil(Number(e.target.value))} style={inputStyle(C)}/>
-            </div>
-          )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => { setShowForm(false); resetForm(); }}>Annuler</Button>
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth disabled={!nom.trim()} loading={saving} onClick={creer}>
-              Créer l&apos;horaire
-            </Button>
-          </div>
-        </div>
-        </div>
+        </ClockModal>
       )}
 
       {workSchedules.length === 0 && !showForm ? (
@@ -2491,26 +2271,17 @@ function HorairesView({ C, workSchedules, employees, departments, assignments, r
           titre="Définissez vos premiers horaires"
           texte="Un modèle suffit pour commencer — vous pourrez l'affecter à autant d'employés que nécessaire, et le modifier plus tard pour tout le monde en une fois."
           cta={!readOnly ? { label: "+ Créer mon premier horaire", onClick: () => setShowForm(true) } : undefined}/>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
-          {workSchedules.map(w => {
-            const n = employesDuHoraire(w.id).length;
-            return (
-              <Card key={w.id} tokens={toCardTokens(C)} padding="16px" onClick={() => setSelected(w)} className="tap" style={{ opacity: w.actif ? 1 : 0.5 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
-                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>{w.nom}</div>
-                  <IconChevron C={C}/>
-                </div>
-                <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
-                  <span style={{ color: C.gold, fontSize: "9.5px", fontWeight: 800, backgroundColor: `${C.gold}15`, padding: "2px 8px", borderRadius: "20px" }}>{TYPES_HORAIRE.find(t => t.value === w.type_horaire)?.label}</span>
-                  {!w.actif && <span style={{ color: C.t3, fontSize: "9.5px", fontWeight: 800, backgroundColor: C.bg3, padding: "2px 8px", borderRadius: "20px" }}>Archivé</span>}
-                </div>
-                <div style={{ color: C.t2, fontSize: "11.5px" }}>{n} employé{n > 1 ? "s" : ""} · Tolérance {w.tolerance_retard_minutes} min</div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+      ) : workSchedules.length > 0 ? (
+        horairesFiltres.length === 0 ? (
+          <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "32px", textAlign: "center" }}>
+            <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Aucun résultat</div>
+            <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Aucun modèle ne correspond à ces critères.</div>
+            <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={reinitialiserFiltres}>Réinitialiser</Button>
+          </div>
+        ) : (
+          <ScheduleGrid C={C} cartes={cartes}/>
+        )
+      ) : null}
 
       {selected && (
         <HoraireDetailModal C={C} horaire={selected} employesAffectes={employesDuHoraire(selected.id)} tousLesEmployes={employees} departments={departments}
@@ -2686,7 +2457,7 @@ function presenceStatutColor(s: PresenceStatut, C: ThemeTokens): string {
 }
 function formatHeure(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return heureDepuisHorodatage(iso);
 }
 function formatMinutes(min: number): string {
   const h = Math.floor(min / 60);
@@ -2713,73 +2484,8 @@ function ilYA(depuis: Date, maintenant: number): string {
 // Sparkline/KpiCard : même pattern que CentreAnalyseTab.tsx (polyline SVG
 // manuelle, aucune librairie de charts dans le projet) — répliqué ici, pas
 // importé (composants non exportés côté source).
-function CisSparkline({ serie, color }: { serie: number[]; color: string }) {
-  if (serie.length < 2) return null;
-  const max = Math.max(...serie, 1);
-  const points = serie.map((v, i) => {
-    const x = (i / (serie.length - 1)) * 100;
-    const y = 28 - (v / max) * 24 - 2;
-    return `${x},${y}`;
-  }).join(" ");
-  return (
-    <svg viewBox="0 0 100 28" preserveAspectRatio="none" style={{ width: "100%", height: "28px", display: "block" }}>
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-function CisDelta({ delta, unite, C }: { delta: number | null; unite: "valeur" | "pts"; C: ThemeTokens }) {
-  if (delta === null) return <span style={{ color: C.t3, fontSize: "10px" }}>Pas de comparaison</span>;
-  if (delta === 0) return <span style={{ color: C.t3, fontSize: "10px", fontWeight: 700 }}>= vs hier</span>;
-  const positif = delta > 0;
-  return (
-    <span style={{ color: positif ? C.green : C.red, fontSize: "10px", fontWeight: 700 }}>
-      {positif ? "+" : ""}{delta}{unite === "pts" ? " pts" : ""} vs hier
-    </span>
-  );
-}
-function CisKpiCard({ label, icon, color, value, delta, unite, serie, C }: {
-  label: string; icon: React.ReactNode; color: string; value: string; delta: number | null;
-  unite: "valeur" | "pts"; serie: number[]; C: ThemeTokens;
-}) {
-  return (
-    <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
-        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
-      </div>
-      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
-      <CisDelta delta={delta} unite={unite} C={C}/>
-      {serie.some(v => v > 0) && <CisSparkline serie={serie} color={color}/>}
-    </Card>
-  );
-}
-
-function IconCheck() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>;
-}
-function IconAlertTriangle() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
-}
-function IconXCircle() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>;
-}
-function IconHourglass() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 22h14M5 2h14M17 22v-4.17a2 2 0 0 0-.59-1.41L12 12l-4.41 4.42a2 2 0 0 0-.59 1.41V22M7 2v4.17a2 2 0 0 0 .59 1.41L12 12l4.41-4.42A2 2 0 0 0 17 6.17V2"/></svg>;
-}
-function IconShield() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
-}
-function AlerteLigne({ C, texte, noms }: { C: ThemeTokens; texte: string; noms: string[] }) {
-  return (
-    <div>
-      <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700, marginBottom: noms.length > 0 ? "4px" : 0 }}>{texte}</div>
-      {noms.length > 0 && <div style={{ color: C.t3, fontSize: "11px" }}>{noms.join(", ")}</div>}
-    </div>
-  );
-}
-
-function PresencesView({ C, employees, onToast, active = true }: {
-  C: ThemeTokens; employees: Employee[]; onToast: (msg: string, color?: string) => void; active?: boolean;
+function PresencesView({ C, employees, departments, liveHost, onToast, active = true }: {
+  C: ThemeTokens; employees: Employee[]; departments: Department[]; liveHost: HTMLElement | null; onToast: (msg: string, color?: string) => void; active?: boolean;
 }) {
   const [date, setDate] = useState(todayStr());
   const [jour, setJour] = useState<JourReponse>({ records: [], kpis: { present: 0, retard: 0, absent: 0, conge: 0, incomplet: 0, departsAnticipes: 0 }, conformite: null, heuresTravailleesMoyenne: 0 });
@@ -2788,6 +2494,8 @@ function PresencesView({ C, employees, onToast, active = true }: {
   const [loading, setLoading] = useState(true);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [maintenant, setMaintenant] = useState(Date.now());
+  const [recherche, setRecherche] = useState("");
+  const [erreur, setErreur] = useState(false);
 
   const [rapportOuvert, setRapportOuvert] = useState(false);
   const [rapportDebut, setRapportDebut] = useState(joursAvant(todayStr(), 30));
@@ -2837,7 +2545,9 @@ function PresencesView({ C, employees, onToast, active = true }: {
         heuresTravailleesMoyenne: reponses[i].heuresTravailleesMoyenne,
       })));
       setLastSync(new Date());
+      setErreur(false);
     } catch (e) {
+      setErreur(true);
       onToast(e instanceof Error ? e.message : "Erreur de chargement", C.red);
     }
     if (avecSpinner) setLoading(false);
@@ -2921,76 +2631,65 @@ function PresencesView({ C, employees, onToast, active = true }: {
   const avantDernier = tendance.length >= 2 ? tendance[tendance.length - 2] : undefined;
   const dernier = tendance.length >= 1 ? tendance[tendance.length - 1] : undefined;
 
-  const tuiles: { label: string; value: string; delta: number | null; unite: "valeur" | "pts"; color: string; icon: React.ReactNode; serie: number[] }[] = [
-    { label: "Présents", value: String(kpis.present), delta: deltaEntre(kpis.present, avantDernier?.present), unite: "valeur", color: C.green, icon: <IconCheck/>, serie: tendance.map(t => t.present) },
-    { label: "Retards", value: String(kpis.retard), delta: deltaEntre(kpis.retard, avantDernier?.retard), unite: "valeur", color: C.orange, icon: <IconAlertTriangle/>, serie: tendance.map(t => t.retard) },
-    { label: "Absents", value: String(kpis.absent), delta: deltaEntre(kpis.absent, avantDernier?.absent), unite: "valeur", color: C.red, icon: <IconXCircle/>, serie: tendance.map(t => t.absent) },
-    { label: "Incomplets", value: String(kpis.incomplet), delta: deltaEntre(kpis.incomplet, avantDernier?.incomplet), unite: "valeur", color: C.t3, icon: <IconAlertTriangle/>, serie: tendance.map(t => t.incomplet) },
-    { label: "Temps moyen travaillé", value: formatMinutes(jour.heuresTravailleesMoyenne), delta: null, unite: "valeur", color: C.blue, icon: <IconHourglass/>, serie: tendance.map(t => t.heuresTravailleesMoyenne) },
-    { label: "Conformité", value: jour.conformite === null ? "—" : `${jour.conformite}%`, delta: dernier?.conformite !== null && avantDernier?.conformite != null && dernier ? (dernier.conformite ?? 0) - avantDernier.conformite : null, unite: "pts", color: C.gold, icon: <IconShield/>, serie: tendance.map(t => t.conformite ?? 0) },
-    { label: "Heures sup. du jour", value: formatMinutes(jour.heuresSupplementairesTotal ?? 0), delta: null, unite: "valeur", color: C.blue, icon: <IconHourglass/>, serie: [] },
+  const kpiItems: AttendanceKpi[] = [
+    { key: "present", label: "Présents", value: String(kpis.present), dot: C.green, delta: deltaEntre(kpis.present, avantDernier?.present), unite: "valeur" },
+    { key: "retard", label: "Retards", value: String(kpis.retard), dot: C.orange, delta: deltaEntre(kpis.retard, avantDernier?.retard), unite: "valeur" },
+    { key: "absent", label: "Absents", value: String(kpis.absent), dot: C.red, alerte: kpis.absent > 0, delta: deltaEntre(kpis.absent, avantDernier?.absent), unite: "valeur" },
+    { key: "incomplet", label: "Incomplets", value: String(kpis.incomplet), dot: C.t3, delta: deltaEntre(kpis.incomplet, avantDernier?.incomplet), unite: "valeur" },
+    { key: "temps", label: "Temps moyen", titre: "Temps moyen travaillé", value: dureeAffichee(jour.heuresTravailleesMoyenne), delta: null, unite: "valeur" },
+    { key: "conformite", label: "Conformité", value: jour.conformite === null ? "—" : String(jour.conformite), unit: jour.conformite === null ? undefined : "%",
+      delta: dernier?.conformite !== null && avantDernier?.conformite != null && dernier ? (dernier.conformite ?? 0) - avantDernier.conformite : null, unite: "pts" },
+    { key: "hs", label: "Heures sup.", titre: "Heures supplémentaires du jour", value: dureeAffichee(jour.heuresSupplementairesTotal ?? 0), delta: null, unite: "valeur" },
+    // "Hors zone" uniquement si une zone de travail est configurée — sinon la
+    // métrique n'a aucun sens (toujours 0), voir CLAUDE.md /pieges-techniques-connus.
+    ...(jour.zoneConfiguree ? [{ key: "hz", label: "Hors zone", value: String(jour.horsZoneCount ?? 0), dot: C.red, delta: null, unite: "valeur" as const }] : []),
   ];
-  // Tuile "Hors zone" uniquement si une zone de travail est configurée —
-  // sinon la métrique n'a aucun sens et créerait du bruit (toujours 0),
-  // voir CLAUDE.md /pieges-techniques-connus (pas de badge de statut vide).
-  if (jour.zoneConfiguree) {
-    tuiles.push({ label: "Hors zone", value: String(jour.horsZoneCount ?? 0), delta: null, unite: "valeur", color: C.red, icon: <IconAlertTriangle/>, serie: [] });
-  }
 
   const employesSansCalcul = Math.max(0, employesActifs.length - records.length);
+  const nomsDe = (rs: PresenceRecord[]) => rs.slice(0, 5).map(r => { const e = unEmploye(r.employees); return e ? `${e.prenom} ${e.nom}` : "—"; });
+  const alertes: AttendanceAlert[] = [
+    ...(estAujourdhui && pasEncorePointe.length > 0 ? [{ key: "np", texte: `${pasEncorePointe.length} employé${pasEncorePointe.length > 1 ? "s n'ont" : " n'a"} pas encore pointé aujourd'hui`, noms: pasEncorePointe.slice(0, 5).map(e => `${e.prenom} ${e.nom}`) }] : []),
+    ...(estAujourdhui && departsAnticipes.length > 0 ? [{ key: "da", texte: `${departsAnticipes.length} départ${departsAnticipes.length > 1 ? "s anticipés" : " anticipé"} aujourd'hui`, noms: nomsDe(departsAnticipes) }] : []),
+    ...(estAujourdhui && oubliClockOutHier.length > 0 ? [{ key: "oh", texte: `${oubliClockOutHier.length} oubli${oubliClockOutHier.length > 1 ? "s" : ""} de sortie hier`, noms: nomsDe(oubliClockOutHier) }] : []),
+    ...(employesSansCalcul > 0 ? [{ key: "sc", texte: `${employesSansCalcul} employé${employesSansCalcul > 1 ? "s" : ""} actif${employesSansCalcul > 1 ? "s" : ""} sans donnée pour cette date`, detail: "soit le job de calcul n'est pas encore passé, soit aucun horaire ne leur est affecté.", noms: [] as string[] }] : []),
+  ];
+
+  const nomDepartement = new Map(departments.map(d => [d.id, d.nom]));
+  const termeRecherche = recherche.trim().toLowerCase();
+  const lignes: AttendanceRow[] = records
+    .map(r => {
+      const e = unEmploye(r.employees);
+      const nom = e ? `${e.prenom} ${e.nom}` : "—";
+      const dept = e?.department_id ? (nomDepartement.get(e.department_id) ?? null) : null;
+      return {
+        row: {
+          id: r.id, nom, departement: dept, statut: r.statut, statutColor: presenceStatutColor(r.statut, C),
+          corrige: r.override_manuel, horsZone: !!r.horsZone, entree: heure12(r.premiere_entree), sortie: heure12(r.derniere_sortie),
+          heures: dureeAffichee(r.heures_travaillees_minutes), pointages: r.nombre_pointages,
+        } satisfies AttendanceRow,
+        recherche: `${nom} ${e?.matricule ?? ""} ${dept ?? ""}`.toLowerCase(),
+      };
+    })
+    .filter(x => !termeRecherche || x.recherche.includes(termeRecherche))
+    .map(x => x.row);
+
+  const calculDate = jour.dernierCalculAuto ? new Date(jour.dernierCalculAuto) : null;
+  // Seuil de 30 min = 2x la cadence du job (15 min) + marge (Phase 1 roadmap §5.2).
+  const calculPerime = !!calculDate && maintenant - calculDate.getTime() > 30 * 60 * 1000;
 
   return (
     <div>
-      {/* ── Hero header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "20px" }}>
-        <div>
-          <h2 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, letterSpacing: "-0.4px", marginBottom: "4px" }}>Présences temps réel</h2>
-          <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Supervision instantanée de tous les employés planifiés.</p>
-          {estAujourdhui && (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
-                <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
-                Live
-              </span>
-              {lastSync && <span style={{ color: C.t3, fontSize: "10.5px" }}>Dernière synchronisation : {ilYA(lastSync, maintenant)}</span>}
-            </div>
-          )}
-          {/* Fraîcheur du job pg_cron (Phase 1 roadmap §5.2) — distinct de
-              "Dernière synchronisation" ci-dessus (qui ne reflète que le
-              polling du dashboard, toujours récent). Ici : dernier calcul
-              RÉEL de daily_attendance, tous jours confondus pour
-              l'institution. Seuil de 30 min = 2x la cadence du job (15
-              min) + marge, pour ne signaler que les arrêts réels, pas la
-              gigue normale d'exécution. */}
-          {jour.dernierCalculAuto && (() => {
-            const calculDate = new Date(jour.dernierCalculAuto!);
-            const stale = Date.now() - calculDate.getTime() > 30 * 60 * 1000;
-            return (
-              <div style={{ marginTop: "4px" }}>
-                <span style={{ color: stale ? C.red : C.t3, fontSize: "10.5px", fontWeight: stale ? 800 : 400 }}>
-                  Dernier calcul automatique : {ilYA(calculDate, maintenant)}{stale ? " — le job semble à l'arrêt, à vérifier" : ""}
-                </span>
-              </div>
-            );
-          })()}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          <button onClick={() => setDate(todayStr())} className="tap" style={{ backgroundColor: date === todayStr() ? C.gold : C.bg3, color: date === todayStr() ? "#000" : C.t2, border: `1px solid ${date === todayStr() ? C.gold : C.border}`, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Aujourd&apos;hui</button>
-          <button onClick={() => setDate(joursAvant(todayStr(), 1))} className="tap" style={{ backgroundColor: date === joursAvant(todayStr(), 1) ? C.gold : C.bg3, color: date === joursAvant(todayStr(), 1) ? "#000" : C.t2, border: `1px solid ${date === joursAvant(todayStr(), 1) ? C.gold : C.border}`, fontWeight: 700, fontSize: "12px", padding: "8px 12px", borderRadius: "8px", cursor: "pointer" }}>Hier</button>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...inputStyle(C), width: "auto" }}/>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter</Button>
-          <Button tokens={toUiTokens(C)} className="tap" variant={rapportOuvert ? "primary" : "secondary"} size="sm" onClick={() => setRapportOuvert(o => !o)}>Rapport de période</Button>
-          <Button
-            tokens={toUiTokens(C)} className="tap"
-            variant="secondary"
-            size="sm"
-            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
-            onClick={() => chargerTout(date, true)}
-          >
-            Actualiser
-          </Button>
-        </div>
-      </div>
+      {liveHost && active && estAujourdhui && createPortal(
+        <LiveIndicator C={C} sync={lastSync ? `synchronisé ${ilYA(lastSync, maintenant)}` : "synchronisation…"}
+          calcul={calculDate ? `Dernier calcul automatique : ${ilYA(calculDate, maintenant)}` : null} calculPerime={calculPerime}/>,
+        liveHost,
+      )}
+      <span className="cix-sr" aria-live="polite">{`Présences du ${formatDate(date)}`}</span>
+
+      <AttendanceToolbar C={C} date={date} aujourdhui={todayStr()} hier={joursAvant(todayStr(), 1)} onDate={setDate}
+        onPrecedent={() => setDate(joursAvant(date, 1))} onSuivant={() => setDate(joursAvant(date, -1))}
+        search={recherche} onSearch={setRecherche} onRefresh={() => chargerTout(date, true)} onExport={exporterCsv}
+        onRapport={() => setRapportOuvert(o => !o)} rapportOuvert={rapportOuvert}/>
 
       {rapportOuvert && (
         <div style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px", marginBottom: "20px" }}>
@@ -3038,42 +2737,13 @@ function PresencesView({ C, employees, onToast, active = true }: {
       )}
 
       {loading ? (
-        <div style={{ padding: "32px 16px", display: "flex", justifyContent: "center" }}><YelenLoader size={24}/></div>
+        <AttendanceSkeleton/>
+      ) : erreur && records.length === 0 ? (
+        <AttendanceError C={C} onRetry={() => chargerTout(date, true)}/>
       ) : (
         <>
-          {/* ── KPI exécutifs ── */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-            {tuiles.map(t => <CisKpiCard key={t.label} {...t} C={C}/>)}
-          </div>
-
-          {/* ── Centre d'alertes ── */}
-          {estAujourdhui && (pasEncorePointe.length > 0 || departsAnticipes.length > 0 || oubliClockOutHier.length > 0) && (
-            <div style={{ backgroundColor: `${C.orange}0c`, border: `1px solid ${C.orange}30`, borderRadius: "16px", padding: "16px", marginBottom: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-                <span style={{ color: C.orange }}><IconAlertTriangle/></span>
-                <span style={{ color: C.t1, fontSize: "13.5px", fontWeight: 800 }}>Attention</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {pasEncorePointe.length > 0 && (
-                  <AlerteLigne C={C} texte={`${pasEncorePointe.length} employé${pasEncorePointe.length > 1 ? "s n'ont" : " n'a"} pas encore pointé aujourd'hui`} noms={pasEncorePointe.slice(0, 5).map(e => `${e.prenom} ${e.nom}`)}/>
-                )}
-                {departsAnticipes.length > 0 && (
-                  <AlerteLigne C={C} texte={`${departsAnticipes.length} départ${departsAnticipes.length > 1 ? "s anticipés" : " anticipé"} aujourd'hui`} noms={departsAnticipes.slice(0, 5).map(r => { const e = unEmploye(r.employees); return e ? `${e.prenom} ${e.nom}` : "—"; })}/>
-                )}
-                {oubliClockOutHier.length > 0 && (
-                  <AlerteLigne C={C} texte={`${oubliClockOutHier.length} oubli${oubliClockOutHier.length > 1 ? "s" : ""} de sortie hier`} noms={oubliClockOutHier.slice(0, 5).map(r => { const e = unEmploye(r.employees); return e ? `${e.prenom} ${e.nom}` : "—"; })}/>
-                )}
-              </div>
-            </div>
-          )}
-
-          {employesSansCalcul > 0 && (
-            <div style={{ backgroundColor: `${C.t3}12`, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "12px 14px", marginBottom: "16px" }}>
-              <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.5, margin: 0 }}>
-                <strong style={{ color: C.t1 }}>{employesSansCalcul} employé{employesSansCalcul > 1 ? "s" : ""} actif{employesSansCalcul > 1 ? "s" : ""}</strong> sans donnée pour cette date — soit le job de calcul n&apos;est pas encore passé, soit aucun horaire ne leur est affecté.
-              </p>
-            </div>
-          )}
+          <AttendanceSummary C={C} items={kpiItems}/>
+          <AttendanceAlerts C={C} lignes={alertes}/>
 
           {records.length === 0 ? (
             employees.length === 0 ? (
@@ -3082,41 +2752,21 @@ function PresencesView({ C, employees, onToast, active = true }: {
                 texte="Dès que vous aurez ajouté des employés et qu'ils commenceront à pointer, vous verrez leur présence apparaître ici en temps réel."/>
             ) : (
               <EmptyState C={C} illustration={<IllustrationPresences C={C}/>}
-                titre="Rien à afficher pour cette date"
-                texte="Soit personne n'a encore pointé, soit le calcul n'est pas encore passé (toutes les 15 minutes) — revenez dans quelques instants."/>
+                titre="Aucune donnée de présence pour cette date"
+                texte="Soit personne n'a encore pointé, soit le calcul n'est pas encore passé (toutes les 15 minutes) — revenez dans quelques instants."
+                cta={{ label: "Actualiser", onClick: () => chargerTout(date, true) }}/>
             )
-          ) : (
-            <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: "14px", backgroundColor: C.bgCard }}>
-              <table style={{ width: "100%", minWidth: "640px", borderCollapse: "collapse", fontSize: "12.5px" }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                    {["Employé", "Statut", "Entrée", "Sortie", "Heures travaillées", "Pointages"].map(h => (
-                      <th key={h} style={{ textAlign: "left", padding: "10px 14px", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((r, i, arr) => {
-                    const rel = r.employees;
-                    const emp = Array.isArray(rel) ? rel[0] : rel;
-                    return (
-                      <tr key={r.id} style={{ borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                        <td style={{ padding: "12px 14px", fontWeight: 700, color: C.t1, whiteSpace: "nowrap" }}>{emp ? `${emp.prenom} ${emp.nom}` : "—"}</td>
-                        <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                          <span style={{ color: presenceStatutColor(r.statut, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${presenceStatutColor(r.statut, C)}15`, padding: "2px 8px", borderRadius: "20px" }}>{r.statut}</span>
-                          {r.override_manuel && <span style={{ color: C.t3, fontSize: "9.5px", marginLeft: "6px" }}>· corrigé</span>}
-                          {r.horsZone && <span style={{ color: C.red, fontSize: "9.5px", fontWeight: 800, marginLeft: "6px" }} title="Un pointage de ce jour a eu lieu en dehors de la zone de travail définie">· hors zone</span>}
-                        </td>
-                        <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{formatHeure(r.premiere_entree)}</td>
-                        <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{formatHeure(r.derniere_sortie)}</td>
-                        <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{formatMinutes(r.heures_travaillees_minutes)}</td>
-                        <td style={{ padding: "12px 14px", color: C.t3, whiteSpace: "nowrap" }}>{r.nombre_pointages}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          ) : lignes.length === 0 ? (
+            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "32px", textAlign: "center" }}>
+              <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Aucun résultat</div>
+              <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Aucun employé ne correspond à cette recherche.</div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setRecherche("")}>Réinitialiser</Button>
             </div>
+          ) : (
+            <>
+              <AttendanceTable C={C} rows={lignes}/>
+              <div aria-live="polite" style={{ color: C.t2, fontSize: "13px", marginTop: "10px", fontVariantNumeric: "tabular-nums" }}>1–{lignes.length} sur {records.length}</div>
+            </>
           )}
         </>
       )}

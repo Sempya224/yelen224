@@ -83,6 +83,10 @@ const ENDPOINTS_SENSIBLES: { pattern: RegExp; max: number }[] = [
   { pattern: /^\/api\/support\/public\/verify$/, max: 15 },
   // Seuil plus haut : usage légitime répété (rafraîchir le fil de suivi).
   { pattern: /^\/api\/support\/public\/suivi/, max: 40 },
+  // Vérification publique d'un export (24/10/2026) : référence séquentielle
+  // devinable, seule l'empreinte est secrète — plafond bas par IP (état en
+  // mémoire d'instance edge, filet en plus du plafond de la route).
+  { pattern: /^\/api\/verify\/export$/, max: 10 },
 ];
 
 export function seuilEndpointSensible(pathname: string): number | null {

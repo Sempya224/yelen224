@@ -228,7 +228,7 @@ export async function GET(req: NextRequest) {
 
   let query = sb
     .from("attendance_audit_logs")
-    .select("id,audit_id,employee_nom,employee_matricule,action_type,ancienne_valeur,nouvelle_valeur,raison,membre_nom,created_at")
+    .select("id,audit_id,employee_nom,employee_matricule,action_type,daily_attendance_id,ancienne_valeur,nouvelle_valeur,raison,membre_nom,created_at")
     .eq("institution_id", membre.institutionId)
     .order("created_at", { ascending: false })
     .limit(limit);

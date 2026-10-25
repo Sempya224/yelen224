@@ -12,19 +12,29 @@
 // Toutes les actions passent par des routes serveur avec vérification
 // d'ownership JWT (cf. lib/institutionAuth.ts) — aucun appel Supabase
 // client direct ici, ces tables n'ont pas de policy RLS anon/authenticated.
+// Refonte visuelle 23/10/2026 : gabarit de lignes de Paramètres
+// (SecuriteUi.tsx), bandeau de statut honnête, erreur de chargement explicite.
+// Aucune logique PIN / passkeys / TOTP / déconnexion n'a changé.
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { startRegistration, browserSupportsWebAuthn } from "@simplewebauthn/browser";
-import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
-import { YelenLoader } from "@/components/YelenLoader";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { dateHeureComplete } from "@/lib/heure";
 import { ReauthModal } from "./ReauthModal";
 import { TotpSection } from "./TotpSection";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import {
+  BandeauStatut, EtatTexte, LigneSecurite, ModaleSecurite, SectionSecurite, SkeletonSecurite, SousLigneSecurite, StylesSecurite,
+  dateHeureCourte, dateLongue, tempsRelatif,
+} from "./SecuriteUi";
 
 type WebauthnCredential = { id: string; device_label: string | null; created_at: string; last_used_at: string | null };
-type RememberDevice = { id: string; user_agent: string | null; status: string; created_at: string; expires_at: string; is_current_device: boolean };
+type RememberDevice = {
+  id: string; user_agent: string | null; status: string; created_at: string; expires_at: string; is_current_device: boolean;
+  device_label: string | null; device_type: string | null; last_used_at: string | null; ip: string | null;
+};
 type SecurityStatus = {
   pin_configured: boolean; totp_enabled: boolean;
   recovery_email: string | null; recovery_phone: string | null;
@@ -32,12 +42,28 @@ type SecurityStatus = {
 };
 
 // "Activité de sécurité" — Journal d'activité déjà existant
-// (journal_activite/api/institution/journal), filtré sur les connexions du
-// membre courant. Seule "connexion" est journalisée aujourd'hui côté
-// authentification (vérifié dans lib/journalTaxonomie.ts) — changement de
-// PIN/2FA/passkey n'y écrivent pas encore, d'où la note affichée à côté de
-// cette carte plutôt que des sections fabriquées sans données réelles.
+// (journal_activite/api/institution/journal), filtré sur la catégorie
+// authentification du membre courant : connexions, vérifications d'identité,
+// ajout/retrait de clé d'accès, activation/désactivation de la 2FA, pose/retrait
+// du PIN et déconnexion d'appareils (journalisés côté serveur depuis le
+// 23/10/2026). Les échecs de connexion ne sont pas journalisés.
 type JournalEntry = { id: string; action: string; navigateur: string | null; os: string | null; created_at: string };
+
+// Libellés d'affichage par action (la donnée n'est pas modifiée). Action
+// inconnue : repli neutre, jamais "Connexion".
+const LIBELLES_JOURNAL: Record<string, string> = {
+  connexion: "Connexion",
+  reauth_reussie: "Vérification d'identité réussie",
+  reauth_echec: "Échec de vérification d'identité",
+  passkey_ajoutee: "Clé d'accès ajoutée",
+  passkey_retiree: "Clé d'accès retirée",
+  totp_active: "2FA activée",
+  totp_desactive: "2FA désactivée",
+  pin_defini: "Code PIN défini",
+  pin_retire: "Code PIN retiré",
+  appareil_deconnecte: "Appareil déconnecté",
+  appareils_deconnectes: "Autres appareils déconnectés",
+};
 
 function formatUserAgent(ua: string | null): string {
   if (!ua) return "Appareil inconnu";
@@ -46,20 +72,27 @@ function formatUserAgent(ua: string | null): string {
   return `${browser} sur ${os}`;
 }
 
-function timeAgoShort(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "à l'instant";
-  if (m < 60) return `il y a ${m} min`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `il y a ${h} h`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `il y a ${d} j`;
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-}
-
-function SectionTitle({ C, label }: { C: ThemeTokens; label: string }) {
-  return <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>{label}</div>;
+// Confirmation en deux temps, en ligne (comme « Refuser » d'un RDV) : un premier
+// clic demande confirmation, un second exécute. Échap ou « Annuler » abandonne.
+function ActionDeuxTemps({ tokens, C, enConfirmation, libelle, libelleConfirmer, ariaDemande, ariaConfirmer, ariaAnnuler, onDemander, onConfirmer, onAnnuler }: {
+  tokens: ReturnType<typeof toUiTokens>; C: ThemeTokens; enConfirmation: boolean;
+  libelle: string; libelleConfirmer: string; ariaDemande: string; ariaConfirmer: string; ariaAnnuler: string;
+  onDemander: () => void; onConfirmer: () => void | Promise<void>; onAnnuler: () => void;
+}) {
+  const classeBouton = "tap yelen-focus-ring";
+  if (!enConfirmation) {
+    return (
+      <Button tokens={tokens} className={classeBouton} variant="secondary" size="md" style={{ color: C.red, border: `1px solid ${C.red}40` }} ariaLabel={ariaDemande} onClick={onDemander}>
+        {libelle}
+      </Button>
+    );
+  }
+  return (
+    <span data-confirmer="true" role="group" aria-label="Confirmation requise" onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); onAnnuler(); } }} style={{ display: "inline-flex", gap: "8px" }}>
+      <Button tokens={tokens} className={classeBouton} variant="danger" size="md" ariaLabel={ariaConfirmer} onClick={onConfirmer}>{libelleConfirmer}</Button>
+      <Button tokens={tokens} className={classeBouton} variant="secondary" size="md" ariaLabel={ariaAnnuler} onClick={onAnnuler}>Annuler</Button>
+    </span>
+  );
 }
 
 export function SecuriteCompteTab({ }: { instId: string }) {
@@ -68,6 +101,7 @@ export function SecuriteCompteTab({ }: { instId: string }) {
 
   const [security, setSecurity] = useState<SecurityStatus | null>(null);
   const [securityLoading, setSecurityLoading] = useState(true);
+  const [securityError, setSecurityError] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [msg, setMsg] = useState<{ text: string; color: string } | null>(null);
   const [journal, setJournal] = useState<JournalEntry[] | null>(null);
@@ -82,6 +116,8 @@ export function SecuriteCompteTab({ }: { instId: string }) {
   const [deviceLabelInput, setDeviceLabelInput] = useState("");
   const [showLabelPrompt, setShowLabelPrompt] = useState(false);
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
+  // Ligne dont le retrait / la déconnexion attend sa confirmation (une seule à la fois).
+  const [aConfirmer, setAConfirmer] = useState<{ type: "passkey" | "appareil"; id: string } | null>(null);
   const [reauthOpen, setReauthOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const [reauthReason, setReauthReason] = useState<string | undefined>(undefined);
@@ -94,12 +130,14 @@ export function SecuriteCompteTab({ }: { instId: string }) {
 
   async function loadSecurity() {
     setSecurityLoading(true);
+    setSecurityError(false);
     try {
       const res = await fetch("/api/institution/security-status");
       if (res.status === 403) { setForbidden(true); setSecurityLoading(false); return; }
       const data = await res.json();
       if (res.ok) setSecurity(data);
-    } catch { /* silencieux, écran garde son état précédent */ }
+      else setSecurityError(true);
+    } catch { setSecurityError(true); }
     setSecurityLoading(false);
   }
 
@@ -115,6 +153,11 @@ export function SecuriteCompteTab({ }: { instId: string }) {
   }
 
   useEffect(() => { loadSecurity(); loadJournal(); }, []);
+
+  // Le focus passe sur « Confirmer » quand la confirmation apparaît.
+  useEffect(() => {
+    if (aConfirmer) document.querySelector<HTMLElement>("[data-confirmer] button")?.focus();
+  }, [aConfirmer]);
 
   async function submitSetPin() {
     setPinError("");
@@ -253,13 +296,29 @@ export function SecuriteCompteTab({ }: { instId: string }) {
   // statut.
   const activeDevices = (security?.remember_devices ?? []).filter(d => d.status !== "revoked");
 
+  // Numérotation d'affichage seulement : « Chrome sur Windows · appareil 2 »
+  // quand plusieurs appareils partagent le même navigateur et système.
+  const nomsAppareils = activeDevices.map(d => formatUserAgent(d.user_agent));
+  const nomAffiche = (index: number): string => {
+    const base = nomsAppareils[index];
+    if (nomsAppareils.filter(n => n === base).length < 2) return base;
+    return `${base} · appareil ${nomsAppareils.slice(0, index + 1).filter(n => n === base).length}`;
+  };
+
   // Statut de sécurité — calculé côté client à partir des données déjà
   // chargées (même principe que score_sante sur l'Accueil : jamais
-  // persisté, recalculé à chaque affichage). Pas de notion d'"alerte" :
-  // aucun moteur de détection de risque n'existe encore (voir Phase
-  // suivante du chantier Security Center), l'afficher inventerait un
-  // signal qui n'existe pas.
-  const protectionsActives = [security?.pin_configured, security?.totp_enabled, (security?.webauthn_credentials.length ?? 0) > 0].filter(Boolean).length;
+  // persisté, recalculé à chaque affichage). Protection forte = au moins une
+  // clé d'accès OU la 2FA du membre connecté ; le PIN seul ne suffit pas (il
+  // ne sert qu'au déverrouillage rapide). Pas de notion d'"alerte" : aucun
+  // moteur de détection de risque n'existe encore.
+  const nbCles = security?.webauthn_credentials.length ?? 0;
+  const protectionForte = nbCles > 0 || !!security?.totp_enabled;
+  const chips = security ? [
+    security.pin_configured ? "PIN actif" : "PIN non défini",
+    nbCles === 0 ? "Aucune clé d'accès" : nbCles === 1 ? "1 clé d'accès" : `${nbCles} clés d'accès`,
+    security.totp_enabled ? "2FA activée" : "2FA non activée",
+    activeDevices.length === 0 ? "Aucun appareil mémorisé" : `${activeDevices.length} appareil${activeDevices.length > 1 ? "s" : ""} mémorisé${activeDevices.length > 1 ? "s" : ""}`,
+  ] : [];
 
   function maskEmail(email: string): string {
     const [local, domain] = email.split("@");
@@ -278,195 +337,210 @@ export function SecuriteCompteTab({ }: { instId: string }) {
     );
   }
 
+  const premierChargement = securityLoading && security === null;
+  const erreurChargement = !securityLoading && security === null && securityError;
+  const boutonRougeDoux = { color: C.red, border: `1px solid ${C.red}40` } as const;
+  const classeBouton = "tap yelen-focus-ring";
+
   return (
-    <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "16px" }}>Sécurité du compte</h1>
+    <div className="yelen-page" style={{ padding: "20px 16px 100px" }}>
+      <StylesSecurite C={C}/>
+      <div style={{ maxWidth: "880px", margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", marginBottom: "16px" }}>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ color: C.t1, fontSize: "24px", fontWeight: 600, lineHeight: 1.25, margin: "0 0 4px" }}>Sécurité du compte</h1>
+            <p style={{ color: C.t2, fontSize: "13.5px", margin: 0 }}>Protégez l&apos;accès à votre établissement</p>
+          </div>
+          <HelpCenterGuide tab="parametres-securite" />
+        </div>
 
         {msg && (
-          <div style={{ position: "fixed", top: "66px", left: "50%", transform: "translateX(-50%)", zIndex: 950, backgroundColor: C.bgCard2, border: `1px solid ${msg.color}40`, borderLeft: `3px solid ${msg.color}`, borderRadius: "12px", padding: "10px 16px", color: C.t1, fontSize: "12px", fontWeight: "700", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
+          <div role="status" aria-live="polite" style={{ position: "fixed", top: "66px", left: "50%", transform: "translateX(-50%)", zIndex: 950, backgroundColor: C.bgCard2, border: `1px solid ${msg.color}40`, borderLeft: `3px solid ${msg.color}`, borderRadius: "12px", padding: "10px 16px", color: C.t1, fontSize: "13px", fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", maxWidth: "calc(100vw - 32px)" }}>
             {msg.text}
           </div>
         )}
 
-        {/* ── STATUT DE SÉCURITÉ ── */}
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px", border: `1px solid ${protectionsActives > 0 ? C.green + "40" : C.gold + "40"}` }}>
-          {securityLoading ? (
-            <YelenLoader size={16}/>
-          ) : protectionsActives > 0 ? (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-                <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: `linear-gradient(135deg, ${C.green}25, ${C.green}10)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 5v6c0 5.2 3.4 9.4 8 11 4.6-1.6 8-5.8 8-11V5z"/><path d="M9 12l2 2 4-4"/></svg>
-                </div>
-                <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Votre compte est protégé</span>
-              </div>
-              <div style={{ color: C.t3, fontSize: "11.5px" }}>{protectionsActives} protection{protectionsActives > 1 ? "s" : ""} active{protectionsActives > 1 ? "s" : ""} · {activeDevices.length} appareil{activeDevices.length > 1 ? "s" : ""} connecté{activeDevices.length > 1 ? "s" : ""}</div>
-            </>
-          ) : (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-                <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 5v6c0 5.2 3.4 9.4 8 11 4.6-1.6 8-5.8 8-11V5z"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                </div>
-                <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Votre compte peut être mieux protégé</span>
-              </div>
-              <div style={{ color: C.t3, fontSize: "11.5px" }}>Activez un code PIN, la double authentification ou une clé d&apos;accès ci-dessous.</div>
-            </>
-          )}
-        </Card>
+        {premierChargement && <SkeletonSecurite C={C}/>}
 
-        {/* ── CONNEXION & AUTHENTIFICATION ── */}
-        <SectionTitle C={C} label="Connexion & authentification"/>
-        <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "14px" }}>
-          {/* Mot de passe — pas encore de changement self-service (voir
-              lib/institutionAuth.ts) : ligne informative uniquement, jamais
-              de bouton qui ne mènerait nulle part. */}
-          <div style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Mot de passe</div>
-              <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>Modification en ligne bientôt disponible</div>
+        {erreurChargement && (
+          <div role="alert" className="sec-carte" style={{ padding: "16px", marginBottom: "24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ color: C.t1, fontSize: "14px", fontWeight: 500 }}>Informations de sécurité indisponibles</div>
+              <div style={{ color: C.t2, fontSize: "13px", marginTop: "1px" }}>Aucun état de protection n&apos;est affiché tant que les données ne sont pas chargées.</div>
             </div>
-            <span style={{ color: C.t3, fontSize: "9px", fontWeight: "800", textTransform: "uppercase", flexShrink: 0 }}>Bientôt</span>
+            <Button tokens={uiTokens} variant="secondary" size="md" className={classeBouton} loading={securityLoading} onClick={loadSecurity}>Réessayer</Button>
           </div>
+        )}
 
-          {/* Clés d'accès (Passkeys / WebAuthn) — anciennement "Biométrie" :
-              la biométrie de l'appareil ne fait que débloquer localement la
-              clé, Yelen ne stocke jamais de donnée biométrique (voir
-              register-verify/route.ts, credential_id + clé publique
-              uniquement). */}
-          <div style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: (security?.webauthn_credentials.length ?? 0) > 0 ? "10px" : 0 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Clés d&apos;accès (Passkeys)</div>
-                <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>
-                  {securityLoading ? <YelenLoader size={10}/> : `${security?.webauthn_credentials.length ?? 0} clé(s) enregistrée(s)`}
-                </div>
-              </div>
-              {browserSupportsWebAuthn() && (
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold, border: `1px solid ${C.gold}30`, flexShrink: 0 }} loading={addingDevice} onClick={() => setShowLabelPrompt(true)}>
-                  Ajouter cet appareil
-                </Button>
-              )}
-            </div>
-            {(security?.webauthn_credentials.length ?? 0) > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {security!.webauthn_credentials.map((cred, i) => (
-                  <div key={cred.id} style={{ display: "flex", alignItems: "center", gap: "10px", backgroundColor: C.bg3, borderRadius: "10px", padding: "9px 11px" }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cred.device_label || `Passkey #${i + 1}`}</div>
-                      <div style={{ color: C.t3, fontSize: "10px", marginTop: "1px" }}>{cred.last_used_at ? `Utilisée ${timeAgoShort(cred.last_used_at)}` : `Ajoutée ${timeAgoShort(cred.created_at)}`}</div>
-                    </div>
-                    <button onClick={() => revokeWebauthn(cred.id)} className="tap" style={{ background: "none", border: "none", color: C.red, fontSize: "11px", fontWeight: "700", cursor: "pointer", flexShrink: 0 }}>Retirer</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        {security && (
+          <>
+            <BandeauStatut C={C} fort={protectionForte} chips={chips}/>
 
-          {/* PIN */}
-          <div style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Code PIN Yelen</div>
-              <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>
-                {securityLoading ? <YelenLoader size={10}/> : security?.pin_configured ? "Configuré — déverrouillage rapide actif" : "Non configuré"}
-              </div>
-            </div>
-            {!securityLoading && (
-              <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ color: C.gold, border: `1px solid ${C.gold}30` }} onClick={() => { setPinModal("set"); setPinValue(""); setPinConfirm(""); setPinError(""); }}>
-                  {security?.pin_configured ? "Modifier" : "Définir"}
-                </Button>
-                {security?.pin_configured && (
-                  <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" onClick={() => { setPinModal("delete"); setPinValue(""); setPinError(""); }}>
-                    Supprimer
+            {/* ── CONNEXION & AUTHENTIFICATION ── */}
+            <SectionSecurite C={C} id="sec-connexion" titre="Connexion & authentification">
+              {/* Mot de passe — pas encore de changement self-service (voir
+                  lib/institutionAuth.ts) : ligne informative uniquement, jamais
+                  de bouton qui ne mènerait nulle part. */}
+              <LigneSecurite
+                C={C} icone="mot-de-passe" titre="Mot de passe" description="Modification en ligne bientôt disponible"
+                etat={<EtatTexte C={C} libelle="Bientôt"/>}
+              />
+
+              {/* Clés d'accès (Passkeys / WebAuthn) — anciennement "Biométrie" :
+                  la biométrie de l'appareil ne fait que débloquer localement la
+                  clé, Yelen ne stocke jamais de donnée biométrique (voir
+                  register-verify/route.ts, credential_id + clé publique
+                  uniquement). */}
+              <LigneSecurite
+                C={C} icone="cle" titre="Clés d'accès (Passkeys)" description={`${nbCles} clé(s) enregistrée(s)`}
+                etat={<EtatTexte C={C} ok={nbCles > 0} libelle={nbCles > 0 ? "Configuré" : "Non activé"}/>}
+                action={browserSupportsWebAuthn() ? (
+                  <Button tokens={uiTokens} className={classeBouton} variant="secondary" size="md" loading={addingDevice} onClick={() => setShowLabelPrompt(true)}>
+                    Ajouter cet appareil
                   </Button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* 2FA TOTP — TotpSection.tsx, partagée avec ProfilTab.tsx
-              (Administration & accès, tous rôles) depuis le 16/09/2026. */}
-          <div style={{ padding: "13px 16px" }}>
-            <TotpSection onToast={notify} onChange={loadSecurity}/>
-          </div>
-        </Card>
-
-        {/* ── APPAREILS & SESSIONS ── */}
-        <SectionTitle C={C} label="Appareils & sessions"/>
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: activeDevices.length > 0 ? "10px" : 0 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: C.t3, fontSize: "11px" }}>Déverrouillage rapide sans OTP à chaque connexion</div>
-            </div>
-            {activeDevices.length > 1 && (
-              <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" style={{ flexShrink: 0, whiteSpace: "nowrap" }} onClick={() => setConfirmRevokeAll(true)}>
-                Déconnecter les autres
-              </Button>
-            )}
-          </div>
-          {activeDevices.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {activeDevices.map(dev => (
-                <div key={dev.id} style={{ display: "flex", alignItems: "center", gap: "10px", backgroundColor: C.bg3, borderRadius: "10px", padding: "9px 11px" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700", display: "flex", alignItems: "center", gap: "6px" }}>
-                      {formatUserAgent(dev.user_agent)}
-                      {dev.is_current_device && <span style={{ backgroundColor: `${C.green}15`, color: C.green, fontSize: "9px", fontWeight: "800", padding: "2px 6px", borderRadius: "8px" }}>Cet appareil</span>}
-                    </div>
-                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "1px" }}>Mémorisé {timeAgoShort(dev.created_at)}</div>
+                ) : undefined}
+              >
+                {nbCles > 0 && (
+                  <div role="group" aria-label="Clés d'accès enregistrées">
+                    {security.webauthn_credentials.map((cred, i) => {
+                      const nom = cred.device_label || `Passkey #${i + 1}`;
+                      return (
+                        <SousLigneSecurite
+                          key={cred.id} C={C} titre={nom}
+                          description={cred.last_used_at ? `Utilisée le ${dateLongue(cred.last_used_at)}` : `Ajoutée le ${dateLongue(cred.created_at)}`}
+                          action={
+                            <ActionDeuxTemps
+                              tokens={uiTokens} C={C} enConfirmation={aConfirmer?.type === "passkey" && aConfirmer.id === cred.id}
+                              libelle="Retirer" libelleConfirmer="Confirmer le retrait"
+                              ariaDemande={`Retirer la clé d'accès ${nom}`} ariaConfirmer={`Confirmer le retrait de la clé d'accès ${nom}`} ariaAnnuler={`Annuler le retrait de la clé d'accès ${nom}`}
+                              onDemander={() => setAConfirmer({ type: "passkey", id: cred.id })}
+                              onConfirmer={async () => { setAConfirmer(null); await revokeWebauthn(cred.id); }}
+                              onAnnuler={() => setAConfirmer(null)}
+                            />
+                          }
+                        />
+                      );
+                    })}
                   </div>
-                  {!dev.is_current_device && (
-                    <button onClick={() => revokeRememberDevice(dev.id)} className="tap" style={{ background: "none", border: "none", color: C.red, fontSize: "11px", fontWeight: "700", cursor: "pointer", flexShrink: 0 }}>Déconnecter</button>
-                  )}
+                )}
+              </LigneSecurite>
+
+              {/* PIN */}
+              <LigneSecurite
+                C={C} icone="pin" titre="Code PIN Yelen" description={security.pin_configured ? "Configuré — déverrouillage rapide actif" : "Non configuré"}
+                etat={<EtatTexte C={C} ok={security.pin_configured} libelle={security.pin_configured ? "Configuré" : "Non activé"}/>}
+                action={
+                  <>
+                    <Button tokens={uiTokens} className={classeBouton} variant="secondary" size="md" ariaLabel={security.pin_configured ? "Modifier le code PIN" : "Définir le code PIN"} onClick={() => { setPinModal("set"); setPinValue(""); setPinConfirm(""); setPinError(""); }}>
+                      {security.pin_configured ? "Modifier" : "Définir"}
+                    </Button>
+                    {security.pin_configured && (
+                      <Button tokens={uiTokens} className={classeBouton} variant="secondary" size="md" style={boutonRougeDoux} ariaLabel="Supprimer le code PIN" onClick={() => { setPinModal("delete"); setPinValue(""); setPinError(""); }}>
+                        Supprimer
+                      </Button>
+                    )}
+                  </>
+                }
+              />
+
+              {/* 2FA TOTP — TotpSection.tsx, partagée avec ProfilTab.tsx
+                  (Administration & accès, tous rôles) depuis le 16/09/2026. */}
+              <TotpSection variante="ligne" onToast={notify} onChange={loadSecurity}/>
+            </SectionSecurite>
+
+            {/* ── APPAREILS & SESSIONS ── */}
+            <SectionSecurite C={C} id="sec-appareils" titre="Appareils & sessions">
+              <LigneSecurite
+                C={C} icone="appareil" titre="Appareils mémorisés" description="Déverrouillage rapide sans OTP à chaque connexion"
+                action={activeDevices.length > 1 ? (
+                  <Button tokens={uiTokens} className={classeBouton} variant="secondary" size="md" style={{ ...boutonRougeDoux, whiteSpace: "nowrap" }} ariaLabel={`Déconnecter les ${activeDevices.length - 1} autres appareils`} onClick={() => setConfirmRevokeAll(true)}>
+                    Déconnecter les autres ({activeDevices.length - 1})
+                  </Button>
+                ) : undefined}
+              />
+              {activeDevices.length > 0 ? activeDevices.map((dev, i) => {
+                const nom = nomAffiche(i);
+                const memorise = dateHeureCourte(dev.created_at);
+                return (
+                  <LigneSecurite
+                    key={dev.id} C={C} icone="appareil"
+                    titre={
+                      <>
+                        {nom}
+                        {dev.is_current_device && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", border: `1px solid ${C.green}60`, color: C.t1, fontSize: "12px", fontWeight: 500, padding: "1px 8px", borderRadius: "10px" }}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                            Cet appareil
+                          </span>
+                        )}
+                      </>
+                    }
+                    description={
+                      `${dev.device_label ? `${dev.device_label} · ` : ""}Mémorisé le ${memorise} (${tempsRelatif(dev.created_at)})${dev.last_used_at ? ` · Dernière utilisation ${tempsRelatif(dev.last_used_at)}` : ""}`
+                    }
+                    action={!dev.is_current_device ? (
+                      <ActionDeuxTemps
+                        tokens={uiTokens} C={C} enConfirmation={aConfirmer?.type === "appareil" && aConfirmer.id === dev.id}
+                        libelle="Déconnecter" libelleConfirmer="Confirmer la déconnexion"
+                        ariaDemande={`Déconnecter l'appareil ${nom} mémorisé le ${memorise}`} ariaConfirmer={`Confirmer la déconnexion de l'appareil ${nom} mémorisé le ${memorise}`} ariaAnnuler={`Annuler la déconnexion de l'appareil ${nom}`}
+                        onDemander={() => setAConfirmer({ type: "appareil", id: dev.id })}
+                        onConfirmer={async () => { setAConfirmer(null); await revokeRememberDevice(dev.id); }}
+                        onAnnuler={() => setAConfirmer(null)}
+                      />
+                    ) : undefined}
+                  />
+                );
+              }) : (
+                <div className="sec-ligne">
+                  <div className="sec-tete" style={{ minHeight: "48px" }}>
+                    <div style={{ color: C.t2, fontSize: "13px" }}>Aucun appareil mémorisé pour l&apos;instant.</div>
+                  </div>
                 </div>
-              ))}
-            </div>
-          ) : !securityLoading && (
-            <div style={{ color: C.t3, fontSize: "11px" }}>Aucun appareil mémorisé pour l&apos;instant.</div>
-          )}
-        </Card>
+              )}
+            </SectionSecurite>
+          </>
+        )}
 
         {/* ── ACTIVITÉ DE SÉCURITÉ ── */}
-        <SectionTitle C={C} label="Activité de sécurité"/>
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
+        <SectionSecurite C={C} id="sec-activite" titre="Activité de sécurité">
           {journal === null ? (
-            <YelenLoader size={16}/>
-          ) : journal.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
-              {journal.map(e => (
-                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: "10px", backgroundColor: C.bg3, borderRadius: "10px", padding: "9px 11px" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700" }}>Connexion — {e.navigateur || "Navigateur"} sur {e.os || "appareil"}</div>
-                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "1px" }}>{timeAgoShort(e.created_at)}</div>
-                  </div>
-                </div>
-              ))}
+            <div className="sec-ligne">
+              <div className="sec-tete" style={{ minHeight: "48px" }} aria-busy="true">
+                <div className="sec-skel" style={{ height: "14px", width: "55%" }}/>
+              </div>
             </div>
-          ) : (
-            <div style={{ color: C.t3, fontSize: "11px", marginBottom: "10px" }}>Aucune connexion récente enregistrée.</div>
+          ) : journal.length > 0 ? journal.map(e => (
+            <div key={e.id} className="sec-ligne">
+              <div className="sec-tete" style={{ minHeight: "48px", paddingTop: "8px", paddingBottom: "8px" }}>
+                <div className="sec-corps">
+                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: 500 }}>{LIBELLES_JOURNAL[e.action] ?? "Activité de sécurité"}</div>
+                  <div style={{ color: C.t2, fontSize: "13px" }}>{e.navigateur || "Navigateur"} sur {e.os || "appareil"}</div>
+                </div>
+                <time dateTime={e.created_at} title={dateHeureComplete(e.created_at)} style={{ color: C.t2, fontSize: "13px", flexShrink: 0 }}>{tempsRelatif(e.created_at)}</time>
+              </div>
+            </div>
+          )) : (
+            <div className="sec-ligne">
+              <div className="sec-tete" style={{ minHeight: "48px" }}>
+                <div style={{ color: C.t2, fontSize: "13px" }}>Aucune connexion récente enregistrée.</div>
+              </div>
+            </div>
           )}
-          {/* Honnêteté explicite (protocole CLAUDE.md) : PIN/2FA/passkey ne
-              sont pas encore journalisés — ne pas fabriquer ces catégories
-              tant que la donnée n'existe pas réellement. */}
-          <div style={{ color: C.t3, fontSize: "10px", lineHeight: 1.5, borderTop: `1px solid ${C.border}`, paddingTop: "8px" }}>
-            Le suivi des changements de sécurité (PIN, 2FA, clés d&apos;accès) arrive bientôt. Historique complet des connexions dans le Journal d&apos;activité.
+          {/* Honnêteté explicite (protocole CLAUDE.md) : le PIN et les
+              révocations d'appareils ne sont pas encore journalisés — ne pas
+              fabriquer ces lignes tant que la donnée n'existe pas réellement. */}
+          <div className="sec-ligne" style={{ padding: "12px 16px", color: C.t2, fontSize: "12px", lineHeight: 1.5 }}>
+            Historique complet dans le Journal d&apos;activité.
           </div>
-        </Card>
+        </SectionSecurite>
 
         {/* ── RÉCUPÉRATION DU COMPTE ── */}
-        <SectionTitle C={C} label="Récupération du compte"/>
-        <Card tokens={toCardTokens(C)} noPadding>
-          <div style={{ padding: "13px 16px", borderBottom: `1px solid ${C.border}` }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Téléphone</div>
-            <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>{securityLoading ? <YelenLoader size={10}/> : security?.recovery_phone ? maskPhone(security.recovery_phone) : "Non renseigné"}</div>
-          </div>
-          <div style={{ padding: "13px 16px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Email</div>
-            <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>{securityLoading ? <YelenLoader size={10}/> : security?.recovery_email ? maskEmail(security.recovery_email) : "Non renseigné"}</div>
-          </div>
-        </Card>
+        {security && (
+          <SectionSecurite C={C} id="sec-recuperation" titre="Récupération du compte">
+            <LigneSecurite C={C} icone="telephone" titre="Téléphone" description={security.recovery_phone ? maskPhone(security.recovery_phone) : "Non renseigné"}/>
+            <LigneSecurite C={C} icone="email" titre="Email" description={security.recovery_email ? maskEmail(security.recovery_email) : "Non renseigné"}/>
+          </SectionSecurite>
+        )}
         {/* Codes de récupération — réels, vivent sous la 2FA (voir
             TotpSection.tsx ci-dessus, "Codes de récupération : X
             restants") : ils n'existent qu'en tant que secours TOTP, jamais
@@ -474,42 +548,31 @@ export function SecuriteCompteTab({ }: { instId: string }) {
 
         {/* ── MODALE PIN ── */}
         {pinModal && (
-          <div onClick={() => setPinModal(null)} className="yelen-confirm-overlay" style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
-            <div onClick={e => e.stopPropagation()} className="yelen-confirm-panel" style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "480px", border: `1px solid ${C.border2}`, borderBottom: "none" }}>
-              <div className="yelen-confirm-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }} />
-              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", marginBottom: "16px" }}>
-                {pinModal === "set" ? "Code PIN" : "Supprimer le code PIN"}
-              </div>
-              {pinModal === "set" ? (
-                <>
-                  <input type="password" inputMode="numeric" maxLength={8} value={pinValue} onChange={e => setPinValue(e.target.value.replace(/\D/g, ""))} placeholder="Nouveau code (4 à 8 chiffres)" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "10px" }} />
-                  <input type="password" inputMode="numeric" maxLength={8} value={pinConfirm} onChange={e => setPinConfirm(e.target.value.replace(/\D/g, ""))} placeholder="Confirmez le code" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "10px" }} />
-                </>
-              ) : (
-                <input type="password" inputMode="numeric" maxLength={8} value={pinValue} onChange={e => setPinValue(e.target.value.replace(/\D/g, ""))} placeholder="Code actuel" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "10px" }} />
-              )}
-              {pinError && <div style={{ color: C.red, fontSize: "11px", fontWeight: "700", marginBottom: "10px" }}>{pinError}</div>}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px" }}>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => setPinModal(null)}>Annuler</Button>
-                <Button tokens={toUiTokens(C)} variant={pinModal === "delete" ? "danger" : "primary"} size="md" loading={pinLoading} onClick={pinModal === "set" ? submitSetPin : submitDeletePin} className="tap">
-                  {pinModal === "set" ? "Enregistrer" : "Supprimer"}
-                </Button>
-              </div>
+          <ModaleSecurite C={C} titre={pinModal === "set" ? "Code PIN" : "Supprimer le code PIN"} onClose={() => setPinModal(null)}>
+            {pinModal === "set" ? (
+              <>
+                <input type="password" inputMode="numeric" maxLength={8} value={pinValue} onChange={e => setPinValue(e.target.value.replace(/\D/g, ""))} placeholder="Nouveau code (4 à 8 chiffres)" aria-label="Nouveau code PIN, 4 à 8 chiffres" className="yelen-focus-ring" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "10px" }} />
+                <input type="password" inputMode="numeric" maxLength={8} value={pinConfirm} onChange={e => setPinConfirm(e.target.value.replace(/\D/g, ""))} placeholder="Confirmez le code" aria-label="Confirmez le code PIN" className="yelen-focus-ring" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "10px" }} />
+              </>
+            ) : (
+              <input type="password" inputMode="numeric" maxLength={8} value={pinValue} onChange={e => setPinValue(e.target.value.replace(/\D/g, ""))} placeholder="Code actuel" aria-label="Code PIN actuel" className="yelen-focus-ring" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "10px" }} />
+            )}
+            {pinError && <div role="alert" style={{ color: C.red, fontSize: "13px", fontWeight: 600, marginBottom: "10px" }}>{pinError}</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "10px" }}>
+              <Button tokens={uiTokens} className={classeBouton} variant="secondary" size="md" onClick={() => setPinModal(null)}>Annuler</Button>
+              <Button tokens={uiTokens} variant={pinModal === "delete" ? "danger" : "primary"} size="md" loading={pinLoading} onClick={pinModal === "set" ? submitSetPin : submitDeletePin} className={classeBouton}>
+                {pinModal === "set" ? "Enregistrer" : "Supprimer"}
+              </Button>
             </div>
-          </div>
+          </ModaleSecurite>
         )}
 
         {/* ── MODALE LABEL APPAREIL AVANT AJOUT WEBAUTHN ── */}
         {showLabelPrompt && (
-          <div onClick={() => setShowLabelPrompt(false)} className="yelen-confirm-overlay" style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
-            <div onClick={e => e.stopPropagation()} className="yelen-confirm-panel" style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "480px", border: `1px solid ${C.border2}`, borderBottom: "none" }}>
-              <div className="yelen-confirm-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }} />
-              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", marginBottom: "6px" }}>Ajouter cet appareil</div>
-              <div style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Donnez-lui un nom pour le reconnaître facilement (optionnel).</div>
-              <input value={deviceLabelInput} onChange={e => setDeviceLabelInput(e.target.value)} placeholder="Ex. iPhone du bureau" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "14px" }} />
-              <Button tokens={toUiTokens(C)} variant="primary" size="md" fullWidth onClick={addWebauthnDevice} className="tap">Continuer</Button>
-            </div>
-          </div>
+          <ModaleSecurite C={C} titre="Ajouter cet appareil" sousTitre="Donnez-lui un nom pour le reconnaître facilement (optionnel)." onClose={() => setShowLabelPrompt(false)}>
+            <input value={deviceLabelInput} onChange={e => setDeviceLabelInput(e.target.value)} placeholder="Ex. iPhone du bureau" aria-label="Nom de l'appareil (optionnel)" className="yelen-focus-ring" style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "12px", padding: "13px 14px", fontSize: "14px", color: C.t1, marginBottom: "14px" }} />
+            <Button tokens={uiTokens} variant="primary" size="md" fullWidth onClick={addWebauthnDevice} className={classeBouton}>Continuer</Button>
+          </ModaleSecurite>
         )}
 
         <ConfirmModal

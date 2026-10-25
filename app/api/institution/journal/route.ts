@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
-import { lireFiltresJournal, requeteJournalFiltree } from "@/lib/journalRequete";
+import { lireFiltresJournal, masquerDonneesTechniques, rechercheRessembleAUneIp, requeteJournalFiltree } from "@/lib/journalRequete";
 
 // Contourne RLS via service role — journal_activite n'a aucune policy
 // publique (migration 20260715000001), accès exclusivement via cette
@@ -27,6 +27,13 @@ export async function GET(req: NextRequest) {
   if (!can(membre.role, "journal.read")) {
     filtres.membreId = membre.membreId;
   }
+  // IP et user-agent bruts réservés à admin/superviseur : masqués pour les
+  // autres rôles, et recherche par fragment d'IP refusée (recherche_texte
+  // indexe l'IP — sinon l'IP se retrouverait par essais).
+  const voirIp = can(membre.role, "journal.voir_ip");
+  if (!voirIp && rechercheRessembleAUneIp(filtres.q)) {
+    return NextResponse.json({ error: "La recherche par adresse IP est réservée à l'administration." }, { status: 400 });
+  }
   const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 500);
   const offset = Math.max(parseInt(searchParams.get("offset") || "0"), 0);
 
@@ -40,5 +47,6 @@ export async function GET(req: NextRequest) {
     countQuery,
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ entrees: data ?? [], total: count ?? 0 });
+  const lignes = (data ?? []) as unknown as Parameters<typeof masquerDonneesTechniques>[0];
+  return NextResponse.json({ entrees: voirIp ? lignes : masquerDonneesTechniques(lignes), total: count ?? 0, ip_masquee: !voirIp });
 }

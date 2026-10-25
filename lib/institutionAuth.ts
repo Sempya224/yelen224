@@ -3,6 +3,8 @@ import { jwtVerify } from "jose";
 import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMembreRole, type MembreRole } from "@/lib/institutionPermissions";
+import { reactiverInstitutionSiInactif } from "@/lib/activiteInstitution";
+import { enregistrerAction } from "@/lib/journalActivite";
 
 // Vérifie le cookie de session JWT institution (yelen224_institution_session,
 // signé dans verify-otp / pin/verify / webauthn/auth-verify). Auparavant
@@ -58,7 +60,40 @@ export async function creerSessionInstitution(
     console.error("[INSTITUTION SESSIONS] Erreur création session:", error?.message);
     return null;
   }
+  // Connexion vérifiée (chantier COMPTES-INACTIFS.md, Phase 3) — point
+  // unique couvrant les 5 flux de connexion institution existants
+  // (verify-otp, pin/verify, webauthn/auth-verify, totp/login-verify,
+  // membre/login), qui appellent tous creerSessionInstitution. Best-effort :
+  // ne bloque jamais la connexion si la réactivation échoue.
+  await reactiverInstitutionSiInactif(sb, params.institutionId);
   return data.id;
+}
+
+// Finalise une connexion directe réussie (sans 2FA) pour le compte_principal
+// institution-wide — point unique (audit Profil Responsable, 19/10/2026)
+// remplaçant 3 copies censées être identiques : verify-otp/route.ts avait la
+// seule version correcte (corrigée le 05/08/2026), pin/verify/route.ts et
+// webauthn/auth-verify/route.ts ne journalisaient jamais "connexion" ni ne
+// mettaient à jour derniere_connexion — un compte_principal qui se connecte
+// exclusivement par PIN rapide ou passkey restait invisible dans "Activité
+// de ce compte" (ProfilTab.tsx). Jamais appelé depuis le chemin 2FA
+// (totp/login-verify gère déjà sa propre mise à jour de derniere_connexion
+// via clearFailures) — les deux chemins sont mutuellement exclusifs par
+// construction, aucun risque de double écriture.
+export async function finaliserConnexionMembre(
+  sb: SupabaseClient,
+  params: { institutionId: string; membreId: string; membreNom: string; req?: NextRequest }
+): Promise<void> {
+  await sb.from("institution_membres").update({ derniere_connexion: new Date().toISOString() }).eq("id", params.membreId);
+  await enregistrerAction({
+    institutionId: params.institutionId,
+    membreId: params.membreId,
+    membreNom: params.membreNom,
+    action: "connexion",
+    cibleTable: "institution_membres",
+    cibleId: params.membreId,
+    req: params.req,
+  });
 }
 
 // Révocation ciblée d'UN membre précis (16/09/2026, revue finale) —
@@ -130,13 +165,42 @@ export function estReauthRecente(session: { reauthAt: string | null }): boolean 
   return !!session.reauthAt && Date.now() - new Date(session.reauthAt).getTime() <= INSTITUTION_REAUTH_WINDOW_MS;
 }
 
-// Décode + vérifie le cookie de session JWT institution — point unique
-// (revue critique 30/08/2026 : upgrade after review, 3 copies quasi
-// identiques du même jwtVerify réunies ici) utilisé par les 3 fonctions
-// exportées ci-dessous, qui ne font que projeter des champs différents du
-// même payload.
+// En-tête utilisé par Yelen Business Mobile pour s'identifier comme
+// appelant natif — décision CEO (chantier Yelen Business Mobile,
+// 02/10/2026) : un header explicite, jamais un sniff de User-Agent
+// (fragile, usurpable sans intention). Sert uniquement à décider si une
+// route de connexion doit retourner le JWT dans le corps JSON (§ci-dessous,
+// 5 routes de connexion) — ne contourne jamais une vérification
+// d'authentification ou de permission.
+export const MOBILE_CLIENT_HEADER = "x-yelen-client";
+export function estAppelMobile(request: NextRequest): boolean {
+  return request.headers.get(MOBILE_CLIENT_HEADER) === "mobile";
+}
+
+// Lit le JWT porté par `Authorization: Bearer <token>` — deuxième mode de
+// présentation de la même identité authentifiée (décision CEO, chantier
+// Yelen Business Mobile, 02/10/2026), nécessaire car un cookie httpOnly est
+// invisible à `fetch` en React Native. N'affaiblit jamais le cookie web :
+// la vérification du JWT lui-même (jwtVerify, mêmes secret/issuer/audience)
+// reste strictement identique quelle que soit la source du token.
+function extraireJetonBearer(request: NextRequest): string | null {
+  const header = request.headers.get("authorization");
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice("Bearer ".length).trim();
+  return token.length > 0 ? token : null;
+}
+
+// Décode + vérifie le JWT de session institution — point unique (revue
+// critique 30/08/2026 : upgrade after review, 3 copies quasi identiques du
+// même jwtVerify réunies ici) utilisé par les 3 fonctions exportées
+// ci-dessous, qui ne font que projeter des champs différents du même
+// payload. Source du token : cookie `yelen224_institution_session` en
+// priorité (web, comportement inchangé) ; à défaut, header `Authorization:
+// Bearer` (mobile natif, ne peut pas lire un cookie httpOnly) — même
+// vérification cryptographique dans les deux cas, aucune voie plus
+// permissive que l'autre.
 async function decoderJetonInstitution(request: NextRequest): Promise<Record<string, unknown> | null> {
-  const token = request.cookies.get("yelen224_institution_session")?.value;
+  const token = request.cookies.get("yelen224_institution_session")?.value ?? extraireJetonBearer(request);
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET, {

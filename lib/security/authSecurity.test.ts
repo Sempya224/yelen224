@@ -1,20 +1,27 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { NextRequest } from "next/server";
+import crypto from "crypto";
 import {
-  evaluerTentative, enregistrerTentative, dureeBlocageMs,
+  evaluerTentative, enregistrerTentative, dureeBlocageMs, destinationCitoyen,
   SEUIL_WARNING, SEUIL_BLOCAGE, SEUIL_SUPPORT_ONLY_CYCLES,
 } from "./authSecurity";
 
 // Faux client Supabase minimal — reproduit exactement les 4 formes
 // d'appel utilisées par authSecurity.ts (select().eq().maybeSingle(),
 // insert(), update().eq()), rien de plus. Isolé par test (aucun état
-// partagé entre `it(...)`).
+// partagé entre `it(...)`). Tables génériques (pas seulement les 3
+// d'origine) — nécessaire depuis le scope destination (auth_destination_
+// security) et l'exemption appareil de confiance (users,
+// citoyen_remember_tokens, institution_remember_tokens).
 type Ligne = Record<string, unknown>;
 function creerFauxSupabase(seed: Partial<Record<string, Ligne[]>> = {}) {
   const tables: Record<string, Ligne[]> = {
-    auth_device_security: seed.auth_device_security ?? [],
-    auth_ip_security: seed.auth_ip_security ?? [],
-    auth_security_events: seed.auth_security_events ?? [],
+    auth_device_security: [],
+    auth_ip_security: [],
+    auth_destination_security: [],
+    auth_security_events: [],
+    ...seed,
   };
   const client = {
     from(table: string) {
@@ -243,6 +250,132 @@ describe("authSecurity — correctif 12/09/2026 (bypass via 'trouve'/'code_envoy
       const tVerify = await enregistrerTentative(sb, { endpointCategory: ENDPOINT, deviceId, ip, outcome: "code_correct" });
       expect(tVerify.state).toBe("normal");
     }
+  });
+});
+
+describe("authSecurity — scope destination (Priorités 3/4) et seuils par catégorie (régressions revue critique 18/10/2026)", () => {
+  it("recuperation (seuil destination 1 avertissement / 2 blocage) : avertit dès la 1re tentative, bloque à la 2e — avant le correctif, la 1re tentative forçait 'normal' quel que soit le seuil", async () => {
+    const sb = creerFauxSupabase();
+    const destination = destinationCitoyen("+224600000001");
+    const t1 = await enregistrerTentative(sb, {
+      endpointCategory: "recuperation", deviceId: "device-recup-1", ip: "11.11.11.11", outcome: "fichier_invalide", destination,
+    });
+    expect(t1.state).toBe("warning");
+    const t2 = await enregistrerTentative(sb, {
+      endpointCategory: "recuperation", deviceId: "device-recup-1", ip: "11.11.11.11", outcome: "fichier_invalide", destination,
+    });
+    expect(t2.state).toBe("blocked");
+  });
+
+  it("une soumission 'demande_creee' n'efface plus le compteur — avant le correctif, seul outcome jamais enregistré par cette route, il réinitialisait tout à chaque appel", async () => {
+    const sb = creerFauxSupabase();
+    const destination = destinationCitoyen("+224600000002");
+    const t1 = await enregistrerTentative(sb, {
+      endpointCategory: "recuperation", deviceId: "device-recup-2", ip: "12.12.12.12", outcome: "demande_creee", destination,
+    });
+    expect(t1.state).toBe("warning");
+    const t2 = await enregistrerTentative(sb, {
+      endpointCategory: "recuperation", deviceId: "device-recup-2", ip: "12.12.12.12", outcome: "demande_creee", destination,
+    });
+    expect(t2.state).toBe("blocked");
+  });
+
+  it("citoyen_login (seuil destination 2 avertissement / 3 blocage) : plusieurs appareils/IP martelant le même numéro finissent par le bloquer", async () => {
+    const sb = creerFauxSupabase();
+    const destination = destinationCitoyen("+224600000003");
+    for (let i = 0; i < 3; i++) {
+      await enregistrerTentative(sb, { endpointCategory: "citoyen_login", deviceId: `device-${i}`, ip: `40.0.0.${i}`, outcome: "code_incorrect", destination });
+    }
+    const porte = await evaluerTentative(sb, { deviceId: "device-encore-un-autre", ip: "40.0.0.99", destination });
+    expect(porte.state).toBe("blocked");
+  });
+});
+
+describe("authSecurity — exemption appareil de confiance pour une destination bloquée (mandat CEO : complémentaire, jamais autonome)", () => {
+  const RAW_TOKEN = "raw-remember-token-victime";
+  const TOKEN_HASH = crypto.createHash("sha256").update(RAW_TOKEN).digest("hex");
+  const PHONE_VICTIME = "+224611111111";
+
+  function requeteAvecCookie(nom: string, valeur: string): NextRequest {
+    return { cookies: { get: (n: string) => (n === nom ? { value: valeur } : undefined) } } as unknown as NextRequest;
+  }
+
+  it("le titulaire légitime, sur son appareil déjà connu, n'est jamais bloqué par le scope destination seul", async () => {
+    const destination = destinationCitoyen(PHONE_VICTIME);
+    const sb = creerFauxSupabase({
+      auth_destination_security: [{
+        destination, state: "blocked", blocked_until: new Date(Date.now() + 60_000).toISOString(),
+        window_started_at: new Date().toISOString(), attempts_in_window: 2,
+        state_changed_at: new Date().toISOString(), block_cycles_24h: 1,
+        cycles_window_started_at: new Date().toISOString(), blocked_reason: "x",
+      }],
+      users: [{ id: "citoyen-victime", phone: PHONE_VICTIME }],
+      citoyen_remember_tokens: [{
+        citoyen_id: "citoyen-victime", token_hash: TOKEN_HASH, status: "trusted",
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      }],
+    });
+
+    const porteVictime = await evaluerTentative(
+      sb, { deviceId: "device-victime", ip: "20.20.20.20", destination },
+      undefined, requeteAvecCookie("yelen224_citoyen_remember", RAW_TOKEN)
+    );
+    expect(porteVictime.state).toBe("normal");
+
+    // Sans cookie valide (appareil inconnu visant le même numéro, y
+    // compris l'attaquant qui a causé le blocage) — toujours bloqué.
+    const porteInconnu = await evaluerTentative(sb, { deviceId: "device-attaquant", ip: "30.30.30.30", destination });
+    expect(porteInconnu.state).toBe("blocked");
+  });
+
+  it("un cookie valide mais pour UN AUTRE numéro n'exempte jamais la destination visée", async () => {
+    const destination = destinationCitoyen(PHONE_VICTIME);
+    const sb = creerFauxSupabase({
+      auth_destination_security: [{
+        destination, state: "blocked", blocked_until: new Date(Date.now() + 60_000).toISOString(),
+        window_started_at: new Date().toISOString(), attempts_in_window: 2,
+        state_changed_at: new Date().toISOString(), block_cycles_24h: 1,
+        cycles_window_started_at: new Date().toISOString(), blocked_reason: "x",
+      }],
+      users: [{ id: "citoyen-autre", phone: "+224699999999" }],
+      citoyen_remember_tokens: [{
+        citoyen_id: "citoyen-autre", token_hash: TOKEN_HASH, status: "trusted",
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      }],
+    });
+
+    const porte = await evaluerTentative(
+      sb, { deviceId: "device-quelconque", ip: "20.20.20.20", destination },
+      undefined, requeteAvecCookie("yelen224_citoyen_remember", RAW_TOKEN)
+    );
+    expect(porte.state).toBe("blocked");
+  });
+
+  it("un blocage device/IP indépendant n'est jamais levé par l'exemption destination", async () => {
+    const destination = destinationCitoyen(PHONE_VICTIME);
+    const sb = creerFauxSupabase({
+      auth_device_security: [{
+        device_id: "device-victime-bloque", ip_last: "20.20.20.20", state: "blocked",
+        blocked_until: new Date(Date.now() + 60_000).toISOString(),
+        window_started_at: new Date().toISOString(), attempts_in_window: 4,
+        state_changed_at: new Date().toISOString(), block_cycles_24h: 1,
+        cycles_window_started_at: new Date().toISOString(), blocked_reason: "x",
+      }],
+      users: [{ id: "citoyen-victime", phone: PHONE_VICTIME }],
+      citoyen_remember_tokens: [{
+        citoyen_id: "citoyen-victime", token_hash: TOKEN_HASH, status: "trusted",
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      }],
+    });
+
+    const porte = await evaluerTentative(
+      sb, { deviceId: "device-victime-bloque", ip: "20.20.20.20", destination },
+      undefined, requeteAvecCookie("yelen224_citoyen_remember", RAW_TOKEN)
+    );
+    // Le device est bloqué pour sa propre raison (4 échecs) — l'exemption
+    // destination ne neutralise jamais device/IP, seulement sa propre
+    // contribution.
+    expect(porte.state).toBe("blocked");
   });
 });
 

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
 import { validateUpload } from "@/lib/uploadSecurity";
+import { reponseErreur, reponseErreurServeur } from "@/lib/erreursApi";
 
 // Upload média chambre — photo OU vidéo (chantier Services Hôtel V2,
 // retour Bryan 20/08/2026 : "jusqu'à 5 images et une vidéo max 60s").
@@ -24,36 +25,36 @@ const MAX_VIDEO_DUREE_SECONDES = 62;
 
 export async function POST(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
-  if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-  if (!can(membre.role, "services.write")) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
+  if (!membre) return reponseErreur("NON_AUTHENTIFIE", "Non authentifié", 401);
+  if (!can(membre.role, "services.write")) return reponseErreur("ACCES_REFUSE", "Accès non autorisé pour votre rôle", 403);
 
   const form = await req.formData().catch(() => null);
-  if (!form) return NextResponse.json({ error: "Le fichier n'a pas pu être envoyé — il est peut-être trop volumineux ou la connexion a été interrompue. Réessayez avec un fichier plus léger." }, { status: 400 });
+  if (!form) return reponseErreur("FICHIER_ILLISIBLE", "Le fichier n'a pas pu être envoyé — il est peut-être trop volumineux ou la connexion a été interrompue. Réessayez avec un fichier plus léger.", 400);
 
   const kind = form.get("kind");
-  if (kind !== "photo" && kind !== "video") return NextResponse.json({ error: "Type de média invalide" }, { status: 400 });
+  if (kind !== "photo" && kind !== "video") return reponseErreur("MEDIA_TYPE_INVALIDE", "Type de média invalide", 400);
 
   const file = form.get("file");
-  if (!(file instanceof File)) return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
+  if (!(file instanceof File)) return reponseErreur("FICHIER_REQUIS", "Fichier requis", 400);
 
   if (kind === "video") {
     const dureeRaw = form.get("duree_secondes");
     const duree = typeof dureeRaw === "string" ? Number(dureeRaw) : NaN;
-    if (!Number.isFinite(duree) || duree <= 0) return NextResponse.json({ error: "Durée de la vidéo manquante ou invalide" }, { status: 400 });
-    if (duree > MAX_VIDEO_DUREE_SECONDES) return NextResponse.json({ error: "La vidéo dépasse 60 secondes" }, { status: 400 });
+    if (!Number.isFinite(duree) || duree <= 0) return reponseErreur("VIDEO_DUREE_INVALIDE", "Durée de la vidéo manquante ou invalide", 400);
+    if (duree > MAX_VIDEO_DUREE_SECONDES) return reponseErreur("VIDEO_TROP_LONGUE", "La vidéo dépasse 60 secondes", 400);
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const maxSize = kind === "video" ? MAX_VIDEO_SIZE : MAX_PHOTO_SIZE;
   const verif = await validateUpload(buffer, kind === "video" ? "PUBLIC_VIDEO" : "PUBLIC_IMAGE", maxSize, file.name);
-  if (!verif.valid) return NextResponse.json({ error: verif.reason }, { status: 400 });
+  if (!verif.valid) return reponseErreur("FICHIER_REFUSE", verif.reason, 400);
   const path = `chambres/${membre.institutionId}-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${verif.extension}`;
 
   const { error: upErr } = await sb.storage.from("avatars").upload(path, buffer, {
     upsert: true,
     contentType: verif.detectedType,
   });
-  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+  if (upErr) return reponseErreurServeur("services/media upload", upErr);
 
   const { data } = sb.storage.from("avatars").getPublicUrl(path);
   return NextResponse.json({ url: data.publicUrl });

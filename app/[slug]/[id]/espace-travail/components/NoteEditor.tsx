@@ -16,7 +16,11 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import type { ThemeTokens } from "../../theme";
 import { toUiTokens } from "../../theme";
 import { type Projet } from "./ProjetsOverlays";
-import { type DocumentTravail } from "./DocumentsOverlays";
+import { type DocumentTravail, categorieLabel, fileTypeLabel } from "./DocumentsOverlays";
+import { NotesStyles, SaveIndicator, PropLabel, chipBtn } from "./NotesUi";
+import { FileTypeIcon } from "./DocumentsUi";
+import { TasksMessage } from "./TachesUi";
+import { ClockStyles, champStyle } from "../../components/ClockInShiftUi";
 import {
   type Note, type Membre, type Block, type BlockType,
   typeColor, typeLabel, nomMembre, peutGerer,
@@ -106,6 +110,17 @@ export function NoteEditor({ noteId, note, membres, projets, documents, moiId, m
     onChanged();
   }
 
+  // Garde de sortie navigateur + raccourci Ctrl/Cmd+S (force l'enregistrement
+  // immédiat, l'autosave reste le mécanisme normal).
+  useEffect(() => {
+    function avantFermeture(e: BeforeUnloadEvent) { if (dirty) { e.preventDefault(); e.returnValue = ""; } }
+    function raccourci(e: globalThis.KeyboardEvent) { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); if (dirty) doSave(); } }
+    window.addEventListener("beforeunload", avantFermeture);
+    window.addEventListener("keydown", raccourci);
+    return () => { window.removeEventListener("beforeunload", avantFermeture); window.removeEventListener("keydown", raccourci); };
+  });
+
+
   function requestBack() {
     if (dirty) { setShowLeaveConfirm(true); return; }
     onBack();
@@ -162,23 +177,35 @@ export function NoteEditor({ noteId, note, membres, projets, documents, moiId, m
     scheduleSave();
   }
 
-  const statusLabel = status === "attente" ? (dirty ? "Modifications en attente…" : "") : status === "enregistrement" ? "Enregistrement…" : status === "erreur" ? "Erreur d'enregistrement" : savedAt ? `Enregistré à ${savedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "";
+  if (noteId !== "new" && !note && !persistedId) {
+    return (
+      <div style={{ maxWidth: "860px", margin: "0 auto" }}>
+        <NotesStyles C={C}/>
+        <TasksMessage C={C} titre="Note introuvable" texte="Cette note n'existe plus ou a été supprimée." action={{ label: "← Notes", onClick: onBack, primaire: true }}/>
+      </div>
+    );
+  }
+
+  const ui = toUiTokens(C);
+  const projetNom = projetId ? (projets.find(p => p.id === projetId)?.nom ?? "Projet") : null;
+  const chevron = <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>;
 
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-        <button onClick={requestBack} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", color: C.t2, fontSize: "12.5px", fontWeight: 700, cursor: "pointer", padding: 0 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>Notes
-        </button>
+    <div style={{ maxWidth: "860px", margin: "0 auto" }}>
+      <ClockStyles C={C}/>
+      <NotesStyles C={C}/>
+      <div className="nt-top" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+          <Button tokens={ui} className="tap" variant="secondary" size="sm" aria-label="Retour à la liste des notes" onClick={requestBack}
+            icon={<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>}>Notes</Button>
+          <span className="nt-crumb" style={{ color: C.t3, fontSize: "13px", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "340px" }}>Notes / <span style={{ color: C.t2 }}>{titre.trim() || "Nouvelle note"}</span></span>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "11px", fontWeight: 600, color: status === "erreur" ? C.red : C.t3, display: "flex", alignItems: "center", gap: "5px" }}>
-            {status === "enregistre" && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
-            {statusLabel}
-            {status === "erreur" && <button onClick={doSave} style={{ color: C.red, background: "none", border: "none", fontWeight: 800, cursor: "pointer", textDecoration: "underline", fontSize: "11px" }}>Réessayer</button>}
-          </span>
+          <SaveIndicator C={C} status={status} dirty={dirty} savedAt={savedAt} onRetry={doSave}/>
           {gerable && persistedId && (
             <>
-              <button ref={menuBtnRef} onClick={() => setMenuOpen(v => !v)} aria-label="Autres actions" style={{ width: "30px", height: "30px", borderRadius: "9px", border: `1px solid ${C.border2}`, backgroundColor: C.bgCard, color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <button ref={menuBtnRef} type="button" className="nt-btn tap" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(v => !v)} aria-label="Autres actions"
+                style={{ width: "32px", height: "32px", borderRadius: "8px", border: `1px solid ${C.border2}`, backgroundColor: C.bgCard, color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <IconMore color={C.t2}/>
               </button>
               <NoteActionsMenu open={menuOpen} onClose={() => setMenuOpen(false)} anchorRef={menuBtnRef} tokens={C} onDuplicate={dupliquer} onDelete={() => { setMenuOpen(false); setDeleteConfirm(true); }}/>
@@ -187,82 +214,140 @@ export function NoteEditor({ noteId, note, membres, projets, documents, moiId, m
         </div>
       </div>
 
-      <input
-        value={titre}
-        disabled={!gerable}
-        onChange={e => { setTitre(e.target.value); scheduleSave(); }}
-        placeholder="Titre de la note"
-        style={{ width: "100%", background: "none", border: "none", outline: "none", fontSize: "22px", fontWeight: 800, color: C.t1, marginBottom: "6px", padding: 0 }}
-      />
-
-      {persistedId && note && (
-        <div style={{ fontSize: "11px", color: C.t3, marginBottom: "12px" }}>Dernière modification : {new Date(note.updated_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}</div>
+      {status === "erreur" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, borderRadius: "10px", padding: "10px 14px", marginBottom: "16px" }}>
+          <span role="alert" style={{ fontSize: "13px", fontWeight: 500, color: C.red }}>L&apos;enregistrement a échoué. Votre contenu est conservé.</span>
+          <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={doSave}>Réessayer</Button>
+        </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "16px", paddingBottom: "16px", borderBottom: `1px solid ${C.border}` }}>
-        <button ref={typeBtnRef} onClick={() => gerable && setTypeOpen(v => !v)} disabled={!gerable} style={{ display: "inline-flex", alignItems: "center", gap: "5px", backgroundColor: `${typeColor(type, C)}15`, color: typeColor(type, C), border: "none", fontSize: "10.5px", fontWeight: 800, padding: "4px 10px", borderRadius: "20px", cursor: gerable ? "pointer" : "default" }}>
-          <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: typeColor(type, C) }}/>{typeLabel(type)}
-        </button>
-        <NoteTypePicker open={typeOpen} onClose={() => setTypeOpen(false)} anchorRef={typeBtnRef} tokens={C} value={type} onSelect={t => { setType(t); scheduleSave(); }}/>
+      <input className="nt-title" aria-label="Titre de la note" value={titre} disabled={!gerable}
+        onChange={e => { setTitre(e.target.value); scheduleSave(); }} placeholder="Titre de la note"
+        style={{ width: "100%", boxSizing: "border-box", fontSize: "32px", fontWeight: 600, lineHeight: 1.25, color: C.t1, padding: "4px 0 6px", marginBottom: "6px", fontFamily: "inherit" }}/>
 
-        <button ref={projetBtnRef} onClick={() => gerable && setProjetOpen(v => !v)} disabled={!gerable} style={{ background: "none", border: "none", color: projetId ? C.goldD : C.t3, fontSize: "11px", fontWeight: 700, cursor: gerable ? "pointer" : "default", padding: 0 }}>
-          {projetId ? (projets.find(p => p.id === projetId)?.nom ?? "Projet") : "+ Associer un projet"}
-        </button>
-        <ProjectLinkPicker open={projetOpen} onClose={() => setProjetOpen(false)} anchorRef={projetBtnRef} tokens={C} projets={projets} value={projetId} onSelect={id => { setProjetId(id); scheduleSave(); }}/>
+      {persistedId && note && (
+        <div style={{ fontSize: "12px", color: C.t3, marginBottom: "16px", fontVariantNumeric: "tabular-nums" }}>Dernière modification : {new Date(note.updated_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}</div>
+      )}
 
-        <TagsEditor C={C} tags={tags} readOnly={!gerable} onChange={t => { setTags(t); scheduleSave(); }}/>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "20px 28px", flexWrap: "wrap", marginBottom: "20px", paddingBottom: "20px", borderBottom: `1px solid ${C.border}` }}>
+        <div>
+          <PropLabel C={C}>Type</PropLabel>
+          <button ref={typeBtnRef} type="button" className="nt-btn tap" aria-haspopup="listbox" onClick={() => gerable && setTypeOpen(v => !v)} disabled={!gerable}
+            style={{ ...chipBtn(C), backgroundColor: `${typeColor(type, C)}1c`, borderColor: `${typeColor(type, C)}40`, cursor: gerable ? "pointer" : "default" }}>
+            <span aria-hidden="true" style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: typeColor(type, C) }}/>{typeLabel(type)}{gerable && chevron}
+          </button>
+          <NoteTypePicker open={typeOpen} onClose={() => setTypeOpen(false)} anchorRef={typeBtnRef} tokens={C} value={type} onSelect={t => { setType(t); scheduleSave(); }}/>
+        </div>
+
+        <div>
+          <PropLabel C={C}>Projet</PropLabel>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+            <button ref={projetBtnRef} type="button" className="nt-btn tap" onClick={() => gerable && setProjetOpen(v => !v)} disabled={!gerable} style={{ ...chipBtn(C, !projetId), color: projetId ? C.t1 : C.t2, cursor: gerable ? "pointer" : "default", maxWidth: "260px" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{projetNom ?? "+ Associer un projet"}</span>
+            </button>
+            {gerable && projetId && (
+              <button type="button" className="nt-btn tap" aria-label="Retirer le projet associé" onClick={() => { setProjetId(null); scheduleSave(); }}
+                style={{ width: "28px", height: "28px", background: "none", border: "none", color: C.t3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
+          </div>
+          <ProjectLinkPicker open={projetOpen} onClose={() => setProjetOpen(false)} anchorRef={projetBtnRef} tokens={C} projets={projets} value={projetId} onSelect={id => { setProjetId(id); scheduleSave(); }}/>
+        </div>
+
+        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+          <PropLabel C={C}>Tags</PropLabel>
+          <TagsEditor C={C} tags={tags} readOnly={!gerable} onChange={t => { setTags(t); scheduleSave(); }}/>
+        </div>
 
         {gerable && !taskQuickOpen && (
-          <button onClick={() => { setTaskQuickTitre(titre); setTaskQuickOpen(true); }} style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: 700, cursor: "pointer", padding: 0 }}>+ Créer une tâche</button>
+          <div>
+            <PropLabel C={C}>Tâche</PropLabel>
+            <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={() => { setTaskQuickTitre(titre); setTaskQuickOpen(true); }}
+              icon={<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>}>Créer une tâche</Button>
+          </div>
         )}
       </div>
 
       {taskQuickOpen && (
-        <div style={{ display: "flex", gap: "8px", marginBottom: "18px" }}>
-          <input value={taskQuickTitre} onChange={e => setTaskQuickTitre(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); creerTacheLiee(); } if (e.key === "Escape") setTaskQuickOpen(false); }} placeholder="Titre de la tâche" autoFocus style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "8px 11px", fontSize: "12.5px", color: C.t1 }}/>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setTaskQuickOpen(false)}>Annuler</Button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!taskQuickTitre.trim()} loading={taskQuickSaving} onClick={creerTacheLiee}>Créer</Button>
+        <div style={{ display: "flex", gap: "8px", marginBottom: "20px", flexWrap: "wrap" }}>
+          <input className="cix-input" aria-label="Titre de la tâche" value={taskQuickTitre} onChange={e => setTaskQuickTitre(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); creerTacheLiee(); } if (e.key === "Escape") setTaskQuickOpen(false); }} placeholder="Titre de la tâche" autoFocus style={{ ...champStyle(C), flex: "1 1 240px", width: "auto" }}/>
+          <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => setTaskQuickOpen(false)}>Annuler</Button>
+          <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!taskQuickTitre.trim()} loading={taskQuickSaving} onClick={creerTacheLiee}>Créer</Button>
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+      <div className="nt-zone" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "24px", minHeight: "320px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: "12px" }}>
+        {blocks.length === 0 && (
+          <div style={{ color: C.t3, fontSize: "15px", lineHeight: 1.6 }}>{gerable ? "Écrivez en ajoutant un bloc avec « + Ajouter un bloc »." : "Cette note est vide."}</div>
+        )}
         {blocks.map(b => (
           <BlockRow key={b.id} C={C} block={b} readOnly={!gerable} onChange={patch => updateBlock(b.id, patch)} onDelete={() => removeBlock(b.id)}/>
         ))}
+        {gerable && (
+          <div style={{ marginTop: "auto", paddingTop: "8px" }}>
+            <button ref={addBlockBtnRef} type="button" className="nt-btn tap" aria-haspopup="menu" aria-expanded={addBlockOpen} onClick={() => setAddBlockOpen(v => !v)} style={chipBtn(C, true)}>
+              <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Ajouter un bloc
+            </button>
+            <BlockTypeMenu open={addBlockOpen} onClose={() => setAddBlockOpen(false)} anchorRef={addBlockBtnRef} tokens={C} onSelect={ajouterBloc}/>
+          </div>
+        )}
       </div>
 
-      {gerable && (
-        <>
-          <button ref={addBlockBtnRef} onClick={() => setAddBlockOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: `1px dashed ${C.border2}`, borderRadius: "8px", padding: "8px 12px", color: C.t3, fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>+ Ajouter un bloc</button>
-          <BlockTypeMenu open={addBlockOpen} onClose={() => setAddBlockOpen(false)} anchorRef={addBlockBtnRef} tokens={C} onSelect={ajouterBloc}/>
-        </>
-      )}
-
       {documents.length > 0 && (gerable || documentIds.length > 0) && (
-        <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: "9.5px", fontWeight: 800, color: C.t3, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>Documents liés</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "8px" }}>
-            {documentIds.map(id => { const d = documents.find(x => x.id === id); return d ? <div key={id} style={{ fontSize: "12.5px", color: C.t1 }}>{d.nom}</div> : null; })}
-            {documentIds.length === 0 && <div style={{ fontSize: "12px", color: C.t3 }}>Aucun document lié.</div>}
+        <section aria-labelledby="note-docs-titre" style={{ marginTop: "28px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "10px" }}>
+            <h2 id="note-docs-titre" style={{ margin: 0, color: C.t1, fontSize: "14px", fontWeight: 600 }}>Documents liés</h2>
+            {gerable && (
+              <>
+                <button ref={docBtnRef} type="button" className="nt-btn tap" aria-haspopup="menu" aria-expanded={docOpen} onClick={() => setDocOpen(v => !v)} style={chipBtn(C)}>
+                  <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Lier un document
+                </button>
+                <DocumentLinkPicker open={docOpen} onClose={() => setDocOpen(false)} anchorRef={docBtnRef} tokens={C} documents={documents} value={documentIds} onToggle={id => { setDocumentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); scheduleSave(); }}/>
+              </>
+            )}
           </div>
-          {gerable && (
-            <>
-              <button ref={docBtnRef} onClick={() => setDocOpen(v => !v)} style={{ background: "none", border: "none", color: C.gold, fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>+ Lier un document</button>
-              <DocumentLinkPicker open={docOpen} onClose={() => setDocOpen(false)} anchorRef={docBtnRef} tokens={C} documents={documents} value={documentIds} onToggle={id => { setDocumentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); scheduleSave(); }}/>
-            </>
+          {documentIds.length === 0 ? (
+            <div style={{ border: `1px dashed ${C.border2}`, borderRadius: "12px", padding: "24px 16px", textAlign: "center" }}>
+              <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/></svg>
+              <div style={{ color: C.t1, fontSize: "14px", fontWeight: 500, marginTop: "6px" }}>Aucun document lié</div>
+              <div style={{ color: C.t2, fontSize: "13px", marginTop: "2px" }}>Associez des contrats, factures ou rapports à cette note.</div>
+            </div>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, border: `1px solid ${C.border}`, borderRadius: "12px", backgroundColor: C.bgCard }}>
+              {documentIds.map((id, i) => {
+                const d = documents.find(x => x.id === id);
+                if (!d) return null;
+                return (
+                  <li key={id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                    <FileTypeIcon C={C} type={fileTypeLabel(d.type_mime)} taille={32}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div title={d.nom} style={{ color: C.t1, fontSize: "14px", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.nom}</div>
+                      <div style={{ color: C.t3, fontSize: "12px" }}>{categorieLabel(d.categorie)}</div>
+                    </div>
+                    {gerable && (
+                      <button type="button" className="nt-btn tap" aria-label={`Délier ${d.nom}`} title="Délier" onClick={() => { setDocumentIds(prev => prev.filter(x => x !== id)); scheduleSave(); }}
+                        style={{ width: "32px", height: "32px", background: "none", border: `1px solid ${C.border2}`, borderRadius: "8px", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="4" y1="4" x2="20" y2="20"/></svg>
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </div>
+        </section>
       )}
 
       {showLeaveConfirm && (
-        <ConfirmModal open onClose={() => setShowLeaveConfirm(false)} onConfirm={confirmLeaveAndSave} tokens={toUiTokens(C)} level={1}
+        <ConfirmModal open onClose={() => setShowLeaveConfirm(false)} onConfirm={confirmLeaveAndSave} tokens={ui} level={1}
           title="Modifications non enregistrées"
           description="Vous avez des modifications qui n'ont pas encore été enregistrées."
           confirmLabel="Quitter" cancelLabel="Rester"/>
       )}
 
       {deleteConfirm && (
-        <ConfirmModal open onClose={() => setDeleteConfirm(false)} onConfirm={supprimer} tokens={toUiTokens(C)} level={1} danger
+        <ConfirmModal open onClose={() => setDeleteConfirm(false)} onConfirm={supprimer} tokens={ui} level={1} danger
           title="Supprimer cette note ?"
           consequences={[`« ${titre} »`]}
           description="Cette action supprimera cette note selon les règles de conservation de votre espace."
@@ -281,9 +366,9 @@ function BlockRow({ C, block, readOnly, onChange, onDelete }: {
 
   let content: React.ReactNode;
   if (block.type === "titre") {
-    content = <input disabled={readOnly} value={block.text || ""} onChange={e => onChange({ text: e.target.value })} placeholder="Titre" style={{ ...textStyle, fontSize: "17px", fontWeight: 800 }}/>;
+    content = <input disabled={readOnly} value={block.text || ""} onChange={e => onChange({ text: e.target.value })} placeholder="Titre" style={{ ...textStyle, fontSize: "20px", fontWeight: 600 }}/>;
   } else if (block.type === "sous_titre") {
-    content = <input disabled={readOnly} value={block.text || ""} onChange={e => onChange({ text: e.target.value })} placeholder="Sous-titre" style={{ ...textStyle, fontSize: "14.5px", fontWeight: 700 }}/>;
+    content = <input disabled={readOnly} value={block.text || ""} onChange={e => onChange({ text: e.target.value })} placeholder="Sous-titre" style={{ ...textStyle, fontSize: "16px", fontWeight: 600 }}/>;
   } else if (block.type === "citation") {
     content = (
       <div style={{ borderLeft: `3px solid ${C.gold}`, paddingLeft: "12px" }}>
@@ -326,7 +411,7 @@ function BlockRow({ C, block, readOnly, onChange, onDelete }: {
       </div>
     );
   } else {
-    content = <textarea disabled={readOnly} value={block.text || ""} onChange={e => onChange({ text: e.target.value })} placeholder="Écrire…" rows={Math.max(2, (block.text || "").split("\n").length)} style={{ ...textStyle, fontSize: "13.5px", lineHeight: 1.6 }}/>;
+    content = <textarea disabled={readOnly} value={block.text || ""} onChange={e => onChange({ text: e.target.value })} placeholder="Écrire…" rows={Math.max(2, (block.text || "").split("\n").length)} style={{ ...textStyle, fontSize: "15px", lineHeight: 1.6 }}/>;
   }
 
   return (

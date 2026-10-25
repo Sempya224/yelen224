@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SignJWT } from 'jose'
+import bcrypt from 'bcryptjs'
 import { validerUrlExterne } from '@/lib/urlValidation'
 import { STATUT_JURIDIQUE_ID_LIST } from '@/lib/institutionTaxonomy'
 import { extraireIpClient } from '@/lib/edgeSecurity'
 import { generateInstitutionSlug } from '@/lib/institutionSlug'
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
-  enregistrerTentative, messageSecurite,
+  enregistrerTentative, messageSecurite, destinationInstitutionPhone,
 } from '@/lib/security/authSecurity'
 import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from '@/lib/institutionAuth'
 
@@ -35,14 +36,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
-    if (porte.state === 'blocked' || porte.state === 'support_only') {
-      return finaliser(
-        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
-        423
-      )
-    }
-
+    // Format du téléphone validé AVANT la porte anti-abus (réordonné,
+    // Priorités 3/4, 18/10/2026) — simple parsing/regex, pas une requête
+    // Supabase, pour connaître la destination à évaluer.
     const body = await request.json()
     const {
       phone, code, name, category, ville, email, website, description,
@@ -58,6 +54,15 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip, destination: destinationInstitutionPhone(phone) }, undefined, request)
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
+      )
+    }
+
     if (!code || typeof code !== 'string') {
       return NextResponse.json(
         { error: 'code requis', code: 'MISSING_FIELDS' },
@@ -177,7 +182,7 @@ export async function POST(request: NextRequest) {
 
     if (existing) {
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'deja_enregistre', userAgent,
+        endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'deja_enregistre', userAgent, destination: destinationInstitutionPhone(phone),
       })
       return finaliser({ error: 'Ce numéro est déjà enregistré. Connectez-vous à la place.', code: 'ALREADY_REGISTERED', security: etat }, 409)
     }
@@ -186,25 +191,31 @@ export async function POST(request: NextRequest) {
     // "vérifié" déclaré par le client (voir /verify-otp appelé en amont côté UI).
     // Durcissement Lot 1.1 (13/08/2026, remédiation GAP-04-01) — plus de
     // bypass en dur, voir send-otp/route.ts pour la génération du code réel.
+    //
+    // Comparaison haché (Priorité 1, 18/10/2026) — même migration que
+    // verify-otp/route.ts : code_hash ne peut plus être comparé par égalité
+    // SQL, bcrypt.compare sur un nombre borné de lignes récentes.
     let verified = false
-    const { data: otpRow } = await supabaseAdmin
+    const { data: otpRows } = await supabaseAdmin
       .from('institution_otp')
-      .select('id')
+      .select('id, code_hash')
       .eq('phone', phone)
-      .eq('code', code)
       .gt('expires_at', new Date().toISOString())
       .order('expires_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .limit(3)
 
-    if (otpRow) {
-      await supabaseAdmin.from('institution_otp').delete().eq('id', otpRow.id)
-      verified = true
+    for (const row of otpRows ?? []) {
+      if (!row.code_hash) continue
+      if (await bcrypt.compare(code, row.code_hash)) {
+        await supabaseAdmin.from('institution_otp').delete().eq('id', row.id)
+        verified = true
+        break
+      }
     }
 
     if (!verified) {
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'code_incorrect', userAgent,
+        endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'code_incorrect', userAgent, destination: destinationInstitutionPhone(phone),
       })
       return finaliser({ error: 'Code incorrect', code: 'INVALID_CODE', security: etat }, 401)
     }
@@ -337,7 +348,7 @@ export async function POST(request: NextRequest) {
       .sign(JWT_SECRET)
 
     const etatFinal = await enregistrerTentative(supabaseAdmin, {
-      endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'compte_cree', userAgent,
+      endpointCategory: 'institution_register', deviceId, ip, identifiant: phone, outcome: 'compte_cree', userAgent, destination: destinationInstitutionPhone(phone),
     })
 
     const response = finaliser({

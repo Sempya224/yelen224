@@ -23,6 +23,9 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { FormField } from "./FormField";
+import { heureAmPm } from "@/lib/heure";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { nomCopie, descriptionRecopiable, messageErreurApi } from "@/lib/servicesUi";
 
 // Lot C (refonte wizard RDV citoyen, 16/07/2026) : champs demandés au
 // citoyen à la réservation, configurés par l'institution — jamais imposés
@@ -60,6 +63,13 @@ type PaidBooking = {
   created_at: string;
   citoyen_nom?: string;
   citoyen_phone?: string;
+};
+
+// Données du formulaire service payant. Le prix promo n'est plus saisissable
+// (Lot 1b : la promo n'est appliquée nulle part côté citoyen, l'API l'ignore).
+type ServiceFormData = {
+  nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null;
+  champs_complementaires: ChampComplementaire[]; taux_taxe: number;
 };
 
 type StatutFilter = "tous" | "actif" | "suspendu";
@@ -196,7 +206,7 @@ function Toast({ msg, color, onDismiss }: { msg: string; color: string; onDismis
 }
 
 function KpiIcon({ name, color }: { name: "wallet" | "calendar" | "check" | "trending"; color: string }) {
-  const p = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none" as const, stroke: color, strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const p = { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none" as const, stroke: color, strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (name) {
     case "wallet":   return <svg {...p}><path d="M20 12V8H6a2 2 0 0 1 0-4h12v4"/><path d="M4 6v12a2 2 0 0 0 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>;
     case "calendar": return <svg {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
@@ -209,20 +219,20 @@ function KpiCard({ label, value, color, bg, icon, delta }: { label: string; valu
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   return (
-    <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow, display: "flex", alignItems: "flex-start", gap: "14px" }}>
-      <div style={{ width: "52px", height: "52px", borderRadius: "50%", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <KpiIcon name={icon} color={color}/>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <KpiIcon name={icon} color={color}/>
+        </div>
+        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ color: C.t1, fontSize: "26px", fontWeight: 800, letterSpacing: "-0.6px", lineHeight: 1.1 }}>{value}</div>
-        <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginTop: "6px" }}>{label}</div>
-        {delta && (
-          <div style={{ color: C.green, fontSize: "11px", fontWeight: 700, marginTop: "6px", display: "flex", alignItems: "center", gap: "3px" }}>
-            {delta}
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-          </div>
-        )}
-      </div>
+      <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1, letterSpacing: "-0.3px" }}>{value}</div>
+      {delta && (
+        <div style={{ color: C.green, fontSize: "11px", fontWeight: 700, display: "flex", alignItems: "center", gap: "3px" }}>
+          {delta}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+        </div>
+      )}
     </Card>
   );
 }
@@ -268,7 +278,7 @@ function ServiceActionsMenu({ service, isOpen, onToggle, onClose, onEdit, onDupl
 }
 
 function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
-  onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null; champs_complementaires: ChampComplementaire[]; taux_taxe: number; prix_promo: number | null; promo_actif: boolean }) => Promise<void>;
+  onSave: (d: ServiceFormData) => Promise<void>;
   onCancel: () => void;
   saving: boolean;
   initial?: PaidService | null;
@@ -282,8 +292,6 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
   const [desc, setDesc]   = useState(initial?.description ?? "");
   const [champs, setChamps] = useState<ChampComplementaire[]>(initial?.champs_complementaires ?? []);
   const [tauxTaxe, setTauxTaxe] = useState(initial ? String(initial.taux_taxe ?? 0) : "0");
-  const [prixPromo, setPrixPromo] = useState(initial?.prix_promo != null ? String(initial.prix_promo) : "");
-  const [promoActif, setPromoActif] = useState(initial?.promo_actif ?? false);
   const initialKnown = !!(initial?.categorie && categorieOptions.includes(initial.categorie) && initial.categorie !== CATEGORIE_AUTRE);
   const [categorieSel, setCategorieSel]       = useState(initial?.categorie ? (initialKnown ? initial.categorie : CATEGORIE_AUTRE) : "");
   const [categorieCustom, setCategorieCustom] = useState(initial?.categorie && !initialKnown ? initial.categorie : "");
@@ -296,11 +304,10 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
     if (!prix || isNaN(+prix) || +prix <= 0)    { setErr(`Entrez un prix valide en ${DEVISE_LABEL} (ex: 5000)`); return; }
     if (!duree || isNaN(+duree) || +duree <= 0) { setErr("Entrez une durée valide en minutes (ex: 30)"); return; }
     if (tauxTaxe && (isNaN(+tauxTaxe) || +tauxTaxe < 0)) { setErr("Le taux de taxe doit être un nombre positif"); return; }
-    if (promoActif && (!prixPromo || isNaN(+prixPromo) || +prixPromo <= 0)) { setErr("Entrez un prix promotionnel valide"); return; }
     const categorieFinal = categorieSel === CATEGORIE_AUTRE ? (categorieCustom.trim() || null) : (categorieSel || null);
     await onSave({
       nom: nom.trim(), prix: +prix, duree_minutes: +duree, description: desc.trim(), categorie: categorieFinal, champs_complementaires: champs,
-      taux_taxe: tauxTaxe ? +tauxTaxe : 0, prix_promo: promoActif && prixPromo ? +prixPromo : null, promo_actif: promoActif,
+      taux_taxe: tauxTaxe ? +tauxTaxe : 0,
     });
   }
 
@@ -361,17 +368,6 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
             <label style={labelStyle}>Taux de taxe (%)</label>
             <input type="number" value={tauxTaxe} onChange={e => setTauxTaxe(e.target.value)} placeholder="0" style={inputStyle}/>
           </div>
-          <div>
-            <label style={labelStyle}>
-              <span onClick={() => setPromoActif(v => !v)} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ width: "28px", height: "16px", borderRadius: "10px", backgroundColor: promoActif ? C.gold : C.bg3, position: "relative", display: "inline-block", border: `1px solid ${promoActif ? C.gold : C.border2}`, transition: "background-color 0.15s" }}>
-                  <span style={{ position: "absolute", top: "1px", left: promoActif ? "13px" : "1px", width: "12px", height: "12px", borderRadius: "50%", backgroundColor: promoActif ? "#000" : C.t3, transition: "left 0.15s" }}/>
-                </span>
-                Prix promo actif
-              </span>
-            </label>
-            <input type="number" value={prixPromo} onChange={e => setPrixPromo(e.target.value)} disabled={!promoActif} placeholder="Prix réduit" style={{ ...inputStyle, opacity: promoActif ? 1 : 0.5 }}/>
-          </div>
         </div>
 
         <div className="svc-form-span2">
@@ -411,7 +407,7 @@ function ServiceForm({ onSave, onCancel, saving, initial, categorieOptions }: {
 }
 
 function ServiceFormSheet({ target, onSave, onCancel, saving, categorieOptions }: {
-  target: "new" | PaidService; onSave: (d: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null; champs_complementaires: ChampComplementaire[]; taux_taxe: number; prix_promo: number | null; promo_actif: boolean }) => Promise<void>; onCancel: () => void; saving: boolean;
+  target: "new" | PaidService; onSave: (d: ServiceFormData) => Promise<void>; onCancel: () => void; saving: boolean;
   categorieOptions: string[];
 }) {
   const { theme } = useTheme();
@@ -584,7 +580,7 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
                 <div style={{ width: "38px", height: "38px", borderRadius: "11px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.citoyen_nom || "Citoyen"}</div>
-                  <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{formatDate(b.date_rdv)} · {b.heure_rdv}</div>
+                  <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{formatDate(b.date_rdv)} · {heureAmPm(b.heure_rdv) || b.heure_rdv}</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
                   <span style={{ backgroundColor: si.bg, color: si.c, fontSize: "9px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px", textTransform: "uppercase" }}>{si.l}</span>
@@ -888,6 +884,8 @@ export function ServicesTab({ instId }: { instId: string }) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [guideOpen, setGuideOpen]   = useState(false);
   const [offreOpen, setOffreOpen]   = useState(false);
+  const [confirmSupprimer, setConfirmSupprimer] = useState<PaidService | null>(null);
+  const [confirmSuspendre, setConfirmSuspendre] = useState<PaidService | null>(null);
   // Chantier Taxonomie des activités (Phase 3.5, 20/08/2026) — activités
   // réelles de la catégorie de l'institution, pour peupler le dropdown
   // catégorie du formulaire service payant. null tant que non résolu ou si
@@ -924,7 +922,7 @@ export function ServicesTab({ instId }: { instId: string }) {
 
   const categorieOptions = [...(activiteLabels ?? FALLBACK_CATEGORIE_OPTIONS), CATEGORIE_AUTRE];
 
-  async function handleSaveForm(data: { nom: string; prix: number; duree_minutes: number; description: string; categorie: string | null; champs_complementaires: ChampComplementaire[]; taux_taxe: number; prix_promo: number | null; promo_actif: boolean }) {
+  async function handleSaveForm(data: ServiceFormData) {
     setSaving(true);
     const isEdit = formTarget && formTarget !== "new";
     const res = await fetch("/api/institution/services", {
@@ -933,7 +931,7 @@ export function ServicesTab({ instId }: { instId: string }) {
       body: JSON.stringify(isEdit ? { id: (formTarget as PaidService).id, ...data } : data),
     });
     const j = await res.json().catch(() => null);
-    if (!res.ok) { showToast("Erreur : " + (j?.error ?? "inconnue"), C.red); setSaving(false); return; }
+    if (!res.ok) { showToast(messageErreurApi(j, "Le service n'a pas pu être enregistré."), C.red); setSaving(false); return; }
     showToast(isEdit ? "Service mis à jour" : "Service créé avec succès", C.green);
     setFormTarget(null);
     await loadData();
@@ -945,14 +943,25 @@ export function ServicesTab({ instId }: { instId: string }) {
     const res = await fetch("/api/institution/services", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nom: `${service.nom} (copie)`, prix: service.prix, duree_minutes: service.duree_minutes, description: service.description, categorie: service.categorie, champs_complementaires: service.champs_complementaires, is_active: service.is_active, taux_taxe: service.taux_taxe, prix_promo: service.prix_promo, promo_actif: service.promo_actif }),
+      // La copie est créée SUSPENDUE : jamais publiée avant relecture. Nom sans
+      // suffixe empilé, jamais de description d'erreur recopiée.
+      body: JSON.stringify({ nom: nomCopie(service.nom, services.map(s => s.nom)), prix: service.prix, duree_minutes: service.duree_minutes, description: descriptionRecopiable(service.description), categorie: service.categorie, champs_complementaires: service.champs_complementaires, is_active: false, taux_taxe: service.taux_taxe }),
     });
-    if (!res.ok) { showToast("Erreur duplication", C.red); return; }
-    showToast("Service dupliqué", C.green);
+    if (!res.ok) { showToast(messageErreurApi(await res.json().catch(() => null), "Le service n'a pas pu être dupliqué."), C.red); return; }
+    showToast("Service dupliqué — la copie est suspendue, activez-la quand elle est prête", C.green);
     await loadData();
   }
 
-  async function handleToggle(service: PaidService) {
+  // Suspendre un service actif qui a déjà des réservations demande une
+  // confirmation (nombre affiché) ; réactiver, ou suspendre sans réservation,
+  // est immédiat.
+  function handleToggle(service: PaidService) {
+    setMenuOpenId(null);
+    if (service.is_active && bookings.some(b => b.service_id === service.id)) { setConfirmSuspendre(service); return; }
+    return appliquerToggle(service);
+  }
+
+  async function appliquerToggle(service: PaidService) {
     setToggling(service.id);
     const res = await fetch("/api/institution/services", {
       method: "PATCH",
@@ -961,25 +970,30 @@ export function ServicesTab({ instId }: { instId: string }) {
     });
     if (res.ok) {
       setServices(prev => prev.map(s => s.id === service.id ? { ...s, is_active: !s.is_active } : s));
-      showToast(service.is_active ? "Service désactivé" : "Service activé", service.is_active ? C.orange : C.green);
+      showToast(service.is_active ? "Service suspendu" : "Service réactivé", service.is_active ? C.orange : C.green);
     } else {
-      showToast("Erreur de mise à jour", C.red);
+      showToast(messageErreurApi(await res.json().catch(() => null), "Le statut du service n'a pas pu être mis à jour."), C.red);
     }
     setToggling(null);
     setMenuOpenId(null);
+    setConfirmSuspendre(null);
   }
 
+  // La confirmation (ConfirmModal) précède cet appel : plus de window.confirm.
   async function handleDelete(id: string) {
     setMenuOpenId(null);
-    const hasBk = bookings.some(b => b.service_id === id);
-    const msg = hasBk ? "Ce service a des réservations. Supprimer quand même ?" : "Supprimer ce service définitivement ?";
-    if (!window.confirm(msg)) return;
     const res = await fetch(`/api/institution/services?id=${id}`, { method: "DELETE" });
-    if (!res.ok) { showToast("Erreur suppression", C.red); return; }
+    setConfirmSupprimer(null);
+    if (!res.ok) { showToast(messageErreurApi(await res.json().catch(() => null), "Le service n'a pas pu être supprimé."), C.red); return; }
     setServices(prev => prev.filter(s => s.id !== id));
     setBookings(prev => prev.filter(b => b.service_id !== id));
     showToast("Service supprimé", C.orange);
   }
+
+  const nbReservationsSupprimer = confirmSupprimer ? bookings.filter(b => b.service_id === confirmSupprimer.id).length : 0;
+  const reservationsSuspendre = confirmSuspendre ? bookings.filter(b => b.service_id === confirmSuspendre.id) : [];
+  const nbReservationsSuspendre = reservationsSuspendre.length;
+  const nbReservationsSuspendreOuvertes = reservationsSuspendre.filter(b => b.statut === "en_attente" || b.statut === "confirme").length;
 
   const servicesActifs = services.filter(s => s.is_active).length;
   const totalResa      = bookings.length;
@@ -1056,6 +1070,50 @@ export function ServicesTab({ instId }: { instId: string }) {
       {toast && <Toast msg={toast.msg} color={toast.color} onDismiss={() => setToast(null)}/>}
       {formTarget && <ServiceFormSheet target={formTarget} onSave={handleSaveForm} onCancel={() => setFormTarget(null)} saving={saving} categorieOptions={categorieOptions}/>}
 
+      <ConfirmModal
+        open={!!confirmSupprimer}
+        onClose={() => setConfirmSupprimer(null)}
+        onConfirm={() => { if (confirmSupprimer) return handleDelete(confirmSupprimer.id); }}
+        tokens={toUiTokens(C)}
+        level={1}
+        danger
+        title={confirmSupprimer ? `Supprimer « ${confirmSupprimer.nom} » ?` : "Supprimer ce service ?"}
+        description={nbReservationsSupprimer > 0 ? `${nbReservationsSupprimer} réservation${nbReservationsSupprimer > 1 ? "s sont liées" : " est liée"} à ce service.` : "Aucune réservation n'est liée à ce service."}
+        consequences={[
+          "Suppression définitive : le service ne pourra pas être récupéré.",
+          ...(nbReservationsSupprimer > 0 ? ["Les réservations liées sont supprimées avec lui."] : []),
+          "Si des paiements ou des reçus y sont rattachés, la suppression est refusée : suspendez alors le service.",
+        ]}
+        reversible={false}
+        confirmLabel="Supprimer définitivement"
+      >
+        {confirmSupprimer?.is_active && (
+          <div style={{ marginBottom: "10px" }}>
+            <Button tokens={toUiTokens(C)} variant="secondary" size="md" fullWidth
+              onClick={() => { const s = confirmSupprimer; setConfirmSupprimer(null); if (s) appliquerToggle(s); }}>
+              Suspendre à la place
+            </Button>
+          </div>
+        )}
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={!!confirmSuspendre}
+        onClose={() => setConfirmSuspendre(null)}
+        onConfirm={() => { if (confirmSuspendre) return appliquerToggle(confirmSuspendre); }}
+        tokens={toUiTokens(C)}
+        level={1}
+        title={confirmSuspendre ? `Suspendre « ${confirmSuspendre.nom} » ?` : "Suspendre ce service ?"}
+        description={`${nbReservationsSuspendre} réservation${nbReservationsSuspendre > 1 ? "s existent" : " existe"} pour ce service${nbReservationsSuspendreOuvertes > 0 ? `, dont ${nbReservationsSuspendreOuvertes} en attente ou confirmée${nbReservationsSuspendreOuvertes > 1 ? "s" : ""}` : ""}.`}
+        consequences={[
+          "Le service n'apparaît plus sur votre fiche publique et ne peut plus être réservé.",
+          "Les réservations existantes ne sont pas modifiées : traitez-les normalement.",
+          "Vous pourrez le réactiver à tout moment.",
+        ]}
+        reversible
+        confirmLabel="Suspendre"
+      />
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", marginBottom: "20px", flexWrap: "wrap" }}>
         <div>
           <h1 className="yelen-h1" style={{ color: C.t1, marginBottom: "6px" }}>Mes services</h1>
@@ -1102,13 +1160,6 @@ export function ServicesTab({ instId }: { instId: string }) {
       </div>
 
       {offreOpen && <OffreGeneraleSheet instId={instId} onClose={() => setOffreOpen(false)}/>}
-
-      <div style={{ backgroundColor: C.orangeL, border: `1px solid ${C.orange}30`, borderRadius: "14px", padding: "12px 16px", marginBottom: "16px", display: "flex", gap: "10px" }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "2px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <div style={{ color: C.t1, fontSize: "12px", lineHeight: 1.6 }}>
-          <strong>Fonctionnalité par abonnement.</strong> Les rendez-vous payants (réservation en ligne + code de confirmation Yelen) seront activés selon le plan de votre institution au lancement. Vous pouvez dès maintenant préparer votre catalogue ci-dessous — les citoyens ne pourront pas encore réserver tant que cette fonctionnalité n&apos;est pas activée pour votre compte.
-        </div>
-      </div>
 
       <div className="svc-kpi-grid" style={{ marginBottom: "16px" }}>
         {kpis.map(k => <KpiCard key={k.label} {...k}/>)}
@@ -1188,7 +1239,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                       return (
                         <ServiceRow key={s.id} service={s} resaCount={svcBookings.length} resaDelta={svcBookings.filter(b => isThisMonth(b.created_at)).length}
                           menuOpen={menuOpenId === s.id} onMenuToggle={() => setMenuOpenId(menuOpenId === s.id ? null : s.id)} onMenuClose={() => setMenuOpenId(null)}
-                          onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onToggleActive={() => handleToggle(s)} onDelete={() => handleDelete(s.id)} toggling={toggling === s.id}/>
+                          onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onToggleActive={() => handleToggle(s)} onDelete={() => { setMenuOpenId(null); setConfirmSupprimer(s); }} toggling={toggling === s.id}/>
                       );
                     })}
                   </tbody>
@@ -1204,7 +1255,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                   return (
                     <ServiceCardMobile key={s.id} service={s} bookings={svcBookings} resaDelta={svcBookings.filter(b => isThisMonth(b.created_at)).length}
                       menuOpen={menuOpenId === s.id} onMenuToggle={() => setMenuOpenId(menuOpenId === s.id ? null : s.id)} onMenuClose={() => setMenuOpenId(null)}
-                      onToggleActive={() => handleToggle(s)} onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onDelete={() => handleDelete(s.id)} toggling={toggling === s.id}/>
+                      onToggleActive={() => handleToggle(s)} onEdit={() => setFormTarget(s)} onDuplicate={() => handleDuplicate(s)} onDelete={() => { setMenuOpenId(null); setConfirmSupprimer(s); }} toggling={toggling === s.id}/>
                   );
                 })}
               </div>
@@ -1271,7 +1322,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.citoyen_nom || "Citoyen"}</div>
                     <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{svc?.nom ?? "Service"}{svc ? ` · ${formatPrix(svc.prix)}` : ""}</div>
-                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {b.heure_rdv} · {timeAgo(b.created_at)}</div>
+                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {heureAmPm(b.heure_rdv) || b.heure_rdv} · {timeAgo(b.created_at)}</div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "5px", flexShrink: 0 }}>
                     <span style={{ backgroundColor: si.bg, color: si.c, fontSize: "9px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px", textTransform: "uppercase" }}>{si.l}</span>

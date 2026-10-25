@@ -8,7 +8,7 @@
 // glisser le repère, ou toucher/cliquer un point de la carte. Le centre par
 // défaut (avant toute position choisie) vient de lib/villesCoordonnees.ts —
 // une approximation de la ville, jamais utilisée comme position finale.
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useState } from "react";
@@ -30,12 +30,26 @@ function ClicCarte({ onPick }: { onPick: (lat: number, lng: number) => void }) {
   return null;
 }
 
+// Recentre la carte quand le centre par défaut change (ex. la ville saisie
+// correspond maintenant à une préfecture connue) — UNIQUEMENT tant qu'aucune
+// position précise n'a été choisie (`actif`), jamais une fois qu'un repère
+// réel existe, pour ne pas déplacer la carte sous les pieds de l'institution
+// pendant qu'elle ajuste son point exact.
+function RecentreSurVille({ lat, lng, actif }: { lat: number; lng: number; actif: boolean }) {
+  const map = useMap();
+  useEffect(() => {
+    if (actif) map.setView([lat, lng], 12);
+  }, [actif, lat, lng, map]);
+  return null;
+}
+
 export function LocationPicker({ latitude, longitude, ville, onChange, C }: {
   latitude: number | null; longitude: number | null; ville: string;
   onChange: (lat: number, lng: number) => void; C: ThemeTokens;
 }) {
   const [mounted, setMounted] = useState(false);
   const [localisation, setLocalisation] = useState(false);
+  const [copie, setCopie] = useState(false);
   // queueMicrotask (même convention qu'ailleurs, ex. EquipeTab.tsx) : évite
   // react-hooks/set-state-in-effect sur ce setState synchrone en tête
   // d'effet, sans changer le comportement (s'exécute avant tout rendu).
@@ -55,9 +69,16 @@ export function LocationPicker({ latitude, longitude, ville, onChange, C }: {
     );
   }
 
+  async function copierCoordonnees() {
+    if (!aPosition || typeof navigator === "undefined" || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(`${(latitude as number).toFixed(5)}, ${(longitude as number).toFixed(5)}`);
+    setCopie(true);
+    setTimeout(() => setCopie(false), 1500);
+  }
+
   return (
     <div>
-      <div style={{ position: "relative", zIndex: 0, borderRadius: "14px", overflow: "hidden", border: `1px solid ${C.border2}`, height: "240px" }}>
+      <div style={{ position: "relative", zIndex: 0, borderRadius: "14px", overflow: "hidden", border: `1px solid ${C.border2}`, height: "320px" }}>
         {mounted && (
           <MapContainer center={center} zoom={aPosition ? 15 : 12} style={{ height: "100%", width: "100%" }}>
             <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
@@ -74,12 +95,20 @@ export function LocationPicker({ latitude, longitude, ville, onChange, C }: {
               }}
             />
             <ClicCarte onPick={onChange}/>
+            <RecentreSurVille lat={defaut.lat} lng={defaut.lng} actif={!aPosition}/>
           </MapContainer>
         )}
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginTop: "10px", flexWrap: "wrap" }}>
-        <div style={{ color: aPosition ? C.t2 : C.t3, fontSize: "11px", fontWeight: "600" }}>
-          {aPosition ? `${(latitude as number).toFixed(5)}, ${(longitude as number).toFixed(5)}` : "Position non renseignée — repère placé sur le centre approximatif de votre ville"}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ color: aPosition ? C.t2 : C.t3, fontSize: "11px", fontWeight: "600", fontFamily: aPosition ? "monospace" : "inherit" }}>
+            {aPosition ? `${(latitude as number).toFixed(5)}, ${(longitude as number).toFixed(5)}` : "Position non renseignée — repère placé sur le centre approximatif de votre ville"}
+          </span>
+          {aPosition && (
+            <button type="button" onClick={copierCoordonnees} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0 }}>
+              {copie ? "Copié" : "Copier"}
+            </button>
+          )}
         </div>
         <Button
           tokens={toUiTokens(C)}

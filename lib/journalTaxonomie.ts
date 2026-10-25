@@ -29,6 +29,8 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   // Documents
   document_ajoute: "documents",
   document_supprime: "documents",
+  // Dépôt d'un document de vérification de l'établissement (documents_institution).
+  document_institutionnel_depose: "documents",
   document_citoyen_demande: "documents",
   document_citoyen_envoye: "documents",
   // Tâches
@@ -48,6 +50,22 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   // Premier accès (sas de confiance, 16/09/2026) — un membre invité indique
   // ne pas reconnaître l'organisation avant d'accéder au dashboard.
   invitation_non_reconnue: "equipe",
+  // Profil Responsable (audit 19/10/2026) — institution_responsables,
+  // fiche descriptive distincte de institution_membres mais sous le même
+  // groupe "Administration & accès" côté dashboard.
+  responsable_modifie: "equipe",
+  // Facteurs de sécurité du membre connecté (audit 19/10/2026) — 2FA TOTP
+  // et clés d'accès WebAuthn, même catégorie que connexion/reauth_*.
+  totp_active: "authentification",
+  totp_desactive: "authentification",
+  passkey_ajoutee: "authentification",
+  passkey_retiree: "authentification",
+  // PIN (pose / retrait) et appareils mémorisés révoqués (23/10/2026) —
+  // même catégorie que passkeys/2FA, donc visibles dans "Activité de sécurité".
+  pin_defini: "authentification",
+  pin_retire: "authentification",
+  appareil_deconnecte: "authentification",
+  appareils_deconnectes: "authentification",
   // Projets
   projet_cree: "projets",
   projet_modifie: "projets",
@@ -65,6 +83,9 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   message_recu: "communication",
   // Disponibilités (refonte Enterprise 05/08/2026 — bouton "Historique")
   disponibilites_modifiees: "disponibilites",
+  // Pause volontaire réservations (Booking Governance Lot 1, 18/10/2026)
+  pause_reservations_activee: "disponibilites",
+  pause_reservations_levee: "disponibilites",
   // Paiements / finance
   acces_urgence_comptable: "paiements",
   // Reçu Yelen (Lot E, décision CEO 05/08/2026) — QR de vérification
@@ -74,8 +95,26 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   // décision CEO 06/08/2026) — "toutes les exportations sont enregistrées
   // dans le journal d'activité".
   export_transactions: "paiements",
+  // Export du Rapport financier exécutif (XLSX / PDF), enregistré dans exports.
+  export_rapport: "paiements",
   // Compte institution
   suppression_compte_acces_refuse: "compte",
+  // Cycle de vie de la demande de suppression (délai de grâce de 30 jours) et
+  // préférences de notification du compte.
+  suppression_compte_demandee: "compte",
+  suppression_compte_annulee: "compte",
+  suppression_compte_revocation_echec: "compte",
+  preferences_notification_modifiees: "compte",
+  // Changement sensible de profil (nom, ville, adresse, coordonnées, activité
+  // principale) appliqué avec demande d'examen — politique de revérification,
+  // docs/product/YELEN_REVERIFICATION_POLICY.md. Une ligne par champ modifié,
+  // cible = la demande institution_change_requests.
+  changement_profil_sensible: "compte",
+  // Modification d'un des 3 textes publics (Conditions / Informations
+  // importantes / Informations légales) — une ligne par texte modifié.
+  modification_texte_public: "compte",
+  // Réponse de l'établissement à une demande de complément de l'équipe Yelen.
+  changement_profil_complement_fourni: "compte",
   // Authentification
   connexion: "authentification",
   // Moteur de réauthentification pour actions sensibles (16/09/2026,
@@ -84,6 +123,12 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   reauth_echec: "authentification",
   // Journal (méta-actions sur le journal lui-même)
   export_journal: "journal",
+  // Vérification publique d'un export par un tiers (réussie seulement) — membre_id
+  // null, même convention que recu_verifie.
+  export_verifie: "export",
+  // Export CSV serveur d'un écran (RDV passés, accueil, paiements, historique
+  // financier) : l'écran est dans details.ecran.
+  export_ecran: "export",
   // Offres partenaires (chantier "Centre de pilotage des offres",
   // 02/08/2026). offre_approuvee/offre_refusee/offre_suspendue_admin sont
   // émises par la modération Yelen (membre_id null, même convention que
@@ -97,6 +142,15 @@ export const ACTION_CATEGORIE: Record<string, string> = {
   offre_approuvee: "offres",
   offre_refusee: "offres",
   offre_suspendue_admin: "offres",
+  // Catalogue de services payants (Lot 1a, API Services) — rangés sous
+  // "paiements" : un changement de prix ou de disponibilité d'un service
+  // payant a un impact financier direct (aucune catégorie "services" n'existe,
+  // pas de nouvelle catégorie créée pour ce lot).
+  service_cree: "paiements",
+  service_prix_modifie: "paiements",
+  service_suspendu: "paiements",
+  service_reactive: "paiements",
+  service_supprime: "paiements",
 };
 
 // Seules les actions dont le niveau par défaut diffère de "info" sont
@@ -111,18 +165,40 @@ export const NIVEAU_PAR_DEFAUT: Partial<Record<string, NiveauJournal>> = {
   rdv_absent: "attention",
   rdv_annule: "attention",
   rdv_validation_annulee: "attention",
+  pause_reservations_activee: "attention",
   membre_acces_refuse: "erreur",
   invitation_non_reconnue: "critique",
   suppression_compte_acces_refuse: "erreur",
+  suppression_compte_demandee: "attention",
+  suppression_compte_annulee: "info",
+  suppression_compte_revocation_echec: "attention",
+  preferences_notification_modifiees: "info",
+  changement_profil_sensible: "attention",
+  modification_texte_public: "info",
   connexion: "succes",
   reauth_reussie: "succes",
   reauth_echec: "attention",
+  // Affaiblissement d'un facteur de sécurité — même palier que
+  // pause_reservations_activee : pas une erreur, mais à surveiller.
+  totp_desactive: "attention",
+  passkey_retiree: "attention",
+  pin_retire: "attention",
+  appareil_deconnecte: "attention",
+  appareils_deconnectes: "attention",
+  // Renforcement d'un facteur de sécurité — même palier que reauth_reussie.
+  totp_active: "succes",
+  passkey_ajoutee: "succes",
+  pin_defini: "succes",
   offre_supprimee: "attention",
   offre_archivee: "attention",
   offre_suspendue: "attention",
   offre_suspendue_admin: "attention",
   offre_refusee: "attention",
   offre_approuvee: "succes",
+  service_prix_modifie: "attention",
+  service_suspendu: "attention",
+  service_supprime: "attention",
+  service_reactive: "succes",
 };
 
 export type RisqueJournal = "vert" | "orange" | "rouge";

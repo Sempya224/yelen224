@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
+import { masquerDonneesTechniques } from "@/lib/journalRequete";
 
 // Événements liés (Lot E, 24/07/2026) — 3 événements précédents et 3
 // suivants autour d'une entrée du journal, pour reconstituer le fil de
@@ -42,8 +43,13 @@ export async function GET(req: NextRequest) {
   if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
   if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
 
+  // IP et user-agent bruts masqués pour les rôles sans "journal.voir_ip".
+  type Ligne = Parameters<typeof masquerDonneesTechniques>[0];
+  const voirIp = can(membre.role, "journal.voir_ip");
+  const avant = (avantRaw ?? []).reverse() as unknown as Ligne;
+  const apres = (apresRaw ?? []) as unknown as Ligne;
   return NextResponse.json({
-    avant: (avantRaw ?? []).reverse(),
-    apres: apresRaw ?? [],
+    avant: voirIp ? avant : masquerDonneesTechniques(avant),
+    apres: voirIp ? apres : masquerDonneesTechniques(apres),
   });
 }

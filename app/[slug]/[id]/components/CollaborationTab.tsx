@@ -13,11 +13,16 @@
 // réelle affichée à la place, aucune donnée de présence live n'existe
 // aujourd'hui côté serveur). Rafraîchissement par polling (10s), pas de
 // canal Realtime pour ces lots.
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens } from "../theme";
+import {
+  CollabStyles, CollabHeader, ConversationSearch, ConversationFilters, ListSectionLabel, ListSkeleton, ListMessage,
+  PaneEmpty, PaneHeader, DateSeparator, MessagesSkeleton, jourMessage, onListKeyDown,
+} from "./CollaborationUi";
 import { Button } from "@/components/ui/Button";
 import { YelenLoader } from "@/components/YelenLoader";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 // Jamais d'emoji classique sur Yelen — uniquement des SVG maison.
 function IconStar({ filled, color }: { filled: boolean; color: string }) {
@@ -49,9 +54,6 @@ function IconReponses() {
 }
 function IconSearch() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
-}
-function IconAt() {
-  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 12v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-5.5 8.28"/></svg>;
 }
 function IconTrombone() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>;
@@ -97,7 +99,7 @@ function rendreContenuAvecMentions(contenu: string, participants: Participant[],
 }
 
 function formatHeureMsg(iso: string): string {
-  return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return heureDepuisHorodatage(iso);
 }
 function formatRelatifConv(iso: string): string {
   const d = new Date(iso);
@@ -139,6 +141,9 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [recherche, setRecherche] = useState("");
+  const [filtreListe, setFiltreListe] = useState<"toutes" | "non_lues" | "groupes">("toutes");
+  const [erreurListe, setErreurListe] = useState(false);
+  const [maintenantMsg] = useState(() => Date.now());
 
   const [nouvelleOuverte, setNouvelleOuverte] = useState(false);
   const [membresRecherchables, setMembresRecherchables] = useState<MembreRecherchable[]>([]);
@@ -190,9 +195,10 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
 
   const chargerConversations = useCallback(async (silencieux = false) => {
     if (!silencieux) setListeChargee(false);
-    const res = await fetch("/api/institution/collaboration/conversations");
-    const j = await res.json().catch(() => null);
-    setConversations(res.ok ? (j?.conversations ?? []) : []);
+    const res = await fetch("/api/institution/collaboration/conversations").catch(() => null);
+    const j = res ? await res.json().catch(() => null) : null;
+    setErreurListe(!res || !res.ok);
+    setConversations(res?.ok ? (j?.conversations ?? []) : []);
     setListeChargee(true);
   }, []);
 
@@ -490,12 +496,17 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
     chargerConversations(true);
   }
 
-  const favoris = conversations.filter(c => c.favori);
+  const passeFiltre = (c: ConversationListItem) => filtreListe === "non_lues" ? c.non_lus > 0 : filtreListe === "groupes" ? c.type === "groupe" : true;
+  const nbConvNonLues = conversations.filter(c => c.non_lus > 0).length;
+  const nbMessagesNonLus = conversations.reduce((a, c) => a + c.non_lus, 0);
+  const favoris = conversations.filter(c => c.favori).filter(passeFiltre);
   const groupes = conversations
     .filter(c => !c.favori && c.type === "groupe")
+    .filter(passeFiltre)
     .filter(c => !recherche.trim() || c.nom.toLowerCase().includes(recherche.trim().toLowerCase()));
   const autresConversations = conversations
     .filter(c => !c.favori && c.type === "directe")
+    .filter(passeFiltre)
     .filter(c => !recherche.trim() || c.nom.toLowerCase().includes(recherche.trim().toLowerCase()));
   const membresFiltres = membresRecherchables.filter(m => `${m.prenom} ${m.nom}`.toLowerCase().includes(rechercheMembre.trim().toLowerCase()));
   const autreParticipant = participants[0] ?? null;
@@ -533,46 +544,40 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); envoyerMessage(); }
   }
 
-  return (
-    <div style={{ height: "calc(100vh - 57px)", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-        <div>
-          <h1 style={{ color: C.t1, fontSize: "19px", fontWeight: 800, letterSpacing: "-0.3px" }}>Collaboration</h1>
-          <p style={{ color: C.t3, fontSize: "12px" }}>Échangez simplement avec les membres de votre équipe.</p>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <button onClick={() => { setRechercheGlobaleOuverte(true); setRechercheGlobaleTexte(""); setRechercheGlobaleResultats([]); }} className="tap" aria-label="Rechercher" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "40px", height: "40px", background: "none", border: `1px solid ${C.border2}`, borderRadius: "9px", color: C.t1, cursor: "pointer" }}>
-            <IconSearch/>
-          </button>
-          <button onClick={ouvrirMentionsVue} className="tap" style={{ position: "relative", display: "flex", alignItems: "center", gap: "6px", background: "none", border: `1px solid ${C.border2}`, borderRadius: "9px", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer", padding: "8px 12px", height: "40px" }}>
-            <IconAt/> Mentions
-            {mentionsNonLues > 0 && (
-              <span style={{ background: C.gold, color: "#111", fontSize: "10px", fontWeight: 800, borderRadius: "10px", padding: "1px 6px" }}>{mentionsNonLues}</span>
-            )}
-          </button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={ouvrirNouvelleConversation}>+ Nouvelle conversation</Button>
-        </div>
-      </div>
+  const aucuneVisible = favoris.length + groupes.length + autresConversations.length === 0;
+  function reinitialiserListe() { setRecherche(""); setFiltreListe("toutes"); }
 
-      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+  return (
+    <div className="clx-page">
+      <CollabStyles C={C}/>
+      <CollabHeader C={C} mentionsNonLues={mentionsNonLues}
+        onSearchMessages={() => { setRechercheGlobaleOuverte(true); setRechercheGlobaleTexte(""); setRechercheGlobaleResultats([]); }}
+        onMentions={ouvrirMentionsVue} onNew={ouvrirNouvelleConversation}/>
+
+      <div className="clx-shell" data-vue={selectedId ? "fil" : "liste"}>
         {/* ── Colonne conversations ── */}
-        <div style={{ width: "280px", flexShrink: 0, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}` }}>
-            <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher une conversation…" style={{ width: "100%", background: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "9px", padding: "8px 10px", fontSize: "12.5px", color: C.t1, boxSizing: "border-box" }} />
+        <div className="clx-list">
+          <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
+            <ConversationSearch C={C} value={recherche} onChange={setRecherche}/>
+            <ConversationFilters C={C} active={filtreListe}
+              onChange={k => { if (k === "toutes" || k === "non_lues" || k === "groupes") setFiltreListe(k); }}
+              items={[{ key: "toutes", label: "Toutes" }, { key: "non_lues", label: "Non lues", count: nbConvNonLues }, { key: "groupes", label: "Groupes" }]}/>
+            <span className="clx-sr" aria-live="polite">{nbMessagesNonLus > 0 ? `${nbMessagesNonLus} message${nbMessagesNonLus > 1 ? "s" : ""} non lu${nbMessagesNonLus > 1 ? "s" : ""}` : "Aucun message non lu"}</span>
           </div>
-          <div style={{ flex: 1, overflowY: "auto" }}>
+          <div aria-label="Conversations" onKeyDown={onListKeyDown} style={{ flex: 1, overflowY: "auto" }}>
             {!listeChargee ? (
-              <div style={{ display: "flex", justifyContent: "center", padding: "24px" }}><YelenLoader size={22} /></div>
+              <ListSkeleton/>
+            ) : erreurListe && conversations.length === 0 ? (
+              <ListMessage C={C} titre="Impossible de charger les conversations" texte="Vérifiez votre connexion puis réessayez." action={{ label: "Réessayer", onClick: () => chargerConversations() }}/>
             ) : conversations.length === 0 ? (
-              <div style={{ padding: "28px 16px", textAlign: "center" }}>
-                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 700, marginBottom: "4px" }}>Vous n&apos;avez pas encore de conversation</div>
-                <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.5 }}>Cliquez sur « Nouvelle conversation » pour échanger avec un collègue.</div>
-              </div>
+              <ListMessage C={C} titre="Aucune conversation pour le moment" texte="Lancez un échange avec un collègue ou créez un groupe." action={{ label: "Nouvelle conversation", onClick: ouvrirNouvelleConversation, primaire: true }}/>
+            ) : aucuneVisible ? (
+              <ListMessage C={C} titre="Aucun résultat" texte="Aucune conversation ne correspond à votre recherche ou à ce filtre." action={{ label: "Réinitialiser", onClick: reinitialiserListe }}/>
             ) : (
               <>
                 {favoris.length > 0 && (
                   <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "5px", padding: "10px 12px 4px", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" }}><IconStar filled color={C.gold}/> Favoris</div>
+                    <ListSectionLabel C={C} icon={<IconStar filled color={C.gold}/>}>Favoris</ListSectionLabel>
                     {favoris.map(c => (
                       <ConversationRow key={c.id} c={c} C={C} active={c.id === selectedId} onClick={() => setSelectedId(c.id)} onToggleFavori={() => toggleFavori(c.id, c.favori)} />
                     ))}
@@ -580,51 +585,51 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
                 )}
                 {groupes.length > 0 && (
                   <div>
-                    <div style={{ padding: "10px 12px 4px", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" }}>Groupes</div>
+                    <ListSectionLabel C={C}>Groupes</ListSectionLabel>
                     {groupes.map(c => (
                       <ConversationRow key={c.id} c={c} C={C} active={c.id === selectedId} onClick={() => setSelectedId(c.id)} onToggleFavori={() => toggleFavori(c.id, c.favori)} />
                     ))}
                   </div>
                 )}
-                <div style={{ padding: "10px 12px 4px", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" }}>Conversations</div>
-                {autresConversations.length === 0 ? (
-                  <div style={{ padding: "8px 14px 20px", color: C.t3, fontSize: "12px" }}>Aucune conversation ne correspond à votre recherche.</div>
-                ) : autresConversations.map(c => (
-                  <ConversationRow key={c.id} c={c} C={C} active={c.id === selectedId} onClick={() => setSelectedId(c.id)} onToggleFavori={() => toggleFavori(c.id, c.favori)} />
-                ))}
+                {autresConversations.length > 0 && (
+                  <div>
+                    <ListSectionLabel C={C}>Conversations</ListSectionLabel>
+                    {autresConversations.map(c => (
+                      <ConversationRow key={c.id} c={c} C={C} active={c.id === selectedId} onClick={() => setSelectedId(c.id)} onToggleFavori={() => toggleFavori(c.id, c.favori)} />
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
-          <button onClick={ouvrirNouveauGroupe} className="tap" style={{ background: "none", border: "none", borderTop: `1px solid ${C.border}`, color: C.gold, fontSize: "12px", fontWeight: 800, cursor: "pointer", padding: "10px 12px", textAlign: "left" }}>+ Nouveau groupe</button>
+          <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}` }}>
+            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={ouvrirNouveauGroupe} style={{ height: "36px" }}
+              icon={<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}>
+              Nouveau groupe
+            </Button>
+          </div>
         </div>
 
         {/* ── Fil de conversation ── */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <div className="clx-pane">
           {!selectedId ? (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "6px" }}>
-              <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>Choisissez une conversation à gauche</div>
-              <div style={{ color: C.t3, fontSize: "12px" }}>ou lancez-en une nouvelle avec un collègue.</div>
-            </div>
+            <PaneEmpty C={C} onNew={ouvrirNouvelleConversation}/>
           ) : (
             <>
-              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-                <div style={{ color: C.t1, fontSize: "14px", fontWeight: 800 }}>{conversationNom || "…"}</div>
-                {conversationType === "groupe" ? (
-                  <div style={{ color: C.t3, fontSize: "11.5px" }}>{participants.length + 1} membre{participants.length + 1 > 1 ? "s" : ""}</div>
-                ) : autreParticipant && (
-                  <div style={{ color: C.t3, fontSize: "11.5px" }}>{formatDerniereConnexion(autreParticipant.derniere_connexion)}</div>
-                )}
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <PaneHeader C={C} nom={conversationNom} groupe={conversationType === "groupe"} onBack={() => setSelectedId(null)}
+                sousTitre={conversationType === "groupe" ? `${participants.length + 1} membre${participants.length + 1 > 1 ? "s" : ""}` : autreParticipant ? formatDerniereConnexion(autreParticipant.derniere_connexion) : ""}/>
+              <div role="log" aria-live="polite" aria-label="Messages" style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "10px" }}>
                 {threadChargement ? (
-                  <div style={{ display: "flex", justifyContent: "center", padding: "24px" }}><YelenLoader size={22} /></div>
+                  <MessagesSkeleton/>
                 ) : messages.length === 0 ? (
                   <div style={{ textAlign: "center", color: C.t3, fontSize: "12.5px", padding: "24px" }}>Aucun message pour l&apos;instant — dites bonjour !</div>
-                ) : messages.map(m => {
+                ) : messages.map((m, idx) => {
                   const nomAuteur = conversationType === "groupe" && !m.de_moi ? (m.auteur_nom ?? null) : null;
                   const enEdition = editionMessageId === m.id;
                   return (
-                    <div key={m.id} style={{ alignSelf: m.de_moi ? "flex-end" : "flex-start", maxWidth: "70%" }}>
+                    <Fragment key={m.id}>
+                    {(idx === 0 || jourMessage(messages[idx - 1].cree_le, maintenantMsg) !== jourMessage(m.cree_le, maintenantMsg)) && <DateSeparator C={C} label={jourMessage(m.cree_le, maintenantMsg)}/>}
+                    <div style={{ alignSelf: m.de_moi ? "flex-end" : "flex-start", maxWidth: "70%" }}>
                       {conversationType === "groupe" && !m.de_moi && nomAuteur && <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 700, marginBottom: "2px" }}>{nomAuteur}</div>}
                       {enEdition ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -641,7 +646,7 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
                           </div>
                         </div>
                       ) : (
-                        <div style={{ background: m.de_moi ? C.bgCard2 : C.bg3, border: `1px solid ${C.border2}`, borderRadius: "14px", padding: "9px 13px", color: m.supprime ? C.t3 : C.t1, fontSize: "13px", lineHeight: 1.5, fontStyle: m.supprime ? "italic" : "normal" }}>
+                        <div style={{ background: m.de_moi ? `${C.gold}1a` : C.bg3, border: `1px solid ${m.de_moi ? `${C.gold}33` : C.border}`, borderRadius: "14px", padding: "9px 13px", color: m.supprime ? C.t3 : C.t1, fontSize: "14px", lineHeight: 1.5, fontStyle: m.supprime ? "italic" : "normal" }}>
                           {m.supprime ? "Message supprimé" : (
                             <>
                               {m.contenu && <div style={{ marginBottom: m.fichier ? "8px" : 0 }}>{rendreContenuAvecMentions(m.contenu, participants, C)}</div>}
@@ -706,6 +711,7 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
                         </div>
                       )}
                     </div>
+                    </Fragment>
                   );
                 })}
                 <div ref={messagesFinRef} />
@@ -733,7 +739,9 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
                     onChange={e => setTexte(e.target.value)}
                     onKeyDown={gererClavierComposeur}
                     placeholder="Écrire un message… (@ pour mentionner un collègue)"
-                    style={{ flex: 1, background: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 14px", fontSize: "13px", color: C.t1 }}
+                    aria-label="Écrire un message"
+                    className="clx-input"
+                    style={{ flex: 1, height: "40px", boxSizing: "border-box", background: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "0 14px", fontSize: "14px", color: C.t1, fontFamily: "inherit" }}
                   />
                   <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!texte.trim() || envoiEnCours} loading={envoiEnCours} onClick={envoyerMessage}>Envoyer</Button>
                 </div>
@@ -1003,24 +1011,28 @@ export function CollaborationTab({ onToast }: { onToast: (msg: string, color?: s
 function ConversationRow({ c, C, active, onClick, onToggleFavori }: {
   c: ConversationListItem; C: ThemeTokens; active: boolean; onClick: () => void; onToggleFavori: () => void;
 }) {
+  const nonLu = c.non_lus > 0;
   return (
-    <div onClick={onClick} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", cursor: "pointer", background: active ? C.bg3 : "transparent", borderLeft: active ? `2px solid ${C.gold}` : "2px solid transparent" }}>
-      <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: C.t2, flexShrink: 0 }}>
-        {c.nom.slice(0, 1).toUpperCase()}
-      </div>
+    <div data-clx-row role="button" tabIndex={0} aria-current={active ? "true" : undefined} onClick={onClick}
+      onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+      className="clx-row tap"
+      style={{ display: "flex", alignItems: "center", gap: "12px", minHeight: "64px", padding: "0 16px", cursor: "pointer", background: active ? C.bg3 : "transparent", boxShadow: active ? `inset 2px 0 0 ${C.gold}` : "none" }}>
+      <span aria-hidden="true" style={{ width: "36px", height: "36px", borderRadius: "50%", background: C.bg3, color: C.t2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, flexShrink: 0 }}>
+        {c.type === "groupe" ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        ) : c.nom.slice(0, 1).toUpperCase()}
+      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "6px" }}>
-          <span style={{ color: C.t1, fontSize: "13px", fontWeight: c.non_lus > 0 ? 800 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nom}</span>
-          {c.dernier_message && <span style={{ color: C.t3, fontSize: "10px", flexShrink: 0 }}>{formatRelatifConv(c.dernier_message.cree_le)}</span>}
-        </div>
-        <div style={{ color: c.non_lus > 0 ? C.t1 : C.t3, fontSize: "11.5px", fontWeight: c.non_lus > 0 ? 700 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div title={c.nom} style={{ color: C.t1, fontSize: "14px", fontWeight: nonLu ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nom}</div>
+        <div style={{ color: nonLu ? C.t1 : C.t2, fontSize: "13px", fontWeight: nonLu ? 500 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {c.dernier_message ? `${c.dernier_message.de_moi ? "Vous : " : ""}${c.dernier_message.contenu}` : "Aucun message"}
         </div>
       </div>
-      {c.non_lus > 0 && (
-        <span style={{ background: C.gold, color: "#111", fontSize: "10px", fontWeight: 800, borderRadius: "10px", padding: "1px 6px", flexShrink: 0 }}>{c.non_lus}</span>
-      )}
-      <button onClick={e => { e.stopPropagation(); onToggleFavori(); }} aria-label="Favori" style={{ background: "none", border: "none", color: c.favori ? C.gold : C.t3, cursor: "pointer", flexShrink: 0, padding: "2px" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
+        {c.dernier_message && <span style={{ color: C.t3, fontSize: "12px" }}>{formatRelatifConv(c.dernier_message.cree_le)}</span>}
+        {nonLu && <span aria-label={`${c.non_lus} message${c.non_lus > 1 ? "s" : ""} non lu${c.non_lus > 1 ? "s" : ""}`} style={{ minWidth: "18px", height: "18px", borderRadius: "9px", background: C.gold, color: "#000", fontSize: "11px", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px", fontVariantNumeric: "tabular-nums" }}>{c.non_lus}</span>}
+      </div>
+      <button onClick={e => { e.stopPropagation(); onToggleFavori(); }} aria-label={c.favori ? "Retirer des favoris" : "Ajouter aux favoris"} aria-pressed={c.favori} className="clx-btn" style={{ background: "none", border: "none", color: c.favori ? C.gold : C.t3, cursor: "pointer", flexShrink: 0, padding: "4px", display: "flex" }}>
         <IconStar filled={c.favori} color={c.favori ? C.gold : C.t3}/>
       </button>
     </div>

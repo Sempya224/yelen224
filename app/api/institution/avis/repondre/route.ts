@@ -4,6 +4,7 @@ import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 import { envoyerNotification, salutation } from "@/lib/notificationEngine";
+import { toucherActiviteInstitution } from "@/lib/activiteInstitution";
 
 // Lot E (chantier Avis + Favoris citoyen) — seule route qui peut écrire
 // dans avis.reponse_institution/reponse_le (colonnes protégées par le
@@ -34,18 +35,29 @@ export async function POST(req: NextRequest) {
   // brouillon que le citoyen n'a pas encore publié.
   const { data: avisRow } = await sb
     .from("avis")
-    .select("id, citoyen_id, rdv_id")
+    .select("id, citoyen_id, rdv_id, reponse_institution")
     .eq("id", avisId)
     .eq("institution_id", authInstId)
     .eq("brouillon", false)
     .maybeSingle();
   if (!avisRow) return NextResponse.json({ error: "Avis introuvable pour cette institution" }, { status: 404 });
 
+  // Une réponse déjà publiée est immuable (demande Bryan 12/10/2026) : un
+  // client qui revoit un message changer après publication y lirait une
+  // manipulation. Barrière serveur, pas seulement une UI qui masque le
+  // bouton — une requête directe (hors PC/mobile) doit aussi être rejetée.
+  if (avisRow.reponse_institution) {
+    return NextResponse.json({ error: "Cette réponse est déjà publiée et ne peut plus être modifiée." }, { status: 409 });
+  }
+
   const { error } = await sb
     .from("avis")
     .update({ reponse_institution: reponse.trim(), reponse_le: new Date().toISOString() })
     .eq("id", avisId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Action métier qualifiante (chantier COMPTES-INACTIFS.md, Phase 3).
+  await toucherActiviteInstitution(sb, authInstId);
 
   await enregistrerAction({
     institutionId: authInstId,

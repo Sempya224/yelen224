@@ -9,7 +9,7 @@ import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
   enregistrerTentative, messageSecurite,
 } from "@/lib/security/authSecurity";
-import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from "@/lib/institutionAuth";
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT, estAppelMobile } from "@/lib/institutionAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -159,6 +159,8 @@ export async function POST(request: NextRequest) {
       .setAudience("yelen224-institution-dashboard")
       .sign(JWT_SECRET);
 
+    // Yelen Business Mobile (02/10/2026) : voir verify-otp/route.ts pour la
+    // justification — token dans le corps uniquement pour l'appelant mobile.
     const response = finaliser({
       success: true,
       institutionId: membre.institution_id,
@@ -166,6 +168,7 @@ export async function POST(request: NextRequest) {
       role: membre.role,
       doitChangerPin: membre.doit_changer_pin,
       security: etatVerifie,
+      ...(estAppelMobile(request) ? { token } : {}),
     }, 200);
 
     response.cookies.set("yelen224_institution_session", token, {

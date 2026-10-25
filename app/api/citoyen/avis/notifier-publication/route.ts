@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { envoyerNotification, salutation } from "@/lib/notificationEngine";
 import { verifierCitoyenToken } from "@/lib/citoyenAuth";
+import { toucherActiviteCitoyenne } from "@/lib/activiteCitoyenne";
 
 // Chantier notifications (04/08/2026) — l'insert dans `avis` reste
 // client-direct (voir app/mes-rdv/page.tsx), cette route ne fait qu'envoyer
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest) {
     if (avis.rdv_id) {
       await supabaseAdmin.from("rdv").update({ avis_demande: false }).eq("id", avis.rdv_id);
     }
+
+    // Action métier qualifiante (chantier COMPTES-INACTIFS.md, Phase 3).
+    await toucherActiviteCitoyenne(supabaseAdmin, user.id);
 
     const [{ data: citoyen }, { data: institution }] = await Promise.all([
       supabaseAdmin.from("users").select("prenom").eq("id", user.id).maybeSingle(),

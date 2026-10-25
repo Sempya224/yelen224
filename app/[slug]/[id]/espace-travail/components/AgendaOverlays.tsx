@@ -27,6 +27,7 @@ import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import type { ThemeTokens } from "../../theme";
 import { toUiTokens } from "../../theme";
+import { heureAmPm } from "@/lib/heure";
 
 export type Evenement = { id: string; titre: string; description: string | null; type: string; date: string; date_originale: string; heure_debut: string | null; heure_fin: string | null; membre_id: string | null; cree_par_membre_id: string | null; recurrence: string; recurrence_fin: string | null };
 export type Membre = { id: string; prenom: string; nom: string };
@@ -309,7 +310,7 @@ export function EventDetailsPanel({ open, onClose, evenement, membres, peutGerer
     <Drawer open={open} onClose={onClose} title={typeLabel(evenement.type)} width="400px" tokens={{ surface: C.bgCard, border: C.border, text: C.t1, textMuted: C.t3, shadow: C.shadow }}>
       <div style={{ fontSize: "17px", fontWeight: 800, color: C.t1, marginBottom: "6px" }}>{evenement.titre}</div>
       <div style={{ fontSize: "12.5px", color, fontWeight: 700, marginBottom: "16px" }}>
-        {new Date(`${evenement.date}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {evenement.heure_debut || "—"}{evenement.heure_fin ? ` – ${evenement.heure_fin}` : ""}
+        {new Date(`${evenement.date}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {heureAmPm(evenement.heure_debut) || evenement.heure_debut || "—"}{evenement.heure_fin ? ` – ${heureAmPm(evenement.heure_fin) || evenement.heure_fin}` : ""}
       </div>
       {evenement.description && <div style={{ fontSize: "13px", color: C.t2, lineHeight: 1.5, marginBottom: "16px" }}>{evenement.description}</div>}
       <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", color: C.t2, marginBottom: "20px" }}>

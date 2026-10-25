@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import { getAuthenticatedInstitutionId, getAuthenticatedMembre, getInstitutionSessionSid, revoquerAutresSessionsInstitution } from '@/lib/institutionAuth'
+import { enregistrerAction, getMembreNomPourJournal } from '@/lib/journalActivite'
+import { can } from '@/lib/institutionPermissions'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,6 +35,11 @@ export async function POST(request: NextRequest) {
     if (!institutionId) {
       return NextResponse.json({ error: 'Non authentifié', code: 'NO_SESSION' }, { status: 401 })
     }
+    // Même palier que l'écran « Sécurité du compte » (admin seul) ; sans
+    // membreId, comportement inchangé (voir repli ci-dessus).
+    if (membre && !can(membre.role, 'securite_institution.write', membre.accesRestreints)) {
+      return NextResponse.json({ error: 'Accès réservé aux administrateurs', code: 'FORBIDDEN' }, { status: 403 })
+    }
     const currentSid = await getInstitutionSessionSid(request)
 
     const currentRememberToken = request.cookies.get('yelen224_institution_remember')?.value
@@ -55,7 +62,7 @@ export async function POST(request: NextRequest) {
       query = query.neq('token_hash', currentTokenHash)
     }
 
-    const { error: updateError } = await query
+    const { data: revoques, error: updateError } = await query.select('id')
 
     if (updateError) {
       console.error('[INSTITUTION REMEMBER REVOKE ALL ERROR]', updateError.code, updateError.message)
@@ -74,6 +81,16 @@ export async function POST(request: NextRequest) {
     if (currentSid) {
       await revoquerAutresSessionsInstitution(supabaseAdmin, institutionId, currentSid, 'revoked_all_other_devices')
     }
+
+    // Journal non bloquant : nombre d'appareils révoqués seulement, aucune
+    // donnée d'appareil. Session sans membreId : membre_id reste null.
+    await enregistrerAction({
+      institutionId, membreId: membre?.membreId ?? null,
+      membreNom: membre ? await getMembreNomPourJournal(membre.membreId) : 'Compte principal',
+      action: 'appareils_deconnectes', cibleTable: 'institution_remember_tokens',
+      details: { nb_appareils: revoques?.length ?? 0, ...(membre ? { role: membre.role } : {}) },
+      req: request,
+    })
 
     return NextResponse.json({ success: true })
 

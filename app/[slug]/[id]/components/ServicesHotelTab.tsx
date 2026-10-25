@@ -35,6 +35,8 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { type Horaire, JOURS_SEMAINE, isOuvertNow } from "@/lib/horaires";
 import { EQUIPEMENTS_CHAMBRE } from "@/lib/hotelEquipements";
+import { heureAmPm } from "@/lib/heure";
+import { messageErreurApi } from "@/lib/servicesUi";
 
 // Horaires (retour Bryan 20/08/2026 : "pas du texte libre, utilise celle
 // du système") — même type Horaire[] que institutions.horaires
@@ -721,6 +723,48 @@ function ChambreFormSheet({ target, onSave, onCancel, saving }: {
   );
 }
 
+// Photo de couverture d'une carte (chambre ou prestation) : repli visuel si
+// l'image ne charge pas (fichier supprimé, URL cassée) au lieu de l'icône
+// d'image brisée du navigateur. Défini au niveau module (pas dans un parent).
+function PhotoCarte({ src, alt, nbPhotos, aVideo }: { src: string; alt: string; nbPhotos: number; aVideo: boolean }) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
+  const [casse, setCasse] = useState(false);
+  const pastille: React.CSSProperties = { backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: 800, padding: "3px 8px", borderRadius: "20px", display: "inline-flex", alignItems: "center", gap: "4px" };
+  const svg = { width: 11, height: 11, viewBox: "0 0 24 24", fill: "none" as const, stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true as const };
+  return (
+    <div style={{ position: "relative" }}>
+      {casse ? (
+        <div role="img" aria-label={`Image indisponible : ${alt}`} style={{ height: "140px", backgroundColor: C.bg3, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px", color: C.t3 }}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+          <span style={{ fontSize: "11px", fontWeight: 700 }}>Image indisponible</span>
+        </div>
+      ) : (
+        <>
+          {/* IMG-EXCEPTION: reason=galerie de cartes dynamique, URL Storage publique stable, pas de <Image> pour éviter le layout shift dans une grille auto-fill | reviewed=2026-10-25 */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={alt} onError={() => setCasse(true)} style={{ width: "100%", height: "140px", objectFit: "cover", display: "block" }}/>
+        </>
+      )}
+      {!casse && (nbPhotos > 1 || aVideo) && (
+        <div style={{ position: "absolute", bottom: "8px", right: "8px", display: "flex", gap: "5px" }}>
+          {nbPhotos > 1 && (
+            <span style={pastille}>
+              <svg {...svg}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              {nbPhotos}
+            </span>
+          )}
+          {aVideo && (
+            <span style={pastille} aria-label="Vidéo disponible">
+              <svg {...svg}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ChambreCard({ chambre, resaCount, onEdit, onToggleActive, onDelete, toggling }: {
   chambre: PaidService; resaCount: number; onEdit: () => void; onToggleActive: () => void; onDelete: () => void; toggling: boolean;
 }) {
@@ -728,17 +772,7 @@ function ChambreCard({ chambre, resaCount, onEdit, onToggleActive, onDelete, tog
   const C = T[theme] as ThemeTokens;
   return (
     <Card tokens={toCardTokens(C)} noPadding style={{ border: `1.5px solid ${chambre.is_active ? C.border2 : C.border}`, opacity: chambre.is_active ? 1 : 0.6 }}>
-      {chambre.photos.length > 0 && (
-        <div style={{ position: "relative" }}>
-          {/* IMG-EXCEPTION: reason=galerie de cartes dynamique, URL Storage publique stable, pas de <Image> pour éviter le layout shift dans une grille auto-fill | reviewed=2026-08-20 */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={chambre.photos[0]} alt={chambre.nom} style={{ width: "100%", height: "140px", objectFit: "cover", display: "block" }}/>
-          <div style={{ position: "absolute", bottom: "8px", right: "8px", display: "flex", gap: "5px" }}>
-            {chambre.photos.length > 1 && <span style={{ backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px" }}>📷 {chambre.photos.length}</span>}
-            {chambre.video_url && <span style={{ backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px" }}>🎥</span>}
-          </div>
-        </div>
-      )}
+      {chambre.photos.length > 0 && <PhotoCarte src={chambre.photos[0]} alt={chambre.nom} nbPhotos={chambre.photos.length} aVideo={!!chambre.video_url}/>}
       <div style={{ padding: "12px 14px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "4px" }}>
           <div style={{ color: C.t1, fontSize: "14.5px", fontWeight: "800" }}>{chambre.nom}</div>
@@ -1089,18 +1123,7 @@ function PrestationCard({ service, resaCount, onEdit, onToggleActive, onDelete, 
 
   return (
     <Card tokens={toCardTokens(C)} noPadding style={{ border: `1.5px solid ${service.is_active ? C.border2 : C.border}`, opacity: service.is_active ? 1 : 0.6 }}>
-      {service.photos.length > 0 && (
-        <div style={{ position: "relative" }}>
-          {/* IMG-EXCEPTION: reason=galerie de cartes dynamique, URL Storage publique stable, pas de <Image> pour éviter le layout shift dans une grille auto-fill | reviewed=2026-09-25 */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={service.photos[0]} alt={service.nom} style={{ width: "100%", height: "140px", objectFit: "cover", display: "block" }}/>
-          {service.photos.length > 1 && (
-            <div style={{ position: "absolute", bottom: "8px", right: "8px" }}>
-              <span style={{ backgroundColor: "rgba(0,0,0,0.65)", color: "#fff", fontSize: "10px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px" }}>📷 {service.photos.length}</span>
-            </div>
-          )}
-        </div>
-      )}
+      {service.photos.length > 0 && <PhotoCarte src={service.photos[0]} alt={service.nom} nbPhotos={service.photos.length} aVideo={false}/>}
       <div style={{ padding: "14px 16px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "8px" }}>
           <div style={{ minWidth: 0 }}>
@@ -1155,6 +1178,7 @@ export function ServicesHotelTab({}: { instId: string }) {
   const [toggling, setToggling] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; color: string } | null>(null);
   const [confirmSupprimer, setConfirmSupprimer] = useState<PaidService | null>(null);
+  const [confirmSuspendre, setConfirmSuspendre] = useState<PaidService | null>(null);
   const [ajouterMenuOpen, setAjouterMenuOpen] = useState(false);
   // "Chambres" en premier : inventaire obligatoire d'un hôtel, avant les
   // prestations facultatives (retour Bryan 20/08/2026).
@@ -1220,7 +1244,15 @@ export function ServicesHotelTab({}: { instId: string }) {
     setSaving(false);
   }
 
-  async function handleToggle(service: PaidService) {
+  // Suspendre un élément actif qui a déjà des réservations demande une
+  // confirmation (nombre affiché) ; réactiver, ou suspendre sans réservation,
+  // est immédiat.
+  function handleToggle(service: PaidService) {
+    if (service.is_active && bookings.some(b => b.service_id === service.id)) { setConfirmSuspendre(service); return; }
+    return appliquerToggle(service);
+  }
+
+  async function appliquerToggle(service: PaidService) {
     setToggling(service.id);
     const res = await fetch("/api/institution/services", {
       method: "PATCH",
@@ -1232,15 +1264,16 @@ export function ServicesHotelTab({}: { instId: string }) {
       const label = service.est_chambre ? "Chambre" : "Prestation";
       showToast(service.is_active ? `${label} suspendue` : `${label} activée`, service.is_active ? C.orange : C.green);
     } else {
-      showToast(`Le statut de ${service.est_chambre ? "cette chambre" : "cette prestation"} n'a pas pu être mis à jour.`, C.red);
+      showToast(messageErreurApi(await res.json().catch(() => null), `Le statut de ${service.est_chambre ? "cette chambre" : "cette prestation"} n'a pas pu être mis à jour.`), C.red);
     }
     setToggling(null);
+    setConfirmSuspendre(null);
   }
 
   async function handleDelete(service: PaidService) {
     const res = await fetch(`/api/institution/services?id=${service.id}`, { method: "DELETE" });
     setConfirmSupprimer(null);
-    if (!res.ok) { showToast(`${service.est_chambre ? "Cette chambre" : "Cette prestation"} n'a pas pu être supprimée.`, C.red); return; }
+    if (!res.ok) { showToast(messageErreurApi(await res.json().catch(() => null), `${service.est_chambre ? "Cette chambre" : "Cette prestation"} n'a pas pu être supprimée.`), C.red); return; }
     setServices(prev => prev.filter(s => s.id !== service.id));
     showToast(service.est_chambre ? "Chambre supprimée" : "Prestation supprimée", C.orange);
   }
@@ -1265,6 +1298,10 @@ export function ServicesHotelTab({}: { instId: string }) {
   const totalUnites = chambres.reduce((s, c) => s + (c.nombre_unites ?? 1), 0);
   const prestationsActives = prestations.filter(p => p.is_active).length;
   const todayStr = new Date().toISOString().slice(0, 10);
+  const nbReservationsSupprimer = confirmSupprimer ? bookings.filter(b => b.service_id === confirmSupprimer.id).length : 0;
+  const reservationsSuspendre = confirmSuspendre ? bookings.filter(b => b.service_id === confirmSuspendre.id) : [];
+  const nbReservationsSuspendre = reservationsSuspendre.length;
+  const nbReservationsSuspendreOuvertes = reservationsSuspendre.filter(b => b.statut === "en_attente" || b.statut === "confirme").length;
   const reservationsAVenir = bookings.filter(b => b.date_rdv >= todayStr).length;
   const reservationsAujourdhui = bookings.filter(b => b.date_rdv === todayStr).length;
 
@@ -1280,11 +1317,41 @@ export function ServicesHotelTab({}: { instId: string }) {
         tokens={toUiTokens(C)}
         level={1}
         danger
-        title={confirmSupprimer?.est_chambre ? "Supprimer cette chambre ?" : "Supprimer cette prestation ?"}
-        description="Préférez Désactiver si vous voulez seulement la retirer temporairement de votre fiche publique."
-        consequences={["Cette action supprime définitivement la fiche et son historique.", "Utilisez plutôt le bouton Activer/Désactiver pour la retirer sans rien perdre."]}
+        title={confirmSupprimer ? `Supprimer « ${confirmSupprimer.nom} » ?` : "Supprimer ?"}
+        description={nbReservationsSupprimer > 0 ? `${nbReservationsSupprimer} réservation${nbReservationsSupprimer > 1 ? "s sont liées" : " est liée"} à ${confirmSupprimer?.est_chambre ? "cette chambre" : "cette prestation"}.` : "Aucune réservation n'est liée."}
+        consequences={[
+          "Suppression définitive : la fiche et son historique ne pourront pas être récupérés.",
+          ...(nbReservationsSupprimer > 0 ? ["Les réservations liées sont supprimées avec elle."] : []),
+          "Si des paiements ou des reçus y sont rattachés, la suppression est refusée : suspendez-la alors.",
+        ]}
         reversible={false}
-        confirmLabel="Supprimer"
+        confirmLabel="Supprimer définitivement"
+      >
+        {confirmSupprimer?.is_active && (
+          <div style={{ marginBottom: "10px" }}>
+            <Button tokens={toUiTokens(C)} variant="secondary" size="md" fullWidth
+              onClick={() => { const s = confirmSupprimer; setConfirmSupprimer(null); if (s) appliquerToggle(s); }}>
+              Suspendre à la place
+            </Button>
+          </div>
+        )}
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={!!confirmSuspendre}
+        onClose={() => setConfirmSuspendre(null)}
+        onConfirm={() => { if (confirmSuspendre) return appliquerToggle(confirmSuspendre); }}
+        tokens={toUiTokens(C)}
+        level={1}
+        title={confirmSuspendre ? `Suspendre « ${confirmSuspendre.nom} » ?` : "Suspendre ?"}
+        description={`${nbReservationsSuspendre} réservation${nbReservationsSuspendre > 1 ? "s existent" : " existe"}${nbReservationsSuspendreOuvertes > 0 ? `, dont ${nbReservationsSuspendreOuvertes} en attente ou confirmée${nbReservationsSuspendreOuvertes > 1 ? "s" : ""}` : ""}.`}
+        consequences={[
+          "N'apparaît plus sur votre fiche publique et ne peut plus être réservé.",
+          "Les réservations existantes ne sont pas modifiées : traitez-les normalement.",
+          "Vous pourrez la réactiver à tout moment.",
+        ]}
+        reversible
+        confirmLabel="Suspendre"
       />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", marginBottom: "18px", flexWrap: "wrap" }}>
@@ -1411,7 +1478,7 @@ export function ServicesHotelTab({}: { instId: string }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{b.citoyen_nom || "Citoyen"}</div>
                     <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{svc?.nom ?? "Prestation"}{svc ? ` · ${formatPrix(svc.prix)}` : ""}</div>
-                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {b.heure_rdv}</div>
+                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {heureAmPm(b.heure_rdv) || b.heure_rdv}</div>
                   </div>
                   <span style={{ color: C.t2, fontSize: "10px", fontFamily: "monospace", letterSpacing: "1.5px", backgroundColor: C.bg3, padding: "2px 8px", borderRadius: "7px", border: `1px solid ${C.border}` }}>#{b.confirmation_code}</span>
                 </div>

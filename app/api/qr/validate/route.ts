@@ -4,11 +4,15 @@ import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
 import { getMembreNomPourJournal } from "@/lib/journalActivite";
 import { validerScanQr, confirmerPresenceRdv, effetsBordConfirmationPresente, effetsBordConfirmationAbsente } from "@/lib/qrValidation";
+import { getBookingAccess, bloqueTraitementExistant } from "@/lib/bookingAccess";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const QR_INSTITUTION_SUSPENDUE_MESSAGE =
+  "Votre établissement est actuellement suspendu — vous ne pouvez plus traiter de présence tant que cette mesure n'est pas levée.";
 
 // POST → Valider un QR scanné (dashboard institution). Règles de
 // validation centralisées dans lib/qrValidation.ts (partagées avec YELEN
@@ -28,13 +32,13 @@ export async function POST(req: NextRequest) {
     if (!can(membre.role, "appointment.check_in"))
       return NextResponse.json({ error: "Action non autorisée" }, { status: 403 });
 
-    // Même correctif que app/api/institution/rdv/statut/route.ts et
-    // paid-bookings/valider/route.ts (trouvé en conditions réelles le
-    // 15/09/2026) — une institution suspendue ne doit plus pouvoir traiter
-    // de présence non plus.
-    const { data: institutionSuspendue } = await supabase.from("institutions").select("statut").eq("id", membre.institutionId).maybeSingle();
-    if (institutionSuspendue?.statut === "suspendue") {
-      return NextResponse.json({ error: "Votre établissement est actuellement suspendu — vous ne pouvez plus traiter de présence tant que cette mesure n'est pas levée." }, { status: 403 });
+    // Vérification centralisée depuis le 19/10/2026 (Booking Governance
+    // Lot 3, docs/product/YELEN_BOOKING_GOVERNANCE.md §13) — une
+    // institution suspendue ne doit plus pouvoir traiter de présence non
+    // plus.
+    const bookingAccessPost = await getBookingAccess(supabase, membre.institutionId);
+    if (bloqueTraitementExistant(bookingAccessPost.etat)) {
+      return NextResponse.json({ error: QR_INSTITUTION_SUSPENDUE_MESSAGE }, { status: 403 });
     }
 
     const { qr_payload } = await req.json();
@@ -85,9 +89,9 @@ export async function PUT(req: NextRequest) {
     if (!can(membre.role, "appointment.check_in"))
       return NextResponse.json({ error: "Action non autorisée" }, { status: 403 });
 
-    const { data: institutionSuspendue } = await supabase.from("institutions").select("statut").eq("id", membre.institutionId).maybeSingle();
-    if (institutionSuspendue?.statut === "suspendue") {
-      return NextResponse.json({ error: "Votre établissement est actuellement suspendu — vous ne pouvez plus traiter de présence tant que cette mesure n'est pas levée." }, { status: 403 });
+    const bookingAccessPut = await getBookingAccess(supabase, membre.institutionId);
+    if (bloqueTraitementExistant(bookingAccessPut.etat)) {
+      return NextResponse.json({ error: QR_INSTITUTION_SUSPENDUE_MESSAGE }, { status: 403 });
     }
 
     const { rdv_id, action, motif: motifBrut } = await req.json();

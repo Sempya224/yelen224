@@ -467,9 +467,13 @@ export default function CarteMapHome({ institutions = [] }: { institutions?: Ins
       })
 
       // Fond gris neutre SANS aucune couleur sur les routes
+      // Crédits exigés par OpenStreetMap (ODbL) et CARTO — l'usage des fonds
+      // CARTO est gratuit en non commercial seulement : licence à régler avant
+      // tout lancement public de cette carte.
       L.tileLayer("https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png", {
         subdomains: "abcd",
         maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>',
       }).addTo(map)
 
       // Noms des rues/lieux par-dessus (labels uniquement)
@@ -479,7 +483,7 @@ export default function CarteMapHome({ institutions = [] }: { institutions?: Ins
       }).addTo(map)
 
       L.control.zoom({ position: "bottomright" }).addTo(map)
-      L.control.attribution({ position: "bottomleft", prefix: "© Yelen224" }).addTo(map)
+      L.control.attribution({ position: "bottomleft", prefix: "© Yelen224 |" }).addTo(map)
 
       mapRef.current = map
       setReady(true)

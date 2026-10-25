@@ -8,7 +8,7 @@
 // plein écran sous le header (style feuille), sur PC une boîte de dialogue
 // centrée avec fond assombri — évite l'allongement/scroll de la page de
 // connexion que provoquait l'ancienne version accordéon.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { startAuthentication, browserSupportsWebAuthn } from "@simplewebauthn/browser";
@@ -33,6 +33,7 @@ type OnboardingStep = "reconnaissance" | "nonreconnu" | "confirmation" | "bienve
 type ColorTokens = {
   gold: string; goldD: string; white: string; dark: string; dark2: string;
   gray: string; gray3: string; red: string; redL: string; border: string; shadow: string;
+  disabledBg: string; disabledFg: string;
 };
 
 // Sas de confiance de première connexion — composant module-level (pas
@@ -64,7 +65,7 @@ function OnboardingContent({
   if (!data) return <div style={{ display: "flex", justifyContent: "center", padding: "24px" }}><YelenLoader size={24}/></div>;
 
   const errorBanner = error ? (
-    <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
+    <div role="alert" style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
       <span style={{ flex: 1 }}>{error}</span>
       <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -258,8 +259,13 @@ export function MembreLoginSection() {
     // champ (voir .membre-inp:focus), jamais comme halo permanent.
     border: isDark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.14)",
     shadow: isDark ? "0 -8px 40px rgba(0,0,0,0.5)" : "0 -8px 40px rgba(20,20,30,0.14)",
+    disabledBg: isDark ? "rgba(255,255,255,0.08)" : "#F3F4F6",
+    disabledFg: isDark ? "rgba(255,255,255,0.45)" : "#6B7280",
   };
   const [open, setOpen] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [headerH, setHeaderH] = useState(70);
   const [identifiant, setIdentifiant] = useState("");
   const [pin, setPin] = useState("");
@@ -294,6 +300,9 @@ export function MembreLoginSection() {
   function close() {
     setOpen(false);
     setError("");
+    setShowPin(false);
+    // Rend le focus au lien « Connectez-vous ici » une fois la modale démontée.
+    setTimeout(() => triggerRef.current?.focus(), 0);
   }
 
   // Verrouille le scroll de la page derrière l'overlay et mesure la hauteur
@@ -304,7 +313,19 @@ export function MembreLoginSection() {
     if (headerEl) setHeaderH(headerEl.getBoundingClientRect().height);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { close(); return; }
+      // Focus piégé dans la modale : Tab / Maj+Tab bouclent sur ses éléments.
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      ));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prevOverflow;
@@ -429,19 +450,18 @@ export function MembreLoginSection() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", padding: "14px 16px", borderRadius: "12px",
-    border: `1.5px solid ${C.border}`, marginBottom: "10px",
+    width: "100%", height: "44px", padding: "0 14px", borderRadius: "10px",
+    border: `1.5px solid ${C.border}`, marginBottom: "12px",
     fontSize: "15px", color: C.dark, backgroundColor: C.white,
     transition: "border-color 0.2s, box-shadow 0.2s",
   };
 
   const ctaStyle = (disabled: boolean): React.CSSProperties => ({
-    width: "100%", padding: "14px", borderRadius: "12px", border: "none",
-    background: disabled ? C.gray3 : C.gold,
-    color: disabled ? C.gray : C.dark, fontWeight: "800", fontSize: "14.5px",
+    width: "100%", height: "44px", borderRadius: "10px", border: "none",
+    background: disabled ? C.disabledBg : C.gold,
+    color: disabled ? C.disabledFg : "#1a1200", fontWeight: "600", fontSize: "15px",
     cursor: disabled ? "not-allowed" : "pointer",
-    boxShadow: disabled ? "none" : `0 8px 24px ${C.gold}40`,
-    display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s",
+    display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.2s, color 0.2s",
   });
 
   const css = `
@@ -465,34 +485,49 @@ export function MembreLoginSection() {
       }
       .membre-modal-sheet{
         top:50%; left:50%; right:auto; bottom:auto; transform:translate(-50%,-50%);
-        width:420px; max-width:92vw; max-height:88vh; border-radius:20px;
+        width:440px; max-width:92vw; max-height:88vh; border-radius:16px;
         animation: membreScaleIn .2s cubic-bezier(.2,.8,.2,1);
       }
       .membre-modal-sheet.onboarding{ width:480px; }
     }
+    @media (max-height: 700px){ .membre-illu{ display:none!important; } }
+    @media (prefers-reduced-motion: reduce){
+      .membre-modal-sheet,.membre-modal-backdrop,.membre-modal-sheet *{ animation:none!important; transition:none!important; }
+    }
   `;
 
   return (
-    <div style={{ marginTop: "18px", textAlign: "center" }}>
-      <button onClick={() => setOpen(true)} className="tap" style={{ background: "none", border: "none", color: C.gray, fontSize: "12.5px", fontWeight: "700", cursor: "pointer" }}>
-        Vous êtes un membre de l&apos;équipe ? <span style={{ color: C.dark, fontWeight: "800" }}>Connectez-vous ici</span>
+    <div style={{ marginTop: "16px", textAlign: "center" }}>
+      <div aria-hidden="true" style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px", color: C.gray, fontSize: "12px" }}>
+        <span style={{ flex: 1, height: "1px", background: C.border }}/>
+        ou
+        <span style={{ flex: 1, height: "1px", background: C.border }}/>
+      </div>
+      <span style={{ color: C.dark2, fontSize: "14px" }}>Membre de l&apos;équipe ?{" "}</span>
+      <button ref={triggerRef} onClick={() => setOpen(true)} className="tap membre-trigger" style={{ background: "none", border: "none", padding: 0, color: C.dark, fontSize: "14px", fontWeight: "500", textDecoration: "underline", cursor: "pointer" }}>
+        Connectez-vous ici
       </button>
 
       {open && (
         <>
           <style>{css}</style>
           <div className="membre-modal-backdrop" onClick={close} />
-          <div className={`membre-modal-sheet${onboardingStep ? " onboarding" : ""}`} role="dialog" aria-modal="true" aria-label="Connexion membre de l'équipe">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <span style={{ color: C.dark2, fontSize: "12px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase" }}>
-                {onboardingStep === "reconnaissance" ? "Vérification" : onboardingStep === "nonreconnu" ? "Sécurité" : onboardingStep === "confirmation" ? "Confirmation" : onboardingStep === "bienvenue" ? "Bienvenue" : doitChangerPin ? "Premier accès" : totpToken ? "Double authentification" : "Accès membre"}
-              </span>
-              <button onClick={close} className="tap" aria-label="Fermer" style={{ width: "32px", height: "32px", borderRadius: "10px", border: "none", background: C.gray3, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <div ref={dialogRef} className={`membre-modal-sheet${onboardingStep ? " onboarding" : ""}`} role="dialog" aria-modal="true" aria-labelledby="membre-titre">
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", padding: "18px 20px 14px", borderBottom: `1px solid ${C.border}`, flexShrink: 0, textAlign: "left" }}>
+              <div style={{ minWidth: 0 }}>
+                <h2 id="membre-titre" style={{ color: C.dark, fontSize: "20px", fontWeight: "600", margin: 0 }}>
+                  {onboardingStep === "reconnaissance" ? "Vérification" : onboardingStep === "nonreconnu" ? "Sécurité" : onboardingStep === "confirmation" ? "Confirmation" : onboardingStep === "bienvenue" ? "Bienvenue" : doitChangerPin ? "Premier accès" : totpToken ? "Double authentification" : "Connexion membre"}
+                </h2>
+                {!onboardingStep && !totpToken && !doitChangerPin && (
+                  <p style={{ color: C.gray, fontSize: "13px", margin: "4px 0 0" }}>Identifiant et code PIN fournis par votre institution</p>
+                )}
+              </div>
+              <button onClick={close} className="tap" aria-label="Fermer" style={{ width: "32px", height: "32px", flexShrink: 0, borderRadius: "10px", border: "none", background: C.gray3, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.dark2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: onboardingStep ? "flex-start" : "center", padding: "28px 24px", minHeight: 0 }}>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: onboardingStep ? "flex-start" : "center", padding: "24px", minHeight: 0, textAlign: "left" }}>
               {onboardingStep ? (
                 <OnboardingContent
                   C={C}
@@ -522,7 +557,7 @@ export function MembreLoginSection() {
                   </p>
 
                   {error && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
+                    <div role="alert" style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
                       <span style={{ flex: 1 }}>{error}</span>
                       <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -555,12 +590,10 @@ export function MembreLoginSection() {
                 </div>
               ) : !doitChangerPin ? (
                 <div style={{ animation: "membreFadeIn .2s ease" }}>
-                  <Image src="/illustrations/connexion-membre.png" alt="Connexion des membres de l'équipe" width={1536} height={1024} style={{ width: "200px", maxWidth: "100%", height: "auto", margin: "0 auto 18px", display: "block" }}/>
-                  <h2 style={{ color: C.dark, fontSize: "19px", fontWeight: "900", textAlign: "center", marginBottom: "4px" }}>Connexion membre</h2>
-                  <p style={{ color: C.gray, fontSize: "12.5px", textAlign: "center", marginBottom: "20px" }}>Identifiant et code PIN fournis par votre institution</p>
+                  <Image className="membre-illu" src="/illustrations/connexion-membre.png" alt="" aria-hidden="true" width={1536} height={1024} style={{ height: "96px", width: "auto", maxWidth: "100%", margin: "0 auto 16px", display: "block" }}/>
 
                   {error && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
+                    <div role="alert" style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
                       <span style={{ flex: 1 }}>{error}</span>
                       <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -568,21 +601,34 @@ export function MembreLoginSection() {
                     </div>
                   )}
 
-                  <label style={{ color: C.dark2, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>Identifiant</label>
-                  <input className="membre-inp" value={identifiant} onChange={e => setIdentifiant(e.target.value)} placeholder="ex. jdupont" style={inputStyle} autoFocus/>
+                  <label htmlFor="membre-identifiant" style={{ color: C.dark2, fontSize: "13px", fontWeight: "500", display: "block", textAlign: "left", marginBottom: "6px" }}>Identifiant</label>
+                  <input id="membre-identifiant" className="membre-inp" value={identifiant} onChange={e => setIdentifiant(e.target.value)} onKeyDown={e => e.key === "Enter" && (passkeyMode ? connexionPasskey() : connexion())} readOnly={loading} autoComplete="username" autoCapitalize="none" placeholder="ex. jdupont" style={inputStyle} autoFocus/>
 
                   {passkeyMode ? (
                     <button onClick={connexionPasskey} disabled={loading || !identifiant.trim()} className="tap" style={{ ...ctaStyle(loading || !identifiant.trim()), marginTop: "4px" }}>
-                      {loading ? <YelenLoader size={16} color={C.dark}/> : "Continuer avec ma clé d'accès"}
+                      {loading ? <><YelenLoader size={16} color={C.dark}/>&nbsp;Connexion…</> : "Continuer avec ma clé d'accès"}
                     </button>
                   ) : (
                     <>
-                      <label style={{ color: C.dark2, fontSize: "10.5px", fontWeight: "800", letterSpacing: "0.6px", textTransform: "uppercase", display: "block", marginBottom: "6px" }}>Code PIN</label>
-                      <input className="membre-inp" type="password" inputMode="numeric" maxLength={6} placeholder="6 chiffres" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && connexion()} style={{ ...inputStyle, marginBottom: "18px", fontSize: "18px", letterSpacing: "5px", textAlign: "center" }}/>
+                      <label htmlFor="membre-pin" style={{ color: C.dark2, fontSize: "13px", fontWeight: "500", display: "block", textAlign: "left", marginBottom: "6px" }}>Code PIN</label>
+                      <div style={{ position: "relative" }}>
+                        <input id="membre-pin" className="membre-inp" type={showPin ? "text" : "password"} inputMode="numeric" autoComplete="current-password" maxLength={6} placeholder="6 chiffres" readOnly={loading} aria-describedby="membre-pin-count" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && connexion()} style={{ ...inputStyle, marginBottom: "4px", paddingRight: "44px", textAlign: "left" }}/>
+                        <button type="button" onClick={() => setShowPin(v => !v)} aria-label={showPin ? "Masquer le code PIN" : "Afficher le code PIN"} aria-pressed={showPin} className="tap" style={{ position: "absolute", right: "6px", top: "6px", width: "32px", height: "32px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.dark2 }}>
+                          {showPin ? (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                          ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          )}
+                        </button>
+                      </div>
+                      <p id="membre-pin-count" aria-live="polite" style={{ color: C.gray, fontSize: "12px", textAlign: "right", marginBottom: "14px" }}>{pin.length} / 6</p>
 
                       <button onClick={connexion} disabled={loading || !identifiant.trim() || pin.length !== 6} className="tap" style={ctaStyle(loading || !identifiant.trim() || pin.length !== 6)}>
-                        {loading ? <YelenLoader size={16} color={C.dark}/> : "Se connecter"}
+                        {loading ? <><YelenLoader size={16} color={C.dark}/>&nbsp;Connexion…</> : "Se connecter"}
                       </button>
+                      {!loading && (!identifiant.trim() || pin.length !== 6) && (
+                        <p style={{ color: C.gray, fontSize: "12px", textAlign: "center", marginTop: "8px" }}>Renseignez l&apos;identifiant et le PIN à 6 chiffres.</p>
+                      )}
                     </>
                   )}
 
@@ -603,7 +649,7 @@ export function MembreLoginSection() {
                   <p style={{ color: C.gray, fontSize: "12.5px", textAlign: "center", marginBottom: "18px" }}>Premier accès — définissez un code personnel à 6 chiffres</p>
 
                   {error && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
+                    <div role="alert" style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.redL, color: C.red, fontSize: "12px", fontWeight: "700", padding: "10px 12px", borderRadius: "10px", marginBottom: "12px" }}>
                       <span style={{ flex: 1 }}>{error}</span>
                       <button onClick={() => setError("")} className="tap" aria-label="Fermer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", padding: "2px", flexShrink: 0 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>

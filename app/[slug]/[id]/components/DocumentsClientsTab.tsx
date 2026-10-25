@@ -20,12 +20,14 @@ import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 import { FormField } from "./FormField";
 import {
   DOCUMENT_STATUT_LABELS, DOCUMENT_TRANSITIONS,
   DOCUMENT_MOTIFS_REFUS, DOCUMENT_MOTIF_REFUS_LABELS,
   type DocumentStatut, type DocumentMotifRefus,
 } from "@/lib/citoyenDocumentsConstants";
+import { heureAmPm, heureDepuisHorodatage } from "@/lib/heure";
 
 const inputStyle = (C: ThemeTokens): React.CSSProperties => ({
   width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border}`,
@@ -104,7 +106,7 @@ function formatDate(iso: string): string {
 }
 function formatDateHeure(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) + " à " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) + " à " + heureDepuisHorodatage(d);
 }
 function ilYA(depuis: Date, maintenant: number): string {
   const s = Math.max(0, Math.floor((maintenant - depuis.getTime()) / 1000));
@@ -631,7 +633,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
                   <select value={rdvId} onChange={e => setRdvId(e.target.value)} style={inputStyle(C)}>
                     <option value="">Sélectionner un RDV…</option>
                     {clientSelectionne.rdv.map(r => (
-                      <option key={r.id} value={r.id}>{formatDate(r.date_rdv)} {r.heure_rdv} — {r.objet || "RDV général"} ({r.statut})</option>
+                      <option key={r.id} value={r.id}>{formatDate(r.date_rdv)} {heureAmPm(r.heure_rdv) || r.heure_rdv} — {r.objet || "RDV général"} ({r.statut})</option>
                     ))}
                   </select>
                 </div>
@@ -700,7 +702,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
                 {rdvSelectionne && (
                   <div>
                     <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Rendez-vous</div>
-                    <div style={{ color: C.t1, fontSize: "13px" }}>{formatDate(rdvSelectionne.date_rdv)} {rdvSelectionne.heure_rdv} — {rdvSelectionne.objet || "RDV général"}</div>
+                    <div style={{ color: C.t1, fontSize: "13px" }}>{formatDate(rdvSelectionne.date_rdv)} {heureAmPm(rdvSelectionne.heure_rdv) || rdvSelectionne.heure_rdv} —{rdvSelectionne.objet || "RDV général"}</div>
                   </div>
                 )}
                 <div>
@@ -788,6 +790,7 @@ export function DocumentsClientsTab({ instId, onToast, active = true }: { instId
           </div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+          <HelpCenterGuide tab="documents-clients" />
           <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter CSV</Button>
           <Button
             tokens={toUiTokens(C)} className="tap"

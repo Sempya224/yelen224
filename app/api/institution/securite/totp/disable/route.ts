@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { verify } from "otplib";
 import bcrypt from "bcryptjs";
 import { getAuthenticatedMembre, getInstitutionSessionSid, revoquerAutresSessionsInstitution } from "@/lib/institutionAuth";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,6 +55,19 @@ export async function POST(request: NextRequest) {
     // 08/09/2026).
     const currentSid = await getInstitutionSessionSid(request);
     await revoquerAutresSessionsInstitution(supabaseAdmin, membre.institutionId, currentSid, "totp_disabled");
+
+    // Journalisation (audit Profil Responsable, 19/10/2026) — enregistrée
+    // seulement après désactivation effective, preuve de possession du 2e
+    // facteur (ou d'un code de secours) déjà vérifiée ci-dessus.
+    await enregistrerAction({
+      institutionId: membre.institutionId,
+      membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: "totp_desactive",
+      cibleTable: "institution_membres",
+      cibleId: membre.membreId,
+      req: request,
+    });
 
     return NextResponse.json({ success: true });
 

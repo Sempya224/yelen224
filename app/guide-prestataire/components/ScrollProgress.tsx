@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 // sur petit écran, cohérent avec le comportement natif des scrollbars
 // overlay mobiles).
 const DELAI_MASQUAGE_MOBILE_MS = 1200;
+const PAS_DEFILEMENT_FLECHE_PX = 140;
 
 export function ScrollProgress() {
   const [thumb, setThumb] = useState({ top: 0, height: 100 });
@@ -58,14 +59,37 @@ export function ScrollProgress() {
   }, []);
 
   return (
-    <div
-      className={`hc-scroll-progress${visible ? "" : " hc-scroll-progress--masquee"}`}
-      aria-hidden="true"
-    >
-      <div
-        className="hc-scroll-progress__fill"
-        style={{ top: `${thumb.top}%`, height: `${thumb.height}%` }}
-      />
+    <div className={`hc-scroll-progress${visible ? "" : " hc-scroll-progress--masquee"}`}>
+      <button
+        type="button"
+        className="hc-scroll-arrow hc-scroll-arrow--up"
+        aria-label="Remonter"
+        tabIndex={-1}
+        onClick={() => window.scrollBy({ top: -PAS_DEFILEMENT_FLECHE_PX, behavior: "smooth" })}
+      >
+        <svg width="9" height="5" viewBox="0 0 10 6" aria-hidden="true">
+          <polygon points="5,0 10,6 0,6" fill="currentColor" />
+        </svg>
+      </button>
+
+      <div className="hc-scroll-track" aria-hidden="true">
+        <div
+          className="hc-scroll-progress__fill"
+          style={{ top: `${thumb.top}%`, height: `${thumb.height}%` }}
+        />
+      </div>
+
+      <button
+        type="button"
+        className="hc-scroll-arrow hc-scroll-arrow--down"
+        aria-label="Descendre"
+        tabIndex={-1}
+        onClick={() => window.scrollBy({ top: PAS_DEFILEMENT_FLECHE_PX, behavior: "smooth" })}
+      >
+        <svg width="9" height="5" viewBox="0 0 10 6" aria-hidden="true">
+          <polygon points="0,0 10,0 5,6" fill="currentColor" />
+        </svg>
+      </button>
     </div>
   );
 }

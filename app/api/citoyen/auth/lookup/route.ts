@@ -4,7 +4,7 @@ import { genererEtEnvoyerOtp } from '@/lib/auth/otp'
 import { extraireIpClient } from '@/lib/edgeSecurity'
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
-  enregistrerTentative, messageSecurite,
+  enregistrerTentative, messageSecurite, destinationCitoyen,
 } from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
@@ -31,21 +31,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Porte anti-abus — AVANT toute requête Supabase (exigence du brief :
-    // une tentative refusée ne doit jamais interroger la base).
-    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
-    if (porte.state === 'blocked' || porte.state === 'support_only') {
-      return finaliser(
-        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
-        423
-      )
-    }
-
+    // Format validé AVANT la porte anti-abus (réordonné, Priorités 3/4,
+    // 18/10/2026) — simple parsing/regex, pas une requête Supabase : ne
+    // viole pas l'exigence "jamais interroger la base avant un refus",
+    // mais permet de connaître le numéro ciblé pour l'évaluer comme
+    // destination, complémentaire au device/IP (voir authSecurity.ts).
     const body = await request.json()
     const { phone } = body
 
     if (!phone || typeof phone !== 'string' || !PHONE_REGEX.test(phone)) {
       return finaliser({ error: 'Numéro de téléphone invalide', code: 'INVALID_FORMAT' }, 400)
+    }
+
+    // Porte anti-abus — AVANT toute requête Supabase (exigence du brief :
+    // une tentative refusée ne doit jamais interroger la base).
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip, destination: destinationCitoyen(phone) }, undefined, request)
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
+      )
     }
 
     const { data: user, error: dbError } = await supabaseAdmin
@@ -60,7 +65,7 @@ export async function POST(request: NextRequest) {
       // doit lui aussi déclencher l'escalade, en défense en profondeur du
       // garde-fou côté frontend (état terminal posé par app/login/page.tsx).
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'not_found', userAgent,
+        endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'not_found', userAgent, destination: destinationCitoyen(phone),
       })
       return finaliser({ error: 'Aucun compte trouvé pour ce numéro', code: 'NOT_FOUND', security: etat }, 404)
     }
@@ -75,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
 
     const etat = await enregistrerTentative(supabaseAdmin, {
-      endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'trouve', userAgent,
+      endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'trouve', userAgent, destination: destinationCitoyen(phone),
     })
 
     return finaliser({ success: true, user, security: etat }, 200)

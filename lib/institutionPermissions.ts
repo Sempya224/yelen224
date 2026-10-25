@@ -48,7 +48,15 @@ export const ROLE_DESCRIPTIONS: Record<MembreRole, string> = {
 // pas une donnée citoyenne sensible).
 export const TAB_KEYS = [
   "accueil", "rdv", "disponibilites", "services", "valider-rdv",
-  "communication", "communaute-pro", "signalements", "scanner", "codeqr", "analyse", "parametres",
+  "communication", "communaute-pro", "signalements", "scanner", "codeqr", "analyse",
+  // Système de recommandation institutionnel (Phase 3, architecture
+  // validée CEO 13/10/2026) — écran dédié URL propre (hors de ce tableau
+  // d'onglets internes au sens navigation, voir CLAUDE.md /chantier à
+  // venir), mais même mécanisme TAB_MATRIX/ACTION_MATRIX pour le gating
+  // serveur. Même palier d'accès que "analyse" (admin/superviseur/
+  // dirigeant), agent/comptable exclus du lot 1 (décision CEO explicite).
+  "recommandations",
+  "parametres",
   "profil-entreprise", "conditions-informations", "configuration-hotel", "profil-responsable", "documents", "mes-clients",
   "avis-reputation", "messagerie", "support", "questions-clients",
   "rdv-historique", "equipe", "journal", "espace-travail",
@@ -82,6 +90,9 @@ export const TAB_KEYS = [
   // déjà gatées sur "espace-travail", seule preparations-semaine est
   // gatée directement sur cet onglet).
   "ma-semaine",
+  // Écran « Notifications » (liste complète + détail, 22/10/2026) : même accès
+  // que le popover du header, masqué au comptable — aucune nouvelle règle.
+  "notifications",
 ] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
 
@@ -100,7 +111,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
   admin: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
     "valider-rdv": "full", communication: "full", "communaute-pro": "full", signalements: "full", scanner: "full", codeqr: "full",
-    analyse: "full", parametres: "full", "profil-entreprise": "full", "conditions-informations": "full", "configuration-hotel": "full",
+    analyse: "full", recommandations: "full", parametres: "full", "profil-entreprise": "full", "conditions-informations": "full", "configuration-hotel": "full",
     "profil-responsable": "full", documents: "full", "mes-clients": "full",
     "avis-reputation": "full", messagerie: "full", support: "full", "questions-clients": "full",
     "rdv-historique": "full", equipe: "full", journal: "full", "espace-travail": "full",
@@ -112,7 +123,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     "yelen-compte": "full", "yelen-contrat": "full", "yelen-forfait": "full", "yelen-paiements": "full",
     "yelen-transactions": "full", "yelen-reconciliation": "full", "yelen-frais-commissions": "full",
     "yelen-facturation": "full", "yelen-documents": "full", "yelen-support": "full",
-    "ma-semaine": "full",
+    "ma-semaine": "full", notifications: "full",
   },
   // Front office pur (retour Bryan 13/09/2026) : l'agent d'accueil n'a plus
   // aucun onglet en lecture seule — un accès "read" qu'il ne peut pas
@@ -125,7 +136,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
   agent: {
     accueil: "full", rdv: "full", disponibilites: "none", services: "none",
     "valider-rdv": "full", communication: "none", "communaute-pro": "none", signalements: "none", scanner: "full", codeqr: "full",
-    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
+    analyse: "none", recommandations: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "full",
     "avis-reputation": "full", messagerie: "full", support: "full", "questions-clients": "full",
     "rdv-historique": "none", equipe: "none", journal: "none", "espace-travail": "full",
@@ -137,7 +148,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
     "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
     "yelen-facturation": "none", "yelen-documents": "none", "yelen-support": "none",
-    "ma-semaine": "full",
+    "ma-semaine": "full", notifications: "full",
   },
   // Menu strictement financier — décision CEO 22/07/2026 : le comptable
   // n'est plus lecteur des écrans des autres rôles (communication, analyse,
@@ -145,7 +156,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
   comptable: {
     accueil: "full", rdv: "none", disponibilites: "none", services: "full",
     "valider-rdv": "none", communication: "none", "communaute-pro": "none", signalements: "none", scanner: "none", codeqr: "none",
-    analyse: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
+    analyse: "none", recommandations: "none", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "none",
     "avis-reputation": "none", messagerie: "none", support: "full", "questions-clients": "none",
     "rdv-historique": "none", equipe: "none", journal: "none", "espace-travail": "none",
@@ -157,12 +168,12 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     "yelen-compte": "full", "yelen-contrat": "full", "yelen-forfait": "full", "yelen-paiements": "full",
     "yelen-transactions": "full", "yelen-reconciliation": "full", "yelen-frais-commissions": "full",
     "yelen-facturation": "full", "yelen-documents": "full", "yelen-support": "full",
-    "ma-semaine": "full",
+    "ma-semaine": "full", notifications: "none",
   },
   superviseur: {
     accueil: "full", rdv: "full", disponibilites: "full", services: "full",
     "valider-rdv": "none", communication: "full", "communaute-pro": "full", signalements: "full", scanner: "none", codeqr: "none",
-    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
+    analyse: "full", recommandations: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "none", documents: "none", "mes-clients": "full",
     "avis-reputation": "full", messagerie: "full", support: "full", "questions-clients": "full",
     "rdv-historique": "full", equipe: "none", journal: "full", "espace-travail": "full",
@@ -174,12 +185,12 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     "yelen-compte": "none", "yelen-contrat": "none", "yelen-forfait": "none", "yelen-paiements": "none",
     "yelen-transactions": "none", "yelen-reconciliation": "none", "yelen-frais-commissions": "none",
     "yelen-facturation": "none", "yelen-documents": "none", "yelen-support": "none",
-    "ma-semaine": "full",
+    "ma-semaine": "full", notifications: "full",
   },
   dirigeant: {
     accueil: "full", rdv: "read", disponibilites: "none", services: "none",
     "valider-rdv": "none", communication: "read", "communaute-pro": "read", signalements: "read", scanner: "none", codeqr: "none",
-    analyse: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
+    analyse: "full", recommandations: "full", parametres: "none", "profil-entreprise": "none", "conditions-informations": "none", "configuration-hotel": "none",
     "profil-responsable": "read", documents: "read", "mes-clients": "none",
     "avis-reputation": "read", messagerie: "none", support: "full", "questions-clients": "none",
     "rdv-historique": "read", equipe: "read", journal: "read", "espace-travail": "full",
@@ -199,7 +210,7 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
     // journal/partenariat/mes-offres/clock-in-shift) — "lecture seule sur
     // le sensible", jamais un pilotage opérationnel.
     "yelen-facturation": "none", "yelen-documents": "read", "yelen-support": "none",
-    "ma-semaine": "full",
+    "ma-semaine": "full", notifications: "full",
   },
 };
 
@@ -208,7 +219,18 @@ const TAB_MATRIX: Record<MembreRole, Record<TabKey, TabAccess>> = {
 // tabs ci-dessus n'ont pas d'URL, donc rien côté client ne peut être fiable).
 export type ActionKey =
   | "equipe.write" | "equipe.read_full"
-  | "journal.read" | "journal.export"
+  | "journal.read" | "journal.export" | "journal.voir_ip"
+  // Numéro de téléphone des clients EN CLAIR dans les exports de données (RDV,
+  // paiements) ; sans cette permission le numéro est masqué (+224 ******** 34).
+  | "export.telephone_clair"
+  // Système de recommandation institutionnel (Phase 3, 13/10/2026) — marquer
+  // "traitée" est une action opérationnelle (confirmer qu'une action a été
+  // prise), pas une simple lecture : réservée admin+superviseur, le
+  // dirigeant garde l'accès "full" à TAB_MATRIX.recommandations (lecture des
+  // constats) mais ne pilote pas ce workflow, même logique que
+  // equipe.write/signalements.write déjà fermés au dirigeant malgré son
+  // accès "read"/"full" à la navigation correspondante.
+  | "recommandations.marquer_traitee"
   | "rdv.write" | "rdv.delete_historique"
   | "disponibilites.write"
   | "services.write"
@@ -290,6 +312,14 @@ const ACTION_MATRIX: Record<ActionKey, Partial<Record<MembreRole, true>>> = {
   // Export est une opération de lecture (pas d'écriture) — mêmes rôles que
   // journal.read, cohérent avec l'accès "read" déjà accordé à dirigeant.
   "journal.export": { admin: true, superviseur: true, dirigeant: true },
+  // Adresse IP et user-agent bruts des membres : donnée personnelle sensible,
+  // refusée au dirigeant (lecture seule) dans la liste, la fiche et l'export.
+  "journal.voir_ip": { admin: true, superviseur: true },
+  // Décision du 24/10/2026 : admin, superviseur et agent voient les numéros ; le
+  // dirigeant (lecture) et le comptable les voient masqués. Ne pas assouplir pour le
+  // comptable sans décision explicite (relance des paiements).
+  "export.telephone_clair": { admin: true, superviseur: true, agent: true },
+  "recommandations.marquer_traitee": { admin: true, superviseur: true },
   "rdv.write": { admin: true, agent: true, superviseur: true },
   "rdv.delete_historique": { admin: true },
   "disponibilites.write": { admin: true, superviseur: true },

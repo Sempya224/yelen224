@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
+import { CompteRechercheOverlay } from "@/components/CompteRechercheOverlay";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 import { SuivisSection } from "./suivis-section";
@@ -37,6 +38,8 @@ const Ic = {
   X:         () => <svg style={P} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   Chev:      () => <svg style={P} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="m6 9 6 6 6-6"/></svg>,
   Back:      () => <svg style={P} width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>,
+  SearchHeader: () => <svg style={P} width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>,
+  Aide:      () => <span style={{ ...P, fontSize: "19px", fontWeight: 800, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", width: "21px", height: "21px" }}>?</span>,
   Info:      () => <svg style={P} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   Repeat:    () => <svg style={P} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
 };
@@ -491,8 +494,9 @@ export function MesDemarchesClient() {
     titre: string; dateCible: string; categorie: Categorie | null; objectif: string; priorite: Priorite;
     dateDebut: string; recurrence: Recurrence; recurrenceFin: string; rappelJours: number | null;
   } | null>(null);
-  const [afficherGuide, setAfficherGuide] = useState(true);
   const [faqOuverte, setFaqOuverte] = useState<number | null>(null);
+  const [faqEcranOuvert, setFaqEcranOuvert] = useState(false);
+  const [rechercheGlobaleOuverte, setRechercheGlobaleOuverte] = useState(false);
   const [confirmation, setConfirmation] = useState<{ titre: string; message: string; danger?: boolean; onConfirm: () => void | Promise<void> } | null>(null);
   const [confirmationBusy, setConfirmationBusy] = useState(false);
   const [celebration, setCelebration] = useState<{ titre: string } | null>(null);
@@ -1083,24 +1087,29 @@ export function MesDemarchesClient() {
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
-      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}@keyframes sheetUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}.dTuile,.dSeg{transition:border-color 0.15s,background-color 0.15s,color 0.15s}`}</style>
-      <CompteHeader titre="Mes démarches"/>
+      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}@keyframes sheetUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}.dTuile,.dSeg{transition:border-color 0.15s,background-color 0.15s,color 0.15s}.md-search-input:focus{outline:none;box-shadow:0 0 0 2px rgba(245,166,35,0.4)}`}</style>
+      <CompteHeader titre="Mes démarches" rightActions={[
+        { icon: <Ic.SearchHeader/>, label: "Rechercher", onClick: () => setRechercheGlobaleOuverte(true) },
+        { icon: <Ic.Aide/>, label: "Questions fréquentes", onClick: () => setFaqEcranOuvert(true) },
+      ]}/>
+      {rechercheGlobaleOuverte && <CompteRechercheOverlay onClose={() => setRechercheGlobaleOuverte(false)}/>}
       <PullToRefresh onRefresh={charger} isDark={isDark}>
       <main style={{ padding: "16px 16px 100px" }}>
         <SuivisSection isDark={isDark} onCreerDemarche={ouvrirCreationDepuisExemple}/>
 
         <div id="demarches" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "14px", paddingTop: "4px" }}>
           {rechercheOuverte ? (
-            <div style={{ flex: 1, position: "relative" }}>
+            <div style={{ flex: 1, position: "relative", height: "32px" }}>
               <div style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: t3 }}><Ic.Search/></div>
               <input
                 autoFocus value={rechercheTexte} onChange={(e) => setRechercheTexte(e.target.value)}
                 placeholder="Rechercher une démarche…"
-                style={{ ...inputStyle, paddingLeft: "36px", paddingRight: "36px" }}
+                className="md-search-input"
+                style={{ ...inputStyle, height: "32px", padding: "0 36px", boxSizing: "border-box" }}
               />
               <button
                 onClick={() => { setRechercheOuverte(false); setRechercheTexte(""); }} className="tap" aria-label="Fermer la recherche"
-                style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: t3, cursor: "pointer", padding: "8px" }}
+                style={{ position: "absolute", right: "4px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: t3, cursor: "pointer", padding: "6px" }}
               ><Ic.X/></button>
             </div>
           ) : (
@@ -1112,28 +1121,6 @@ export function MesDemarchesClient() {
             </>
           )}
         </div>
-
-        {!enRecherche && afficherGuide && (
-          <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "14px 16px", marginBottom: "18px", position: "relative", boxShadow: ombreCard }}>
-            <button onClick={() => setAfficherGuide(false)} className="tap" style={{ position: "absolute", top: "10px", right: "10px", background: "none", border: "none", color: t3, cursor: "pointer", padding: "4px" }}><Ic.X/></button>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", paddingRight: "24px" }}>
-              <div style={{ color: "#F5A623", flexShrink: 0 }}><Ic.Info/></div>
-              <div style={{ color: t1, fontSize: "12.5px", fontWeight: 800 }}>Comment ça marche ?</div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
-              {[
-                "Donnez un titre à ce que vous voulez suivre (un dossier, un renouvellement, une échéance, personnel ou professionnel).",
-                "Ajoutez des étapes si vous voulez suivre une progression — ou n'en ajoutez aucune pour un simple rappel de date.",
-                "Cochez vos étapes au fur et à mesure : la démarche passe automatiquement en \"Terminée\" une fois tout coché.",
-              ].map((txt, i) => (
-                <div key={i} style={{ display: "flex", gap: "9px", alignItems: "flex-start" }}>
-                  <span style={{ width: "15px", height: "15px", borderRadius: "50%", background: "rgba(245,166,35,0.15)", color: "#F5A623", fontSize: "9.5px", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "1px" }}>{i + 1}</span>
-                  <span style={{ color: t2, fontSize: "12px", lineHeight: 1.5 }}>{txt}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {!enRecherche && (demarches?.length ?? 0) > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px", marginBottom: "14px" }}>
@@ -1239,19 +1226,6 @@ export function MesDemarchesClient() {
           );
         })()}
 
-        <div style={{ marginTop: "36px" }}>
-          <div style={{ color: t1, fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>Questions fréquentes</div>
-          <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "14px" }}>Tout ce qu&apos;il faut savoir sur le fonctionnement de cet écran.</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {FAQ_DEMARCHES.map((item, i) => (
-              <button key={i} onClick={() => setFaqOuverte(i)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "12px", padding: "13px 14px", cursor: "pointer", textAlign: "left" }}>
-                <span style={{ color: t1, fontSize: "13px", fontWeight: 700 }}>{item.q}</span>
-                <span style={{ color: t3, flexShrink: 0, transform: "rotate(-90deg)" }}><Ic.Chev/></span>
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div style={{ marginTop: "28px", padding: "18px 16px", borderTop: `1px solid ${brd}`, textAlign: "center" }}>
           <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: 800, letterSpacing: "1.5px", marginBottom: "8px" }}>YELEN224</div>
           <p style={{ color: t3, fontSize: "11.5px", lineHeight: 1.7, margin: 0, maxWidth: "440px", marginLeft: "auto", marginRight: "auto" }}>
@@ -1299,7 +1273,7 @@ export function MesDemarchesClient() {
                   <button onClick={() => setInstitutionChoisie(null)} className="tap" style={{ background: "none", border: "none", color: t3, cursor: "pointer", flexShrink: 0 }}><Ic.X/></button>
                 </div>
               ) : (
-                <input value={institutionQuery} onChange={(e) => setInstitutionQuery(e.target.value)} placeholder="Rechercher un établissement" style={{ width: "100%", padding: "13px 16px", border: "none", background: "transparent", color: t1, fontSize: "14px", fontWeight: 600, boxSizing: "border-box" }}/>
+                <input value={institutionQuery} onChange={(e) => setInstitutionQuery(e.target.value)} placeholder="Rechercher un établissement" style={{ width: "100%", padding: "13px 16px", border: "none", outline: "none", background: "transparent", color: t1, fontSize: "14px", fontWeight: 600, boxSizing: "border-box" }}/>
               )}
               {!institutionChoisie && institutionResultats.length > 0 && (
                 <div>
@@ -1622,6 +1596,54 @@ export function MesDemarchesClient() {
           </div>
         );
       })()}
+
+      {faqEcranOuvert && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 550, backgroundColor: bg, overflowY: "auto", overflowX: "hidden" }}>
+          <header style={{ position: "sticky", top: 0, zIndex: 10, background: bg, borderBottom: `1px solid ${brd}`, padding: "env(safe-area-inset-top) 16px 0" }}>
+            <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+              <button onClick={() => setFaqEcranOuvert(false)} className="tap" aria-label="Retour" style={{ justifySelf: "start", display: "flex", alignItems: "center", background: "none", border: "none", padding: "4px 6px 4px 0", cursor: "pointer", color: t1 }}><Ic.Back/></button>
+              <div style={{ color: t1, fontSize: "16px", fontWeight: 800 }}>Mes démarches</div>
+              <div/>
+            </div>
+          </header>
+          <main style={{ padding: "16px 16px 100px" }}>
+            <div style={{ backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "14px 16px", marginBottom: "22px", boxShadow: ombreCard }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                <div style={{ color: "#F5A623", flexShrink: 0 }}><Ic.Info/></div>
+                <div style={{ color: t1, fontSize: "12.5px", fontWeight: 800 }}>Comment ça marche ?</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
+                {[
+                  "Donnez un titre à ce que vous voulez suivre (un dossier, un renouvellement, une échéance, personnel ou professionnel).",
+                  "Ajoutez des étapes si vous voulez suivre une progression — ou n'en ajoutez aucune pour un simple rappel de date.",
+                  "Cochez vos étapes au fur et à mesure : la démarche passe automatiquement en \"Terminée\" une fois tout coché.",
+                ].map((txt, i) => (
+                  <div key={i} style={{ display: "flex", gap: "9px", alignItems: "flex-start" }}>
+                    <span style={{ width: "15px", height: "15px", borderRadius: "50%", background: "rgba(245,166,35,0.15)", color: "#F5A623", fontSize: "9.5px", fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "1px" }}>{i + 1}</span>
+                    <span style={{ color: t2, fontSize: "12px", lineHeight: 1.5 }}>{txt}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ color: t1, fontSize: "20px", fontWeight: 800, marginBottom: "4px" }}>Questions fréquentes</div>
+            <div style={{ color: t2, fontSize: "12.5px", lineHeight: 1.5, marginBottom: "18px" }}>Tout ce qu&apos;il faut savoir sur le fonctionnement de cet écran.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {FAQ_DEMARCHES.map((item, i) => (
+                <button key={i} onClick={() => setFaqOuverte(i)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "12px", padding: "13px 14px", cursor: "pointer", textAlign: "left" }}>
+                  <span style={{ color: t1, fontSize: "13px", fontWeight: 700 }}>{item.q}</span>
+                  <span style={{ color: t3, flexShrink: 0, transform: "rotate(-90deg)" }}><Ic.Chev/></span>
+                </button>
+              ))}
+            </div>
+            <div style={{ marginTop: "28px", padding: "18px 0 0", borderTop: `1px solid ${brd}`, textAlign: "center" }}>
+              <div style={{ color: "#F5A623", fontSize: "11px", fontWeight: 800, letterSpacing: "1.5px", marginBottom: "8px" }}>YELEN224</div>
+              <p style={{ color: t3, fontSize: "11.5px", lineHeight: 1.7, margin: 0, maxWidth: "440px", marginLeft: "auto", marginRight: "auto" }}>
+                Yelen existe pour une seule raison : rendre l&apos;accès aux services essentiels — santé, administration, banque, justice — aussi simple et digne que possible pour chaque citoyen guinéen. Chaque démarche suivie ici reste la vôtre, privée, à votre rythme. Yelen, c&apos;est votre lumière dans vos démarches du quotidien.
+              </p>
+            </div>
+          </main>
+        </div>
+      )}
 
       {faqOuverte !== null && (
         <div onClick={() => setFaqOuverte(null)} style={{ position: "fixed", inset: 0, zIndex: 9200, backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>

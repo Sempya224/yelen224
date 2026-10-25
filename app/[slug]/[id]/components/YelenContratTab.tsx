@@ -20,6 +20,7 @@ import { SectionHeader } from "../dashboardShared";
 import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 import { STATUT_META, PLAN_LABELS, formatDateLongue, type InstCompte } from "@/lib/compteYelenDisplay";
 import { Champ, ChampBientot, SectionBientot, MenuActions, StatusDot } from "./YelenBusinessShared";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 function aujourdHui(): string {
   return new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
@@ -44,7 +45,10 @@ export function YelenContratTab({ inst, onToast, onContacterSupport }: {
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px", marginBottom: "16px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Contrat Yelen</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Contrat Yelen</div>
+            <HelpCenterGuide tab="yelen-contrat" />
+          </div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "480px" }}>Gérez votre relation contractuelle avec Yelen.</p>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>

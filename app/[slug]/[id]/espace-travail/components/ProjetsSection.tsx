@@ -22,17 +22,19 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens } from "../../theme";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { YelenLoader } from "@/components/YelenLoader";
 import { type Tache } from "./TachesOverlays";
 import { type DocumentTravail } from "./DocumentsOverlays";
 import {
   type Projet, type Membre, STATUTS_PROJET, PRIORITES_PROJET,
-  statutColor, statutLabel, prioriteColor, prioriteLabel, santeInfo,
-  nomMembre, initiales, peutGerer, computeProgress,
-  ProjectStatusPicker, ProjectPriorityPicker, ProjectQuickDrawer,
+  statutColor, prioriteColor, prioriteLabel,
+  nomMembre, peutGerer, computeProgress,
+  ProjectQuickDrawer,
 } from "./ProjetsOverlays";
-import { AgendaPopover, useDialogA11y, MemberPicker, DatePicker } from "./AgendaOverlays";
+import { useDialogA11y } from "./AgendaOverlays";
 import { ProjectOverview } from "./ProjectOverview";
+import { ProjetsStyles, ProjectCardView, ProjectsSkeleton, StatutBadge, PrioriteBadge, ResponsableLabel, CibleLabel, ProgressBar, type ProjetAction } from "./ProjetsUi";
+import { TasksToolbar, TasksMessage } from "./TachesUi";
+import { ClockStyles, ClockModal, ModalField, champStyle, ComboField, DateField, RowActionsMenu } from "../../components/ClockInShiftUi";
 
 type TabKey = "toutes" | "mes" | "a_venir" | "en_cours" | "bloque" | "termine";
 type SortKey = "echeance" | "progression" | "nom" | "recent";
@@ -48,6 +50,15 @@ const TABS: { value: TabKey; label: string }[] = [
   { value: "en_cours", label: "En cours" },
   { value: "bloque", label: "Bloqués" },
   { value: "termine", label: "Terminés" },
+];
+
+const SORTS: { value: SortKey; label: string }[] = [{ value: "echeance", label: "Échéance" }, { value: "progression", label: "Progression" }, { value: "nom", label: "Nom" }, { value: "recent", label: "Dernière modification" }];
+const ICO = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
+const VUES: { key: ViewKey; label: string; icone: React.ReactNode }[] = [
+  { key: "cartes", label: "Cartes", icone: <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" {...ICO}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> },
+  { key: "liste", label: "Liste", icone: <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" {...ICO}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg> },
+  { key: "kanban", label: "Kanban", icone: <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" {...ICO}><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg> },
+  { key: "timeline", label: "Timeline", icone: <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" {...ICO}><line x1="3" y1="6" x2="14" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="5" y1="18" x2="16" y2="18"/></svg> },
 ];
 
 function toISODate(d: Date): string { return d.toISOString().slice(0, 10); }
@@ -304,76 +315,48 @@ export function ProjetsSection({ instId, onToast }: { instId: string; onToast: (
     }
   }
 
+  const actionsDe = (p: Projet): ProjetAction[] => [
+    { label: "Aperçu rapide", onClick: () => setQuickDrawerId(p.id) },
+    { label: "Ouvrir le projet", onClick: () => setOpenProjectId(p.id) },
+    ...(peutGerer(p, moiId, moiRole) ? [{ label: "Modifier", onClick: () => openEditForm(p) }, { label: "Supprimer", onClick: () => requestDelete(p), danger: true }] : []),
+  ];
+  const tabsDef = TABS.map(t => ({ key: t.value, label: t.label, count: projets.filter(p => matchesTab(p, t.value, moiId)).length, alerte: t.value === "bloque" }));
+  const aFiltre = activeFilterChips.length > 0 || search.trim() !== "" || tab !== "toutes";
+
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-          {TABS.map(t => (
-            <button key={t.value} onClick={() => setTab(t.value)} style={{ background: tab === t.value ? C.goldL : C.bgCard, border: `1px solid ${tab === t.value ? C.goldL : C.border}`, borderRadius: "8px", padding: "6px 12px", fontSize: "11.5px", fontWeight: tab === t.value ? 800 : 600, color: tab === t.value ? C.goldD : C.t2, cursor: "pointer" }}>{t.label}</button>
-          ))}
-        </div>
-        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={openCreateForm}>+ Nouveau projet</Button>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", minWidth: "180px" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un projet…" style={{ width: "100%", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 10px 8px 30px", fontSize: "12.5px", color: C.t1, boxSizing: "border-box" }}/>
-        </div>
-        <button ref={filtersBtnRef} onClick={() => setFiltersOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: "6px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>
-          Filtrer{activeFilterChips.length > 0 && <span style={{ backgroundColor: C.gold, color: "#000", fontSize: "9.5px", fontWeight: "800", borderRadius: "20px", padding: "1px 6px" }}>{activeFilterChips.length}</span>}
-        </button>
-        <button ref={sortBtnRef} onClick={() => setSortOpen(v => !v)} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>Trier</button>
-        <div style={{ display: "flex", gap: "4px", backgroundColor: C.bg3, borderRadius: "9px", padding: "3px" }}>
-          {(["cartes", "liste", "kanban", "timeline"] as const).map(v => (
-            <button key={v} onClick={() => setView(v)} style={{ background: view === v ? C.bgCard : "transparent", border: "none", borderRadius: "7px", padding: "6px 11px", fontSize: "11px", fontWeight: "700", color: view === v ? C.gold : C.t2, cursor: "pointer", textTransform: "capitalize" }}>{v}</button>
-          ))}
-        </div>
-      </div>
-
-      {activeFilterChips.length > 0 && (
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
-          {activeFilterChips.map(c => (
-            <button key={c.key} onClick={c.onRemove} style={{ display: "flex", alignItems: "center", gap: "5px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "20px", padding: "3px 6px 3px 10px", fontSize: "11px", fontWeight: "700", color: C.t1, cursor: "pointer" }}>
-              {c.label}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          ))}
-          <button onClick={resetFilters} style={{ background: "none", border: "none", color: C.t3, fontSize: "11px", fontWeight: "700", cursor: "pointer", textDecoration: "underline" }}>Réinitialiser</button>
-        </div>
-      )}
+      <ClockStyles C={C}/>
+      <ProjetsStyles C={C}/>
+      <TasksToolbar C={C} unite="projet" nouveauLabel="Nouveau projet" tabs={tabsDef} tab={tab} onTab={k => { const t = TABS.find(x => x.value === k); if (t) setTab(t.value); }} onNew={openCreateForm}
+        search={search} onSearch={setSearch}
+        filtersRef={filtersBtnRef} filtersCount={activeFilterChips.length} onFilters={() => setFiltersOpen(v => !v)}
+        sortRef={sortBtnRef} sortLabel={SORTS.find(o => o.value === sortKey)?.label ?? ""} onSort={() => setSortOpen(v => !v)}
+        view={view} onView={setView} vues={VUES} chips={activeFilterChips} onReset={resetFilters} aFiltre={aFiltre} total={filtered.length}/>
 
       {loadError && !loading && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "12.5px", fontWeight: "700", color: C.red }}>Impossible de charger les projets.</span>
-          <button onClick={load} style={{ background: "none", border: "none", color: C.red, fontSize: "12px", fontWeight: "800", cursor: "pointer", textDecoration: "underline" }}>Réessayer</button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
+          <span role="alert" style={{ fontSize: "13px", fontWeight: 500, color: C.red }}>Impossible de charger les projets.</span>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={load}>Réessayer</Button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: "40px", display: "flex", justifyContent: "center" }}>
-          <YelenLoader size={24}/>
-        </div>
+        <ProjectsSkeleton/>
       ) : isTrueEmpty ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "48px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "14px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Aucun projet</div>
-          <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Les projets permettent de regrouper objectifs, tâches, documents et échéances au même endroit.</p>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={openCreateForm}>+ Créer un projet</Button>
-        </div>
+        <TasksMessage C={C} titre="Aucun projet" texte="Les projets permettent de regrouper objectifs, tâches, documents et échéances au même endroit."
+          icone={<svg width="28" height="28" viewBox="0 0 24 24" {...ICO}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>}
+          action={{ label: "+ Nouveau projet", onClick: openCreateForm, primaire: true }}/>
       ) : isNoResults ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "13px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Aucun résultat</div>
-          <button onClick={resetFilters} style={{ color: C.gold, background: "none", border: "none", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>Réinitialiser les filtres</button>
-        </div>
+        <TasksMessage C={C} titre="Aucun résultat" texte="Aucun projet ne correspond à ces critères." action={{ label: "Réinitialiser", onClick: resetFilters }}/>
       ) : view === "cartes" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div className="prj-grid">
           {filtered.map(p => (
-            <ProjectCard key={p.id} C={C} projet={p} membres={membres} progress={computeProgress(tachesByProjet.get(p.id) ?? [])}
-              onOpen={() => setQuickDrawerId(p.id)}/>
+            <ProjectCardView key={p.id} C={C} projet={p} membres={membres} progress={computeProgress(tachesByProjet.get(p.id) ?? [])}
+              onOpen={() => setQuickDrawerId(p.id)} actions={actionsDe(p)}/>
           ))}
         </div>
       ) : view === "liste" ? (
-        <ProjectTable C={C} projets={filtered} membres={membres} tachesByProjet={tachesByProjet} onOpen={id => setQuickDrawerId(id)}/>
+        <ProjectTable C={C} projets={filtered} membres={membres} tachesByProjet={tachesByProjet} onOpen={id => setQuickDrawerId(id)} actionsDe={actionsDe}/>
       ) : view === "kanban" ? (
         <ProjectKanban C={C} projets={filtered} membres={membres} moiId={moiId} moiRole={moiRole} tachesByProjet={tachesByProjet}
           onOpen={id => setQuickDrawerId(id)} onChangeStatut={changerStatut} dragOverCol={dragOverCol} setDragOverCol={setDragOverCol}/>
@@ -417,74 +400,39 @@ export function ProjetsSection({ instId, onToast }: { instId: string; onToast: (
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Carte projet (item 3) — unité de travail complète en un coup d'œil.
-// ─────────────────────────────────────────────────────────────────────────
-function ProjectCard({ C, projet, membres, progress, onOpen }: {
-  C: ThemeTokens; projet: Projet; membres: Membre[]; progress: { pct: number; total: number; termine: number; enRetard: number }; onOpen: () => void;
-}) {
-  const color = statutColor(projet.statut, C);
-  const responsable = nomMembre(projet.responsable_membre_id, membres);
-  const sante = santeInfo(projet.sante, C);
-  return (
-    <div onClick={onOpen} className="tap" style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}`, padding: "16px", cursor: "pointer" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "4px" }}>
-        <span style={{ fontSize: "14px", fontWeight: "800", color: C.t1 }}>{projet.nom}</span>
-        {sante && <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: sante.color, flexShrink: 0 }} title={sante.label}/>}
-      </div>
-      {projet.description && <div style={{ color: C.t2, fontSize: "12px", marginBottom: "10px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projet.description}</div>}
-
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-        <div style={{ flex: 1, height: "6px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${progress.pct}%`, backgroundColor: C.gold, borderRadius: "3px" }}/>
-        </div>
-        <span style={{ fontSize: "11px", fontWeight: 800, color: C.t1, flexShrink: 0 }}>{progress.pct}%</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px", flexWrap: "wrap" }}>
-        {responsable && <span style={{ color: C.t2, fontSize: "11px", fontWeight: 700 }}>{responsable}</span>}
-        {projet.date_fin_prevue && <span style={{ color: C.t3, fontSize: "11px" }}>{new Date(`${projet.date_fin_prevue}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>}
-      </div>
-
-      {progress.total > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px", fontSize: "10.5px", color: C.t3 }}>
-          <span>{progress.total} tâche{progress.total > 1 ? "s" : ""}</span>
-          <span>{progress.termine} terminée{progress.termine > 1 ? "s" : ""}</span>
-          {progress.enRetard > 0 && <span style={{ color: C.red, fontWeight: 700 }}>{progress.enRetard} en retard</span>}
-        </div>
-      )}
-
-      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", backgroundColor: `${color}15`, color, fontSize: "10px", fontWeight: 800, padding: "3px 10px", borderRadius: "20px" }}>
-        <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: color }}/>{statutLabel(projet.statut)}
-      </span>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────
 // Vue Liste (item 4) — portefeuille en un coup d'œil.
 // ─────────────────────────────────────────────────────────────────────────
-function ProjectTable({ C, projets, membres, tachesByProjet, onOpen }: {
-  C: ThemeTokens; projets: Projet[]; membres: Membre[]; tachesByProjet: Map<string, Tache[]>; onOpen: (id: string) => void;
+function ProjectTable({ C, projets, membres, tachesByProjet, onOpen, actionsDe }: {
+  C: ThemeTokens; projets: Projet[]; membres: Membre[]; tachesByProjet: Map<string, Tache[]>; onOpen: (id: string) => void; actionsDe: (p: Projet) => ProjetAction[];
 }) {
+  const th = { color: C.t2, fontSize: "12px", fontWeight: 500 } as const;
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, overflowX: "auto" }}>
-      <div style={{ minWidth: "620px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 110px 100px 110px", gap: "8px", padding: "11px 16px", borderBottom: `1px solid ${C.border}`, backgroundColor: C.bg3, color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-          <span>Projet</span><span>Responsable</span><span>Progression</span><span>Échéance</span><span>Statut</span>
+    <div style={{ backgroundColor: C.bgCard, borderRadius: "12px", border: `1px solid ${C.border}`, overflowX: "auto" }}>
+      <style>{`.prj-sub{display:none}@media(max-width:1023px){.prj-sub{display:flex}}`}</style>
+      <div role="table" aria-label="Projets">
+        <div role="row" className="prj-listhead" style={{ height: "40px", borderBottom: `1px solid ${C.border}`, backgroundColor: C.bgCard2 }}>
+          <span role="columnheader" style={th}>Projet</span><span role="columnheader" style={th}>Responsable</span><span role="columnheader" style={th}>Priorité</span>
+          <span role="columnheader" style={th}>Échéance</span><span role="columnheader" style={th}>Progression</span><span role="columnheader" style={th}>Statut</span>
+          <span role="columnheader" style={th}><span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Actions</span></span>
         </div>
         {projets.map((p, i) => {
           const progress = computeProgress(tachesByProjet.get(p.id) ?? []);
-          const color = statutColor(p.statut, C);
           return (
-            <div key={p.id} onClick={() => onOpen(p.id)} className="tap" style={{ display: "grid", gridTemplateColumns: "1fr 130px 110px 100px 110px", gap: "8px", alignItems: "center", padding: "11px 16px", borderBottom: i < projets.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
-              <span style={{ fontSize: "12.5px", fontWeight: 700, color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nom}</span>
-              <span style={{ fontSize: "11.5px", color: C.t2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nomMembre(p.responsable_membre_id, membres) || "—"}</span>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <div style={{ flex: 1, height: "5px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}><div style={{ height: "100%", width: `${progress.pct}%`, backgroundColor: C.gold }}/></div>
-                <span style={{ fontSize: "10px", fontWeight: 700, color: C.t2, flexShrink: 0 }}>{progress.pct}%</span>
+            <div key={p.id} role="row" tabIndex={0} onClick={() => onOpen(p.id)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(p.id); } }}
+              className="prj-row tap" style={{ borderBottom: i < projets.length - 1 ? `1px solid ${C.border}` : "none" }}>
+              <div role="cell" style={{ minWidth: 0 }}>
+                <div title={p.nom} style={{ fontSize: "14px", fontWeight: 500, color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nom}</div>
+                <div className="prj-sub" style={{ alignItems: "center", gap: "10px", flexWrap: "wrap", marginTop: "6px" }}><StatutBadge C={C} statut={p.statut}/><CibleLabel C={C} projet={p} court/><span style={{ color: C.t2, fontSize: "13px", fontVariantNumeric: "tabular-nums" }}>{progress.pct} %</span></div>
               </div>
-              <span style={{ fontSize: "11.5px", color: C.t3 }}>{p.date_fin_prevue ? new Date(`${p.date_fin_prevue}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "—"}</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", backgroundColor: `${color}15`, color, fontSize: "10px", fontWeight: 800, padding: "2px 8px", borderRadius: "20px", width: "fit-content" }}>{statutLabel(p.statut)}</span>
+              <div role="cell" className="prj-c" style={{ minWidth: 0 }}><ResponsableLabel C={C} projet={p} membres={membres}/></div>
+              <div role="cell" className="prj-c"><PrioriteBadge C={C} priorite={p.priorite}/></div>
+              <div role="cell" className="prj-c"><CibleLabel C={C} projet={p} court/></div>
+              <div role="cell" className="prj-c" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ flex: 1 }}><ProgressBar C={C} pct={progress.pct} hauteur={5}/></div>
+                <span style={{ fontSize: "12px", color: C.t2, fontVariantNumeric: "tabular-nums", width: "36px", textAlign: "right" }}>{progress.pct} %</span>
+              </div>
+              <div role="cell" className="prj-c"><StatutBadge C={C} statut={p.statut}/></div>
+              <div role="cell" style={{ textAlign: "right" }}><RowActionsMenu C={C} label={`Actions pour ${p.nom}`} items={actionsDe(p)}/></div>
             </div>
           );
         })}
@@ -502,7 +450,7 @@ function ProjectKanban({ C, projets, membres, moiId, moiRole, tachesByProjet, on
   dragOverCol: string | null; setDragOverCol: (v: string | null) => void;
 }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${STATUTS_PROJET.length}, 1fr)`, gap: "12px", alignItems: "start" }}>
+    <div className="prj-kan">
       {STATUTS_PROJET.map(col => {
         const items = projets.filter(p => p.statut === col.value);
         return (
@@ -516,11 +464,11 @@ function ProjectKanban({ C, projets, membres, moiId, moiRole, tachesByProjet, on
               const p = projets.find(x => x.id === id);
               if (p && p.statut !== col.value && peutGerer(p, moiId, moiRole)) onChangeStatut(id, col.value);
             }}
-            style={{ backgroundColor: dragOverCol === col.value ? `${C.gold}0D` : C.bg3, borderRadius: "12px", padding: "10px", minHeight: "80px", border: `1px solid ${dragOverCol === col.value ? C.gold + "60" : "transparent"}` }}>
+            style={{ backgroundColor: dragOverCol === col.value ? `${C.gold}0D` : C.bgCard2, borderRadius: "12px", padding: "10px", minHeight: "96px", border: `1.5px ${dragOverCol === col.value ? "dashed" : "solid"} ${dragOverCol === col.value ? C.gold : C.border}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "2px 4px 10px" }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: statutColor(col.value, C) }}/>
-              <span style={{ fontSize: "11.5px", fontWeight: "800", color: C.t1, letterSpacing: "0.3px" }}>{col.label.toUpperCase()}</span>
-              <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700" }}>{items.length}</span>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: C.t1 }}>{col.label}</span>
+              <span style={{ color: C.t3, fontSize: "12px", fontVariantNumeric: "tabular-nums" }}>{items.length}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {items.map(p => {
@@ -528,12 +476,16 @@ function ProjectKanban({ C, projets, membres, moiId, moiRole, tachesByProjet, on
                 const progress = computeProgress(tachesByProjet.get(p.id) ?? []);
                 return (
                   <div key={p.id} draggable={!verrouille} onDragStart={e => { e.dataTransfer.setData("text/plain", p.id); e.dataTransfer.effectAllowed = "move"; }}
-                    onClick={() => onOpen(p.id)} className="tap"
-                    style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px", cursor: verrouille ? "pointer" : "grab" }}>
-                    <div style={{ fontSize: "12px", fontWeight: 700, color: C.t1, marginBottom: "8px" }}>{p.nom}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <div style={{ flex: 1, height: "4px", borderRadius: "2px", backgroundColor: C.bg3, overflow: "hidden" }}><div style={{ height: "100%", width: `${progress.pct}%`, backgroundColor: C.gold }}/></div>
-                      <span style={{ fontSize: "9.5px", fontWeight: 700, color: C.t3 }}>{progress.pct}%</span>
+                    onClick={() => onOpen(p.id)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(p.id); } }} tabIndex={0} className="prj-kcard tap"
+                    style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", cursor: verrouille ? "pointer" : "grab", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div title={p.nom} style={{ fontSize: "13px", fontWeight: 600, color: C.t1, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" }}>{p.nom}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ flex: 1 }}><ProgressBar C={C} pct={progress.pct} hauteur={4}/></div>
+                      <span style={{ fontSize: "12px", color: C.t2, fontVariantNumeric: "tabular-nums" }}>{progress.pct} %</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                      <ResponsableLabel C={C} projet={p} membres={membres}/>
+                      <CibleLabel C={C} projet={p} court/>
                     </div>
                   </div>
                 );
@@ -552,6 +504,7 @@ function ProjectKanban({ C, projets, membres, moiId, moiRole, tachesByProjet, on
 // dessinées (item 7 : aucun modèle backend, non inventées).
 // ─────────────────────────────────────────────────────────────────────────
 function ProjectTimeline({ C, projets, onOpen }: { C: ThemeTokens; projets: Projet[]; onOpen: (id: string) => void }) {
+  const [maintenant] = useState(() => Date.now());
   const withDates = projets.filter(p => p.date_debut || p.date_fin_prevue);
   if (withDates.length === 0) {
     return <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "40px 20px", textAlign: "center", color: C.t3, fontSize: "12.5px" }}>Aucun projet avec des dates définies.</div>;
@@ -566,7 +519,7 @@ function ProjectTimeline({ C, projets, onOpen }: { C: ThemeTokens; projets: Proj
   const cur = new Date(rangeStart);
   cur.setDate(1);
   while (cur.getTime() <= rangeEnd) {
-    months.push({ label: cur.toLocaleDateString("fr-FR", { month: "short" }).toUpperCase(), left: ((cur.getTime() - rangeStart) / totalSpan) * 100 });
+    months.push({ label: cur.toLocaleDateString("fr-FR", { month: "short", year: "numeric" }), left: ((cur.getTime() - rangeStart) / totalSpan) * 100 });
     cur.setMonth(cur.getMonth() + 1);
   }
 
@@ -574,9 +527,10 @@ function ProjectTimeline({ C, projets, onOpen }: { C: ThemeTokens; projets: Proj
     <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "16px", overflowX: "auto" }}>
       <div style={{ minWidth: "560px" }}>
         <div style={{ position: "relative", height: "20px", marginBottom: "10px", borderBottom: `1px solid ${C.border}` }}>
-          {months.map((m, i) => <span key={i} style={{ position: "absolute", left: `${m.left}%`, fontSize: "9.5px", fontWeight: 800, color: C.t3 }}>{m.label}</span>)}
+          {months.map((m, i) => <span key={i} style={{ position: "absolute", left: `${m.left}%`, fontSize: "12px", fontWeight: 500, color: C.t2 }}>{m.label}</span>)}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: "10px" }}>
+          {maintenant >= rangeStart && maintenant <= rangeEnd && <span aria-hidden="true" title="Aujourd'hui" style={{ position: "absolute", left: `${((maintenant - rangeStart) / totalSpan) * 100}%`, top: 0, bottom: 0, width: "1px", backgroundColor: C.gold, pointerEvents: "none", zIndex: 1 }}/>}
           {withDates.map(p => {
             const s = new Date(p.date_debut || p.date_fin_prevue!).getTime();
             const e = new Date(p.date_fin_prevue || p.date_debut!).getTime();
@@ -585,8 +539,8 @@ function ProjectTimeline({ C, projets, onOpen }: { C: ThemeTokens; projets: Proj
             const color = statutColor(p.statut, C);
             return (
               <div key={p.id} onClick={() => onOpen(p.id)} className="tap" style={{ position: "relative", height: "26px", cursor: "pointer" }}>
-                <div style={{ position: "absolute", left: `${left}%`, width: `${width}%`, height: "100%", backgroundColor: `${color}25`, border: `1px solid ${color}`, borderRadius: "6px", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden" }}>
-                  <span style={{ fontSize: "10.5px", fontWeight: 700, color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nom}</span>
+                <div style={{ position: "absolute", left: `${left}%`, width: `${width}%`, height: "100%", backgroundColor: `${color}1c`, border: `1px solid ${color}55`, borderRadius: "6px", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 600, color: p.statut === "a_venir" ? C.t2 : color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nom}</span>
                 </div>
               </div>
             );
@@ -616,7 +570,7 @@ function FiltersPopover({ C, anchorRef, onClose, filters, setFilters, membres }:
   const r = anchor.getBoundingClientRect();
 
   function Section({ title, children }: { title: string; children: React.ReactNode }) {
-    return <div style={{ marginBottom: "12px" }}><div style={{ fontSize: "9.5px", fontWeight: "800", color: C.t3, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>{title}</div><div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{children}</div></div>;
+    return <div style={{ marginBottom: "12px" }}><div style={{ fontSize: "13px", fontWeight: 600, color: C.t1, marginBottom: "6px" }}>{title}</div><div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{children}</div></div>;
   }
   function CheckRow({ checked, label, color, onClick }: { checked: boolean; label: string; color?: string; onClick: () => void }) {
     return (
@@ -661,7 +615,7 @@ function SortPopover({ C, anchorRef, onClose, value, onSelect }: {
   const anchor = anchorRef.current;
   if (!anchor) return null;
   const r = anchor.getBoundingClientRect();
-  const OPTIONS: { value: SortKey; label: string }[] = [{ value: "echeance", label: "Échéance" }, { value: "progression", label: "Progression" }, { value: "nom", label: "Nom" }, { value: "recent", label: "Dernière modification" }];
+  const OPTIONS = SORTS;
   return (
     <div ref={panelRef} tabIndex={-1} role="dialog" style={{ position: "fixed", top: `${r.bottom + 6}px`, left: `${r.left}px`, minWidth: "180px", zIndex: 400, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 10px 28px rgba(0,0,0,0.22)", padding: "6px", outline: "none" }}>
       {OPTIONS.map(o => (
@@ -671,68 +625,80 @@ function SortPopover({ C, anchorRef, onClose, value, onSelect }: {
   );
 }
 
-function fieldBtnStyle(C: ThemeTokens): React.CSSProperties {
-  return { textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 12px", fontSize: "12px", color: C.t1, cursor: "pointer", fontFamily: "inherit" };
-}
-function inputStyle(C: ThemeTokens): React.CSSProperties {
-  return { width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "13px", marginBottom: "8px", color: C.t1, boxSizing: "border-box", fontFamily: "inherit" };
-}
-
 // ─────────────────────────────────────────────────────────────────────────
-// B — Création / édition (item 14 : seul le nom est obligatoire). PC-first.
+// B — Création / édition (item 14 : seul le nom est obligatoire).
 // ─────────────────────────────────────────────────────────────────────────
 function ProjectForm({ C, form, onChange, onRequestClose, onSave, saving, membres }: {
   C: ThemeTokens; form: FormState; onChange: (patch: Partial<FormValues>) => void; onRequestClose: () => void;
   onSave: () => void; saving: boolean; membres: Membre[];
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  useDialogA11y(panelRef, true, onRequestClose);
-
-  const responsableBtnRef = useRef<HTMLButtonElement>(null);
-  const debutBtnRef = useRef<HTMLButtonElement>(null);
-  const cibleBtnRef = useRef<HTMLButtonElement>(null);
-  const statutBtnRef = useRef<HTMLButtonElement>(null);
-  const prioriteBtnRef = useRef<HTMLButtonElement>(null);
-  const [openPicker, setOpenPicker] = useState<"resp" | "debut" | "cible" | "statut" | "priorite" | null>(null);
-
   const v = form.values;
-
+  const ui = toUiTokens(C);
+  const edit = form.mode === "edit";
+  const nomOk = v.nom.trim().length > 0;
+  const datesKo = !!v.date_debut && !!v.date_fin_prevue && v.date_fin_prevue < v.date_debut;
+  const valide = nomOk && !datesKo;
+  const soumettre = () => { if (valide && !saving) onSave(); };
+  const effacer = (cible: string, onClear: () => void) => (
+    <button type="button" className="cix-btn tap" aria-label={`Effacer ${cible}`} onClick={onClear}
+      style={{ position: "absolute", right: "6px", top: "7px", zIndex: 2, width: "26px", height: "26px", background: "none", border: "none", borderRadius: "6px", color: C.t3, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  );
   return (
-    <>
-      <div onClick={() => { if (openPicker) { setOpenPicker(null); return; } onRequestClose(); }} style={{ position: "fixed", inset: 0, zIndex: 300, backgroundColor: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-        <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "24px", width: "100%", maxWidth: "520px", maxHeight: "88vh", overflowY: "auto", border: `1px solid ${C.border2}`, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", outline: "none" }}>
-          <div style={{ fontSize: "15px", fontWeight: "800", marginBottom: "14px" }}>{form.mode === "edit" ? "Modifier le projet" : "Nouveau projet"}</div>
-
-          <input value={v.nom} onChange={e => onChange({ nom: e.target.value })} placeholder="Nom du projet" style={inputStyle(C)} autoFocus/>
-          <textarea value={v.description} onChange={e => onChange({ description: e.target.value })} placeholder="Objectif du projet (optionnel)" rows={2} style={{ ...inputStyle(C), resize: "none" }}/>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-            <button ref={debutBtnRef} onClick={() => setOpenPicker(p => p === "debut" ? null : "debut")} style={fieldBtnStyle(C)}>{v.date_debut ? new Date(`${v.date_debut}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "Date de début"}</button>
-            <button ref={cibleBtnRef} onClick={() => setOpenPicker(p => p === "cible" ? null : "cible")} style={fieldBtnStyle(C)}>{v.date_fin_prevue ? new Date(`${v.date_fin_prevue}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "Date cible"}</button>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: form.mode === "edit" ? "1fr 1fr 1fr" : "1fr 1fr", gap: "8px", marginBottom: "14px" }}>
-            <button ref={responsableBtnRef} onClick={() => setOpenPicker(p => p === "resp" ? null : "resp")} style={fieldBtnStyle(C)}>{v.responsable_membre_id ? nomMembre(v.responsable_membre_id, membres) : "Responsable"}</button>
-            <button ref={prioriteBtnRef} onClick={() => setOpenPicker(p => p === "priorite" ? null : "priorite")} style={fieldBtnStyle(C)}>{prioriteLabel(v.priorite)}</button>
-            {form.mode === "edit" && (
-              <button ref={statutBtnRef} onClick={() => setOpenPicker(p => p === "statut" ? null : "statut")} style={fieldBtnStyle(C)}>{statutLabel(v.statut)}</button>
-            )}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onRequestClose}>Annuler</Button>
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!v.nom.trim()} loading={saving} onClick={onSave}>Enregistrer</Button>
+    <ClockModal C={C} titre={edit ? "Modifier le projet" : "Nouveau projet"} sousTitre="Définissez l'objectif et l'échéance." labelId="projet-modal-titre" largeur={560}
+      onClose={onRequestClose} modifie={false} onSubmit={soumettre}
+      aide={!nomOk ? "Renseignez le nom du projet." : datesKo ? "La date cible doit suivre la date de début." : undefined}
+      actions={<>
+        <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={onRequestClose}>Annuler</Button>
+        <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!valide} loading={saving} onClick={soumettre}>{saving ? "Enregistrement…" : "Enregistrer"}</Button>
+      </>}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <ModalField C={C} id="projet-nom" label="Nom du projet" requis>
+          <input id="projet-nom" data-autofocus className="cix-input" value={v.nom} onChange={e => onChange({ nom: e.target.value })} placeholder="ex : Renouvellement de contrat" style={champStyle(C)}/>
+        </ModalField>
+        <ModalField C={C} id="projet-objectif" label="Objectif" optionnel>
+          <textarea id="projet-objectif" className="cix-input" rows={4} value={v.description} onChange={e => onChange({ description: e.target.value })} placeholder="Quel résultat ce projet doit-il atteindre ?"
+            style={{ ...champStyle(C), height: "auto", minHeight: "96px", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }}/>
+        </ModalField>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+          <ModalField C={C} id="projet-debut" label="Date de début" optionnel>
+            <div style={{ position: "relative" }}>
+              <DateField C={C} id="projet-debut" value={v.date_debut} onChange={d => onChange({ date_debut: d })} vide="Choisir une date"/>
+              {v.date_debut && effacer("la date de début", () => onChange({ date_debut: "" }))}
+            </div>
+          </ModalField>
+          <ModalField C={C} id="projet-cible" label="Date cible" optionnel erreur={datesKo ? "La date cible précède la date de début." : null}>
+            <div style={{ position: "relative" }}>
+              <DateField C={C} id="projet-cible" value={v.date_fin_prevue} onChange={d => onChange({ date_fin_prevue: d })} vide="Choisir une date"/>
+              {v.date_fin_prevue && effacer("la date cible", () => onChange({ date_fin_prevue: "" }))}
+            </div>
+          </ModalField>
+        </div>
+        <ModalField C={C} id="projet-responsable" label="Responsable" optionnel>
+          <ComboField C={C} id="projet-responsable" valeur={v.responsable_membre_id} onChange={id => onChange({ responsable_membre_id: id })} aucunLabel="Non assigné"
+            options={membres.map(m => ({ value: m.id, label: `${m.prenom} ${m.nom}`, avatar: `${m.prenom.slice(0, 1)}${m.nom.slice(0, 1)}`.toUpperCase() }))}/>
+        </ModalField>
+        {edit && (
+          <ModalField C={C} id="projet-statut" label="Statut">
+            <ComboField C={C} id="projet-statut" sansAucun valeur={v.statut} onChange={st => onChange({ statut: st })} options={STATUTS_PROJET.map(st => ({ value: st.value, label: st.label }))}/>
+          </ModalField>
+        )}
+        <div>
+          <div id="projet-priorite-label" style={{ color: C.t1, fontSize: "13px", fontWeight: 500, marginBottom: "6px" }}>Priorité</div>
+          <div role="radiogroup" aria-labelledby="projet-priorite-label" style={{ display: "grid", gridTemplateColumns: `repeat(${PRIORITES_PROJET.length}, 1fr)`, gap: "8px" }}>
+            {PRIORITES_PROJET.map(pr => {
+              const on = v.priorite === pr.value;
+              return (
+                <button key={pr.value} type="button" role="radio" aria-checked={on} className="cix-btn tap" onClick={() => onChange({ priorite: pr.value })}
+                  style={{ height: "40px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px", borderRadius: "8px", cursor: "pointer", fontSize: "14px", fontWeight: on ? 600 : 500, color: on ? C.t1 : C.t2, backgroundColor: on ? C.bg3 : C.bgCard, border: `1px solid ${on ? C.gold : C.border2}`, boxShadow: on ? `inset 0 0 0 1px ${C.gold}` : "none" }}>
+                  <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: prioriteColor(pr.value, C) }}/>{pr.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
-
-      <MemberPicker open={openPicker === "resp"} onClose={() => setOpenPicker(null)} anchorRef={responsableBtnRef} tokens={C} membres={membres} value={v.responsable_membre_id || null} onSelect={id => onChange({ responsable_membre_id: id || "" })}/>
-      <DatePicker open={openPicker === "debut"} onClose={() => setOpenPicker(null)} anchorRef={debutBtnRef} tokens={C} value={v.date_debut || toISODate(new Date())} onSelect={d => onChange({ date_debut: d })}/>
-      <DatePicker open={openPicker === "cible"} onClose={() => setOpenPicker(null)} anchorRef={cibleBtnRef} tokens={C} value={v.date_fin_prevue || toISODate(new Date())} onSelect={d => onChange({ date_fin_prevue: d })}/>
-      <ProjectPriorityPicker open={openPicker === "priorite"} onClose={() => setOpenPicker(null)} anchorRef={prioriteBtnRef} tokens={C} value={v.priorite} onSelect={p => onChange({ priorite: p })}/>
-      {form.mode === "edit" && (
-        <ProjectStatusPicker open={openPicker === "statut"} onClose={() => setOpenPicker(null)} anchorRef={statutBtnRef} tokens={C} value={v.statut} onSelect={s => onChange({ statut: s })}/>
-      )}
-    </>
+    </ClockModal>
   );
 }

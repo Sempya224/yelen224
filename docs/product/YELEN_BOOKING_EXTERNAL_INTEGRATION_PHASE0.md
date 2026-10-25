@@ -639,6 +639,10 @@ dans le repo :
 5. La lacune de validation serveur créneau/capacité (Contraintes
    actuelles, point 2-3) doit-elle être corrigée **avant** toute
    exposition externe (recommandé) ou en parallèle ?
+   **[MISE À JOUR 19/10/2026 — CONFIRMÉ CORRIGÉ]** Traitée en deux temps :
+   un premier correctif JS le 01/09/2026 (commit `a5e078a`), puis durcie
+   en verrou atomique PostgreSQL par `reserver_creneau_rdv` (migration
+   `20260915000001`, GAP-08-04). Voir « Retour CEO » en fin de document.
 6. Quel modèle de facturation, s'il y en a un, pour un Niveau 4 (API) ?
    Aucune trace de facturation/abonnement lié à une intégration
    n'existe dans le schéma actuel (`plan_abonnement` existe pour les
@@ -646,6 +650,13 @@ dans le repo :
 7. Faut-il traiter l'exposition `mot_de_passe_hash` via `select("*")`
    comme un prérequis bloquant avant toute Phase 1, indépendamment de
    cette mission ?
+   **[MISE À JOUR 19/10/2026 — CORRIGÉ ET COMMITTÉ]** `InstitutionPublicClient.tsx`
+   sélectionne une liste explicite de colonnes depuis le 01/09/2026
+   (commit `a5e078a`, confirmé ancêtre de `HEAD` sur la branche courante).
+   Reste ouvert, non technique : **le test navigateur réel n'a jamais été
+   fait**, et la question de rotation des mots de passe institution vu la
+   fenêtre d'exposition avant le correctif n'est pas tranchée. Voir
+   « Retour CEO » en fin de document.
 8. Quel type d'auteur `rdv_events`/`journal_activite` pour une
    réservation venant d'une intégration externe — un nouveau type
    dédié, ou traité comme "citoyen" standard ?
@@ -680,3 +691,450 @@ commencer d'implémentation avant cette clarification.
 
 **STOP — fin de la Phase 0.** Aucune phase suivante n'est engagée
 automatiquement.
+
+---
+
+# Phase E0 — Modèle d'identité du visiteur externe (19/10/2026)
+
+Suite directe de la question ouverte n°1 ci-dessus. **Mission d'analyse
+uniquement, même discipline que la Phase 0 : aucun code écrit, aucune
+migration créée, aucune route ajoutée.** Produit en 3 lots (E0-A/B/C) le
+19/10/2026, consolidé ici le même jour à partir de la conversation
+complète (certains éléments d'E0-A/E0-B produits dans une session externe
+avec recherche web, resitués et revérifiés contre le code/les migrations
+réels avant intégration ici).
+
+Statut de chaque constat, repris du standard déjà en usage dans ce
+document : **CONFIRMÉ** (vérifié par lecture de code/migration/requête
+SQL exécutée), **CORRIGÉ** (une affirmation initiale s'est révélée fausse
+ou incomplète, correction indiquée), **À VÉRIFIER** (non confirmable
+depuis cet environnement), **DÉCISION PRODUIT EN ATTENTE** (pas une
+question technique — à trancher par Bryan avant tout code).
+
+## E0-A — Inventaire des policies RLS citoyen_id
+
+Méthode : grep systématique des 47 migrations contenant une policy RLS
+liée à `citoyen_id`. Classification complète en 3 catégories.
+
+**CONFIRMÉ — déjà "invité autorisé" par construction** : `rdv`,
+`paid_bookings` (objet du Niveau 1), `institutions_read_via_own_rdv`,
+et toute la famille `*_vues/likes/clics/commentaires`/`acquisition_events`
+— policies déjà écrites `citoyen_id IS NULL OR citoyen_id = auth.uid()`
+pour `anon` et `authenticated`, conçues dès l'origine pour fonctionner
+sans identité.
+
+**CONFIRMÉ — "permanent requis"** : `avis` (réputation publique
+attribuée), `citoyen_demarches/etapes`, `citoyen_projets/*`,
+`citoyen_abonnements/*`, `yelen_community` (post_likes/post_comments),
+`questions_institution`, `avis_utile`/`avis_reponse_utile`/
+`question_reponse_utile` — toutes conçues pour une identité qui survit
+sur plusieurs sessions ou porte un effet de réputation publique.
+
+**CONFIRMÉ — zéro policy, hors risque RLS (service_role uniquement)** :
+`citoyen_securite_fondations`, `citoyen_confidentialite_fondations`,
+`reward_events`, `recus`, `module_financier`, `document_events`,
+`citoyen_documents`. Le risque, si risque il y a, est au niveau des
+routes applicatives, pas RLS — voir E0-B.
+
+**CORRIGÉ (vérifié dans cette session)** : `points_transactions` et
+`reward_balances` (et par le même motif de nommage `reward_unlocks`,
+`reward_claims`) ont en réalité une policy `*_lecture_propre`
+(`FOR SELECT USING (auth.uid() = citoyen_id)`, migrations
+`20260726000003`/`000004`/`000006`/`000007`) — pas "zéro policy" comme
+le laissait entendre un commentaire imprécis de `lib/rewardsEngine.ts`
+("RLS sans policy sur ces deux tables", qui parlait en réalité de
+l'écriture seule). Catégorie réelle : **À TRANCHER**, pas "hors risque
+RLS" — aucun risque RLS direct (lecture seule, écriture service_role),
+mais `accorderPoints()` elle-même n'exclut aujourd'hui aucune identité,
+voir E0-B.
+
+**DÉCISION PRODUIT EN ATTENTE (5 points, aucun tranché à ce jour)** :
+- Messages citoyen↔institution (`messages_yelen_citoyen`, `messages`) —
+  un invité peut-il échanger sur sa réservation en cours ? Tension réelle
+  entre "conversation durable = permanent requis" et le besoin légitime
+  d'un invité de questionner l'institution.
+- `rdv_abandon_feedback`/`enquete_satisfaction`/`citoyen_feedback` —
+  argument pour autoriser l'invité (mesurer l'abandon/la satisfaction du
+  parcours invité lui-même).
+- `citoyen_favoris` — recommandation faible : permanent requis (une
+  identité jetable rend la fonctionnalité peu fiable).
+- `support_tickets` (lecture citoyen) — un canal 100% anonyme existe déjà
+  séparément (`/api/support/public/tickets`) ; lequel un invité doit-il
+  utiliser ?
+- Récompenses (points Yelen) — voir E0-B, recommandation forte : jamais
+  pour un invité.
+
+**CONFIRMÉ — mécanisme de liaison téléphonique, non-question pour ce
+projet** : le flux citoyen permanent n'utilise déjà jamais le champ natif
+`auth.users.phone` de Supabase — l'inscription crée une coquille avec un
+email synthétique (`{uuid}@citoyen.yelen224.local`) comme seule identité
+Supabase Auth (`register/route.ts`), le téléphone vérifié vit uniquement
+dans `public.users.phone`. Conséquence : le linking natif Supabase
+(`auth.updateUser({phone})` + provider SMS) n'est pas utilisable
+aujourd'hui, pas par choix mais par absence de brique SMS côté Supabase
+Auth. Pour un invité, l'`auth.uid()` anonyme reste donc pour toujours le
+même identifiant — rien à fusionner, seulement enrichir
+`public.users.phone`/`phone_verifie_le` après un OTP vérifié
+(`lib/auth/otp.ts`), exactement comme le flux permanent le fait déjà.
+L'avis de sécurité Supabase du 19/10/2026 sur le risque de mauvaise
+association lors d'un changement de numéro (`auth.updateUser({phone})` +
+provider SMS natif) **ne s'applique pas** à la conception retenue — à
+revérifier uniquement si Yelen branchait un jour un vrai provider SMS
+Supabase pour le flux permanent aussi (hors périmètre).
+
+**CONFIRMÉ (vérifié indépendamment dans cette session, pas seulement
+cité)** : un chantier de durcissement des `GRANT` ("Lot C"), migrations
+`20261018000014` à `000020` (18-19/10/2026), en cours et non nommé comme
+tel dans `CLAUDE.md` (qui mentionne le principe général "grants
+historiques à affiner à chaque policy ajoutée" sans nommer ce chantier).
+6 tables traitées (vague 1 générique + `annonces`/`institutions`/
+`paid_services`/`avis`/`messages`/`users`) ; `rdv`/`paid_bookings`
+absentes à ce jour. Aucun conflit avec E0 aujourd'hui, mais à coordonner
+avec Bryan pour ne pas dupliquer le travail quand ce chantier reprendra.
+
+## E0-B — OTP, schéma, routes serveur, récupération de session
+
+**CONFIRMÉ** : `lib/auth/otp.ts` — TTL 5 min, hash bcrypt, usage unique
+(remis à `null` avant comparaison, qu'elle réussisse ou non), génération
+`crypto.randomInt` (CSPRNG). Réutilisable tel quel pour vérifier le
+téléphone d'un invité, aucune nouvelle implémentation OTP nécessaire.
+
+**CORRIGÉ — RLS insuffisante pour deux chemins d'écriture réels** :
+`soumettreAvis()` (`app/mes-rdv/actions.ts`) et `accorderPoints()`
+(`lib/rewardsEngine.ts`) écrivent tous deux via `service_role`,
+contournant délibérément la RLS. Une policy `is_anonymous` sur `avis`
+n'aurait donc aucun effet sur ce chemin — contrairement à
+`citoyen_favoris` (écrit client-direct), où la policy RLS est la seule et
+vraie barrière.
+- `chargerRdvEtVerifier()` (`app/mes-rdv/actions.ts:38-46`), partagée par
+  `soumettreAvis()`/`annulerRdv()`/`reporterRdv()`, ne vérifie que
+  `auth.getUser(accessToken)` + `rdv.citoyen_id === user.id` — aucun
+  statut d'identité. **Précision importante (session de consolidation)** :
+  la condition à ajouter ne doit PAS aller dans `chargerRdvEtVerifier()`
+  elle-même — `annulerRdv()`/`reporterRdv()` ne font que muter la
+  ressource propre du citoyen (aucun effet de réputation), la
+  restriction n'a de sens que pour `soumettreAvis()` spécifiquement,
+  après l'appel à `chargerRdvEtVerifier()`.
+- `accorderPoints()` : 6 sites d'appel recensés, 5 `eventType` distincts
+  (`profil_complete`, `document_envoye`, `rdv_complete`, `rdv_no_show` ×2
+  chemins — statut manuel institution et détection QR auto —,
+  `identite_verifiee`), aucun ne filtre le statut d'identité du
+  `citoyenId`. Recommandation : un filtre central **dans**
+  `accorderPoints()` elle-même (cohérent avec le plafond anti-abus
+  `max_par_periode` déjà centralisé là, pas dupliqué à chaque appelant).
+
+**CONFIRMÉ** : `citoyen_favoris` écrit en client-direct — ici, et
+seulement ici parmi les chemins vérifiés, modifier la policy RLS suffit
+à elle seule.
+
+**N'EXISTE PAS — récupération après perte de session** : aucune route
+publique "retrouver ma réservation par code" trouvée. Le code affiché à
+l'écran de confirmation (`genererCodeConfirmation()`,
+`app/rdv/[id]/actions.ts:103`, 6 chiffres `crypto.randomInt`, jamais
+accepté du client) est conçu pour la validation présentielle (check-in
+institution par scan), jamais comme clé de recherche self-service citoyen
+— confirmé par absence de route de lookup dédiée. Le plus proche
+structurellement, `/api/verify/recu/[id]`, sert un tiers vérifiant un
+reçu, pas le citoyen récupérant son propre accès.
+
+**CONFIRMÉ** : une seule policy PERMISSIVE par commande sur toutes les
+tables candidates à une exclusion `is_anonymous` (avis, démarches,
+projets, communauté, abonnements, messages) — l'approche "éditer la
+policy existante" (jamais en superposer une 2ᵉ) reste valide.
+
+## E0-C — Clôture des points bloquants
+
+**C1 — CONFIRMÉ (SQL exécuté par Bryan le 19/10/2026)** :
+`users.phone` : `is_nullable = YES`, pas de défaut ; contrainte
+`users_phone_unique` (`UNIQUE (phone)`) réelle en base ; zéro doublon
+actuel (`GROUP BY phone HAVING count(*) > 1` → 0 ligne). Le commentaire
+d'avertissement de `register/route.ts:159` ("suppose une contrainte
+UNIQUE... à vérifier") était donc une hypothèse vraie, pas une dette.
+Conséquence : le blocage "téléphone déjà associé à un compte permanent"
+(E0.3) peut s'appuyer sur un vrai rejet Postgres `23505`, jamais sur un
+`SELECT` préalable racy — `UNIQUE` autorise plusieurs `NULL`
+simultanément, donc des invités sans téléphone ne se bloquent jamais
+entre eux.
+
+**C2 — CONFIRMÉ (cartographie)** : toute réservation (`createRdv`,
+`creerReservationPayante`, `creerReservationChambre`,
+`app/rdv/[id]/actions.ts`) exige déjà un `accessToken` Supabase Auth réel
+— le client lit `supabase.auth.getSession()` et le transmet, les RPC
+(`reserver_creneau_rdv`/`_payant`/`reserver_chambre_hotel`) sont
+protégées par la policy RLS `auth.uid() = citoyen_id`. Conséquence :
+**le pont magic-link existant (`completerConnexionCitoyen`/
+`mintCitoyenSessionTokenHash`, `lib/auth/citoyenSession.ts`) doit exister
+dès l'E0.1** (création de l'identité invité), pas seulement après
+vérification du téléphone (E0.3) — il n'y a structurellement aucun
+chemin où un invité réserverait sans session Supabase Auth réelle.
+Bonus : si la ligne `users` de l'invité existe dès le début du parcours,
+sa vérification téléphonique ultérieure peut utiliser l'OTP réel par
+utilisateur (`otp.ts`) directement, sans passer par le
+`CITOYEN_OTP_FALLBACK` qu'utilise l'inscription classique (faute de
+ligne `users` à cet instant) — un parcours plus propre que le `register`
+actuel.
+
+**C3 — matrice de tests de sécurité** (à rejouer une fois E0.1-E0.3
+codés, aucun test exécutable aujourd'hui puisque rien n'est codé) :
+rejeu OTP (régression sur le comportement déjà sûr de `otp.ts`), numéro
+déjà utilisé par un permanent (`23505` attendu, pas un 200), appel direct
+à `soumettreAvis()`/`accorderPoints()` par un invité non vérifié
+(doit être rejeté une fois le filtre ajouté), les 6 sites d'appel
+`accorderPoints()` un par un (pas seulement `rdv_no_show`), appel direct
+aux Server Actions de réservation en contournant l'UI (déjà protégé par
+accessToken+RLS, à confirmer non régressé).
+
+## Décision produit actée (19/10/2026)
+
+**Vérification du téléphone rendue obligatoire pour qu'un invité quitte
+l'écran de confirmation de réservation.**
+
+**[CORRIGÉ 19/10/2026, retour CEO]** Formulation initiale erronée : cette
+décision **ne ferme PAS P0-2 "par construction"**. C'est une contrainte
+d'UI, pas une garantie serveur — `createRdv()` verrouille déjà le
+créneau en base (`reserver_creneau_rdv`) **avant** que l'écran de
+vérification obligatoire n'apparaisse. Un onglet fermé, un réseau coupé,
+ou un appel direct de la Server Action en contournant l'UI laisse un RDV
+réel avec téléphone non vérifié et créneau bloqué. Cette décision ferme
+uniquement le volet "identité récupérable" de P0-2 (rien de valable à
+perdre pour un invité qui n'a jamais rien enregistré de durable) — elle
+ne ferme pas le volet "créneau verrouillé par une session jamais
+finalisée", qui reste un vrai risque de **slot hoarding** (n'importe qui
+peut créer des sessions anonymes à volonté et verrouiller des créneaux
+réels, sans jamais les honorer). Voir « Retour CEO » en fin de document
+pour les deux designs propres proposés.
+
+## Reste à trancher avant toute implémentation E0.1+
+
+1. Les 5 décisions produit d'E0-A (messages invité, feedback/satisfaction
+   invité, favoris invité, points Yelen invité — recommandation forte
+   "jamais", canal support invité).
+2. Politique de nettoyage des lignes `users` invité orphelines
+   (abandonnées avant vérification téléphone obligatoire) — aucun
+   mécanisme de purge/TTL n'existe aujourd'hui dans le projet, à
+   spécifier (pas un test, une brique produit).
+3. Emplacement exact du filtre d'identité dans `accorderPoints()` (central,
+   une fois la décision produit n°4 ci-dessus tranchée) et dans
+   `soumettreAvis()` (jamais dans `chargerRdvEtVerifier()`).
+4. Coordination avec le Lot C grants (`rdv`/`paid_bookings` non encore
+   traitées) quand ce chantier reprendra.
+
+**Toujours rien codé, migré ni installé.** Prochaine étape : trancher les
+points ci-dessus avec Bryan avant d'écrire la moindre ligne
+d'implémentation E0.1 (création de l'identité invité).
+
+**STOP — fin de la Phase E0.** Aucune implémentation n'est engagée
+automatiquement.
+
+---
+
+# Retour CEO — corrections et points ouverts (19/10/2026)
+
+Revue du CEO sur la Phase E0 ci-dessus : verdict "pas prêt pour le code
+d'E0.1, 3 trous sérieux". Vérification point par point, lecture seule,
+rien codé, rien committé, rien exécuté en base.
+
+## 1. P0-2 n'est pas fermé "par construction" — CORRIGÉ
+
+Le plus sérieux des trois trous, confirmé. Voir la correction insérée
+directement dans « Décision produit actée » ci-dessus. Ce qui reste donc
+réellement ouvert :
+- **Design a** : vérifier le téléphone *avant* de créer le RDV (bloque le
+  créneau seulement une fois l'identité confirmée — élimine le risque à
+  la racine, mais change l'ordre du parcours actuel où `createRdv()`
+  verrouille le créneau immédiatement).
+- **Design b** : créer le RDV en état `pending_verification` avec un TTL
+  de libération automatique du créneau si le téléphone n'est jamais
+  vérifié.
+- **Dans les deux cas** : un job de purge est nécessaire (aucun n'existe
+  aujourd'hui — le seul cron confirmé dans le projet est
+  `clock-in-daily-attendance`, sans rapport). Choix du design **non
+  tranché** — décision produit à prendre avant E0.1, pas une question
+  technique.
+
+## 2. Vérification SMS — canal réel et coût non confirmés
+
+**NON VÉRIFIABLE depuis le code** : aucun `SMS_PROVIDER` n'est branché
+dans Supabase Auth ni ailleurs dans le projet (confirmé par absence
+totale, `lib/auth/otp.ts` fonctionne par code haché en base, jamais par
+envoi SMS réel aujourd'hui — `CITOYEN_OTP_FALLBACK` est le palliatif
+actuel). Coût par SMS vers la Guinée, fiabilité du provider : décisions
+business, hors de ce que le code peut confirmer.
+
+**Rate limiting — caractérisation du CEO incomplète, pas fausse en
+bloc** : au-delà du rate limit générique en mémoire/par instance edge
+(`lib/edgeSecurity.ts`, 240/min IP), il existe un second système déjà en
+place, **persisté en base** (`lib/security/authSecurity.ts`, migration
+`20260828000004`) : triple scope device+IP+**destination** (le numéro
+ciblé lui-même) pour `citoyen_login`/`citoyen_register` — 3 tentatives
+tolérées puis blocage sur une fenêtre de 15 min, escalade vers
+`support_only` après 5 cycles/24h. Ça couvre déjà la cible principale du
+SMS pumping (beaucoup de tentatives sur un même numéro). **Limite réelle
+qui subsiste** : le scope device/IP peut être contourné par rotation
+d'IP/device (device-id posé par cookie, trivialement non envoyé) — une
+attaque distribuée reste possible. Conclusion du CEO (coût/provider à
+documenter avant d'ouvrir le flux) reste valable malgré la protection
+plus robuste que décrite.
+
+## 3. Prérequis Phase 0 — 2 sur 3 confirmés résolus, 1 reste ouvert
+
+- **`select("*")` → `mot_de_passe_hash`** : **CORRIGÉ ET COMMITTÉ**, pas
+  "non commité" comme affirmé. Commit `a5e078aeed5b` (01/09/2026),
+  confirmé ancêtre de `HEAD` sur `chore/securisation-accumulation-18-09-2026`
+  et sur `main` (`git merge-base --is-ancestor`). `InstitutionPublicClient.tsx`
+  sélectionne une liste de colonnes explicite depuis cette date — plus
+  aucune fuite à ce point.
+  **Ce qui reste légitimement ouvert** : le test navigateur réel n'a
+  jamais été fait (déjà signalé comme tel dans la Phase 0 d'origine, pas
+  un oubli nouveau) ; et surtout, **corriger le code ne désexpose pas des
+  hashs déjà potentiellement récupérés avant le correctif** — la question
+  d'une rotation/reset forcé des mots de passe institution reste entière
+  et non tranchée. Aucun moyen de savoir depuis le code si la fenêtre
+  d'exposition (durée inconnue avant le 01/09) a été exploitée — nécessite
+  les logs d'accès réels (hors de cet environnement) ou une décision par
+  précaution.
+- **Validation serveur créneau/capacité** : **CONFIRMÉ CORRIGÉ**, en deux
+  temps — correctif JS le 01/09/2026 (même commit `a5e078a`), puis
+  verrou atomique PostgreSQL (`reserver_creneau_rdv`, migration
+  `20260915000001`, GAP-08-04). Le CEO avait raison de dire que le
+  document ne le confirmait pas explicitement — annoté dans les
+  questions ouvertes de la Phase 0 ci-dessus.
+- **Questions 2 et 3 (consentement institution, domaines autorisés)** :
+  **toujours ouvertes**, rien n'a changé depuis la Phase 0 — le CEO a
+  raison.
+
+## 4. Trous secondaires — état réel
+
+- **`pg_policies` en live** : non exécutable par moi (jamais de SQL
+  exécuté directement sur ce projet — Bryan exécute). Requête prête :
+  ```sql
+  SELECT tablename, policyname, permissive, roles, cmd, qual, with_check
+  FROM pg_policies
+  WHERE schemaname = 'public'
+  ORDER BY tablename, cmd;
+  ```
+  Rappel important du CEO, à garder en tête en lisant le résultat : une
+  session anonyme Supabase porte le rôle `authenticated`, pas un rôle
+  séparé — **toute policy listant `authenticated` (et pas seulement
+  `anon`) s'applique déjà à un futur invité**, sans distinction native.
+  C'est cohérent avec le constat d'E0-B (RLS insuffisante sur les
+  chemins `service_role`, mais pertinente partout ailleurs) — à confirmer
+  ligne par ligne sur le live, pas seulement sur les migrations.
+
+### Résultats `pg_policies` live (19/10/2026) — croisement avec E0-A
+
+Requête exécutée par Bryan, résultat croisé table par table avec
+l'inventaire E0-A. Majorité **CONFIRMÉE conforme**. 3 corrections réelles
+et 1 point critique opérationnel en sont ressortis.
+
+**CORRIGÉ — E0-A a mal groupé une famille de tables.** "annonce_vues/
+likes/commentaires... policies déjà écrites `citoyen_id IS NULL OR
+citoyen_id = auth.uid()` pour anon ET authenticated" est **faux pour
+likes/commentaires**. En live : `annonce_likes_insert_own`/
+`annonce_commentaires_insert_own`/`post_likes_insert_own`/
+`post_comments_insert_own` sont toutes `{authenticated}` seul,
+`citoyen_id = auth.uid()` **sans** `IS NULL` — même régime que les
+tables "permanent requis", pas anonymous-friendly. Seules les vraies
+tables de comptage passif le sont réellement : `annonce_vues`,
+`offre_vues`, `post_impressions`, `post_vues`, `institution_vues`,
+`acquisition_events`, `avis_vues` (`avis_vues` encore plus permissive,
+`with_check = true` sans même vérifier `citoyen_id`). Logique cohérente
+une fois corrigée : visualiser reste anonyme, liker/commenter porte une
+identité publique.
+
+**CORRIGÉ — `rdv_citoyen_insert` a évolué depuis la Phase 0
+(01/09/2026).** Le doc d'origine affirmait "aucune autre contrainte" que
+`auth.uid() = citoyen_id` (ligne citée plus haut, section "Contraintes
+actuelles"). En live, 3 conditions s'y sont ajoutées depuis :
+`NOT citoyen_a_restriction_rdv_active(auth.uid())`,
+`NOT citoyen_a_suspension_inactivite_active(auth.uid())`,
+`NOT institution_a_pause_active(institution_id)` — cohérent avec les
+chantiers no-show/inactivité/pause établissement documentés par ailleurs
+dans `CLAUDE.md`, mais l'affirmation de la Phase 0 elle-même n'avait
+jamais été mise à jour. Pas un problème de sécurité, une correction de
+documentation.
+
+**CORRIGÉ — exhaustivité d'E0-A.** 3 tables manquaient entièrement à
+l'inventaire malgré une correspondance exacte à sa propre catégorie
+"permanent requis" : `citoyen_budgets`, `citoyen_objectifs_financiers`,
+`citoyen_objectif_contributions` (CRUD complet, `auth.uid() = citoyen_id`,
+données financières personnelles durables — chantier "menu Engagement").
+
+**Point critique, confirme le rappel du CEO noir sur blanc** : toutes les
+tables classées "permanent requis"/"à trancher" par E0-A (`citoyen_demarches`,
+`citoyen_projets`, `citoyen_favoris`, `avis`, `messages`, `post_likes`/
+`post_comments`, `questions_institution`, `citoyen_abonnements`,
+`citoyen_budgets`/`citoyen_objectifs_financiers`) n'ont **aujourd'hui
+aucune protection contre un invité** — leur seule condition est
+`auth.uid() = citoyen_id`, qui serait satisfaite par n'importe quelle
+session anonyme Supabase exactement comme par un compte permanent.
+"Permanent requis" dans E0-A était une **recommandation produit**, pas un
+état déjà appliqué en base — chacune de ces tables nécessitera une vraie
+modification de policy (pas juste une classification) si l'exclusion des
+invités est actée.
+
+**Correction de nommage résolue** : `module_financier`,
+`citoyen_securite_fondations`, `citoyen_confidentialite_fondations`
+(absentes du résultat `pg_policies`) sont des noms de **migration/chantier**,
+pas de table — confusion d'E0-A. Vraies tables identifiées par
+`CREATE TABLE` dans les migrations correspondantes :
+`citoyen_webauthn_credentials`/`citoyen_remember_tokens` (sécurité),
+`citoyen_prefs_visibilite`/`citoyen_prefs_partage`/
+`citoyen_communication_prefs` (confidentialité), `transactions_financieres`/
+`factures` (financier). Les 7 confirmées actives en code (routes
+`securite/`, `confidentialite/`, `institution/transactions`,
+`institution/factures` — pas des tables orphelines) et **`relrowsecurity = true`
+en live** pour les 7 (requête `pg_class` exécutée par Bryan le
+19/10/2026) — la classification "hors risque RLS, service_role
+uniquement" d'E0-A était juste sur le fond, seulement mal nommée.
+`relforcerowsecurity = false` sur les 7 : normal et attendu (le
+`service_role` doit pouvoir contourner RLS pour ses écritures admin,
+cohérent avec toute l'architecture déjà documentée dans ce chantier),
+pas une anomalie.
+
+- **Anonymous sign-ins activés dans Supabase** : **NON VÉRIFIABLE depuis
+  le code** — réglage de dashboard externe. Zéro occurrence de
+  `signInAnonymously()`/`is_anonymous` dans `app/`/`lib/` confirmée dans
+  cette session — cohérent avec "rien n'est codé", mais ne dit rien de
+  l'état du réglage lui-même.
+- **Chemin invité → compte permanent / conversion** : point confirmé non
+  tranché. E0-A/B/C n'ont jamais explicitement choisi entre (i) un vrai
+  `auth.signInAnonymously()` natif Supabase (avec son flag `is_anonymous`
+  et son mécanisme de conversion documenté par Supabase) et (ii) la
+  réutilisation de la coquille à email synthétique déjà utilisée par
+  `register/route.ts` aujourd'hui. E0-C2 a esquissé la réutilisation du
+  pont magic-link existant (`lib/auth/citoyenSession.ts`) sans jamais
+  statuer sur ce choix d'architecture amont — à trancher avant tout code
+  E0.1, c'est structurant (le mécanisme de "promotion" vers compte
+  permanent n'est pas le même selon le choix).
+- **Besoin business non démontré pour Niveau 2+** : question produit pour
+  Bryan, hors de ce qu'une lecture de code peut établir.
+
+## Statut global après ce retour
+
+Le point 1 (P0-2) reste le plus sérieux et n'était pas fermé — corrigé
+dans ce document. Les points 2 (prérequis Phase 0) sont majoritairement
+déjà résolus mais ne l'étaient pas *documentés* comme tels — fait
+maintenant. Le reste (SMS/coût, `pg_policies` live, anonymous sign-ins
+dashboard, choix d'architecture invité natif vs coquille, demande
+business) reste une liste de décisions à prendre avec Bryan, pas des
+faits vérifiables depuis cet environnement.
+
+**Toujours rien codé, migré ni installé.**
+
+---
+
+# Décision P0-2 actée — voir ADR-001
+
+Le design (a) — vérifier le téléphone avant de créer le RDV — a été
+validé par Bryan le 19/10/2026. Le séquencement précis, les contrôles
+serveur à préserver, et la matrice de tests de non-régression (condition
+de sortie du lot E0.1, pas une formalité après développement) sont
+désormais dans un document séparé et stable :
+**`docs/product/YELEN_BOOKING_EXTERNAL_ADR_E0_INVITE.md`**.
+
+Ce document-ci (Phase 0 + Phase E0 + Retour CEO) reste le journal
+d'analyse complet — à consulter pour le *pourquoi*. L'ADR fixe le *quoi*
+décidé et n'est pas destiné à grossir au même rythme.
+
+**Toujours rien codé, migré ni installé.**

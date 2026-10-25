@@ -28,27 +28,27 @@
 //   20260805000017, même distinction que employees.poste sur Clock In
 //   Shift : purement informatif, aucun impact sur les permissions.
 import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { MEMBRE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, TAB_KEYS, canAccessTab, isMembreRole, DOMAINE_KEYS, permissionsDuRole, type MembreRole, type DomaineKey } from "@/lib/institutionPermissions";
 import { YelenLoader } from "@/components/YelenLoader";
 import { generateBrandedQR } from "@/lib/qrBrand";
-import { FormField } from "./FormField";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ReauthModal } from "./ReauthModal";
-
-type DerniereActivite = { action: string; created_at: string };
-type Membre = {
-  id: string; identifiant: string | null; prenom: string; nom: string; role: MembreRole;
-  actif: boolean; compte_principal: boolean; doit_changer_pin: boolean;
-  locked_until: string | null; derniere_connexion: string | null; fonction: string | null;
-  derniere_activite: DerniereActivite | null; created_at: string;
-  checkin_qr_generated_at?: string | null; checkin_qr_revoked_at?: string | null;
-  acces_restreints?: string[] | null;
-};
-type StatutMembre = "verrouille" | "suspendu" | "invitation" | "actif";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import { type Membre, estInvitationEnAttente, statutDe, STATUT_LABEL, statutColor, roleColor, formatRelatif, formatAction } from "./equipe/shared";
+import { TeamTabs } from "./equipe/TeamTabs";
+import { MembersToolbar, type FiltreRole, type FiltreStatut } from "./equipe/MembersToolbar";
+import { MembersTable, MembersSkeleton } from "./equipe/MembersTable";
+import { DialogShell, DialogFooter } from "./equipe/DialogShell";
+import { MemberInfoFields } from "./equipe/MemberInfoFields";
+import { RoleRadioCards } from "./equipe/RoleRadioCards";
+import { PermissionsSummary } from "./equipe/PermissionsSummary";
+import { OverviewKpis, type KpiItem } from "./equipe/OverviewKpis";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 const ROLES: { value: MembreRole; label: string; description: string }[] =
   MEMBRE_ROLES.map(value => ({ value, label: ROLE_LABELS[value], description: ROLE_DESCRIPTIONS[value] }));
@@ -57,53 +57,9 @@ const ROLES: { value: MembreRole; label: string; description: string }[] =
 // déplacée dans lib/institutionPermissions.ts (16/09/2026, partagée avec
 // l'écran de bienvenue de première connexion).
 
-function roleColor(r: MembreRole, C: ThemeTokens): string {
-  if (r === "admin") return C.gold;
-  if (r === "comptable") return C.purple;
-  if (r === "superviseur") return C.orange;
-  if (r === "dirigeant") return C.teal;
-  return C.blue;
-}
-
-function estVerrouille(m: Membre): boolean {
-  return !!m.locked_until && new Date(m.locked_until).getTime() > Date.now();
-}
-function estInvitationEnAttente(m: Membre): boolean {
-  return m.doit_changer_pin && !m.derniere_connexion;
-}
-function statutDe(m: Membre): StatutMembre {
-  if (estVerrouille(m)) return "verrouille";
-  if (!m.actif) return "suspendu";
-  if (estInvitationEnAttente(m)) return "invitation";
-  return "actif";
-}
-const STATUT_LABEL: Record<StatutMembre, string> = { actif: "Actif", invitation: "En attente", suspendu: "Suspendu", verrouille: "Verrouillé" };
-function statutColor(s: StatutMembre, C: ThemeTokens): string {
-  if (s === "actif") return C.green;
-  if (s === "invitation") return C.orange;
-  if (s === "suspendu") return C.red;
-  return "#8B0000";
-}
-
 function formatDateHeure(iso: string): string {
-  return new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + ", " + heureDepuisHorodatage(iso);
 }
-function formatRelatif(iso: string | null): string {
-  if (!iso) return "Jamais connecté";
-  const d = new Date(iso);
-  const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0);
-  const hier = new Date(aujourdhui); hier.setDate(hier.getDate() - 1);
-  const cible = new Date(d); cible.setHours(0, 0, 0, 0);
-  const heure = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  if (cible.getTime() === aujourdhui.getTime()) return `Aujourd'hui, ${heure}`;
-  if (cible.getTime() === hier.getTime()) return `Hier, ${heure}`;
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-}
-function formatAction(action: string): string {
-  const s = action.replace(/_/g, " ");
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 function labelStyle(C: ThemeTokens): React.CSSProperties {
   return { display: "block", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "5px" };
 }
@@ -111,26 +67,11 @@ function inputStyle(C: ThemeTokens): React.CSSProperties {
   return { width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "9px 11px", fontSize: "13px", color: C.t1 };
 }
 
-function SimpleKpiCard({ label, icon, color, value, sousTexte, C, onClick }: { label: string; icon: React.ReactNode; color: string; value: string | number; sousTexte?: string; C: ThemeTokens; onClick?: () => void }) {
-  return (
-    <Card tokens={toCardTokens(C)} padding="18px" onClick={onClick} className={onClick ? "tap" : undefined} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
-        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
-      </div>
-      <div style={{ color: C.t1, fontSize: "22px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
-      {sousTexte && <div style={{ color: C.t3, fontSize: "11px" }}>{sousTexte}</div>}
-      {onClick && <div style={{ color, fontSize: "10.5px", fontWeight: 700 }}>Voir les invitations →</div>}
-    </Card>
-  );
-}
-
 function IconUsers() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>; }
 function IconMailPlus() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8V7l-3 2-8-5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9"/><path d="M22 8l-10 6L2 8"/><line x1="19" y1="16" x2="19" y2="22"/><line x1="16" y1="19" x2="22" y2="19"/></svg>; }
 function IconClockHistory() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>; }
 function IconShieldCheck() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>; }
 function IconQr({ size = 13 }: { size?: number }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="14.01"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="17.5" y2="17.5"/><line x1="17.5" y1="21" x2="21" y2="21"/></svg>; }
-function IconChevron({ C }: { C: ThemeTokens }) { return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>; }
 function IconClose({ C }: { C: ThemeTokens }) { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>; }
 
 // Illustration sur mesure Yelen — état vide, même langage que Clock In
@@ -155,6 +96,7 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   const [forbidden, setForbidden] = useState(false);
   const [viewerRole, setViewerRole] = useState<MembreRole | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [confirmFermer, setConfirmFermer] = useState(false);
   const [identifiant, setIdentifiant] = useState("");
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
@@ -167,7 +109,20 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   const [identifiantsCopies, setIdentifiantsCopies] = useState(false);
   const [selected, setSelected] = useState<Membre | null>(null);
   const [recherche, setRecherche] = useState("");
-  const [filtreRapide, setFiltreRapide] = useState<"tous" | MembreRole | "invitations" | "suspendus">("tous");
+  const [filtreRole, setFiltreRole] = useState<FiltreRole>("tous");
+  const [filtreStatut, setFiltreStatut] = useState<FiltreStatut>("tous");
+  // Onglet actif représenté dans l'URL (?subtab=...) — même convention que
+  // ClockInShiftTab : dérivé de l'URL, jamais un second état qui diverge.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const rawSubtab = searchParams.get("subtab");
+  const sousOnglet: "membres" | "apercu" | "invitations" = rawSubtab === "apercu" || rawSubtab === "invitations" ? rawSubtab : "membres";
+  const setSousOnglet = useCallback((next: "membres" | "apercu" | "invitations") => {
+    const qp = new URLSearchParams(searchParams.toString());
+    qp.set("subtab", next);
+    router.push(`${pathname}?${qp.toString()}`);
+  }, [searchParams, pathname, router]);
   const [lastSync, setLastSync] = useState(new Date());
   const [, setMaintenant] = useState(() => Date.now());
   const [reauthOpen, setReauthOpen] = useState(false);
@@ -225,7 +180,10 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
     });
     const j = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) { onToast(j?.error || "Erreur de création", C.red); return; }
+    if (!res.ok) {
+      if (j?.code === "REAUTH_REQUIRED") { setPendingAction(() => creerMembre); setReauthOpen(true); return; }
+      onToast(j?.error || "Erreur de création", C.red); return;
+    }
     // Écran de succès (V2, 16/09/2026) — remplace le toast+fermeture
     // immédiate : l'admin doit encore transmettre identifiant+PIN au
     // membre, un toast qui disparaît en 3s ne laisse pas le temps de le
@@ -238,6 +196,20 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
     navigator.clipboard.writeText(`Identifiant : ${identifiant}\nPIN : ${pin}`).catch(() => {});
     setIdentifiantsCopies(true);
     setTimeout(() => setIdentifiantsCopies(false), 2000);
+  }
+
+  function fermerFormulaire() {
+    setConfirmFermer(false);
+    setShowForm(false);
+    resetForm();
+  }
+
+  // Fermeture par × / Échap / clic sur l'overlay : demande confirmation si
+  // des champs sont remplis (Annuler, lui, ferme directement).
+  function demanderFermeture() {
+    if (formStep === "success") { terminerCreation(); return; }
+    const rempli = [identifiant, prenom, nom, fonction, pin].some(v => v.trim() !== "");
+    if (rempli) setConfirmFermer(true); else fermerFormulaire();
   }
 
   function terminerCreation() {
@@ -290,7 +262,7 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   }
 
   if (loading) {
-    return <div style={{ padding: "48px 16px", display: "flex", justifyContent: "center" }}><YelenLoader size={28}/></div>;
+    return <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "24px 32px" }}><MembersSkeleton C={C}/></div>;
   }
   if (forbidden) {
     return (
@@ -312,22 +284,22 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   }, null);
   const securitePct = membres.length > 0 ? Math.round(((membres.length - doitChangerPin) / membres.length) * 100) : 100;
 
-  const kpis: { label: string; value: string | number; sousTexte?: string; color: string; icon: React.ReactNode; onClick?: () => void }[] = [
-    { label: "Membres actifs", value: membresActifs.length, sousTexte: nouveauxCeMois > 0 ? `+${nouveauxCeMois} ce mois` : undefined, color: C.green, icon: <IconUsers/> },
+  const kpis: KpiItem[] = [
+    { label: "Membres actifs", value: membresActifs.length, sousTexte: nouveauxCeMois > 0 ? `+${nouveauxCeMois} ce mois` : undefined, icon: <IconUsers/> },
     {
       label: "Invitations", value: invitations.length,
-      sousTexte: invitations.length > 0 ? "En attente" : "Aucune invitation en attente",
-      color: C.orange, icon: <IconMailPlus/>,
-      onClick: invitations.length > 0 ? () => setFiltreRapide("invitations") : undefined,
+      sousTexte: invitations.length > 0 ? "En attente — voir les invitations" : "Aucune invitation en attente",
+      icon: <IconMailPlus/>,
+      onClick: invitations.length > 0 ? () => setSousOnglet("invitations") : undefined,
     },
-    { label: "Dernière connexion", value: derniereConnexionGlobale ? formatRelatif(derniereConnexionGlobale) : "Jamais", color: C.blue, icon: <IconClockHistory/> },
-    { label: "Sécurité", value: `${securitePct}%`, sousTexte: doitChangerPin > 0 ? `${doitChangerPin} membre${doitChangerPin > 1 ? "s" : ""} doit changer son PIN` : "PIN conforme", color: securitePct === 100 ? C.green : C.orange, icon: <IconShieldCheck/> },
+    { label: "Dernière connexion", value: derniereConnexionGlobale ? formatRelatif(derniereConnexionGlobale) : "Jamais", compact: true, icon: <IconClockHistory/> },
+    { label: "Sécurité", value: `${securitePct}%`, sousTexte: doitChangerPin > 0 ? `${doitChangerPin} membre${doitChangerPin > 1 ? "s" : ""} doit changer son PIN` : "PIN conforme", icon: <IconShieldCheck/> },
   ];
 
   const membresFiltres = membres.filter(m => {
-    if (filtreRapide === "invitations" && !estInvitationEnAttente(m)) return false;
-    if (filtreRapide === "suspendus" && m.actif) return false;
-    if (filtreRapide !== "tous" && filtreRapide !== "invitations" && filtreRapide !== "suspendus" && m.role !== filtreRapide) return false;
+    if (filtreStatut === "invitations" && !estInvitationEnAttente(m)) return false;
+    if (filtreStatut === "suspendus" && m.actif) return false;
+    if (filtreRole !== "tous" && m.role !== filtreRole) return false;
     if (recherche.trim()) {
       const q = recherche.trim().toLowerCase();
       const hay = [m.prenom, m.nom, m.identifiant ?? "", m.fonction ?? ""].join(" ").toLowerCase();
@@ -337,52 +309,62 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
   });
 
   const equipeVide = membres.length <= 1;
+  const champsManquants = [
+    !prenom.trim() ? "le prénom" : null,
+    !nom.trim() ? "le nom" : null,
+    !identifiant.trim() ? "l'identifiant" : null,
+  ].filter((x): x is string => x !== null);
 
   return (
-    <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      {/* ── Hero header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "10px" }}>
-        <div>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: 800, letterSpacing: "-0.5px", marginBottom: "6px" }}>Équipe et accès</h1>
-          <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.5, marginBottom: "8px", maxWidth: "480px" }}>
-            Gérez les personnes autorisées à accéder à votre espace Yelen, leurs rôles, leurs permissions et la sécurité de leurs accès.
+    <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "24px 32px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
+      {/* ── En-tête de page ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px", marginBottom: "20px" }}>
+        <div style={{ minWidth: 0, flex: "1 1 320px" }}>
+          <h1 style={{ color: C.t1, fontSize: "24px", fontWeight: 600, letterSpacing: "-0.3px", margin: "0 0 4px" }}>Équipe et accès</h1>
+          <p style={{ color: C.t3, fontSize: "13.5px", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            Gérez les personnes autorisées à accéder à votre espace Yelen, leurs rôles et la sécurité de leurs accès.
           </p>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
-              Live
-            </span>
-            <span style={{ color: C.t3, fontSize: "10.5px" }}>Synchronisé {formatRelatif(lastSync.toISOString())}</span>
-          </div>
         </div>
-        {!readOnly && (
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>+ Inviter un membre</Button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+          <HelpCenterGuide tab="equipe" />
+          {!readOnly && (
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setShowForm(v => !v)}>+ Inviter un membre</Button>
+          )}
+        </div>
       </div>
 
       {readOnly && (
         <p style={{ color: C.t2, fontSize: "12px", marginBottom: "14px" }}>Consultation de l&apos;équipe — la gestion (invitation, rôle, statut) est réservée à l&apos;administrateur.</p>
       )}
 
-      {/* ── KPI exécutifs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", marginBottom: "18px" }}>
-        {kpis.map(k => <SimpleKpiCard key={k.label} {...k} C={C}/>)}
-      </div>
+      <TeamTabs
+        C={C} idPrefix="equipe" active={sousOnglet} onChange={setSousOnglet}
+        tabs={[
+          { key: "membres", label: "Membres", count: membres.length },
+          { key: "apercu", label: "Aperçu" },
+          { key: "invitations", label: "Invitations", count: invitations.length },
+        ]}
+        trailing={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: C.t3, fontSize: "12px" }}>
+            <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green }}/>
+            Live · Synchronisé {formatRelatif(lastSync.toISOString())}
+          </span>
+        }
+      />
 
-      <div style={{ color: C.t3, fontSize: "11.5px", marginBottom: "18px" }}>
-        {membresActifs.length} membre{membresActifs.length > 1 ? "s" : ""} actif{membresActifs.length > 1 ? "s" : ""}
-        {invitations.length > 0 && (
-          <> · <button onClick={() => setFiltreRapide("invitations")} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.orange, fontSize: "11.5px", fontWeight: 700, cursor: "pointer" }}>{invitations.length} invitation{invitations.length > 1 ? "s" : ""} en attente</button></>
-        )}
-      </div>
+      {sousOnglet === "apercu" && (
+        <div role="tabpanel" id="equipe-panel-apercu" aria-labelledby="equipe-tab-apercu">
+          <OverviewKpis C={C} kpis={kpis} membres={membres}/>
+        </div>
+      )}
 
       {/* ── INVITATIONS EN ATTENTE — statut réel (doit_changer_pin + jamais
           connecté), aucune donnée d'email/lien/expiration fabriquée : pas
           d'infra d'invitation par email construite à ce jour. ── */}
-      {invitations.length > 0 && (
-        <div style={{ marginBottom: "18px" }}>
-          <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px" }}>Invitations en attente</div>
-          <Card tokens={toCardTokens(C)} noPadding>
+      {sousOnglet === "invitations" && (
+        <div role="tabpanel" id="equipe-panel-invitations" aria-labelledby="equipe-tab-invitations" style={{ marginBottom: "18px" }}>
+          {invitations.length === 0 && <p style={{ color: C.t3, fontSize: "13px" }}>Aucune invitation en attente.</p>}
+          {invitations.length > 0 && <Card tokens={toCardTokens(C)} noPadding>
             {invitations.map((m, i) => (
               <div key={m.id} onClick={() => setSelected(m)} className="tap" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", borderBottom: i < invitations.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
                 <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: `linear-gradient(135deg, ${roleColor(m.role, C)}30, ${roleColor(m.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 800, color: roleColor(m.role, C), flexShrink: 0 }}>
@@ -395,11 +377,11 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
                 <span style={{ color: C.orange, fontSize: "9.5px", fontWeight: 800, backgroundColor: `${C.orange}15`, padding: "3px 9px", borderRadius: "20px", flexShrink: 0 }}>En attente</span>
               </div>
             ))}
-          </Card>
+          </Card>}
         </div>
       )}
 
-      {equipeVide && !showForm && !readOnly && (
+      {sousOnglet === "membres" && equipeVide && !showForm && !readOnly && (
         <EmptyState C={C} illustration={<IllustrationEquipe C={C}/>}
           titre="Votre équipe est vide"
           texte="Invitez vos collaborateurs afin de leur attribuer un accès sécurisé à votre espace Yelen — chacun se connecte avec son propre identifiant et PIN, jamais votre compte principal."
@@ -407,27 +389,30 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
       )}
 
       {showForm && (
-        <div className="equipe-fiche-overlay" style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={() => { setShowForm(false); resetForm(); }}>
-        <style>{`
-          @media(min-width:1024px){
-            .equipe-fiche-overlay{align-items:center!important}
-            .equipe-fiche-panel{max-width:560px!important;border-radius:20px!important;max-height:86svh!important}
-            .equipe-fiche-panel.wide{max-width:960px!important}
-            .equipe-fiche-grip{display:none!important}
-            .equipe-fiche-close-x{display:flex!important}
-            .equipe-form-grid{display:grid!important;grid-template-columns:1fr 1fr!important;gap:32px!important;align-items:start!important}
+        <DialogShell
+          C={C}
+          title="Ajouter un membre"
+          subtitle={formStep === "success" ? undefined : "Invitez une personne à accéder à votre espace Yelen."}
+          stepLabel={formStep === "form" ? "Étape 1 sur 2 · Informations et rôle" : formStep === "recap" ? "Étape 2 sur 2 · Sécurité et récapitulatif" : undefined}
+          onRequestClose={demanderFermeture}
+          footer={
+            formStep === "success" ? (
+              <DialogFooter C={C}
+                secondary={{ label: identifiantsCopies ? "Copié" : "Copier", onClick: copierIdentifiants }}
+                primary={{ label: "Terminer", onClick: terminerCreation }}/>
+            ) : formStep === "recap" ? (
+              <DialogFooter C={C}
+                message={/^\d{6}$/.test(pin) ? undefined : "Saisissez un PIN initial de 6 chiffres."}
+                secondary={{ label: "Retour", onClick: () => setFormStep("form"), disabled: saving }}
+                primary={{ label: saving ? "Vérification…" : "Créer le membre", onClick: creerMembre, disabled: !/^\d{6}$/.test(pin), loading: saving }}/>
+            ) : (
+              <DialogFooter C={C}
+                message={champsManquants.length > 0 ? `Renseignez ${champsManquants.join(", ").replace(/, ([^,]*)$/, " et $1")}.` : undefined}
+                secondary={{ label: "Annuler", onClick: fermerFormulaire }}
+                primary={{ label: "Continuer →", onClick: () => setFormStep("recap"), disabled: champsManquants.length > 0 }}/>
+            )
           }
-        `}</style>
-        <div onClick={e => e.stopPropagation()} className={`equipe-fiche-panel${formStep === "form" ? " wide" : ""}`} style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 0", width: "100%", maxWidth: "560px", maxHeight: "86svh", display: "flex", flexDirection: "column", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-          <div className="equipe-fiche-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px", flexShrink: 0 }}/>
-          <button onClick={() => { setShowForm(false); resetForm(); }} className="equipe-fiche-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><IconClose C={C}/></button>
-
-          {/* Contenu défilant — le footer d'actions ci-dessous reste TOUJOURS
-              visible en bas du popup (flex, jamais position:fixed qui casse
-              dès que la largeur/hauteur du popup change d'une étape à
-              l'autre), même quand le contenu d'une étape dépasse la hauteur
-              disponible. */}
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingBottom: "20px" }}>
+        >
           {formStep === "success" ? (
             <div style={{ maxWidth: "440px", margin: "0 auto" }}>
               <div style={{ width: "52px", height: "52px", borderRadius: "16px", background: `linear-gradient(135deg, ${C.green}25, ${C.green}10)`, border: `2px solid ${C.green}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
@@ -455,7 +440,7 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
               <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Dernière étape avant de créer ce membre.</p>
 
               <label style={labelStyle(C)}>PIN initial</label>
-              <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={6} placeholder="6 chiffres" style={{ ...inputStyle(C), textAlign: "center", letterSpacing: "3px", marginBottom: "4px" }} autoFocus/>
+              <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={6} placeholder="6 chiffres" style={{ ...inputStyle(C), textAlign: "center", letterSpacing: "3px", marginBottom: "4px" }} data-autofocus/>
               <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "16px" }}>Communiquez ce code au membre — il devra en choisir un nouveau dès sa première connexion.</p>
 
               <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "6px" }}>Résumé</div>
@@ -471,152 +456,46 @@ export function EquipeTab({ instId, onToast, active = true }: { instId: string; 
               </div>
             </div>
           ) : (
-            <>
-              <div style={{ color: C.t1, fontSize: "17px", fontWeight: 800, marginBottom: "18px" }}>Ajouter un membre</div>
-
-              <div className="equipe-form-grid" style={{ display: "flex", flexDirection: "column", gap: "24px", marginBottom: "18px" }}>
-                {/* ── COLONNE GAUCHE : INFORMATIONS ── */}
-                <div>
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "10px" }}>Informations</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
-                    <FormField C={C} label="Prénom" value={prenom} onChange={setPrenom} placeholder="Prénom" name="prenom" autoComplete="given-name"/>
-                    <FormField C={C} label="Nom" value={nom} onChange={setNom} placeholder="Nom" name="nom" autoComplete="family-name"/>
-                  </div>
-                  <div style={{ marginBottom: "12px" }}>
-                    <FormField C={C} label="Fonction (optionnel)" value={fonction} onChange={setFonction} placeholder="ex: Directeur, Secrétaire médicale..." name="fonction"/>
-                  </div>
-                  <FormField C={C} label="Identifiant de connexion" value={identifiant} onChange={setIdentifiant} placeholder="ex: dr.diallo" name="identifiant"/>
-                  <p style={{ color: C.t3, fontSize: "10.5px", margin: "4px 0 0" }}>C&apos;est ce que le membre tapera pour se connecter — pas d&apos;espace, unique dans tout Yelen224.</p>
-                </div>
-
-                {/* ── COLONNE DROITE : RÔLE ET PERMISSIONS ── */}
-                <div>
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "10px" }}>Quel rôle correspond à ce membre ?</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
-                    {ROLES.map(r => (
-                      <button key={r.value} onClick={() => { setRole(r.value); setAccesRestreints([]); }} className="tap" style={{ backgroundColor: role === r.value ? `${roleColor(r.value, C)}15` : C.bg3, border: `1px solid ${role === r.value ? roleColor(r.value, C) + "50" : C.border2}`, color: role === r.value ? roleColor(r.value, C) : C.t2, fontSize: "11.5px", fontWeight: 700, padding: "7px 12px", borderRadius: "8px", cursor: "pointer" }}>
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>{ROLE_DESCRIPTIONS[role]}</p>
-
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px" }}>Permissions incluses</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
-                    <p style={{ color: C.t3, fontSize: "10px", margin: "0 0 4px" }}>Décochez un domaine pour le retirer à ce membre — jamais au-delà de ce que son rôle permet déjà.</p>
-                    {permissionsDuRole(role, accesRestreints).map(p => (
-                      <div key={p.key} onClick={() => p.accorde && toggleDomaine(p.key)} className={p.accorde ? "tap" : undefined} style={{ display: "flex", alignItems: "center", gap: "8px", cursor: p.accorde ? "pointer" : "default", padding: "3px 0" }}>
-                        <span style={{ color: p.accorde && !p.retire ? C.green : C.t3, fontSize: "12px", fontWeight: 700, width: "14px" }}>{p.accorde && !p.retire ? "✓" : "✕"}</span>
-                        <span style={{ color: p.accorde && !p.retire ? C.t1 : C.t3, fontSize: "11.5px", textDecoration: p.retire ? "line-through" : "none" }}>{p.label}</span>
-                        {p.retire && <span style={{ color: C.orange, fontSize: "9.5px", fontWeight: 800, marginLeft: "auto" }}>RETIRÉ</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </>
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              <MemberInfoFields C={C}
+                prenom={prenom} nom={nom} fonction={fonction} identifiant={identifiant}
+                onPrenom={setPrenom} onNom={setNom} onFonction={setFonction} onIdentifiant={setIdentifiant}
+                onEnter={() => { if (champsManquants.length === 0) setFormStep("recap"); }}/>
+              <RoleRadioCards C={C} roles={ROLES} value={role} onChange={r => { setRole(r); setAccesRestreints([]); }}/>
+              <PermissionsSummary C={C} permissions={permissionsDuRole(role, accesRestreints)} onToggle={toggleDomaine}/>
+            </div>
           )}
-          </div>
-
-          {/* Footer d'actions — hors de la zone défilante ci-dessus, toujours
-              visible en bas du popup quel que soit le contenu de l'étape
-              (flex, jamais position:fixed qui se détache du popup dès que sa
-              largeur/hauteur change d'une étape à l'autre). */}
-          <div style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, padding: "14px 0 20px", display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: "8px" }}>
-            {formStep === "success" ? (
-              <>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={copierIdentifiants}>{identifiantsCopies ? "Copié" : "Copier"}</Button>
-                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={terminerCreation}>Terminer</Button>
-              </>
-            ) : formStep === "recap" ? (
-              <>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => setFormStep("form")}>Retour</Button>
-                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!/^\d{6}$/.test(pin)} loading={saving} onClick={creerMembre}>Créer le membre</Button>
-              </>
-            ) : (
-              <>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => { setShowForm(false); resetForm(); }}>Annuler</Button>
-                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!identifiant.trim() || !prenom.trim() || !nom.trim()} onClick={() => setFormStep("recap")}>
-                  Continuer →
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-        </div>
+        </DialogShell>
       )}
 
-      {membres.length > 0 && (
-        <>
-          <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher un membre, un identifiant, une fonction..." style={{ ...inputStyle(C), marginBottom: "10px" }}/>
-          <div style={{ display: "flex", gap: "6px", marginBottom: "16px", overflowX: "auto" }}>
-            {([
-              { key: "tous", label: "Tous" },
-              { key: "admin", label: "Administrateurs" },
-              { key: "superviseur", label: "Superviseurs" },
-              { key: "comptable", label: "Comptables" },
-              { key: "agent", label: "Agents" },
-              { key: "invitations", label: "En attente" },
-              { key: "suspendus", label: "Suspendus" },
-            ] as const).map(f => (
-              <button key={f.key} onClick={() => setFiltreRapide(f.key)} className="tap" style={{
-                backgroundColor: filtreRapide === f.key ? C.gold : C.bg3, color: filtreRapide === f.key ? "#000" : C.t2,
-                border: `1px solid ${filtreRapide === f.key ? C.gold : C.border}`, fontWeight: 700, fontSize: "11.5px",
-                padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap",
-              }}>{f.label}</button>
-            ))}
-          </div>
-        </>
-      )}
+      <ConfirmModal
+        open={confirmFermer}
+        onClose={() => setConfirmFermer(false)}
+        onConfirm={fermerFormulaire}
+        tokens={toUiTokens(C)}
+        level={1}
+        title="Abandonner cette invitation ?"
+        description="Les informations saisies seront perdues."
+        confirmLabel="Abandonner"
+        cancelLabel="Continuer la saisie"
+      />
 
-      {membres.length > 0 && membresFiltres.length === 0 ? (
-        <EmptyState C={C} illustration={<IllustrationEquipe C={C}/>}
-          titre="Aucun membre ne correspond"
-          texte="Aucun membre ne correspond à ces critères de recherche ou de filtre — essayez d'élargir votre recherche."
-          cta={{ label: "Réinitialiser les filtres", onClick: () => { setRecherche(""); setFiltreRapide("tous"); } }}/>
-      ) : membres.length > 0 && (
-        <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: "14px", backgroundColor: C.bgCard }}>
-          <table style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", fontSize: "12.5px" }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                {["Membre", "Rôle", "Dernière activité", "Dernière connexion", "Statut", ""].map(h => (
-                  <th key={h} style={{ textAlign: "left", padding: "10px 14px", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {membresFiltres.map((m, i, arr) => {
-                const statut = statutDe(m);
-                return (
-                  <tr key={m.id} onClick={() => setSelected(m)} className="tap" style={{ borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer", opacity: m.actif ? 1 : 0.6 }}>
-                    <td style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: "10px", whiteSpace: "nowrap" }}>
-                      <div style={{ width: "30px", height: "30px", borderRadius: "9px", background: `linear-gradient(135deg, ${roleColor(m.role, C)}30, ${roleColor(m.role, C)}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, color: roleColor(m.role, C), flexShrink: 0 }}>
-                        {m.prenom.slice(0, 1).toUpperCase()}{m.nom.slice(0, 1).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 700, color: C.t1 }}>{m.prenom} {m.nom}{m.compte_principal && <span style={{ color: C.t3, fontWeight: 500 }}> · Principal</span>}</div>
-                        {m.fonction && <div style={{ color: C.t3, fontSize: "11px" }}>{m.fonction}</div>}
-                      </div>
-                    </td>
-                    <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                      <span style={{ color: roleColor(m.role, C), fontSize: "9.5px", fontWeight: 800, backgroundColor: `${roleColor(m.role, C)}15`, padding: "2px 8px", borderRadius: "20px" }}>{ROLES.find(r => r.value === m.role)?.label}</span>
-                      <div style={{ color: C.t3, fontSize: "10px", marginTop: "3px" }}>{ROLES.find(r => r.value === m.role)?.description}</div>
-                    </td>
-                    <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>
-                      {m.derniere_activite
-                        ? (<><div>{formatAction(m.derniere_activite.action)}</div><div style={{ color: C.t3, fontSize: "10.5px" }}>{formatRelatif(m.derniere_activite.created_at)}</div></>)
-                        : (<><div>Compte créé</div><div style={{ color: C.t3, fontSize: "10.5px" }}>{formatRelatif(m.created_at)}</div></>)}
-                    </td>
-                    <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{formatRelatif(m.derniere_connexion)}</td>
-                    <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                      <span style={{ color: statutColor(statut, C), fontSize: "11px", fontWeight: 700 }}>{STATUT_LABEL[statut]}</span>
-                    </td>
-                    <td style={{ padding: "12px 14px" }}><IconChevron C={C}/></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {sousOnglet === "membres" && membres.length > 0 && (
+        <div role="tabpanel" id="equipe-panel-membres" aria-labelledby="equipe-tab-membres">
+          <MembersToolbar
+            C={C} recherche={recherche} onRecherche={setRecherche}
+            role={filtreRole} onRole={setFiltreRole} statut={filtreStatut} onStatut={setFiltreStatut}
+            roles={ROLES} total={membresFiltres.length}
+            onReset={() => { setRecherche(""); setFiltreRole("tous"); setFiltreStatut("tous"); }}
+          />
+          {membresFiltres.length === 0 ? (
+            <EmptyState C={C} illustration={<IllustrationEquipe C={C}/>}
+              titre="Aucun membre ne correspond"
+              texte="Aucun membre ne correspond à ces critères de recherche ou de filtre — essayez d'élargir votre recherche."
+              cta={{ label: "Réinitialiser les filtres", onClick: () => { setRecherche(""); setFiltreRole("tous"); setFiltreStatut("tous"); } }}/>
+          ) : (
+            <MembersTable C={C} membres={membresFiltres} total={membres.length} roles={ROLES} onSelect={setSelected}/>
+          )}
         </div>
       )}
 

@@ -836,9 +836,9 @@ function RappelCguOverlay({ bg, t1, t2, isDark, onDismiss, onClose }: {
 // ============================================================
 // BIOMETRIE MODAL — Réel WebAuthn (empreinte / Face ID)
 // ============================================================
-function BiometrieModal({ onSuccess, onClose, prenom, isDark, card, t1, t2, brd, userId }: {
+function BiometrieModal({ onSuccess, onClose, prenom, isDark, bg, t1, t2, userId }: {
   onSuccess: () => void; onClose: () => void; prenom: string;
-  isDark: boolean; card: string; t1: string; t2: string; brd: string;
+  isDark: boolean; bg: string; t1: string; t2: string;
   userId: string;
 }) {
   const [phase, setPhase] = useState<"wait" | "scanning" | "success" | "fail" | "unsupported">("wait");
@@ -908,71 +908,75 @@ function BiometrieModal({ onSuccess, onClose, prenom, isDark, card, t1, t2, brd,
     isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)";
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9000, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0" }}>
-      <div style={{ backgroundColor: card, borderRadius: "28px 28px 0 0", padding: "16px 28px calc(36px + env(safe-area-inset-bottom))", maxWidth: "480px", width: "100%", textAlign: "center", border: `1px solid ${brd}`, borderBottom: "none" }}>
-        <div style={{ width: "60px", height: "4px", background: "linear-gradient(90deg,#CE1126 33.3%,#FCD20F 33.3% 66.6%,#009A44 66.6%)", borderRadius: "2px", margin: "0 auto 28px" }}/>
-        <Logo size={42} textSize={17} subSize={8} color={t1}/>
-        <div style={{ marginTop: "28px", marginBottom: "8px", color: t1, fontSize: "18px", fontWeight: "800" }}>
-          {phase === "success" ? "Identité vérifiée ✓" :
-           phase === "fail" ? "Échec de vérification" :
-           phase === "unsupported" ? "Non disponible" :
-           `Bonjour, ${prenom}`}
-        </div>
-        <div style={{ color: t2, fontSize: "13px", marginBottom: "36px", lineHeight: 1.5 }}>
-          {phase === "wait" && (localStorage.getItem("yelen224_bio_registered") === "1"
-            ? "Utilisez votre empreinte ou Face ID pour accéder à votre espace"
-            : "Enregistrez votre empreinte pour une connexion sécurisée")}
-          {phase === "scanning" && "Authentification en cours..."}
-          {phase === "success" && "Accès autorisé — YelenID vérifié"}
-          {phase === "fail" && (errorMsg || "Authentification échouée.")}
-          {phase === "unsupported" && "La biométrie n'est pas disponible sur cet appareil."}
-        </div>
+    <div style={{ position: "fixed", inset: 0, zIndex: 9000, backgroundColor: bg, display: "flex", flexDirection: "column", animation: "fadeIn 0.25s ease" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", paddingTop: "calc(24px + env(safe-area-inset-top))" }}>
+        <div style={{ textAlign: "center", maxWidth: "360px", width: "100%" }}>
+          <Logo size={46} textSize={18} subSize={9} color={t1}/>
 
-        {/* Cercle biométrique — illustration réelle (retour Bryan
-            07/09/2026, chantier "illustrations sur mesure") uniquement
-            pour la phase "unsupported" ; les autres phases (wait/scanning/
-            success/fail) gardent le cercle dynamique existant, les
-            designers travaillent séparément sur leurs illustrations. */}
-        {phase === "unsupported" ? (
-          <div style={{ width: "180px", margin: "0 auto 32px" }}>
-            <Image src="/illustrations/biometrie-non-disponible.png" alt="" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }}/>
+          {/* Cercle biométrique — illustration réelle (retour Bryan
+              07/09/2026, chantier "illustrations sur mesure") uniquement
+              pour la phase "unsupported" ; les autres phases (wait/scanning/
+              success/fail) gardent le cercle dynamique existant, les
+              designers travaillent séparément sur leurs illustrations. */}
+          {phase === "unsupported" ? (
+            <div style={{ width: "200px", margin: "40px auto 32px" }}>
+              <Image src="/illustrations/biometrie-non-disponible.png" alt="" width={1536} height={1024} style={{ width: "100%", height: "auto", display: "block" }}/>
+            </div>
+          ) : (
+          <div style={{ position: "relative", width: "140px", height: "140px", margin: "44px auto 32px" }}>
+            {phase === "scanning" && (
+              <>
+                <div style={{ position: "absolute", inset: "-12px", borderRadius: "50%", border: "2px solid rgba(245,166,35,0.3)", animation: "pingRing 1.5s ease-out infinite" }}/>
+                <div style={{ position: "absolute", inset: "-24px", borderRadius: "50%", border: "1.5px solid rgba(245,166,35,0.15)", animation: "pingRing 1.5s ease-out infinite 0.3s" }}/>
+              </>
+            )}
+            {phase === "success" && (
+              <div style={{ position: "absolute", inset: "-12px", borderRadius: "50%", border: "2px solid rgba(34,197,94,0.4)", animation: "pingRing 1s ease-out infinite" }}/>
+            )}
+            <div style={{ width: "140px", height: "140px", borderRadius: "50%",
+              background:
+                phase === "success" ? "#22c55e" :
+                phase === "fail" ? "#ef4444" :
+                phase === "scanning" ? "#F5A623" :
+                isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+              border: `3px solid ${ringColor}`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "all 0.4s ease",
+            }}>
+              {phase === "success"
+                ? <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : phase === "fail"
+                ? <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                : <svg width="58" height="58" viewBox="0 0 24 24" fill="none" stroke={phase === "scanning" ? "#080812" : t2} strokeWidth="1.4" strokeLinecap="round">
+                    <path d="M12 2a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+                    <path d="M8 11a4 4 0 0 0 8 0"/>
+                    <path d="M12 18v4"/>
+                    <path d="M4 15.5A9 9 0 0 0 20 15"/>
+                  </svg>
+              }
+            </div>
           </div>
-        ) : (
-        <div style={{ position: "relative", width: "120px", height: "120px", margin: "0 auto 32px" }}>
-          {phase === "scanning" && (
-            <>
-              <div style={{ position: "absolute", inset: "-12px", borderRadius: "50%", border: "2px solid rgba(245,166,35,0.3)", animation: "pingRing 1.5s ease-out infinite" }}/>
-              <div style={{ position: "absolute", inset: "-24px", borderRadius: "50%", border: "1.5px solid rgba(245,166,35,0.15)", animation: "pingRing 1.5s ease-out infinite 0.3s" }}/>
-            </>
           )}
-          {phase === "success" && (
-            <div style={{ position: "absolute", inset: "-12px", borderRadius: "50%", border: "2px solid rgba(34,197,94,0.4)", animation: "pingRing 1s ease-out infinite" }}/>
-          )}
-          <div style={{ width: "120px", height: "120px", borderRadius: "50%",
-            background:
-              phase === "success" ? "#22c55e" :
-              phase === "fail" ? "#ef4444" :
-              phase === "scanning" ? "#F5A623" :
-              isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-            border: `3px solid ${ringColor}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "all 0.4s ease",
-          }}>
-            {phase === "success"
-              ? <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-              : phase === "fail"
-              ? <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              : <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke={phase === "scanning" ? "#080812" : t2} strokeWidth="1.4" strokeLinecap="round">
-                  <path d="M12 2a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
-                  <path d="M8 11a4 4 0 0 0 8 0"/>
-                  <path d="M12 18v4"/>
-                  <path d="M4 15.5A9 9 0 0 0 20 15"/>
-                </svg>
-            }
+
+          <div style={{ marginBottom: "10px", color: t1, fontSize: "22px", fontWeight: "900", letterSpacing: "-0.5px" }}>
+            {phase === "success" ? "Identité vérifiée ✓" :
+             phase === "fail" ? "Échec de vérification" :
+             phase === "unsupported" ? "Non disponible" :
+             `Bonjour, ${prenom}`}
+          </div>
+          <div style={{ color: t2, fontSize: "14px", lineHeight: 1.6 }}>
+            {phase === "wait" && (localStorage.getItem("yelen224_bio_registered") === "1"
+              ? "Utilisez votre empreinte ou Face ID pour accéder à votre espace"
+              : "Enregistrez votre empreinte pour une connexion sécurisée")}
+            {phase === "scanning" && "Authentification en cours..."}
+            {phase === "success" && "Accès autorisé — YelenID vérifié"}
+            {phase === "fail" && (errorMsg || "Authentification échouée.")}
+            {phase === "unsupported" && "La biométrie n'est pas disponible sur cet appareil."}
           </div>
         </div>
-        )}
+      </div>
 
+      <div style={{ flexShrink: 0, maxWidth: "360px", width: "100%", margin: "0 auto", padding: "0 24px calc(28px + env(safe-area-inset-bottom))" }}>
         {phase === "wait" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             <button onClick={handleScan} style={{ width: "100%", background: "#F5A623", color: "#080812", fontWeight: "800", fontSize: "16px", padding: "16px", borderRadius: "16px", border: "none", cursor: "pointer" }}>
@@ -1002,7 +1006,7 @@ function BiometrieModal({ onSuccess, onClose, prenom, isDark, card, t1, t2, brd,
         )}
 
         {(phase === "wait" || phase === "success") && (
-          <div style={{ marginTop: "24px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+          <div style={{ marginTop: "20px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
             {Ic.Shield()}
             <span style={{ color: "#22c55e", fontSize: "11px", fontWeight: "700" }}>
               {phase === "success" ? "YelenID vérifié · Clé publique" : "WebAuthn · Vérifié côté serveur"}
@@ -1022,14 +1026,13 @@ function BiometrieOptInModal({ onActivate, onIgnore, prenom, isDark, card, t1, t
   isDark: boolean; card: string; t1: string; t2: string; brd: string;
 }) {
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 8500, backgroundColor: "rgba(0,0,0,0.75)", backdropFilter: "blur(16px)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0" }}>
-      <div style={{ backgroundColor: card, borderRadius: "28px 28px 0 0", padding: "32px 24px 40px", maxWidth: "480px", width: "100%", border: `1px solid ${brd}`, boxShadow: "0 -20px 60px rgba(0,0,0,0.4)" }}>
-        <div style={{ width: "40px", height: "4px", background: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)", borderRadius: "2px", margin: "0 auto 28px" }}/>
+    <div style={{ position: "fixed", inset: 0, zIndex: 8500, backgroundColor: card, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+      <div style={{ padding: "calc(env(safe-area-inset-top) + 48px) 24px 40px", maxWidth: "480px", width: "100%", margin: "0 auto" }}>
         {/* Illustration réelle (retour Bryan 07/09/2026, chantier
             "illustrations sur mesure") à la place du badge empreinte
             générique. */}
         <div style={{ width: "160px", margin: "0 auto 16px" }}>
-          <Image src="/illustrations/connexion-biometrique.png" alt="" width={1214} height={1295} style={{ width: "100%", height: "auto", display: "block" }}/>
+          <Image src="/illustrations/connexion-biometrique.png" alt="" width={1254} height={1254} style={{ width: "100%", height: "auto", display: "block" }}/>
         </div>
         <div style={{ textAlign: "center", marginBottom: "20px" }}>
           <div style={{ color: t1, fontSize: "19px", fontWeight: "900", marginBottom: "4px" }}>
@@ -1269,66 +1272,74 @@ function CarteIdentiteCompte({ userId, userName, userPhone, userPhoto, initials,
     : "—";
 
   return (
-    <div style={{ margin: "0 -16px 12px", borderRadius: "0 0 20px 20px", overflow: "hidden", background: "#F5A623", boxShadow: "0 3px 10px rgba(0,0,0,0.12)", position: "relative" }}>
-      <div style={{ position: "absolute", top: "-40px", right: "-40px", width: "180px", height: "180px", borderRadius: "50%", background: "radial-gradient(circle,rgba(0,0,0,0.05) 0%,transparent 70%)", pointerEvents: "none" }}/>
+    <div style={{ marginBottom: "12px" }}>
+      {/* Fond doré — courbe façon Venmo repoussée tout en haut : elle se
+          termine exactement là où commence la carte blanche ci-dessous
+          (retour Bryan 05/10/2026), au lieu d'envelopper toute la carte
+          comme avant. */}
+      <div style={{ margin: "0 -16px", borderRadius: "0 0 50% 50% / 0 0 20px 20px", overflow: "hidden", background: "#F5A623", position: "relative" }}>
+        <div style={{ position: "absolute", top: "-40px", right: "-40px", width: "180px", height: "180px", borderRadius: "50%", background: "radial-gradient(circle,rgba(0,0,0,0.05) 0%,transparent 70%)", pointerEvents: "none" }}/>
 
-      <div style={{ padding: "14px 18px 16px", position: "relative" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ fontSize: "9px", fontWeight: "800", color: "#080812", letterSpacing: "2px" }}>YELENID</div>
-            <div style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#080812", opacity: 0.35 }}/>
-            <div style={{ fontSize: "9px", color: "rgba(8,8,18,0.55)", fontWeight: "600", letterSpacing: "1px" }}>PASSEPORT NUMÉRIQUE</div>
-          </div>
-          <div onClick={() => !identiteVerifiee && !enAttente && router.push("/compte/verification-identite")} style={{ display: "flex", alignItems: "center", gap: "4px", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", borderRadius: "20px", padding: "3px 10px", cursor: identiteVerifiee || enAttente ? "default" : "pointer" }}>
-            {identiteVerifiee ? Ic.Shield() : enAttente ? <span style={{ color: "#080812", display: "inline-flex" }}>{Ic.Clock()}</span> : <span style={{ color: "#080812", display: "inline-flex" }}>{Ic.Info()}</span>}
-            <span style={{ color: identiteVerifiee ? "#22c55e" : "#080812", fontSize: "10px", fontWeight: "700" }}>{identiteVerifiee ? "VÉRIFIÉ" : enAttente ? "EN COURS" : "À VÉRIFIER"}</span>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "12px" }}>
-          <div style={{ position: "relative", flexShrink: 0 }}>
-            <div style={{ width: "50px", height: "50px", position: "relative", borderRadius: "16px", overflow: "hidden", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: "#080812" }}>
-              {userPhoto ? <Image src={userPhoto} alt="" fill sizes="50px" style={{ objectFit: "cover" }}/> : initials}
+        <div style={{ padding: "10px 18px 18px", position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div style={{ fontSize: "9px", fontWeight: "800", color: "#080812", letterSpacing: "2px" }}>YELENID</div>
+              <div style={{ width: "4px", height: "4px", borderRadius: "50%", background: "#080812", opacity: 0.35 }}/>
+              <div style={{ fontSize: "9px", color: "rgba(8,8,18,0.55)", fontWeight: "600", letterSpacing: "1px" }}>PASSEPORT NUMÉRIQUE</div>
             </div>
-            <div style={{ position: "absolute", bottom: "-3px", right: "-3px", width: "16px", height: "16px", borderRadius: "50%", background: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #E8960A" }}>
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <div onClick={() => !identiteVerifiee && !enAttente && router.push("/compte/verification-identite")} style={{ display: "flex", alignItems: "center", gap: "4px", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", borderRadius: "20px", padding: "3px 10px", cursor: identiteVerifiee || enAttente ? "default" : "pointer" }}>
+              {identiteVerifiee ? Ic.Shield() : enAttente ? <span style={{ color: "#080812", display: "inline-flex" }}>{Ic.Clock()}</span> : <span style={{ color: "#080812", display: "inline-flex" }}>{Ic.Info()}</span>}
+              <span style={{ color: identiteVerifiee ? "#22c55e" : "#080812", fontSize: "10px", fontWeight: "700" }}>{identiteVerifiee ? "VÉRIFIÉ" : enAttente ? "EN COURS" : "À VÉRIFIER"}</span>
             </div>
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "#080812", fontSize: "16px", fontWeight: "900", letterSpacing: "-0.3px", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{userName}</div>
-            <div style={{ color: "rgba(8,8,18,0.6)", fontSize: "11.5px", marginBottom: "4px" }}>{userPhone} · Membre depuis {membreDepuis}</div>
-            <div style={{ fontFamily: "monospace", fontSize: "11px", color: "#080812", fontWeight: "700", letterSpacing: "1px" }}>{yelenId}</div>
-          </div>
-        </div>
 
-        {/* Carte blanche flottant sur le fond doré (retour Bryan 29/09/2026,
-            inspiré de la carte "Genius rewards" de Booking sur son header
-            bleu — pas une reproduction, juste le même principe de calque :
-            un contenu en fond blanc qui se détache du fond de marque au lieu
-            de s'y fondre). Remplace les 3 pastilles blanches + le CTA
-            translucide qui étaient posés directement sur le doré. */}
-        <div style={{ background: "#fff", borderRadius: "16px", padding: "14px 8px 14px", boxShadow: "0 4px 14px rgba(0,0,0,0.14)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginBottom: "14px" }}>
-            {[
-              { label: "RDV Total", value: String(rdvs.length || 0), dot: undefined as string | undefined },
-              { label: "Score présence", value: `${presenceScore}%`, dot: scoreColor },
-              { label: "Statut", value: scoreLabel, dot: scoreColor },
-            ].map((s, i) => (
-              <div key={s.label} style={{ textAlign: "center", borderRight: i < 2 ? "1px solid rgba(8,8,18,0.08)" : "none" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", marginBottom: "3px" }}>
-                  {s.dot && <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: s.dot, flexShrink: 0 }}/>}
-                  <span style={{ color: "#080812", fontSize: "14px", fontWeight: "900", lineHeight: 1 }}>{s.value}</span>
-                </div>
-                <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "600" }}>{s.label}</div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <div style={{ width: "50px", height: "50px", position: "relative", borderRadius: "16px", overflow: "hidden", background: "rgba(0,0,0,0.14)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", fontWeight: "900", color: "#080812" }}>
+                {userPhoto ? <Image src={userPhoto} alt="" fill sizes="50px" style={{ objectFit: "cover" }}/> : initials}
               </div>
-            ))}
+              <div style={{ position: "absolute", bottom: "-3px", right: "-3px", width: "16px", height: "16px", borderRadius: "50%", background: "#22c55e", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #E8960A" }}>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: "#080812", fontSize: "16px", fontWeight: "900", letterSpacing: "-0.3px", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{userName}</div>
+              <div style={{ color: "rgba(8,8,18,0.6)", fontSize: "11.5px", marginBottom: "4px" }}>{userPhone} · Membre depuis {membreDepuis}</div>
+              <div style={{ fontFamily: "monospace", fontSize: "11px", color: "#080812", fontWeight: "700", letterSpacing: "1px" }}>{yelenId}</div>
+            </div>
           </div>
+        </div>
+      </div>
 
-          <div style={{ padding: "0 6px" }}>
-            <Link href="/compte/informations-personnelles" className="tap" style={{ display: "block", textAlign: "center", background: "#F5A623", borderRadius: "12px", padding: "11px", color: "#080812", fontSize: "13px", fontWeight: "800", textDecoration: "none" }}>
-              Modifier mon profil
-            </Link>
-          </div>
+      {/* Carte blanche flottant sur le fond doré (retour Bryan 29/09/2026,
+          inspiré de la carte "Genius rewards" de Booking sur son header
+          bleu — pas une reproduction, juste le même principe de calque :
+          un contenu en fond blanc qui se détache du fond de marque au lieu
+          de s'y fondre). Remplace les 3 pastilles blanches + le CTA
+          translucide qui étaient posés directement sur le doré. Commence
+          directement sous la courbe du fond doré, sans fond doré restant
+          autour d'elle (retour Bryan 05/10/2026). */}
+      <div style={{ background: "#fff", borderRadius: "16px", padding: "14px 8px 14px", boxShadow: "0 4px 14px rgba(0,0,0,0.14)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginBottom: "14px" }}>
+          {[
+            { label: "RDV Total", value: String(rdvs.length || 0), dot: undefined as string | undefined },
+            { label: "Score présence", value: `${presenceScore}%`, dot: scoreColor },
+            { label: "Statut", value: scoreLabel, dot: scoreColor },
+          ].map((s, i) => (
+            <div key={s.label} style={{ textAlign: "center", borderRight: i < 2 ? "1px solid rgba(8,8,18,0.08)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px", marginBottom: "3px" }}>
+                {s.dot && <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: s.dot, flexShrink: 0 }}/>}
+                <span style={{ color: "#080812", fontSize: "14px", fontWeight: "900", lineHeight: 1 }}>{s.value}</span>
+              </div>
+              <div style={{ color: "rgba(8,8,18,0.5)", fontSize: "9px", fontWeight: "600" }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: "0 6px" }}>
+          <Link href="/compte/informations-personnelles" className="tap" style={{ display: "block", textAlign: "center", background: "#F5A623", borderRadius: "12px", padding: "11px", color: "#080812", fontSize: "13px", fontWeight: "800", textDecoration: "none" }}>
+            Modifier mon profil
+          </Link>
         </div>
       </div>
     </div>
@@ -2319,12 +2330,6 @@ export default function YelenApp() {
   const [notifOpen, setNotifOpen]   = useState(false);
   const [notifDetailFromPush, setNotifDetailFromPush] = useState<NotifDetail | null>(null);
   const [comptOuvert, setComptOuvert] = useState<Record<string, boolean>>({}); // sections "Mon compte" dépliées
-  // Bandeau "identité non vérifiée" (chantier Status Hero, 23/07/2026,
-  // décision Bryan) — état local volontairement non persisté : masqué au
-  // clic sur le X pour la session en cours, réapparaît naturellement à la
-  // prochaine arrivée sur l'écran (remontage du composant, ex. retour d'une
-  // autre route) tant que l'identité n'est pas vérifiée.
-  const [bandeauIdentiteFerme, setBandeauIdentiteFerme] = useState(false);
   // Bandeau "Installer l'app" (PWA, décision Bryan 01/08/2026) — ce booléen
   // ne dit pas "affiché" mais "PwaInstallBanner a décidé qu'il a quelque
   // chose à montrer" (remonté via onEligibleChange), pour décaler le header
@@ -3979,7 +3984,7 @@ export default function YelenApp() {
           <style>{`@keyframes pingRing { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.5); opacity: 0; } }`}</style>
           <BiometrieModal
             prenom={prenom}
-            isDark={isDark} card={card} t1={t1} t2={t2} brd={brd}
+            isDark={isDark} bg={bg} t1={t1} t2={t2}
             userId={userId}
             onSuccess={() => {
               try { localStorage.setItem("yelen224_last_bio", String(Date.now())); } catch {}
@@ -5764,19 +5769,6 @@ export default function YelenApp() {
             </>
           ) : (
             <div>
-              {/* BANDEAU IDENTITÉ NON VÉRIFIÉE — décision Bryan 23/07/2026 :
-                  dismissible (X) mais réapparaît à la prochaine arrivée sur
-                  l'écran tant que l'identité n'est pas vérifiée (voir
-                  bandeauIdentiteFerme, non persisté). */}
-              {!identiteVerifiee && !bandeauIdentiteFerme && (
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "#F5A623", borderRadius: "14px", padding: "12px 14px", marginBottom: "12px" }}>
-                  <span style={{ color: "#080812", flexShrink: 0 }}>{Ic.Info()}</span>
-                  <Link href="/compte/verification-identite" style={{ flex: 1, minWidth: 0, color: "#080812", fontSize: "12.5px", fontWeight: "700", textDecoration: "none", lineHeight: 1.4 }}>
-                    Vérifiez votre identité pour sécuriser votre compte et activer le badge &quot;Vérifié&quot;.
-                  </Link>
-                  <button onClick={() => setBandeauIdentiteFerme(true)} className="tap" style={{ background: "none", border: "none", padding: "4px", cursor: "pointer", color: "#080812", flexShrink: 0 }}>{Ic.X()}</button>
-                </div>
-              )}
 
               {/* CARTE IDENTITÉ FUSIONNÉE — combine l'ancienne carte Accueil
                   (stats RDV/score présence) et l'ancienne carte Compte

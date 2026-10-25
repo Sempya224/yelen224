@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens } from "../../theme";
 import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { type Projet } from "./ProjetsOverlays";
 import { type DocumentTravail } from "./DocumentsOverlays";
 import {
@@ -27,6 +28,9 @@ import {
 } from "./NotesOverlays";
 import { useDialogA11y } from "./AgendaOverlays";
 import { NoteEditor } from "./NoteEditor";
+import { NotesStyles, NoteCardView, NotesSkeleton } from "./NotesUi";
+import { TasksToolbar, TasksMessage } from "./TachesUi";
+import { ClockStyles } from "../../components/ClockInShiftUi";
 
 type TabKey = "toutes" | "recentes" | "mes";
 type SortKey = "recent" | "titre" | "cree";
@@ -39,18 +43,7 @@ const TABS: { value: TabKey; label: string }[] = [
   { value: "mes", label: "Mes notes" },
 ];
 
-function relTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const min = Math.round(diffMs / 60000);
-  if (min < 1) return "à l'instant";
-  if (min < 60) return `il y a ${min} min`;
-  const h = Math.round(min / 60);
-  if (h < 24) return `il y a ${h} h`;
-  const j = Math.round(h / 24);
-  if (j === 1) return "hier";
-  if (j < 7) return `il y a ${j} j`;
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-}
+const SORTS: { value: SortKey; label: string }[] = [{ value: "recent", label: "Dernière modification" }, { value: "cree", label: "Date de création" }, { value: "titre", label: "Titre" }];
 
 function toggleArr(arr: string[], v: string): string[] { return arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]; }
 
@@ -96,6 +89,7 @@ export function NotesSection({ instId, onToast }: { instId: string; onToast: (ms
   const sortBtnRef = useRef<HTMLButtonElement>(null);
 
   const [openNoteId, setOpenNoteId] = useState<string | "new" | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Note | null>(null);
 
   const storageKey = `yelen224_notes_state_${instId}`;
 
@@ -169,6 +163,14 @@ export function NotesSection({ instId, onToast }: { instId: string; onToast: (ms
 
   function resetFilters() { setFilters(EMPTY_FILTERS); setSearch(""); setTab("toutes"); }
 
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    await fetch(`/api/institution/notes?id=${deleteTarget.id}`, { method: "DELETE" });
+    onToast("Note supprimée", C.orange);
+    setDeleteTarget(null);
+    load();
+  }
+
   const isTrueEmpty = !loading && !loadError && notes.length === 0;
   const isNoResults = !loading && !loadError && notes.length > 0 && filtered.length === 0;
 
@@ -187,90 +189,54 @@ export function NotesSection({ instId, onToast }: { instId: string; onToast: (ms
     );
   }
 
+  const tabsDef = TABS.map(t => ({ key: t.value, label: t.label, count: notes.filter(n => matchesTab(n, t.value, moiId)).length }));
+  const aFiltre = activeFilterChips.length > 0 || search.trim() !== "" || tab !== "toutes";
+
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-          {TABS.map(t => (
-            <button key={t.value} onClick={() => setTab(t.value)} style={{ background: tab === t.value ? C.goldL : C.bgCard, border: `1px solid ${tab === t.value ? C.goldL : C.border}`, borderRadius: "8px", padding: "6px 12px", fontSize: "11.5px", fontWeight: tab === t.value ? 800 : 600, color: tab === t.value ? C.goldD : C.t2, cursor: "pointer" }}>{t.label}</button>
-          ))}
-        </div>
-        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setOpenNoteId("new")}>+ Nouvelle note</Button>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", minWidth: "180px" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher dans les notes…" style={{ width: "100%", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 10px 8px 30px", fontSize: "12.5px", color: C.t1, boxSizing: "border-box" }}/>
-        </div>
-        <button ref={filtersBtnRef} onClick={() => setFiltersOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: "6px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>
-          Filtrer{activeFilterChips.length > 0 && <span style={{ backgroundColor: C.gold, color: "#000", fontSize: "9.5px", fontWeight: "800", borderRadius: "20px", padding: "1px 6px" }}>{activeFilterChips.length}</span>}
-        </button>
-        <button ref={sortBtnRef} onClick={() => setSortOpen(v => !v)} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>Trier</button>
-      </div>
-
-      {activeFilterChips.length > 0 && (
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
-          {activeFilterChips.map(c => (
-            <button key={c.key} onClick={c.onRemove} style={{ display: "flex", alignItems: "center", gap: "5px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "20px", padding: "3px 6px 3px 10px", fontSize: "11px", fontWeight: "700", color: C.t1, cursor: "pointer" }}>
-              {c.label}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          ))}
-          <button onClick={resetFilters} style={{ background: "none", border: "none", color: C.t3, fontSize: "11px", fontWeight: "700", cursor: "pointer", textDecoration: "underline" }}>Réinitialiser</button>
-        </div>
-      )}
+      <ClockStyles C={C}/>
+      <NotesStyles C={C}/>
+      <TasksToolbar C={C} unite="note" nouveauLabel="Nouvelle note" tabs={tabsDef} tab={tab} onTab={k => { const t = TABS.find(x => x.value === k); if (t) setTab(t.value); }} onNew={() => setOpenNoteId("new")}
+        search={search} onSearch={setSearch}
+        filtersRef={filtersBtnRef} filtersCount={activeFilterChips.length} onFilters={() => setFiltersOpen(v => !v)}
+        sortRef={sortBtnRef} sortLabel={SORTS.find(o => o.value === sortKey)?.label ?? ""} onSort={() => setSortOpen(v => !v)}
+        chips={activeFilterChips} onReset={resetFilters} aFiltre={aFiltre} total={filtered.length}/>
 
       {loadError && !loading && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "12.5px", fontWeight: "700", color: C.red }}>Impossible de charger les notes.</span>
-          <button onClick={load} style={{ background: "none", border: "none", color: C.red, fontSize: "12px", fontWeight: "800", cursor: "pointer", textDecoration: "underline" }}>Réessayer</button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
+          <span role="alert" style={{ fontSize: "13px", fontWeight: 500, color: C.red }}>Impossible de charger les notes.</span>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={load}>Réessayer</Button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: "40px", display: "flex", justifyContent: "center" }}><Spinner C={C}/></div>
+        <NotesSkeleton/>
       ) : isTrueEmpty ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "48px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "14px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Notes</div>
-          <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Conservez ici les idées, décisions, réunions et connaissances importantes de votre institution.</p>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setOpenNoteId("new")}>+ Créer une note</Button>
-        </div>
+        <TasksMessage C={C} titre="Aucune note" texte="Conservez ici les idées, décisions, réunions et connaissances importantes de votre institution."
+          icone={<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>}
+          action={{ label: "+ Nouvelle note", onClick: () => setOpenNoteId("new"), primaire: true }}/>
       ) : isNoResults ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "13px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Aucune note trouvée</div>
-          {search.trim() && <p style={{ color: C.t3, fontSize: "12px", marginBottom: "12px" }}>Aucune note ne correspond à « {search.trim()} ».</p>}
-          <button onClick={resetFilters} style={{ color: C.gold, background: "none", border: "none", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>{search.trim() ? "Effacer la recherche" : "Réinitialiser les filtres"}</button>
-        </div>
+        <TasksMessage C={C} titre="Aucun résultat" texte={search.trim() ? `Aucune note ne correspond à « ${search.trim()} ».` : "Aucune note ne correspond à ces filtres."} action={{ label: "Réinitialiser", onClick: resetFilters }}/>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {filtered.map(n => {
-            const projet = n.projet_id ? projets.find(p => p.id === n.projet_id) : null;
-            const preview = blocksPreview(parseContenu(n.contenu));
-            return (
-              <div key={n.id} onClick={() => setOpenNoteId(n.id)} className="tap" style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, borderLeft: `3px solid ${typeColor(n.type, C)}`, padding: "14px", cursor: "pointer" }}>
-                <div style={{ fontSize: "13.5px", fontWeight: "800", color: C.t1, marginBottom: "4px" }}>{n.titre}</div>
-                {preview && <div style={{ color: C.t2, fontSize: "12px", marginBottom: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</div>}
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                  <span style={{ color: typeColor(n.type, C), fontSize: "9.5px", fontWeight: "800", backgroundColor: `${typeColor(n.type, C)}15`, padding: "2px 8px", borderRadius: "20px" }}>{typeLabel(n.type)}</span>
-                  <span style={{ color: C.t3, fontSize: "10.5px" }}>Modifiée {relTime(n.updated_at)}</span>
-                  {projet && <span style={{ color: C.goldD, fontSize: "10.5px", fontWeight: "700" }}>· {projet.nom}</span>}
-                  {n.tags.slice(0, 3).map(t => <span key={t} style={{ color: C.t3, fontSize: "10.5px" }}>#{t}</span>)}
-                </div>
-              </div>
-            );
-          })}
+        <div className="nt-grid">
+          {filtered.map(n => (
+            <NoteCardView key={n.id} C={C} note={n} preview={blocksPreview(parseContenu(n.contenu))} projet={n.projet_id ? projets.find(p => p.id === n.projet_id) : null} membres={membres}
+              onOpen={() => setOpenNoteId(n.id)}
+              actions={[{ label: "Ouvrir", onClick: () => setOpenNoteId(n.id) }, ...(peutGerer(n, moiId, moiRole) ? [{ label: "Supprimer", onClick: () => setDeleteTarget(n), danger: true }] : [])]}/>
+          ))}
         </div>
       )}
 
       {filtersOpen && <FiltersPopover C={C} anchorRef={filtersBtnRef} onClose={() => setFiltersOpen(false)} filters={filters} setFilters={setFilters} membres={membres} projets={projets} allTags={allTags}/>}
+      {deleteTarget && (
+        <ConfirmModal open onClose={() => setDeleteTarget(null)} onConfirm={confirmDelete} tokens={toUiTokens(C)} level={1} danger
+          title="Supprimer cette note ?" consequences={[`« ${deleteTarget.titre} »`]}
+          description="Cette action supprimera cette note selon les règles de conservation de votre espace."
+          reversible={false} confirmLabel="Supprimer" cancelLabel="Annuler"/>
+      )}
       {sortOpen && <SortPopover C={C} anchorRef={sortBtnRef} onClose={() => setSortOpen(false)} value={sortKey} onSelect={setSortKey}/>}
     </div>
   );
-}
-
-function Spinner({ C }: { C: ThemeTokens }) {
-  return <div style={{ width: "24px", height: "24px", border: `2.5px solid ${C.border2}`, borderTopColor: C.gold, borderRadius: "50%", animation: "espace-spin 0.7s linear infinite" }}/>;
 }
 
 function FiltersPopover({ C, anchorRef, onClose, filters, setFilters, membres, projets, allTags }: {
@@ -292,7 +258,7 @@ function FiltersPopover({ C, anchorRef, onClose, filters, setFilters, membres, p
   const r = anchor.getBoundingClientRect();
 
   function Section({ title, children }: { title: string; children: React.ReactNode }) {
-    return <div style={{ marginBottom: "12px" }}><div style={{ fontSize: "9.5px", fontWeight: "800", color: C.t3, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>{title}</div><div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{children}</div></div>;
+    return <div style={{ marginBottom: "12px" }}><div style={{ fontSize: "13px", fontWeight: 600, color: C.t1, marginBottom: "6px" }}>{title}</div><div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{children}</div></div>;
   }
   function CheckRow({ checked, label, color, onClick }: { checked: boolean; label: string; color?: string; onClick: () => void }) {
     return (
@@ -337,7 +303,7 @@ function SortPopover({ C, anchorRef, onClose, value, onSelect }: {
   const anchor = anchorRef.current;
   if (!anchor) return null;
   const r = anchor.getBoundingClientRect();
-  const OPTIONS: { value: SortKey; label: string }[] = [{ value: "recent", label: "Dernière modification" }, { value: "cree", label: "Date de création" }, { value: "titre", label: "Titre" }];
+  const OPTIONS = SORTS;
   return (
     <div ref={panelRef} tabIndex={-1} role="dialog" style={{ position: "fixed", top: `${r.bottom + 6}px`, left: `${r.left}px`, minWidth: "190px", zIndex: 400, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 10px 28px rgba(0,0,0,0.22)", padding: "6px", outline: "none" }}>
       {OPTIONS.map(o => (

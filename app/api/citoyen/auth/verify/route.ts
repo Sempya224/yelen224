@@ -5,7 +5,7 @@ import { completerConnexionCitoyen, mintTotpChallengeToken, CITOYEN_REMEMBER_MAX
 import { extraireIpClient } from '@/lib/edgeSecurity'
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
-  enregistrerTentative, messageSecurite,
+  enregistrerTentative, messageSecurite, destinationCitoyen,
 } from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
@@ -29,14 +29,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
-    if (porte.state === 'blocked' || porte.state === 'support_only') {
-      return finaliser(
-        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
-        423
-      )
-    }
-
+    // Format validé AVANT la porte anti-abus (réordonné, Priorités 3/4,
+    // 18/10/2026) — voir lookup/route.ts pour le raisonnement complet.
     const body = await request.json()
     const { phone, code } = body
 
@@ -47,6 +41,14 @@ export async function POST(request: NextRequest) {
       return finaliser({ error: 'code requis', code: 'MISSING_FIELDS' }, 400)
     }
 
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip, destination: destinationCitoyen(phone) }, undefined, request)
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
+      )
+    }
+
     const { data: user, error: dbError } = await supabaseAdmin
       .from('users')
       .select('id, totp_enabled')
@@ -55,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     if (dbError || !user) {
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'not_found', userAgent,
+        endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'not_found', userAgent, destination: destinationCitoyen(phone),
       })
       return finaliser({ error: 'Compte introuvable', code: 'NOT_FOUND', security: etat }, 404)
     }
@@ -73,13 +75,13 @@ export async function POST(request: NextRequest) {
         incorrect: 'Code incorrect. Redemandez un code.',
       }
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: `code_${otpResult.reason}`, userAgent,
+        endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: `code_${otpResult.reason}`, userAgent, destination: destinationCitoyen(phone),
       })
       return finaliser({ error: messages[otpResult.reason], code: 'INVALID_CODE', reason: otpResult.reason, security: etat }, 401)
     }
 
     const etat = await enregistrerTentative(supabaseAdmin, {
-      endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'code_correct', userAgent,
+      endpointCategory: 'citoyen_login', deviceId, ip, identifiant: phone, outcome: 'code_correct', userAgent, destination: destinationCitoyen(phone),
     })
 
     // 2FA TOTP (chantier sécurité citoyen 25/07/2026) — le facteur

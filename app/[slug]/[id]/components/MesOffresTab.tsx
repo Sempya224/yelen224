@@ -16,10 +16,10 @@
 // en pilule), pas de nouveau style inventé.
 import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { YelenLoader } from "@/components/YelenLoader";
 import { supabase } from "@/lib/supabase";
 import { T, type ThemeTokens, toUiTokens, toCardTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 import { Card } from "@/components/ui/Card";
 import { OFFRE_GENRES, OFFRE_GENRE_LABELS, OFFRE_GENRE_COULEURS, type OffreGenre } from "@/lib/offresCategories";
 import { APP_URL } from "@/lib/config";
@@ -27,7 +27,11 @@ import { MesOffresPerformanceChart, type LignePerf } from "./MesOffresPerformanc
 import { OffreFicheContenu } from "@/components/OffreFicheOverlay";
 import { MesOffresTable } from "./MesOffresTable";
 import { FormField } from "./FormField";
-import { MesOffresAnalytics } from "./MesOffresAnalytics";
+import { MesOffresTopOffres, MesOffresActivite } from "./MesOffresAnalytics";
+import {
+  OffersHeader, OffersTabs, OffersSummary, OffersToolbar, OffersSkeleton, OffresStyles,
+  type OffersKpi,
+} from "./MesOffresUi";
 import { MesOffresIntro } from "./MesOffresIntro";
 import { MesOffresOffreDetail } from "./MesOffresOffreDetail";
 
@@ -92,32 +96,6 @@ function IllustrationOffres({ C }: { C: ThemeTokens }) {
       <circle cx="70" cy="62" r="12" fill={C.bgCard} stroke={C.gold} strokeWidth="2.2"/>
       <path d="M66 66l8-8M66.5 59h.01M73.5 65h.01" stroke={C.gold} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
-  );
-}
-
-function actionRapideStyle(C: ThemeTokens, disabled: boolean): React.CSSProperties {
-  return {
-    display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left",
-    padding: "9px 10px", borderRadius: "10px", background: "none", border: "none",
-    color: disabled ? C.t3 : C.t1, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.55 : 1,
-  };
-}
-
-function KpiCard({ label, value, color, bg, onClick, delta, deltaText }: { label: string; value: number; color: string; bg: string; onClick?: () => void; delta?: number; deltaText?: string }) {
-  return (
-    <div
-      onClick={onClick}
-      className={onClick ? "tap" : undefined}
-      style={{ backgroundColor: bg, borderRadius: "16px", padding: "14px", cursor: onClick ? "pointer" : "default" }}
-    >
-      <div style={{ color, fontSize: "22px", fontWeight: 800, letterSpacing: "-0.4px", lineHeight: 1.1 }}>{value}</div>
-      <div style={{ color, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px", marginTop: "5px", opacity: 0.85 }}>{label}</div>
-      {deltaText ? (
-        <div style={{ color, fontSize: "9.5px", fontWeight: 700, marginTop: "4px", opacity: 0.7 }}>{deltaText}</div>
-      ) : (!!delta && delta > 0 && (
-        <div style={{ color, fontSize: "9.5px", fontWeight: 700, marginTop: "4px", opacity: 0.7 }}>+{delta} cette semaine</div>
-      ))}
-    </div>
   );
 }
 
@@ -201,6 +179,8 @@ export function MesOffresTab({ instId, onToast, access }: {
   const [instName, setInstName] = useState("");
   const [instLogo, setInstLogo] = useState<string | null>(null);
   const [introOpen, setIntroOpen] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [offresTab, setOffresTab] = useState<"offres" | "performance" | "activite">("offres");
 
   // Pop de valeur "Mes offres" — montré une seule fois par navigateur
   // (retour Bryan 04/08/2026), réouvrable à tout moment via l'icône info
@@ -232,11 +212,31 @@ export function MesOffresTab({ instId, onToast, access }: {
     })();
   }, [instId]);
 
+  useEffect(() => {
+    queueMicrotask(() => {
+      try {
+        const p = new URLSearchParams(window.location.search).get("offres");
+        if (p === "performance" || p === "activite") setOffresTab(p);
+      } catch {}
+    });
+  }, []);
+
+  function changerOffresTab(k: string) {
+    const key = k === "performance" || k === "activite" ? k : "offres";
+    setOffresTab(key);
+    try {
+      const u = new URL(window.location.href);
+      if (key === "offres") u.searchParams.delete("offres"); else u.searchParams.set("offres", key);
+      window.history.replaceState(window.history.state, "", u.toString());
+    } catch {}
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/institution/offres`);
-    const j = await res.json().catch(() => null);
-    setItems(res.ok ? (j ?? []) : []);
+    const res = await fetch(`/api/institution/offres`).catch(() => null);
+    const j = res ? await res.json().catch(() => null) : null;
+    setLoadError(!res || !res.ok);
+    setItems(res?.ok ? (j ?? []) : []);
     setLoading(false);
   }, []);
 
@@ -391,7 +391,7 @@ export function MesOffresTab({ instId, onToast, access }: {
 
   const STATUT_INFO: Record<string, { label: string; color: string; bg: string }> = {
     brouillon:             { label: "Brouillon",       color: C.t2,     bg: C.bg3 },
-    en_attente_validation: { label: "En modération",   color: C.orange, bg: C.orangeL },
+    en_attente_validation: { label: "En attente",       color: C.orange, bg: C.orangeL },
     publiee:               { label: "Publiée",         color: C.green,  bg: C.greenL },
     refusee:               { label: "Refusée",         color: C.red,    bg: C.redL },
     suspendue:             { label: "Suspendue",       color: C.orange, bg: C.orangeL },
@@ -425,6 +425,20 @@ export function MesOffresTab({ instId, onToast, access }: {
   const vuesSemaine = vuesParJour.slice(-7).reduce((s, d) => s + d.vues, 0);
   const vuesSemainePrecedente = vuesParJour.slice(-14, -7).reduce((s, d) => s + d.vues, 0);
   const deltaVues = vuesSemaine - vuesSemainePrecedente;
+
+  const basculerStatut = (k: typeof STATUT_FILTRES[number]["key"]) => setStatutFiltre(statutFiltre === k ? "toutes" : k);
+  const semaine = (n: number) => (n > 0 ? `+${n} cette semaine` : undefined);
+  const kpiItems: OffersKpi[] = [
+    { key: "publiee", label: "Publiées", value: kpis.publiees, dot: C.green, sub: semaine(deltas.publiees), active: statutFiltre === "publiee", onClick: () => basculerStatut("publiee") },
+    { key: "en_attente", label: "En attente", value: kpis.enAttente, dot: C.orange, sub: semaine(deltas.enAttente), active: statutFiltre === "en_attente_validation", onClick: () => basculerStatut("en_attente_validation") },
+    { key: "brouillon", label: "Brouillons", value: kpis.brouillons, dot: C.t2, sub: semaine(deltas.brouillons), active: statutFiltre === "brouillon", onClick: () => basculerStatut("brouillon") },
+    { key: "refusee", label: "Refusées", value: kpis.refusees, dot: C.red, sub: semaine(deltas.refusees), active: statutFiltre === "refusee", onClick: () => basculerStatut("refusee") },
+    { key: "archivee", label: "Archivées", value: kpis.archivees, dot: C.t3, sub: semaine(deltas.archivees), active: statutFiltre === "archivee", onClick: () => basculerStatut("archivee") },
+    { key: "clics", label: "Clics totaux", value: kpis.clics },
+    { key: "vues", label: "Vues cette semaine", value: vuesSemaine, delta: deltaVues, deltaLabel: "vs semaine dernière", sub: deltaVues !== 0 ? "vs semaine dernière" : undefined },
+  ];
+  const filtreActif = statutFiltre !== "toutes" || search.trim() !== "";
+  function reinitialiserFiltres() { setStatutFiltre("toutes"); setSearch(""); }
 
   const selected = items.find(o => o.id === selectedId) ?? items[0] ?? null;
 
@@ -469,13 +483,9 @@ export function MesOffresTab({ instId, onToast, access }: {
   };
 
   return (
-    <div style={{ padding: "16px", maxWidth: "1280px" }}>
+    <div className="ofx-page">
+      <OffresStyles C={C}/>
       <style>{`
-        .offres-kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-        @media(min-width:640px){ .offres-kpi-grid{grid-template-columns:repeat(3,1fr)} }
-        @media(min-width:1024px){ .offres-kpi-grid{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))} }
-        .offres-statut-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
-        .offres-statut-tabs::-webkit-scrollbar{display:none}
         .offres-perf-row{display:flex;flex-direction:column;gap:16px;margin-bottom:16px}
         .offres-perf-col-left{flex:1;min-width:0}
         .offres-perf-col-right{width:100%}
@@ -492,20 +502,15 @@ export function MesOffresTab({ instId, onToast, access }: {
         }
       `}</style>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px", gap: "12px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: 800, margin: 0 }}>Mes offres</h1>
-          <button onClick={() => setIntroOpen(true)} className="tap" title="Pourquoi publier des offres ?" aria-label="Pourquoi publier des offres ?" style={{ width: "22px", height: "22px", borderRadius: "50%", background: C.bgCard2, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.t2, cursor: "pointer", flexShrink: 0 }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          </button>
-        </div>
-        {access === "full" && (
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ flexShrink: 0, whiteSpace: "nowrap" }} onClick={openCreate}>
-            + Nouvelle offre
-          </Button>
-        )}
-      </div>
-      <div style={{ color: C.t2, fontSize: "12.5px", marginBottom: "16px" }}>Gérez ici toutes les offres publiées par votre institution.</div>
+      <OffersHeader C={C} canCreate={access === "full"} onCreate={openCreate}
+        titleExtras={
+          <>
+            <button onClick={() => setIntroOpen(true)} className="ofx-btn tap" title="Pourquoi publier des offres ?" aria-label="Pourquoi publier des offres ?" style={{ width: "22px", height: "22px", borderRadius: "50%", background: C.bgCard2, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.t2, cursor: "pointer", flexShrink: 0 }}>
+              <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </button>
+            <HelpCenterGuide tab="mes-offres" />
+          </>
+        }/>
 
       {formOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 500, background: C.bg, display: "flex", flexDirection: "column" }}>
@@ -682,103 +687,75 @@ export function MesOffresTab({ instId, onToast, access }: {
       )}
 
       {loading ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}><YelenLoader size={24} labelColor={C.t2}/></div>
+        <OffersSkeleton C={C}/>
+      ) : loadError && items.length === 0 ? (
+        <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center" }}>
+          <div role="alert" style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Impossible de charger les offres</div>
+          <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Vérifiez votre connexion puis réessayez.</div>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={load}>Réessayer</Button>
+        </Card>
       ) : items.length === 0 ? (
         <Card tokens={toCardTokens(C)} padding="44px 24px" style={{ textAlign: "center" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}><IllustrationOffres C={C}/></div>
-          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800, marginBottom: "8px" }}>Vos offres n&apos;attendent que vous</div>
-          <div style={{ color: C.t3, fontSize: "13px", lineHeight: 1.65, marginBottom: "20px", maxWidth: "340px", margin: "0 auto 20px" }}>Une offre publiée devient visible par tous les utilisateurs de Yelen — remise, avantage, ou service mis en avant. Yelen valide chaque offre avant publication.</div>
+          <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "6px" }}>Aucune offre pour le moment</div>
+          <div style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, maxWidth: "380px", margin: "0 auto 20px" }}>Une offre publiée devient visible par tous les utilisateurs de Yelen : remise, avantage, ou service mis en avant. Yelen valide chaque offre avant publication.</div>
           {access === "full" && (
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 28px" }} onClick={openCreate}>Créer ma première offre</Button>
+            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={openCreate}>Nouvelle offre</Button>
           )}
         </Card>
       ) : (
         <>
-          <div className="offres-kpi-grid" style={{ marginBottom: "16px" }}>
-            <KpiCard label="Publiées" value={kpis.publiees} color={C.green} bg={C.greenL} onClick={() => setStatutFiltre("publiee")} delta={deltas.publiees}/>
-            <KpiCard label="En attente" value={kpis.enAttente} color={C.orange} bg={C.orangeL} onClick={() => setStatutFiltre("en_attente_validation")} delta={deltas.enAttente}/>
-            <KpiCard label="Brouillons" value={kpis.brouillons} color={C.t2} bg={C.bg3} onClick={() => setStatutFiltre("brouillon")} delta={deltas.brouillons}/>
-            <KpiCard label="Refusées" value={kpis.refusees} color={C.red} bg={C.redL} onClick={() => setStatutFiltre("refusee")} delta={deltas.refusees}/>
-            <KpiCard label="Archivées" value={kpis.archivees} color={C.t2} bg={C.bg3} onClick={() => setStatutFiltre("archivee")} delta={deltas.archivees}/>
-            <KpiCard label="Clics totaux" value={kpis.clics} color={C.gold} bg={`${C.gold}15`}/>
-            <KpiCard label="Vues cette semaine" value={vuesSemaine} color={C.blue} bg={C.blueL}
-              deltaText={deltaVues !== 0 ? `${deltaVues > 0 ? "+" : ""}${deltaVues} vs semaine dernière` : undefined}/>
-          </div>
+          <OffersTabs C={C} active={offresTab} onChange={changerOffresTab}
+            tabs={[{ key: "offres", label: "Offres", count: items.length }, { key: "performance", label: "Performance" }, { key: "activite", label: "Activité et modération" }]}/>
 
-          <div className="offres-perf-row">
-            <div className="offres-perf-col-left">
-              <MesOffresPerformanceChart parJour={vuesParJour}/>
-            </div>
-            <div className="offres-perf-col-right">
-              {access === "full" && (
-                <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "16px" }}>
-                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "12px" }}>Actions rapides</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                    <button onClick={openCreate} className="tap" style={actionRapideStyle(C, false)}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                      <div><div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Nouvelle offre</div><div style={{ color: C.t3, fontSize: "10.5px" }}>Créer une nouvelle offre</div></div>
-                    </button>
-                    <button onClick={() => selected && dupliquer(selected)} disabled={!selected} className="tap" style={actionRapideStyle(C, !selected)}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                      <div><div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Dupliquer</div><div style={{ color: C.t3, fontSize: "10.5px" }}>Copier et modifier</div></div>
-                    </button>
-                    <button onClick={() => selected && partager(selected)} disabled={!selected || selected.statut !== "publiee"} className="tap" style={actionRapideStyle(C, !selected || selected.statut !== "publiee")}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
-                      <div><div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Partager</div><div style={{ color: C.t3, fontSize: "10.5px" }}>Créer un lien public</div></div>
-                    </button>
-                    <button disabled title="Bientôt disponible" className="tap" style={actionRapideStyle(C, true)}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                      <div><div style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>Programmer</div><div style={{ color: C.t3, fontSize: "10.5px" }}>Bientôt disponible</div></div>
-                    </button>
-                  </div>
+          {offresTab === "offres" && (
+            <div role="tabpanel" id="ofx-panel-offres" aria-labelledby="ofx-tab-offres">
+              <OffersSummary C={C} items={kpiItems}/>
+              <OffersToolbar C={C} active={!formOpen} search={search} onSearch={setSearch}
+                statuts={STATUT_FILTRES.map(s => ({ key: s.key, label: s.label, count: s.key === "toutes" ? items.length : items.filter(o => o.statut === s.key).length }))}
+                statutActif={statutFiltre}
+                onStatut={k => { const f = STATUT_FILTRES.find(x => x.key === k); if (f) setStatutFiltre(f.key); }}
+                total={visibleItems.length} filtreActif={filtreActif} onReset={reinitialiserFiltres}/>
+              {visibleItems.length === 0 ? (
+                <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center" }}>
+                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Aucun résultat</div>
+                  <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Aucune offre ne correspond à ces critères.</div>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={reinitialiserFiltres}>Réinitialiser les filtres</Button>
                 </Card>
+              ) : (
+                <MesOffresTable
+                  items={visibleItems}
+                  access={access}
+                  busyId={busyId}
+                  menuOpenId={menuOpenId}
+                  setMenuOpenId={setMenuOpenId}
+                  vuesParOffre={vuesParOffre}
+                  onSelect={id => { setSelectedId(id); setDetailOpen(true); }}
+                  onEdit={o => { setMenuOpenId(null); openEdit(o); }}
+                  onPreview={previsualiser}
+                  onShare={partager}
+                  onDuplicate={dupliquer}
+                  onSuspendre={id => action(id, "suspendre")}
+                  onRepublier={id => action(id, "soumettre")}
+                  onArchiver={id => action(id, "archiver")}
+                  onSupprimer={supprimer}
+                />
               )}
             </div>
-          </div>
-
-          <div className="offres-statut-tabs" style={{ marginBottom: "10px" }}>
-            {STATUT_FILTRES.map(s => {
-              const count = s.key === "toutes" ? items.length : items.filter(o => o.statut === s.key).length;
-              const activeTab = statutFiltre === s.key;
-              return (
-                <button key={s.key} onClick={() => setStatutFiltre(s.key)} className="tap" style={{ flexShrink: 0, backgroundColor: activeTab ? `${C.gold}15` : C.bgCard2, border: `1.5px solid ${activeTab ? C.gold + "50" : C.border}`, borderRadius: "20px", padding: "7px 13px", color: activeTab ? C.gold : C.t2, fontSize: "12px", fontWeight: activeTab ? 800 : 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
-                  {s.label}
-                  {count > 0 && <span style={{ backgroundColor: activeTab ? C.gold : C.border2, color: activeTab ? "#000" : C.t2, fontSize: "9px", fontWeight: 800, padding: "2px 6px", borderRadius: "20px" }}>{count}</span>}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ position: "relative", marginBottom: "16px" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ position: "absolute", left: "13px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher par titre, catégorie, genre, statut…" style={{ width: "100%", height: "42px", paddingLeft: "36px", paddingRight: "14px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", color: C.t1, fontSize: "13px", boxSizing: "border-box" }}/>
-          </div>
-
-          {visibleItems.length === 0 ? (
-            <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center", color: C.t2, fontSize: "13px" }}>
-              Aucune offre ne correspond à ces critères.
-            </Card>
-          ) : (
-            <MesOffresTable
-              items={visibleItems}
-              selectedId={selected?.id ?? null}
-              access={access}
-              busyId={busyId}
-              menuOpenId={menuOpenId}
-              setMenuOpenId={setMenuOpenId}
-              vuesParOffre={vuesParOffre}
-              onSelect={id => { setSelectedId(id); setDetailOpen(true); }}
-              onEdit={o => { setMenuOpenId(null); openEdit(o); }}
-              onPreview={previsualiser}
-              onShare={partager}
-              onSuspendre={id => action(id, "suspendre")}
-              onRepublier={id => action(id, "soumettre")}
-              onArchiver={id => action(id, "archiver")}
-              onSupprimer={supprimer}
-            />
           )}
 
-          <MesOffresAnalytics items={items} vuesParOffre={vuesParOffre}/>
+          {offresTab === "performance" && (
+            <div role="tabpanel" id="ofx-panel-performance" aria-labelledby="ofx-tab-performance" className="offres-perf-row">
+              <div className="offres-perf-col-left"><MesOffresPerformanceChart parJour={vuesParJour}/></div>
+              <div className="offres-perf-col-right"><MesOffresTopOffres items={items} vuesParOffre={vuesParOffre}/></div>
+            </div>
+          )}
+
+          {offresTab === "activite" && (
+            <div role="tabpanel" id="ofx-panel-activite" aria-labelledby="ofx-tab-activite">
+              <MesOffresActivite items={items}/>
+            </div>
+          )}
         </>
       )}
 

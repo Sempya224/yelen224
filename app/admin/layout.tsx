@@ -12,6 +12,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { Ic } from './adminIcons'
 import { AdminNotifBell, type Categorie } from './AdminNotifBell'
 import { YelenLoader } from '@/components/YelenLoader'
+import { YelenLogo } from '@/components/YelenLogo'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { uiTokens } from './adminTheme'
 
@@ -33,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href: '/admin/institutions',  label: 'Institutions',    icon: Ic.Building,   roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/revisions',     label: 'Révisions',       icon: Ic.Refresh,    roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/verification',  label: 'Vérification',    icon: Ic.Eye,        roles: ['super_admin','moderateur','admin'] },
+    { href: '/admin/changements-profil', label: 'Changements de profil', icon: Ic.Refresh, roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/identite-citoyens', label: 'Identité citoyens', icon: Ic.Eye,  roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/activites',     label: 'Activités',       icon: Ic.Layers,     roles: ['super_admin','moderateur','admin'] },
     { href: '/admin/moderation',    label: 'Signalements',    icon: Ic.Shield,     roles: ['super_admin','moderateur','admin'] },
@@ -136,7 +138,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     fetch('/api/admin/auth/me')
       .then(res => {
         if (!res.ok) {
-          router.push('/admin/login')
+          // Redirige vers la porte d'entrée (WebAuthn), pas directement vers
+          // /admin/login — même raisonnement que le check périodique
+          // ci-dessous (voir son commentaire).
+          router.push('/entree-admin')
           return null
         }
         return res.json()
@@ -146,9 +151,32 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         setLoading(false)
       })
       .catch(() => {
-        router.push('/admin/login')
+        router.push('/entree-admin')
       })
   }, [router, pathname])
+
+  // Détection d'expiration de session en tâche de fond (retour Bryan
+  // 17/10/2026) — avant ce check, une session qui expirait (inactivité 60
+  // min ou expiration absolue 8h, voir lib/adminAuth.ts) pendant que l'admin
+  // restait sur le même écran sans naviguer n'était jamais détectée : le
+  // dashboard restait affiché normalement jusqu'à ce qu'une action échoue de
+  // façon confuse (ex. logout qui semblait échouer). Même cadence que le
+  // polling des notifications ci-dessus, mais silencieux — ne touche jamais
+  // `loading` (jamais de spinner plein écran, voir piège polling connu).
+  // Renvoie vers /entree-admin (porte WebAuthn) plutôt que /admin/login :
+  // décision Bryan, une session expirée doit retraverser la vérification
+  // d'entrée plutôt que retomber directement sur le formulaire mot de
+  // passe.
+  useEffect(() => {
+    if (estPageLogin(pathname)) return
+    function verifierSession() {
+      fetch('/api/admin/auth/me')
+        .then(res => { if (!res.ok) router.push('/entree-admin') })
+        .catch(() => {})
+    }
+    const iv = setInterval(verifierSession, 30000)
+    return () => clearInterval(iv)
+  }, [pathname, router])
 
   // Terminaison de session réelle (décision CEO 03/09/2026) — le serveur
   // (POST /api/admin/auth/logout) reste l'unique source de vérité :
@@ -250,14 +278,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div style={{
             width: '36px', height: '36px', minWidth: '36px',
             borderRadius: '10px',
-            background: 'linear-gradient(135deg, #d4a017 0%, #b8860b 100%)',
+            background: '#F5A623',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '16px', fontWeight: '800', color: '#fff',
-          }}>Y</div>
+          }}>
+            <YelenLogo size={18} color="#1a1a1a" strokeWidth={2.4}/>
+          </div>
           {!sidebarCollapsed && (
             <div>
               <div style={{ color: '#fff', fontSize: '14px', fontWeight: '700' }}>Yelen224</div>
-              <div style={{ color: '#d4a017', fontSize: '11px', fontWeight: '600' }}>Admin Panel</div>
+              <div style={{ color: '#F5A623', fontSize: '11px', fontWeight: '600' }}>Admin Panel</div>
             </div>
           )}
         </div>

@@ -21,11 +21,13 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens } from "../../theme";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { YelenLoader } from "@/components/YelenLoader";
 import {
-  type Evenement, type Membre, TYPES, toISODate, typeColor, typeLabel, IconUser,
-  useDialogA11y, MemberPicker, DatePicker, TimePicker, EventDetailsPanel,
+  type Evenement, type Membre, TYPES, toISODate, typeColor, typeLabel,
+  useDialogA11y, EventDetailsPanel,
 } from "./AgendaOverlays";
+import { AgendaStyles, AgendaToolbar, AgendaWeekGrid, AgendaMonthGrid, AGENDA_HOUR_H } from "./AgendaGrid";
+import { heureAmPm } from "@/lib/heure";
+import { ClockStyles, ClockModal, ModalField, champStyle, ComboField, DateField, IconInput, ScheduleTypeCards } from "../../components/ClockInShiftUi";
 
 type RdvItem = { id: string; objet: string | null; date_rdv: string; heure_rdv: string; statut: string; citoyen_nom: string; citoyen_phone: string | null };
 
@@ -61,11 +63,6 @@ function peutGerer(e: Evenement, moiId: string | null, moiRole: string | null): 
   return e.cree_par_membre_id === moiId || e.membre_id === moiId;
 }
 
-const HOUR_START = 7;
-const HOUR_END = 19;
-const HOUR_HEIGHT = 52;
-const DAY_LETTERS = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"];
-
 function startOfWeek(d: Date): Date {
   const day = d.getDay() === 0 ? 7 : d.getDay();
   const monday = new Date(d);
@@ -80,7 +77,6 @@ function startOfMonthGrid(d: Date): Date {
 }
 
 function timeToMinutes(t: string): number { const [h, m] = t.split(":").map(Number); return h * 60 + m; }
-function formatHourLabel(h: number): string { return `${String(h).padStart(2, "0")}:00`; }
 
 // "14 – 20 septembre 2026" quand la semaine reste dans le même mois/année,
 // sinon un format explicite des deux bornes ("28 sept. – 4 oct. 2026").
@@ -328,171 +324,44 @@ export function AgendaSection({ instId, onToast }: { instId: string; onToast: (m
   function handleWeekColumnClick(iso: string, e: React.MouseEvent<HTMLDivElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
-    const rawHour = HOUR_START + y / HOUR_HEIGHT;
-    const hour = Math.max(HOUR_START, Math.min(HOUR_END, Math.round(rawHour * 2) / 2));
+    const rawHour = y / AGENDA_HOUR_H;
+    const hour = Math.max(0, Math.min(23.5, Math.round(rawHour * 2) / 2));
     const hh = Math.floor(hour).toString().padStart(2, "0");
     const mm = hour % 1 === 0.5 ? "30" : "00";
     openCreateForm(iso, `${hh}:${mm}`);
   }
 
   const todayIso = toISODate(new Date());
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const nowInHourRange = nowMinutes >= HOUR_START * 60 && nowMinutes <= HOUR_END * 60;
-  const nowTop = ((nowMinutes - HOUR_START * 60) / 60) * HOUR_HEIGHT;
+  const aucunEvenement = !loading && !loadError && evenements.length === 0 && rdvs.length === 0;
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap", gap: "10px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <button onClick={goToday} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "6px 10px", fontSize: "11px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>Aujourd&apos;hui</button>
-          <button onClick={() => navigate(-1)} aria-label="Période précédente" style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "8px", width: "30px", height: "30px", cursor: "pointer", color: C.t2 }}>‹</button>
-          <button onClick={() => navigate(1)} aria-label="Période suivante" style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "8px", width: "30px", height: "30px", cursor: "pointer", color: C.t2 }}>›</button>
-          <span style={{ fontSize: "14px", fontWeight: "800", marginLeft: "4px", textTransform: "capitalize" }}>
-            {view === "mois" ? refDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }) : formatWeekLabel(rangeDays)}
-          </span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ display: "flex", gap: "4px", backgroundColor: C.bg3, borderRadius: "10px", padding: "3px" }}>
-            {(["semaine", "mois"] as const).map(v => (
-              <button key={v} onClick={() => setView(v)} style={{ background: view === v ? C.bgCard : "transparent", border: "none", borderRadius: "8px", padding: "6px 14px", fontSize: "11.5px", fontWeight: "700", color: view === v ? C.gold : C.t2, cursor: "pointer", textTransform: "capitalize" }}>{v}</button>
-            ))}
-          </div>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => openCreateForm(toISODate(new Date()))}>+ Planifier un événement</Button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
-        {[{ l: "RDV", c: C.blue }, { l: "Rappel", c: C.gold }, { l: "Réunion", c: C.purple }, { l: "Bloqué", c: C.red }, { l: "Autre", c: C.teal }].map(item => (
-          <div key={item.l} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-            <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: item.c }}/>
-            <span style={{ fontSize: "10px", color: C.t3, fontWeight: "600" }}>{item.l}</span>
-          </div>
-        ))}
-      </div>
+      <ClockStyles C={C}/>
+      <AgendaStyles C={C}/>
+      <AgendaToolbar C={C} view={view} onView={setView} onToday={goToday} onPrev={() => navigate(-1)} onNext={() => navigate(1)} onNew={() => openCreateForm(toISODate(new Date()))}
+        libelle={view === "mois" ? refDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }) : formatWeekLabel(rangeDays)}/>
 
       {loadError && !loading && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "12.5px", fontWeight: "700", color: C.red }}>Impossible de charger l&apos;agenda.</span>
-          <button onClick={load} style={{ background: "none", border: "none", color: C.red, fontSize: "12px", fontWeight: "800", cursor: "pointer", textDecoration: "underline" }}>Réessayer</button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
+          <span role="alert" style={{ fontSize: "13px", fontWeight: 500, color: C.red }}>Impossible de charger l&apos;agenda.</span>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={load}>Réessayer</Button>
+        </div>
+      )}
+
+      {aucunEvenement && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "12px", padding: "10px 14px", border: `1px solid ${C.border}`, borderRadius: "10px", backgroundColor: C.bgCard2 }}>
+          <span style={{ color: C.t2, fontSize: "13px" }}>Aucun événement {view === "mois" ? "ce mois-ci" : "cette semaine"}.</span>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => openCreateForm(toISODate(new Date()))}>+ Planifier un événement</Button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: "40px", display: "flex", justifyContent: "center" }}>
-          <YelenLoader size={24}/>
-        </div>
+        <div role="status" aria-label="Chargement de l'agenda" className="cix-skel" style={{ height: "calc(100vh - 340px)", minHeight: "420px", borderRadius: "12px" }}/>
       ) : view === "mois" ? (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px", marginBottom: "4px" }}>
-            {DAY_LETTERS.map(d => (
-              <div key={d} style={{ textAlign: "center", fontSize: "9.5px", fontWeight: "800", color: C.t3, padding: "4px 0", letterSpacing: "0.4px" }}>{d}</div>
-            ))}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px" }}>
-            {rangeDays.map(day => {
-              const iso = toISODate(day);
-              const { events, rdv } = itemsForDay(iso);
-              const all = [...rdv.map(r => ({ id: r.id, titre: `RDV · ${r.citoyen_nom}`, color: C.blue })), ...events.map(e => ({ id: e.id, titre: `${typeLabel(e.type)} · ${e.titre}`, color: typeColor(e.type, C) }))];
-              const isToday = iso === todayIso;
-              const inMonth = day.getMonth() === refDate.getMonth();
-              return (
-                <div key={iso} onClick={() => setSelectedDay(iso)} style={{ minHeight: "68px", backgroundColor: isToday ? `${C.gold}0D` : C.bgCard, borderRadius: "10px", border: `1px solid ${isToday ? C.gold + "50" : C.border}`, padding: "5px", cursor: "pointer", opacity: inMonth ? 1 : 0.4 }}>
-                  <div style={{ fontSize: "10.5px", fontWeight: isToday ? "900" : "700", color: isToday ? C.gold : C.t2, marginBottom: "3px" }}>{day.getDate()}</div>
-                  {all.length === 0 ? (
-                    <div style={{ fontSize: "8px", color: C.t3 }}>—</div>
-                  ) : (
-                    <>
-                      {all.slice(0, 2).map(it => (
-                        <div key={it.id} style={{ fontSize: "8.5px", color: "#fff", backgroundColor: it.color, borderRadius: "4px", padding: "1px 4px", marginBottom: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.titre}</div>
-                      ))}
-                      {all.length > 2 && <div style={{ fontSize: "8px", color: C.t3 }}>+{all.length - 2}</div>}
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
+        <AgendaMonthGrid C={C} days={rangeDays} refMonth={refDate.getMonth()} itemsForDay={itemsForDay} todayIso={todayIso} onDay={setSelectedDay}/>
       ) : (
-        <div style={{ display: "flex", overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: "14px", backgroundColor: C.bgCard }}>
-          <div style={{ width: "46px", flexShrink: 0, paddingTop: "26px" }}>
-            {Array.from({ length: HOUR_END - HOUR_START }, (_, i) => (
-              <div key={i} style={{ height: `${HOUR_HEIGHT}px`, fontSize: "9px", color: C.t3, textAlign: "right", paddingRight: "6px", transform: "translateY(-6px)" }}>{formatHourLabel(HOUR_START + i)}</div>
-            ))}
-          </div>
-          {rangeDays.map(day => {
-            const iso = toISODate(day);
-            const { events, rdv } = itemsForDay(iso);
-            const isToday = iso === todayIso;
-            const isEmpty = events.length === 0 && rdv.length === 0;
-            return (
-              <div key={iso} style={{ flex: "1 0 100px", minWidth: "100px", borderLeft: `1px solid ${C.border}`, backgroundColor: isToday ? `${C.gold}08` : undefined }}>
-                <div style={{ height: "26px", textAlign: "center", fontSize: "9.5px", fontWeight: isToday ? "900" : "700", color: isToday ? C.gold : C.t2, letterSpacing: "0.3px" }}>
-                  {DAY_LETTERS[(day.getDay() + 6) % 7]} {day.getDate()}
-                </div>
-                <div onClick={e => handleWeekColumnClick(iso, e)} style={{ position: "relative", height: `${(HOUR_END - HOUR_START) * HOUR_HEIGHT}px`, cursor: "pointer" }}>
-                  {Array.from({ length: HOUR_END - HOUR_START }, (_, i) => (
-                    <div key={i} style={{ position: "absolute", top: `${i * HOUR_HEIGHT}px`, left: 0, right: 0, borderTop: `1px solid ${C.border}` }}/>
-                  ))}
-
-                  {isToday && nowInHourRange && (
-                    <div style={{ position: "absolute", top: `${nowTop}px`, left: 0, right: 0, zIndex: 5, pointerEvents: "none", display: "flex", alignItems: "center" }}>
-                      <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: C.gold, marginLeft: "-3px", flexShrink: 0 }}/>
-                      <div style={{ flex: 1, height: "1.5px", backgroundColor: C.gold }}/>
-                    </div>
-                  )}
-
-                  {isEmpty && !loadError && (
-                    <div style={{ position: "absolute", top: "50%", left: 0, right: 0, transform: "translateY(-50%)", textAlign: "center", pointerEvents: "none" }}>
-                      <div style={{ fontSize: "9.5px", color: C.t3, fontWeight: "600" }}>Aucun événement</div>
-                      {isToday && (
-                        <button onClick={e => { e.stopPropagation(); openCreateForm(iso); }} style={{ pointerEvents: "auto", marginTop: "4px", background: "none", border: "none", color: C.gold, fontSize: "9.5px", fontWeight: "800", cursor: "pointer" }}>+ Planifier</button>
-                      )}
-                    </div>
-                  )}
-
-                  {rdv.map(r => {
-                    const startMin = timeToMinutes(r.heure_rdv) - HOUR_START * 60;
-                    const top = (startMin / 60) * HOUR_HEIGHT;
-                    const height = Math.max(HOUR_HEIGHT * 0.5, 54);
-                    return (
-                      <div key={r.id} role="button" tabIndex={0} onClick={e => { e.stopPropagation(); setRdvDetail(r); }} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setRdvDetail(r); } }} style={{ position: "absolute", top: `${top}px`, left: "3px", right: "3px", height: `${height}px`, backgroundColor: `${C.blue}15`, borderLeft: `3px solid ${C.blue}`, borderRadius: "6px", border: `1px solid ${C.blue}30`, padding: "5px 7px", overflow: "hidden", cursor: "pointer" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" }}>
-                          <span style={{ fontSize: "7.5px", fontWeight: "800", color: C.blue, textTransform: "uppercase", letterSpacing: "0.3px", backgroundColor: `${C.blue}20`, padding: "1px 5px", borderRadius: "4px" }}>RDV</span>
-                          <span style={{ fontSize: "8px", fontWeight: "700", color: C.t2 }}>{r.heure_rdv}</span>
-                        </div>
-                        <div style={{ fontSize: "9.5px", fontWeight: "700", color: C.t1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.objet || "RDV général"}</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "8px", color: C.t3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          <IconUser color={C.t3}/>{r.citoyen_nom}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {events.map(e => {
-                    const startMin = timeToMinutes(e.heure_debut || "09:00") - HOUR_START * 60;
-                    const endMin = e.heure_fin ? timeToMinutes(e.heure_fin) - HOUR_START * 60 : startMin + 30;
-                    const top = (startMin / 60) * HOUR_HEIGHT;
-                    const height = Math.max(((endMin - startMin) / 60) * HOUR_HEIGHT, 54);
-                    const assigne = nomMembre(e.membre_id, membres);
-                    const color = typeColor(e.type, C);
-                    return (
-                      <div key={e.id} role="button" tabIndex={0} onClick={ev => { ev.stopPropagation(); setDetailsEvent(e); }} onKeyDown={ev => { if (ev.key === "Enter" || ev.key === " ") { ev.stopPropagation(); setDetailsEvent(e); } }} style={{ position: "absolute", top: `${top}px`, left: "3px", right: "3px", height: `${height}px`, backgroundColor: `${color}15`, borderLeft: `3px solid ${color}`, borderRadius: "6px", border: `1px solid ${color}30`, padding: "5px 7px", overflow: "hidden", cursor: "pointer" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" }}>
-                          <span style={{ fontSize: "7.5px", fontWeight: "800", color, textTransform: "uppercase", letterSpacing: "0.3px", backgroundColor: `${color}20`, padding: "1px 5px", borderRadius: "4px" }}>{typeLabel(e.type)}</span>
-                          <span style={{ fontSize: "8px", fontWeight: "700", color: C.t2 }}>{e.heure_debut || "—"}{e.heure_fin ? ` – ${e.heure_fin}` : ""}</span>
-                        </div>
-                        <div style={{ fontSize: "9.5px", fontWeight: "700", color: C.t1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.titre}</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "8px", color: C.t3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          <IconUser color={C.t3}/>{assigne || "Non assigné"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <AgendaWeekGrid C={C} days={rangeDays} itemsForDay={itemsForDay} personne={e => nomMembre(e.membre_id, membres)} todayIso={todayIso} now={now}
+          onColumnClick={handleWeekColumnClick} onOpenEvent={setDetailsEvent} onOpenRdv={setRdvDetail} hauteur="calc(100vh - 340px)"/>
       )}
 
       {/* Récapitulatif d'un jour (vue mois) — popup centré PC, plus une
@@ -543,7 +412,7 @@ export function AgendaSection({ instId, onToast }: { instId: string; onToast: (m
         <ConfirmModal
           open onClose={() => setFormStep("form")} onConfirm={handleContinueDespiteConflict} tokens={toUiTokens(C)} level={1}
           title="Cet horaire est déjà occupé"
-          description={`${conflictItem.heure_debut ?? ""}${conflictItem.heure_fin ? ` – ${conflictItem.heure_fin}` : ""} · ${conflictItem.titre}`}
+          description={`${heureAmPm(conflictItem.heure_debut) || conflictItem.heure_debut || ""}${conflictItem.heure_fin ? ` – ${heureAmPm(conflictItem.heure_fin) || conflictItem.heure_fin}` : ""} · ${conflictItem.titre}`}
           confirmLabel="Continuer quand même" cancelLabel="Modifier l'horaire"
         />
       )}
@@ -553,7 +422,7 @@ export function AgendaSection({ instId, onToast }: { instId: string; onToast: (m
         <ConfirmModal
           open onClose={() => setDeleteTarget(null)} onConfirm={confirmDelete} tokens={toUiTokens(C)} level={1} danger
           title="Supprimer cet événement ?"
-          consequences={[`« ${deleteTarget.titre} »`, `${new Date(`${deleteTarget.date}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}${deleteTarget.heure_debut ? ` · ${deleteTarget.heure_debut}` : ""}`]}
+          consequences={[`« ${deleteTarget.titre} »`, `${new Date(`${deleteTarget.date}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}${deleteTarget.heure_debut ? ` · ${heureAmPm(deleteTarget.heure_debut) || deleteTarget.heure_debut}` : ""}`]}
           reversible={false}
           confirmLabel="Supprimer" cancelLabel="Annuler"
         />
@@ -614,7 +483,7 @@ function DayDetailsDialog({ C, date, events, rdv, membres, onClose, onSelectRdv,
             <div style={{ display: "flex", flexDirection: "column", marginBottom: "16px" }}>
               {rdv.map(r => (
                 <div key={r.id} onClick={() => onSelectRdv(r)} style={{ display: "flex", gap: "8px", padding: "8px 0", fontSize: "12.5px", cursor: "pointer", borderBottom: `1px solid ${C.border}` }}>
-                  <span style={{ color: C.blue, fontWeight: "700", width: "42px", flexShrink: 0 }}>{r.heure_rdv}</span>
+                  <span style={{ color: C.blue, fontWeight: "700", width: "68px", flexShrink: 0 }}>{heureAmPm(r.heure_rdv) || r.heure_rdv}</span>
                   <span style={{ color: C.t2 }}>RDV — {r.citoyen_nom} · {r.objet || "RDV général"}</span>
                 </div>
               ))}
@@ -639,78 +508,67 @@ function DayDetailsDialog({ C, date, events, rdv, membres, onClose, onSelectRdv,
   );
 }
 
-function inputStyle(C: ThemeTokens): React.CSSProperties {
-  return { width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "13px", marginBottom: "8px", color: C.t1, boxSizing: "border-box", fontFamily: "inherit" };
-}
-
-function fieldBtnStyle(C: ThemeTokens): React.CSSProperties {
-  return { textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 12px", fontSize: "12px", color: C.t1, cursor: "pointer", fontFamily: "inherit" };
-}
-
 // B — Formulaire de création/édition (EventForm, item 4 : même composant,
-// deux modes, jamais deux formulaires différents). Popovers Date/Heure/
-// Membre rendus en dehors du fond de la boîte de dialogue (fragment séparé)
-// pour qu'un clic dedans ne remonte jamais jusqu'au backdrop et ne ferme
-// jamais le formulaire par erreur.
+// deux modes). Gabarit commun ClockModal : la gestion « modifications non
+// enregistrées » reste celle de la section (ConfirmModal dédié), d'où
+// modifie={false} ici — la fermeture passe par onRequestClose.
 function EventForm({ C, form, onChange, onRequestClose, onSave, saving, membres }: {
   C: ThemeTokens; form: FormState; onChange: (patch: Partial<FormValues>) => void; onRequestClose: () => void;
   onSave: () => void; saving: boolean; membres: Membre[];
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  useDialogA11y(panelRef, true, onRequestClose);
-
-  const dateBtnRef = useRef<HTMLButtonElement>(null);
-  const heureDebutBtnRef = useRef<HTMLButtonElement>(null);
-  const heureFinBtnRef = useRef<HTMLButtonElement>(null);
-  const membreBtnRef = useRef<HTMLButtonElement>(null);
-  const [openPicker, setOpenPicker] = useState<"date" | "hd" | "hf" | "membre" | null>(null);
-
   const v = form.values;
-  const assigneLabel = v.membre_id ? (membres.find(m => m.id === v.membre_id) ? `${membres.find(m => m.id === v.membre_id)!.prenom} ${membres.find(m => m.id === v.membre_id)!.nom}` : "Non assigné") : "Non assigné";
-
+  const ui = toUiTokens(C);
+  const peutEnregistrer = !!v.titre.trim() && !!v.heure_debut;
+  const finAvantDebut = !!v.heure_fin && !!v.heure_debut && v.heure_fin <= v.heure_debut;
+  const manquants = [!v.titre.trim() && "le titre", !v.heure_debut && "l'heure de début"].filter((x): x is string => !!x);
+  const aide = manquants.length > 0 ? `Renseignez ${manquants.join(" et ")}.` : finAvantDebut ? "L'heure de fin doit être après l'heure de début." : undefined;
+  const horloge = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
   return (
-    <>
-      {/* PC-first (retour Bryan 20/09/2026) : Espace de travail est un
-          outil de bureau, jamais un bottom sheet mobile ici — dialogue
-          centré unique, aucune logique responsive. */}
-      <div
-        onClick={() => { if (openPicker) { setOpenPicker(null); return; } onRequestClose(); }}
-        style={{ position: "fixed", inset: 0, zIndex: 300, backgroundColor: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}
-      >
-        <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "24px", width: "100%", maxWidth: "520px", maxHeight: "88vh", overflowY: "auto", border: `1px solid ${C.border2}`, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", outline: "none" }}>
-          <div style={{ fontSize: "15px", fontWeight: "800", marginBottom: "14px" }}>{form.mode === "edit" ? "Modifier l'événement" : "Nouvel événement"}</div>
+    <ClockModal C={C} titre={form.mode === "edit" ? "Modifier l'événement" : "Nouvel événement"} labelId="evenement-modal-titre" largeur={560}
+      onClose={onRequestClose} modifie={false} onSubmit={() => { if (peutEnregistrer && !saving) onSave(); }} aide={aide}
+      actions={
+        <>
+          <Button tokens={ui} className="tap" variant="secondary" size="md" disabled={saving} onClick={onRequestClose}>Annuler</Button>
+          <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!peutEnregistrer} loading={saving} onClick={onSave}>
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </Button>
+        </>
+      }>
+      <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+        <ModalField C={C} id="evenement-titre" label="Titre" requis>
+          <input id="evenement-titre" data-autofocus className="cix-input" value={v.titre} onChange={e => onChange({ titre: e.target.value })} placeholder="ex : Réunion d'équipe" style={champStyle(C)}/>
+        </ModalField>
 
-          <input value={v.titre} onChange={e => onChange({ titre: e.target.value })} placeholder="Titre" style={inputStyle(C)}/>
-          <textarea value={v.description} onChange={e => onChange({ description: e.target.value })} placeholder="Description (optionnel)" rows={2} style={{ ...inputStyle(C), resize: "none" }}/>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-            <select value={v.type} onChange={e => onChange({ type: e.target.value })} style={inputStyle(C)}>
-              {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            <button ref={dateBtnRef} onClick={() => setOpenPicker(p => p === "date" ? null : "date")} style={fieldBtnStyle(C)}>
-              {new Date(`${v.date}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
-            </button>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-            <button ref={heureDebutBtnRef} onClick={() => setOpenPicker(p => p === "hd" ? null : "hd")} style={fieldBtnStyle(C)}>{v.heure_debut || "Heure de début"}</button>
-            <button ref={heureFinBtnRef} onClick={() => setOpenPicker(p => p === "hf" ? null : "hf")} style={fieldBtnStyle(C)}>{v.heure_fin || "Heure de fin (optionnel)"}</button>
-          </div>
-
-          <button ref={membreBtnRef} onClick={() => setOpenPicker(p => p === "membre" ? null : "membre")} style={{ ...fieldBtnStyle(C), width: "100%", marginBottom: "14px" }}>Assigné à — {assigneLabel}</button>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onRequestClose}>Annuler</Button>
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!v.titre.trim() || !v.heure_debut} loading={saving} onClick={onSave}>Enregistrer</Button>
-          </div>
+        <div>
+          <div style={{ color: C.t1, fontSize: "13px", fontWeight: 500, marginBottom: "6px" }}>Type</div>
+          <ScheduleTypeCards C={C} ariaLabel="Type d'événement" minCarte={110} value={v.type} onChange={t => onChange({ type: t })}
+            options={TYPES.map(t => ({ value: t.value, label: t.label, desc: "", couleur: typeColor(t.value, C) }))}/>
         </div>
-      </div>
 
-      <DatePicker open={openPicker === "date"} onClose={() => setOpenPicker(null)} anchorRef={dateBtnRef} tokens={C} value={v.date} onSelect={d => onChange({ date: d })}/>
-      <TimePicker open={openPicker === "hd"} onClose={() => setOpenPicker(null)} anchorRef={heureDebutBtnRef} tokens={C} value={v.heure_debut} onSelect={t => onChange({ heure_debut: t })}/>
-      <TimePicker open={openPicker === "hf"} onClose={() => setOpenPicker(null)} anchorRef={heureFinBtnRef} tokens={C} value={v.heure_fin} onSelect={t => onChange({ heure_fin: t })}/>
-      <MemberPicker open={openPicker === "membre"} onClose={() => setOpenPicker(null)} anchorRef={membreBtnRef} tokens={C} membres={membres} value={v.membre_id || null} onSelect={id => onChange({ membre_id: id || "" })}/>
-    </>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "16px" }}>
+          <ModalField C={C} id="evenement-date" label="Date" requis>
+            <DateField C={C} id="evenement-date" value={v.date} onChange={d => onChange({ date: d })}/>
+          </ModalField>
+          <ModalField C={C} id="evenement-debut" label="Début" requis>
+            <IconInput C={C} id="evenement-debut" type="time" icone={horloge} value={v.heure_debut} onChange={e => onChange({ heure_debut: e.target.value })}/>
+          </ModalField>
+          <ModalField C={C} id="evenement-fin" label="Fin" optionnel erreur={finAvantDebut ? "La fin doit être après le début." : null}>
+            <IconInput C={C} id="evenement-fin" type="time" icone={horloge} value={v.heure_fin} onChange={e => onChange({ heure_fin: e.target.value })}
+              invalide={finAvantDebut} describedBy={finAvantDebut ? "evenement-fin-erreur" : undefined}/>
+          </ModalField>
+        </div>
+
+        <ModalField C={C} id="evenement-membre" label="Assigné à" optionnel>
+          <ComboField C={C} id="evenement-membre" valeur={v.membre_id} onChange={id => onChange({ membre_id: id })} aucunLabel="Non assigné"
+            options={membres.map(m => ({ value: m.id, label: `${m.prenom} ${m.nom}`, avatar: `${m.prenom.slice(0, 1)}${m.nom.slice(0, 1)}`.toUpperCase() }))}/>
+        </ModalField>
+
+        <ModalField C={C} id="evenement-description" label="Description" optionnel>
+          <textarea id="evenement-description" className="cix-input" rows={4} value={v.description} onChange={e => onChange({ description: e.target.value })}
+            style={{ ...champStyle(C), height: "auto", minHeight: "96px", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }}/>
+        </ModalField>
+      </div>
+    </ClockModal>
   );
 }
 
@@ -758,7 +616,7 @@ function RdvDetailModal({ C, rdv, sending, onClose, onEnvoyerRappel }: {
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
           <span style={{ backgroundColor: sc.bg, color: sc.c, fontSize: "10px", fontWeight: "800", padding: "3px 10px", borderRadius: "20px" }}>{sc.l}</span>
-          <span style={{ color: C.t3, fontSize: "12px" }}>{new Date(`${rdv.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} à {rdv.heure_rdv}</span>
+          <span style={{ color: C.t3, fontSize: "12px" }}>{new Date(`${rdv.date_rdv}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} à {heureAmPm(rdv.heure_rdv) || rdv.heure_rdv}</span>
         </div>
 
         <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px", marginBottom: "20px" }}>

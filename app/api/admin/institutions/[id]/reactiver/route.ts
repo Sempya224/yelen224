@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
+import { verifierDocumentsAvantValidation } from '@/lib/validationDocuments'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +13,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const admin = await authorizeAdmin(request, 'institutions.manage')
     const { id } = await params
+
+    // Faille corrigée le 24/10/2026 : suspendre un établissement jamais validé
+    // puis le "réactiver" le faisait passer à 'validee' sans aucun document.
+    // Un compte déjà validé un jour (suspension ordinaire) n'est pas concerné.
+    const verdictDocuments = await verifierDocumentsAvantValidation(supabaseAdmin, id)
+    if (!verdictDocuments.ok) {
+      return NextResponse.json({ error: verdictDocuments.error }, { status: 400 })
+    }
 
     const { error } = await supabaseAdmin
       .from('institutions')

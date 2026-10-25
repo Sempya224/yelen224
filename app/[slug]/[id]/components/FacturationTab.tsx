@@ -32,13 +32,14 @@ import {
   FACTURE_STATUT_META, METHODES_PAIEMENT, METHODE_PAIEMENT_LABELS, estEnRetard, resteAPayer,
   type Facture, type FactureDetail, type FactureStatut, type MethodePaiement,
 } from "@/lib/facturationClients";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 type PaiementSansFacture = { id: string; reference: string; citoyen_nom: string; service_nom: string; montant: number; date_rdv: string };
 type ClientRecherche = { id: string; nom: string; phone: string };
 
 function formatPrix(p: number): string { return Math.round(p).toLocaleString("fr-FR") + " " + DEVISE_LABEL; }
 function formatDate(iso: string | null): string { return iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "—"; }
-function formatDateHeure(iso: string): string { return new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
+function formatDateHeure(iso: string): string { return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + ", " + heureDepuisHorodatage(iso); }
 
 const FILTRES_STATUT: { key: FactureStatut | "toutes" | "en_retard"; label: string }[] = [
   { key: "toutes", label: "Toutes" },

@@ -28,9 +28,12 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { YelenLoader } from "@/components/YelenLoader";
 import { supabase } from "@/lib/supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import { dateHeureComplete, heureAmPm, heureDepuisHorodatage, jourConakry, libelleHeureListe, libelleSeparateurJour } from "@/lib/heure";
 
 type ConvStatut = "ouverte" | "en_attente" | "fermee";
 type RdvInfo = { id: string; service: string | null; date_rdv: string; heure_rdv: string | null; statut: string };
@@ -49,6 +52,8 @@ type MembreLite = { id: string; prenom: string; nom: string };
 type Filtre = "toutes" | "non_lues" | "en_attente" | "terminees";
 
 const P = { pointerEvents: "none" as const };
+// Titre de section du panneau « Client ».
+const titreSection = (C: ThemeTokens): React.CSSProperties => ({ color: C.t3, fontSize: 12, fontWeight: 600, marginBottom: 8, letterSpacing: "0.2px" });
 const Ic = {
   X:       () => <svg style={P} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   // Repris tel quel de CommunicationTab.tsx/MesOffresTab.tsx (Image) et
@@ -101,17 +106,17 @@ function Avatar({ nom, photoUrl, C, size = 44 }: { nom: string | null | undefine
   );
 }
 function formatHeure(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return heureDepuisHorodatage(dateStr);
 }
+// Jours calendaires de Conakry (et non du navigateur), voir lib/heure.ts.
 function estMemeJour(a: string, b: string): boolean {
-  const da = new Date(a), db = new Date(b);
-  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+  return jourConakry(a) === jourConakry(b);
 }
-function formatSeparateurJour(dateStr: string): string {
-  const auj = new Date(); const hier = new Date(); hier.setDate(auj.getDate() - 1);
-  if (estMemeJour(dateStr, auj.toISOString())) return "Aujourd'hui";
-  if (estMemeJour(dateStr, hier.toISOString())) return "Hier";
-  return new Date(dateStr).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+// Messages consécutifs du même auteur, même jour, à moins de 5 min = un seul groupe.
+const DELAI_GROUPE_MS = 5 * 60 * 1000;
+function memeGroupe(a: AnyMsg, b: AnyMsg): boolean {
+  return a.mine === b.mine && estMemeJour(a.cree_le, b.cree_le)
+    && Math.abs(new Date(b.cree_le).getTime() - new Date(a.cree_le).getTime()) <= DELAI_GROUPE_MS;
 }
 function formatApercu(c: { dernier_message: string | null; dernier_message_type: "texte" | "image" | null }): string {
   if (c.dernier_message_type === "image") return "Image";
@@ -119,7 +124,7 @@ function formatApercu(c: { dernier_message: string | null; dernier_message_type:
 }
 function formatDateRdv(dateStr: string, heure: string | null): string {
   const d = new Date(dateStr).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-  return heure ? `${d} · ${heure.slice(0, 5)}` : d;
+  return heure ? `${d} · ${heureAmPm(heure) || heure.slice(0, 5)}` : d;
 }
 function contexteLabel(c: { sujet: string | null; rdv: RdvInfo | null }): string | null {
   if (c.rdv) return `Rendez-vous · ${c.rdv.service ?? "Consultation"}`;
@@ -131,8 +136,10 @@ function statutMeta(s: ConvStatut, C: ThemeTokens): { label: string; color: stri
   return { label: "Terminée", color: C.t3 };
 }
 
-export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfilClient, onVoirRdv, instName, instLogo }: {
+export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfilClient, onVoirRdv, instName, instLogo, onUnreadChange }: {
   onToast: (msg: string, color?: string) => void;
+  // Nombre de conversations non lues, poussé au layout à chaque changement de la liste.
+  onUnreadChange?: (nbConversationsNonLues: number) => void;
   initialCitoyenId?: string | null;
   suspendu?: boolean;
   onVoirProfilClient?: (citoyenId: string) => void;
@@ -144,7 +151,7 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
   const C = T[theme] as ThemeTokens;
 
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [counts, setCounts] = useState({ toutes: 0, non_lues: 0, en_attente: 0, terminees: 0 });
+  const selectedIdRef = useRef<string | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [filtre, setFiltre] = useState<Filtre>("toutes");
@@ -161,7 +168,9 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
   const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const messageInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -171,6 +180,9 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
   const [assignSubmenu, setAssignSubmenu] = useState(false);
   const [membres, setMembres] = useState<MembreLite[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+  // Confirmation avant « Terminer » / « Mettre en attente » (menu ⋯ et Actions
+  // rapides). Pas de motif : la route PATCH ne le prend pas en charge.
+  const [confirmAction, setConfirmAction] = useState<"fermer" | "mettre_en_attente" | null>(null);
 
   // "En train d'écrire…" (retour Bryan 06/09/2026, façon WhatsApp/Messenger)
   // — canal Broadcast Supabase Realtime éphémère, pas de table/RLS
@@ -197,21 +209,27 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
     } catch {}
   }, []);
 
-  const loadConversations = useCallback(async (): Promise<ConversationListItem[]> => {
-    setListLoading(true);
+  // `silencieux` : rafraîchissement automatique (polling, focus, signal temps
+  // réel) — jamais de spinner, jamais de toast, et une réponse en erreur
+  // laisse la liste affichée telle quelle au lieu de la vider.
+  const loadConversations = useCallback(async (silencieux = false): Promise<ConversationListItem[]> => {
+    if (!silencieux) setListLoading(true);
     try {
       const res = await fetch("/api/institution/conversations");
-      if (res.status === 403) { setForbidden(true); setListLoading(false); return []; }
+      if (res.status === 403) { setForbidden(true); return []; }
       const j = await res.json().catch(() => null);
+      if (!res.ok && silencieux) return [];
       const list: ConversationListItem[] = res.ok ? (j?.conversations ?? []) : [];
-      setConversations(list);
-      setCounts(j?.counts ?? { toutes: 0, non_lues: 0, en_attente: 0, terminees: 0 });
+      // La conversation ouverte est déjà lue (le détail la marque lue) : on ne
+      // la laisse pas repasser « non lue » entre deux rafraîchissements.
+      const ouverte = selectedIdRef.current;
+      setConversations(ouverte ? list.map(c => c.id === ouverte ? { ...c, non_lus: 0 } : c) : list);
       return list;
     } catch {
-      onToast("Impossible de charger les conversations.", C.red);
+      if (!silencieux) onToast("Impossible de charger les conversations.", C.red);
       return [];
     } finally {
-      setListLoading(false);
+      if (!silencieux) setListLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -230,7 +248,9 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
       setCitoyenInfo(j.citoyen);
       const msgs: RawMsg[] = j.messages ?? [];
       const unified: AnyMsg[] = msgs.map(m => ({ id: m.id, contenu: m.contenu, image_url: m.image_url, type: m.type ?? "texte", cree_le: m.cree_le, mine: m.emetteur === "institution", lu: m.lu ?? false }));
-      setThread(unified);
+      // Les messages « en cours d'envoi » ne sont pas encore connus du serveur :
+      // on les garde, sinon une relecture pendant l'envoi les ferait disparaître.
+      setThread(prev => [...unified, ...prev.filter(m => m.pending)]);
       resolveImageUrls(unified.filter(m => m.type === "image" && m.image_url).map(m => m.image_url as string));
       setConversations(prev => prev.map(c => c.id === id ? { ...c, non_lus: 0 } : c));
     } catch {
@@ -253,9 +273,30 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
   useEffect(() => {
     if (!selectedId) return;
     const es = new EventSource(`/api/institution/conversations/${selectedId}/stream`);
-    es.addEventListener("changed", () => loadDetail(selectedId, true));
-    const filet = setInterval(() => loadDetail(selectedId, true), 25000);
-    return () => { es.close(); clearInterval(filet); };
+    let connecte = false;
+    es.addEventListener("changed", () => { loadDetail(selectedId, true); loadConversations(true); });
+    // À chaque (re)connexion on relit le fil : un message arrivé pendant une
+    // coupure (la plateforme peut couper une réponse en streaming longue) ne
+    // déclenchera jamais de signal « changed » après coup.
+    es.onopen = () => { connecte = true; loadDetail(selectedId, true); };
+    es.onerror = () => { connecte = false; };
+    // Filet de sécurité : relecture toutes les 5 s tant que le flux n'est pas
+    // connecté (signal manqué ou flux coupé), toutes les 30 s sinon, et au
+    // retour sur la fenêtre. Silencieux, jamais de spinner.
+    let tick = 0;
+    const filet = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      tick += 1;
+      if (!connecte || tick % 6 === 0) loadDetail(selectedId, true);
+    }, 5000);
+    const auRetour = () => { if (document.visibilityState === "visible") loadDetail(selectedId, true); };
+    document.addEventListener("visibilitychange", auRetour);
+    window.addEventListener("focus", auRetour);
+    return () => {
+      es.close(); clearInterval(filet);
+      document.removeEventListener("visibilitychange", auRetour);
+      window.removeEventListener("focus", auRetour);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
@@ -303,16 +344,85 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCitoyenId]);
 
+  // Rafraîchissement automatique de la liste (le fil, lui, est en temps réel) :
+  // toutes les 30 s (même cadence que le layout) tant que l'onglet du navigateur
+  // est visible, et au retour sur la fenêtre.
   useEffect(() => {
+    const rafraichir = () => { if (document.visibilityState === "visible") loadConversations(true); };
+    const interval = setInterval(rafraichir, 30000);
+    document.addEventListener("visibilitychange", rafraichir);
+    window.addEventListener("focus", rafraichir);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", rafraichir);
+      window.removeEventListener("focus", rafraichir);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Badge « Messagerie » de la sidebar : conversations non lues, même définition
+  // que l'en-tête et le chip « Non lues » (un seul calcul, la liste affichée).
+  useEffect(() => {
+    // Pas avant le premier chargement : la liste vide initiale ferait passer le badge à 0.
+    if (listLoading || forbidden) return;
+    onUnreadChange?.(conversations.filter(c => c.non_lus > 0).length);
+  }, [conversations, listLoading, forbidden, onUnreadChange]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
     if (selectedId) loadDetail(selectedId);
     setMenuOpen(false);
     setAssignSubmenu(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
+  // Descente automatique seulement si on est déjà en bas du fil (ou à l'ouverture
+  // d'une conversation) : avec la relecture automatique, forcer le bas à chaque
+  // mise à jour ferait sauter le fil quand on relit l'historique.
+  const procheDuBasRef = useRef(true);
+  useEffect(() => { procheDuBasRef.current = true; }, [selectedId]);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    if (procheDuBasRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [thread, selectedId]);
+
+  // Zone de saisie : s'étend jusqu'à 5 lignes (20 px + 8 px de marge interne
+  // haut/bas), puis défile en interne.
+  useEffect(() => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 108)}px`;
+  }, [messageText, selectedId]);
+
+  // Menu ⋯ : clic extérieur ferme ; au premier affichage le focus passe sur le premier élément.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dehors = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || menuBtnRef.current?.contains(t)) return;
+      setMenuOpen(false);
+      setAssignSubmenu(false);
+    };
+    document.addEventListener("mousedown", dehors);
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    return () => document.removeEventListener("mousedown", dehors);
+  }, [menuOpen]);
+
+  function fermerMenu() {
+    setMenuOpen(false);
+    setAssignSubmenu(false);
+    menuBtnRef.current?.focus();
+  }
+  function onMenuKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); fermerMenu(); return; }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    if (items.length === 0) return;
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    const suivant = e.key === "ArrowDown" ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+    items[suivant].focus();
+  }
 
   useEffect(() => {
     if (!assignSubmenu || membres.length > 0) return;
@@ -375,13 +485,19 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
     // 06/09/2026) — réconcilié avec l'id réel au retour de la route, ou
     // retiré si l'envoi échoue (jamais laissé "en cours" indéfiniment).
     const localId = `local-${Date.now()}`;
+    procheDuBasRef.current = true;
     setThread(prev => [...prev, { id: localId, contenu, image_url: null, type: "texte", cree_le: new Date().toISOString(), mine: true, lu: false, pending: true }]);
     setMessageText("");
     try {
       const res = await fetch(`/api/institution/conversations/${selectedId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contenu }) });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || "Erreur d'envoi.");
-      setThread(prev => prev.map(m => m.id === localId ? { ...m, id: j?.message?.id ?? localId, cree_le: j?.message?.cree_le ?? m.cree_le, pending: false } : m));
+      // Si une relecture a déjà ramené la version serveur de ce message, on retire
+      // la copie locale au lieu de l'afficher en double.
+      const idReel: string | undefined = j?.message?.id;
+      setThread(prev => idReel && prev.some(m => m.id === idReel)
+        ? prev.filter(m => m.id !== localId)
+        : prev.map(m => m.id === localId ? { ...m, id: idReel ?? localId, cree_le: j?.message?.cree_le ?? m.cree_le, pending: false } : m));
       setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, dernier_message: contenu, dernier_message_type: "texte", dernier_message_at: new Date().toISOString() } : c));
     } catch (e) {
       setThread(prev => prev.filter(m => m.id !== localId));
@@ -399,7 +515,7 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || "Action impossible.");
       await loadDetail(selectedId);
-      loadConversations();
+      loadConversations(true);
       setMenuOpen(false);
     } catch (e) {
       onToast(e instanceof Error ? e.message : "Action impossible.", C.red);
@@ -416,7 +532,7 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || "Assignation impossible.");
       await loadDetail(selectedId);
-      loadConversations();
+      loadConversations(true);
       setAssignSubmenu(false);
       setMenuOpen(false);
     } catch (e) {
@@ -438,12 +554,44 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
   const listeVisibleMobile = !selectedId;
   const detailVisibleMobile = dansUnFil;
 
+  // Nom du citoyen de la conversation ouverte : la liste renvoie la chaîne
+  // « Citoyen » (jamais null) quand son profil n'était pas complet au
+  // chargement, alors que le détail porte le vrai nom. On préfère donc le
+  // détail, seulement s'il correspond bien à la conversation ouverte (le
+  // détail précédent reste en mémoire pendant le chargement du suivant).
+  const convOuverte = conversations.find(c => c.id === selectedId);
+  const infoOuverte = citoyenInfo && convOuverte && citoyenInfo.id === convOuverte.citoyen_id ? citoyenInfo : null;
+  const nomDetail = infoOuverte?.nom?.trim();
+  const nomOuvert = nomDetail && nomDetail !== "Citoyen" ? nomDetail : (convOuverte?.citoyen_nom ?? "Citoyen");
+  const photoOuverte = infoOuverte?.photo_url ?? convOuverte?.citoyen_photo_url ?? null;
+  const nomAffiche = (c: ConversationListItem): string => (c.id === selectedId ? nomOuvert : c.citoyen_nom);
+  const maintenant = new Date();
+
+  // Compteurs calculés depuis la liste affichée (mêmes définitions que la route
+  // GET /api/institution/conversations) : ils suivent l'ouverture d'une
+  // conversation et le rafraîchissement automatique.
+  const counts = {
+    toutes: conversations.length,
+    non_lues: conversations.filter(c => c.non_lus > 0).length,
+    en_attente: conversations.filter(c => c.statut === "en_attente").length,
+    terminees: conversations.filter(c => c.statut === "fermee").length,
+  };
+
+  // Fil regroupé par jour de Conakry (une pastille sticky par jour).
+  const groupesJours: { cle: string; libelle: string; messages: AnyMsg[] }[] = [];
+  for (const m of thread) {
+    const cle = jourConakry(m.cree_le);
+    const dernier = groupesJours[groupesJours.length - 1];
+    if (dernier && dernier.cle === cle) dernier.messages.push(m);
+    else groupesJours.push({ cle, libelle: libelleSeparateurJour(m.cree_le, maintenant), messages: [m] });
+  }
+
   const filtered = conversations.filter(c => {
     if (filtre === "non_lues" && c.non_lus === 0) return false;
     if (filtre === "en_attente" && c.statut !== "en_attente") return false;
     if (filtre === "terminees" && c.statut !== "fermee") return false;
     if (recherche.trim()) {
-      const hay = [c.citoyen_nom, c.dernier_message ?? "", c.sujet ?? "", c.rdv?.service ?? ""].join(" ").toLowerCase();
+      const hay = [nomAffiche(c), c.citoyen_nom, c.dernier_message ?? "", c.sujet ?? "", c.rdv?.service ?? ""].join(" ").toLowerCase();
       if (!hay.includes(recherche.trim().toLowerCase())) return false;
     }
     return true;
@@ -477,13 +625,20 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
         .msgv2-pane{display:none;min-height:0}
         .msgv2-pane-on{display:flex}
         .msgv2-client-pane{display:none}
+        .msgv2-row{transition:background-color 140ms ease}
+        .msgv2-row:hover{background-color:${C.bgCard2}}
+        .msgv2-row:focus-visible,.msgv2-chip:focus-visible,.msgv2-menuitem:focus-visible,.msgv2-tap:focus-visible{outline:2px solid ${C.gold};outline-offset:-2px}
+        .msgv2-menuitem:hover{background-color:${C.bgCard2}}
+        .msgv2-compose:focus-visible{outline:none}
+        @media (max-width:859px){.msgv2-touch{min-width:44px;min-height:44px}}
+        @media (prefers-reduced-motion:reduce){.msgv2-row,.msgv2-tap{transition:none!important}}
         @media (min-width:860px){
           .msgv2-pane{display:flex !important}
           .msgv2-body{flex-direction:row !important}
           .msgv2-list-pane{width:300px;flex-shrink:0;border-right:1px solid ${C.border}}
         }
         @media (min-width:1280px){
-          .msgv2-client-pane{display:flex !important;width:300px;flex-shrink:0;border-left:1px solid ${C.border};flex-direction:column;overflow-y:auto}
+          .msgv2-client-pane{display:flex !important;width:300px;flex-shrink:0;border-left:1px solid ${C.border};flex-direction:column;overflow:hidden}
         }
       `}</style>
 
@@ -491,54 +646,71 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
         {/* ── Colonne conversations ── */}
         <div className={`msgv2-pane msgv2-list-pane ${listeVisibleMobile ? "msgv2-pane-on" : ""}`} style={{ flexDirection: "column", overflowY: "auto" }}>
           <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
               <span style={{ color: C.t1, fontSize: 15, fontWeight: 800 }}>Messages</span>
-              <span style={{ color: C.t3, fontSize: 11 }}>{counts.toutes} conversation{counts.toutes > 1 ? "s" : ""} · {counts.non_lues} non lue{counts.non_lues > 1 ? "s" : ""}</span>
+              <HelpCenterGuide tab="messagerie" />
             </div>
+            <div style={{ color: C.t3, fontSize: 12, marginBottom: 10, fontVariantNumeric: "tabular-nums" }}>{counts.toutes} conversation{counts.toutes > 1 ? "s" : ""} · {counts.non_lues} non lue{counts.non_lues > 1 ? "s" : ""}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 7, background: C.bgCard2, borderRadius: 10, padding: "7px 10px", marginBottom: 10 }}>
               <span style={{ color: C.t3, display: "flex" }}>{Ic.Search()}</span>
-              <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher une conversation…" style={{ flex: 1, background: "none", border: "none", outline: "none", color: C.t1, fontSize: 12.5 }}/>
+              <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher une conversation…" aria-label="Rechercher une conversation" style={{ flex: 1, minWidth: 0, background: "none", border: "none", outline: "none", color: C.t1, fontSize: 13 }}/>
             </div>
-            <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
-              {FILTRES.map(f => (
-                <button key={f.key} onClick={() => setFiltre(f.key)} className="msgv2-tap" style={{ flexShrink: 0, background: filtre === f.key ? C.gold : "transparent", color: filtre === f.key ? "#000" : C.t2, border: `1px solid ${filtre === f.key ? C.gold : C.border}`, borderRadius: 8, padding: "5px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                  {f.label} {f.count}
-                </button>
-              ))}
+            <div role="group" aria-label="Filtrer les conversations" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {FILTRES.map(f => {
+                const actif = filtre === f.key;
+                return (
+                  <button key={f.key} type="button" aria-pressed={actif} onClick={() => setFiltre(f.key)} className="msgv2-tap msgv2-chip"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, background: actif ? `${C.gold}1f` : "transparent", color: actif ? C.t1 : C.t2, border: `1px solid ${actif ? C.gold : C.border2}`, borderRadius: 8, padding: "5px 9px", fontSize: 12, fontWeight: actif ? 700 : 600, cursor: "pointer", fontFamily: "inherit" }}>
+                    {actif && <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                    {f.label} <span style={{ color: C.t3, fontVariantNumeric: "tabular-nums" }}>{f.count}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {listLoading ? (
             <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}><YelenLoader size={22}/></div>
           ) : filtered.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "36px 20px", color: C.t3, fontSize: 12.5, lineHeight: 1.6 }}>
-              {conversations.length === 0 ? "Aucune conversation pour l'instant — elles apparaîtront ici dès qu'un client vous écrira ou qu'un rendez-vous sera confirmé." : "Aucune conversation ne correspond à ce filtre."}
+            <div style={{ textAlign: "center", padding: "36px 20px", color: C.t3, fontSize: 13, lineHeight: 1.6 }}>
+              {conversations.length === 0 ? "Aucune conversation pour l'instant — elles apparaîtront ici dès qu'un client vous écrira ou qu'un rendez-vous sera confirmé." : (
+                <>
+                  <div>Aucune conversation pour ce filtre</div>
+                  <div style={{ marginTop: 12, display: "flex", justifyContent: "center" }}>
+                    <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" onClick={() => { setFiltre("toutes"); setRecherche(""); }}>Réinitialiser</Button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
-            <div>
+            <div role="list" aria-label="Conversations">
               {filtered.map(c => {
                 const activeRow = selectedId === c.id;
                 const meta = statutMeta(c.statut, C);
                 const ctx = contexteLabel(c);
+                const nom = nomAffiche(c);
                 return (
-                  <div key={c.id} onClick={() => setSelectedId(c.id)} className="msgv2-tap" style={{ display: "flex", alignItems: "flex-start", gap: 11, padding: "12px 16px", borderLeft: `2px solid ${activeRow ? C.gold : "transparent"}`, background: activeRow ? C.bgCard2 : "transparent", cursor: "pointer" }}>
-                    <Avatar nom={c.citoyen_nom} photoUrl={c.citoyen_photo_url} C={C} size={36}/>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-                          <span style={{ color: C.t1, fontSize: 13, fontWeight: c.non_lus > 0 ? 800 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.citoyen_nom}</span>
-                          {c.citoyen_verifie && <span style={{ color: C.blue, flexShrink: 0, display: "flex" }} title="Identité Yelen vérifiée">{Ic.Shield()}</span>}
+                  <div key={c.id} role="listitem" style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <button type="button" onClick={() => setSelectedId(c.id)} aria-current={activeRow ? "true" : undefined} className="msgv2-tap msgv2-row"
+                      style={{ display: "flex", alignItems: "flex-start", gap: 11, width: "100%", boxSizing: "border-box", minHeight: 72, padding: "12px 16px 12px 14px", border: "none", borderLeft: `2px solid ${activeRow ? C.gold : "transparent"}`, background: activeRow ? C.bgCard2 : "transparent", cursor: "pointer", textAlign: "left", fontFamily: "inherit", color: C.t1 }}>
+                      <Avatar nom={nom} photoUrl={activeRow ? photoOuverte : c.citoyen_photo_url} C={C} size={36}/>
+                      <span style={{ flex: 1, minWidth: 0, display: "block" }}>
+                        <span style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                            <span style={{ color: C.t1, fontSize: 14, fontWeight: c.non_lus > 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nom}</span>
+                            {c.citoyen_verifie && <span style={{ color: C.blue, flexShrink: 0, display: "flex" }} title="Identité Yelen vérifiée">{Ic.Shield()}</span>}
+                          </span>
+                          {c.dernier_message_at && <span title={dateHeureComplete(c.dernier_message_at)} style={{ color: C.t3, fontSize: 12, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{libelleHeureListe(c.dernier_message_at, maintenant)}</span>}
                         </span>
-                        {c.dernier_message_at && <span style={{ color: C.t3, fontSize: 10.5, flexShrink: 0 }}>{formatHeure(c.dernier_message_at)}</span>}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color, flexShrink: 0 }}/>
-                        <span style={{ color: meta.color, fontSize: 10.5, fontWeight: 700, flexShrink: 0 }}>{meta.label}</span>
-                      </div>
-                      <div style={{ color: c.non_lus > 0 ? C.t2 : C.t3, fontSize: 11.5, fontWeight: c.non_lus > 0 ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{formatApercu(c)}</div>
-                      {ctx && <div style={{ color: C.t3, fontSize: 10, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ctx}</div>}
-                    </div>
-                    {c.non_lus > 0 && <span style={{ background: C.red, color: "#fff", fontSize: 10, fontWeight: 800, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px", flexShrink: 0, marginTop: 2 }}>{c.non_lus}</span>}
+                        <span style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2 }}>
+                          <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color, flexShrink: 0 }}/>
+                          <span style={{ color: meta.color, fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{meta.label}</span>
+                        </span>
+                        <span style={{ display: "block", color: c.non_lus > 0 ? C.t1 : C.t3, fontSize: 13, fontWeight: c.non_lus > 0 ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{formatApercu(c)}</span>
+                        {ctx && <span style={{ display: "block", color: C.t3, fontSize: 12, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ctx}</span>}
+                      </span>
+                      {c.non_lus > 0 && <span aria-label={`${c.non_lus} message${c.non_lus > 1 ? "s" : ""} non lu${c.non_lus > 1 ? "s" : ""}`} style={{ background: C.red, color: "#fff", fontSize: 11, fontWeight: 800, minWidth: 18, height: 18, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px", flexShrink: 0, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{c.non_lus}</span>}
+                    </button>
                   </div>
                 );
               })}
@@ -555,27 +727,27 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0, position: "relative" }}>
-                <button onClick={() => setSelectedId(null)} className="msgv2-tap" style={{ background: "none", border: "none", color: C.t2, cursor: "pointer", padding: 0, display: "flex", marginTop: 2 }}>{Ic.Back()}</button>
-                <Avatar nom={conversations.find(c => c.id === selectedId)?.citoyen_nom ?? citoyenInfo?.nom} photoUrl={citoyenInfo?.photo_url} C={C} size={32}/>
+                <button type="button" onClick={() => setSelectedId(null)} aria-label="Retour à la liste des conversations" className="msgv2-tap msgv2-touch" style={{ background: "none", border: "none", color: C.t2, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>{Ic.Back()}</button>
+                <Avatar nom={nomOuvert} photoUrl={photoOuverte} C={C} size={32}/>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                    <span style={{ color: C.t1, fontSize: 13.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {conversations.find(c => c.id === selectedId)?.citoyen_nom ?? citoyenInfo?.nom ?? "…"}
+                    <span style={{ color: C.t1, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {convOuverte || infoOuverte ? nomOuvert : "…"}
                     </span>
                     {citoyenInfo?.identite_verifiee && <span style={{ color: C.blue, display: "flex", flexShrink: 0 }} title="Identité Yelen vérifiée">{Ic.Shield()}</span>}
                   </div>
                   {detail && (
                     <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: statutMeta(detail.statut, C).color }}/>
-                      <span style={{ color: statutMeta(detail.statut, C).color, fontSize: 10.5, fontWeight: 700 }}>{statutMeta(detail.statut, C).label}</span>
-                      {detail.assigned_membre && <span style={{ color: C.t3, fontSize: 10.5 }}>· Assignée à {detail.assigned_membre.nom}</span>}
+                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: statutMeta(detail.statut, C).color }}/>
+                      <span style={{ color: statutMeta(detail.statut, C).color, fontSize: 12, fontWeight: 600 }}>{statutMeta(detail.statut, C).label}</span>
+                      {detail.assigned_membre && <span style={{ color: C.t3, fontSize: 12 }}>· Assignée à {detail.assigned_membre.nom}</span>}
                     </div>
                   )}
                 </div>
                 <div style={{ position: "relative", flexShrink: 0 }}>
-                  <button onClick={() => setMenuOpen(v => !v)} disabled={actionLoading} className="msgv2-tap" style={{ background: "none", border: "none", color: C.t2, cursor: "pointer", padding: 4, display: "flex" }}>{Ic.Dots()}</button>
+                  <button ref={menuBtnRef} type="button" onClick={() => setMenuOpen(v => !v)} disabled={actionLoading} aria-label="Actions de la conversation" aria-haspopup="menu" aria-expanded={menuOpen} className="msgv2-tap msgv2-touch" style={{ background: "none", border: "none", color: C.t2, cursor: "pointer", padding: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>{Ic.Dots()}</button>
                   {menuOpen && (
-                    <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: C.shadow, minWidth: 200, zIndex: 20, overflow: "hidden" }}>
+                    <div ref={menuRef} role="menu" aria-label="Actions de la conversation" onKeyDown={onMenuKeyDown} style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: C.shadow, minWidth: 200, zIndex: 20, overflow: "hidden" }}>
                       {onVoirProfilClient && citoyenInfo && (
                         <MenuItem C={C} label="Voir le profil" onClick={() => { setMenuOpen(false); onVoirProfilClient(citoyenInfo.id); }}/>
                       )}
@@ -593,9 +765,9 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
                           </div>
                         )}
                       </div>
-                      {detail?.statut === "ouverte" && <MenuItem C={C} label="Mettre en attente" onClick={() => doAction("mettre_en_attente")}/>}
+                      {detail?.statut === "ouverte" && <MenuItem C={C} label="Mettre en attente" onClick={() => { setMenuOpen(false); setConfirmAction("mettre_en_attente"); }}/>}
                       {detail?.statut === "en_attente" && <MenuItem C={C} label="Reprendre la conversation" onClick={() => doAction("reprendre")}/>}
-                      {detail?.statut !== "fermee" && <MenuItem C={C} label="Marquer comme terminée" onClick={() => doAction("fermer")}/>}
+                      {detail?.statut !== "fermee" && <MenuItem C={C} label="Marquer comme terminée" onClick={() => { setMenuOpen(false); setConfirmAction("fermer"); }}/>}
                       {detail?.statut === "fermee" && <MenuItem C={C} label="Réouvrir" onClick={() => doAction("reouvrir")}/>}
                     </div>
                   )}
@@ -603,90 +775,95 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
               </div>
 
               {detail?.rdv && (
-                <div className="msgv2-tap" onClick={() => onVoirRdv?.()} style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 16px 0", padding: "10px 12px", background: C.bgCard2, borderRadius: 10, flexShrink: 0 }}>
+                <div className="msgv2-tap" onClick={() => onVoirRdv?.()}
+                  {...(onVoirRdv ? { role: "button", tabIndex: 0, "aria-label": "Voir le rendez-vous", onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onVoirRdv(); } } } : {})}
+                  style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 16px 0", padding: "10px 12px", background: C.bgCard2, borderRadius: 10, flexShrink: 0 }}>
                   <span style={{ color: C.gold, display: "flex" }}>{Ic.Calendar()}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: C.t3, fontSize: 10.5 }}>Rendez-vous · {formatDateRdv(detail.rdv.date_rdv, detail.rdv.heure_rdv)}</div>
-                    <div style={{ color: C.t1, fontSize: 12.5, fontWeight: 700 }}>{detail.rdv.service ?? "Consultation"}</div>
+                    <div style={{ color: C.t3, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>Rendez-vous · {formatDateRdv(detail.rdv.date_rdv, detail.rdv.heure_rdv)}</div>
+                    <div style={{ color: C.t1, fontSize: 13, fontWeight: 700 }}>{detail.rdv.service ?? "Consultation"}</div>
                   </div>
-                  {onVoirRdv && <span style={{ color: C.gold, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>Voir →</span>}
+                  {onVoirRdv && <span style={{ color: C.gold, fontSize: 12, fontWeight: 700, flexShrink: 0 }}>Voir →</span>}
                 </div>
               )}
 
-              <div ref={scrollRef} className="msgv2-thread-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 20px 8px", display: "flex", flexDirection: "column" }}>
+              <div ref={scrollRef} onScroll={e => { const el = e.currentTarget; procheDuBasRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }} role="log" aria-live="polite" aria-label="Messages de la conversation" className="msgv2-thread-scroll" style={{ flex: 1, overflowY: "auto", padding: "0 20px 8px", display: "flex", flexDirection: "column" }}>
                 {threadLoading ? (
                   <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}><YelenLoader size={24}/></div>
                 ) : thread.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "40px 20px", color: C.t3, fontSize: 12.5 }}>
                     Envoyez un premier message.
                   </div>
-                ) : thread.map((m, i) => {
-                  const prev = thread[i - 1];
-                  const showSeparateur = !prev || !estMemeJour(prev.cree_le, m.cree_le);
-                  const url = m.image_url ? imageUrls[m.image_url] : null;
-                  // Avatar affiché seulement au changement d'émetteur (comme
-                  // les inbox modernes) — un espaceur de même largeur garde
-                  // l'alignement des bulles groupées d'un même côté.
-                  const showAvatar = showSeparateur || !prev || prev.mine !== m.mine;
-                  return (
-                    <div key={m.id}>
-                      {showSeparateur && (
-                        <div style={{ textAlign: "center", margin: "16px 0 12px" }}>
-                          <span style={{ color: C.t3, fontSize: 10.5, fontWeight: 700, textTransform: "capitalize" }}>{formatSeparateurJour(m.cree_le)}</span>
-                        </div>
-                      )}
-                      {/* alignItems:flex-start (retour Bryan 06/09/2026) —
-                          l'avatar doit s'aligner sur la ligne du nom en haut
-                          du groupe, pas sur l'horodatage en bas (flex-end
-                          plaçait visuellement l'avatar au niveau de l'heure,
-                          décalage signalé sur "Bonjour"). */}
-                      <div style={{ display: "flex", flexDirection: m.mine ? "row-reverse" : "row", alignItems: "flex-start", gap: 8, marginBottom: 4 }}>
-                        {showAvatar ? (
-                          m.mine
-                            ? <Avatar nom={instName} photoUrl={instLogo} C={C} size={26}/>
-                            : <Avatar nom={citoyenInfo?.nom} photoUrl={citoyenInfo?.photo_url} C={C} size={26}/>
-                        ) : <div style={{ width: 26, flexShrink: 0 }}/>}
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: m.mine ? "flex-end" : "flex-start", marginBottom: 10, minWidth: 0 }}>
-                          {showAvatar && (
-                            <span style={{ color: C.t2, fontSize: 11, fontWeight: 800, margin: "0 2px 3px" }}>
-                              {m.mine ? (instName ?? "Établissement") : (citoyenInfo?.nom ?? conversations.find(c => c.id === selectedId)?.citoyen_nom ?? "Client")}
-                            </span>
-                          )}
-                          <div style={{ maxWidth: "min(74%, 460px)", background: m.mine ? C.bg3 : C.bgCard2, borderRadius: 14, padding: m.type === "image" ? 6 : "9px 13px" }}>
-                            {m.type === "image" && (
-                              url ? (
-                                <Image src={url} alt="" width={800} height={600} onClick={() => setLightbox(url)} className="msgv2-tap" style={{ display: "block", width: "100%", height: "auto", maxWidth: 220, borderRadius: 9, cursor: "pointer" }}/>
-                              ) : (
-                                <div style={{ width: 170, height: 125, borderRadius: 9, background: C.bg3, display: "flex", alignItems: "center", justifyContent: "center" }}><YelenLoader size={20}/></div>
-                              )
-                            )}
-                            {m.contenu && <div style={{ color: C.t1, fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: m.type === "image" ? 6 : 0, padding: m.type === "image" ? "0 4px" : 0 }}>{m.contenu}</div>}
-                          </div>
-                          <span style={{ display: "flex", alignItems: "center", gap: 4, color: C.t3, fontSize: 10, marginTop: 4, padding: "0 2px" }}>
-                            {m.pending ? "En cours d'envoi…" : formatHeure(m.cree_le)}
-                            {m.mine && !m.pending && (
-                              <span style={{ display: "flex", color: m.lu ? C.blue : C.t3 }}>{m.lu ? Ic.CheckDouble() : Ic.Check()}</span>
-                            )}
-                            {m.mine && m.pending && <span style={{ display: "flex" }}>{Ic.Clock()}</span>}
-                          </span>
-                        </div>
-                      </div>
+                ) : groupesJours.map(jour => (
+                  <section key={jour.cle} aria-label={jour.libelle}>
+                    {/* Pastille de date sticky : reste visible en haut du fil
+                        pendant le défilement de son jour, fond opaque. */}
+                    <div style={{ position: "sticky", top: 0, zIndex: 2, display: "flex", justifyContent: "center", padding: "10px 0 8px" }}>
+                      <span style={{ background: C.bgCard2, border: `1px solid ${C.border}`, color: C.t2, fontSize: 12, fontWeight: 600, borderRadius: 12, padding: "2px 10px" }}>{jour.libelle}</span>
                     </div>
-                  );
-                })}
+                    {jour.messages.map((m, i) => {
+                      const prev = jour.messages[i - 1];
+                      const next = jour.messages[i + 1];
+                      const url = m.image_url ? imageUrls[m.image_url] : null;
+                      // Nom et avatar une seule fois par groupe (même auteur, même
+                      // jour, ≤ 5 min) ; un espaceur de même largeur garde
+                      // l'alignement des bulles groupées d'un même côté.
+                      const showAvatar = !prev || !memeGroupe(prev, m);
+                      const finGroupe = !next || !memeGroupe(m, next);
+                      return (
+                        <div key={m.id} style={{ display: "flex", flexDirection: m.mine ? "row-reverse" : "row", alignItems: "flex-start", gap: 8, marginBottom: finGroupe ? 12 : 2 }}>
+                          {showAvatar ? (
+                            m.mine
+                              ? <Avatar nom={instName} photoUrl={instLogo} C={C} size={26}/>
+                              : <Avatar nom={nomOuvert} photoUrl={photoOuverte} C={C} size={26}/>
+                          ) : <div style={{ width: 26, flexShrink: 0 }}/>}
+                          {/* maxWidth sur ce conteneur (largeur de la ligne définie),
+                              jamais sur la bulle : un pourcentage dans un parent
+                              dimensionné par son contenu se calcule sur lui-même et
+                              rétrécissait la bulle sous son texte ("Bonjour" cassé). */}
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: m.mine ? "flex-end" : "flex-start", minWidth: 0, maxWidth: "max(70%, 280px)" }}>
+                            {showAvatar && (
+                              <span style={{ color: C.t2, fontSize: 12, fontWeight: 700, margin: "0 2px 3px" }}>
+                                {m.mine ? (instName ?? "Établissement") : nomOuvert}
+                              </span>
+                            )}
+                            <div style={{ width: "fit-content", maxWidth: "100%", background: m.mine ? C.bg3 : C.bgCard2, borderRadius: 10, padding: m.type === "image" ? 6 : "8px 12px" }}>
+                              {m.type === "image" && (
+                                url ? (
+                                  <Image src={url} alt="" width={800} height={600} onClick={() => setLightbox(url)} className="msgv2-tap" style={{ display: "block", width: 220, maxWidth: "100%", height: "auto", borderRadius: 9, cursor: "pointer" }}/>
+                                ) : (
+                                  <div style={{ width: 170, height: 125, borderRadius: 9, background: C.bg3, display: "flex", alignItems: "center", justifyContent: "center" }}><YelenLoader size={20}/></div>
+                                )
+                              )}
+                              {m.contenu && <div style={{ color: C.t1, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere", marginTop: m.type === "image" ? 6 : 0, padding: m.type === "image" ? "0 4px" : 0 }}>{m.contenu}</div>}
+                            </div>
+                            <span title={m.pending ? undefined : dateHeureComplete(m.cree_le)} style={{ display: "flex", alignItems: "center", gap: 4, color: C.t3, fontSize: 12, marginTop: 3, padding: "0 2px", fontVariantNumeric: "tabular-nums" }}>
+                              {m.pending ? "En cours d'envoi…" : formatHeure(m.cree_le)}
+                              {m.mine && !m.pending && (
+                                <span style={{ display: "flex", color: m.lu ? C.blue : C.t3 }}>{m.lu ? Ic.CheckDouble() : Ic.Check()}</span>
+                              )}
+                              {m.mine && m.pending && <span style={{ display: "flex" }}>{Ic.Clock()}</span>}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </section>
+                ))}
                 {autreEnTrainDecrire && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                    <Avatar nom={citoyenInfo?.nom} photoUrl={citoyenInfo?.photo_url} C={C} size={22}/>
-                    <div style={{ background: C.bgCard2, borderRadius: 14, padding: "8px 13px", color: C.t3, fontSize: 12, fontStyle: "italic" }}>en train d&apos;écrire…</div>
+                    <Avatar nom={nomOuvert} photoUrl={photoOuverte} C={C} size={22}/>
+                    <div style={{ background: C.bgCard2, borderRadius: 10, padding: "8px 12px", color: C.t3, fontSize: 12, fontStyle: "italic" }}>en train d&apos;écrire…</div>
                   </div>
                 )}
               </div>
 
               {fermee ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "12px 16px", flexShrink: 0, color: C.t3 }}>
+                // minHeight proche de celle du composer : pas de saut de mise en page à la réouverture.
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "12px 16px", minHeight: 96, boxSizing: "border-box", flexShrink: 0, color: C.t3 }}>
                   {Ic.Lock()}
-                  <div style={{ fontSize: 11.5 }}>Conversation terminée.</div>
-                  <button onClick={() => doAction("reouvrir")} disabled={actionLoading} className="msgv2-tap" style={{ background: "none", border: "none", color: C.gold, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>Réouvrir</button>
+                  <div style={{ fontSize: 13 }}>Conversation terminée.</div>
+                  <button type="button" onClick={() => doAction("reouvrir")} disabled={actionLoading} className="msgv2-tap msgv2-touch" style={{ background: "none", border: "none", color: C.gold, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Réouvrir</button>
                 </div>
               ) : suspenduBloque ? (
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 16px", flexShrink: 0, color: C.t2 }}>
@@ -720,37 +897,46 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
                       dans le produit, on n'ajoute pas un bouton décoratif. */}
                   <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePickFile} style={{ display: "none" }}/>
                   <div style={{ background: C.bgCard2, borderRadius: 16, padding: "10px 14px 8px" }}>
-                    <input
+                    {/* Entrée envoie, Maj+Entrée = retour à la ligne (jamais pendant
+                        une composition IME) ; s'étend jusqu'à 5 lignes (effet
+                        d'auto-hauteur plus haut), puis défile en interne. */}
+                    <textarea
                       ref={messageInputRef}
+                      rows={1}
                       value={messageText}
+                      aria-label={pendingImageFile ? "Légende de l'image (optionnel)" : "Écrire un message"}
                       onChange={e => { setMessageText(e.target.value); signalerEnTrainDecrire(); }}
-                      onKeyDown={e => { if (e.key === "Enter") handleSend(); }}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } }}
                       placeholder={pendingImageFile ? "Légende (optionnel)…" : "Écrire un message…"}
-                      style={{ width: "100%", background: "none", border: "none", padding: "4px 0 8px", fontSize: 13, color: C.t1, outline: "none" }}
+                      className="msgv2-compose"
+                      style={{ display: "block", width: "100%", boxSizing: "border-box", resize: "none", overflowY: "auto", background: "none", border: "none", padding: "4px 0 8px", fontSize: 14, lineHeight: "20px", color: C.t1, outline: "none", fontFamily: "inherit" }}
                     />
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <button
                         onClick={() => onToast("Envoi de fichiers bientôt disponible.", C.orange)}
                         disabled={sending}
                         title="Joindre un fichier (bientôt disponible)"
-                        className="msgv2-tap"
+                        aria-label="Joindre un fichier (bientôt disponible)"
+                        className="msgv2-tap msgv2-touch"
                         style={{ background: "none", border: "none", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.t3, cursor: "pointer", padding: "6px", opacity: 0.5 }}
                       >{Ic.Paperclip()}</button>
                       <button
                         onClick={() => detail?.rdv ? fileInputRef.current?.click() : onToast("Cette conversation n'est liée à aucun rendez-vous — l'envoi d'image n'est pas encore possible ici.", C.orange)}
                         disabled={sending}
                         title="Joindre une image"
-                        className="msgv2-tap"
+                        aria-label="Joindre une image"
+                        className="msgv2-tap msgv2-touch"
                         style={{ background: "none", border: "none", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: detail?.rdv ? C.t2 : C.t3, cursor: "pointer", padding: "6px", opacity: detail?.rdv ? 1 : 0.5 }}
                       >{Ic.Image2()}</button>
                       <button
                         onClick={() => messageInputRef.current?.focus()}
                         title="Emoji (clavier de votre système)"
-                        className="msgv2-tap"
+                        aria-label="Emoji (clavier de votre système)"
+                        className="msgv2-tap msgv2-touch"
                         style={{ background: "none", border: "none", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.t2, cursor: "pointer", padding: "6px" }}
                       >{Ic.Smile()}</button>
                       <div style={{ flex: 1 }}/>
-                      <button onClick={handleSend} disabled={sending || (!messageText.trim() && !pendingImageFile)} className="msgv2-tap" style={{ display: "flex", alignItems: "center", gap: 6, background: C.gold, color: "#080812", border: "none", borderRadius: 12, padding: "8px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", opacity: sending || (!messageText.trim() && !pendingImageFile) ? 0.5 : 1 }}>
+                      <button onClick={handleSend} disabled={sending || (!messageText.trim() && !pendingImageFile)} className="msgv2-tap msgv2-touch" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: C.gold, color: "#080812", border: "none", borderRadius: 12, padding: "8px 16px", fontSize: 13, fontWeight: 800, cursor: "pointer", opacity: sending || (!messageText.trim() && !pendingImageFile) ? 0.5 : 1 }}>
                         {sending ? <YelenLoader size={13} color="#080812"/> : Ic.Send()} Envoyer
                       </button>
                     </div>
@@ -763,65 +949,91 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
 
         {/* ── Colonne contexte client (≥1280px, voir simplifications en tête de fichier) ── */}
         {dansUnFil && citoyenInfo && detail && (
-          <div className="msgv2-client-pane" style={{ padding: 16 }}>
-            <div style={{ color: C.t1, fontSize: 12.5, fontWeight: 800, marginBottom: 12 }}>Client</div>
-            <div style={{ background: C.bgCard2, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-              <Avatar nom={citoyenInfo.nom} photoUrl={citoyenInfo.photo_url} C={C} size={40}/>
-              <div style={{ height: 10 }}/>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 8 }}>
-                <span style={{ color: C.t1, fontSize: 14, fontWeight: 800 }}>{citoyenInfo.nom}</span>
-                {citoyenInfo.identite_verifiee && <span style={{ color: C.blue, display: "flex" }}>{Ic.Shield()}</span>}
+          <div className="msgv2-client-pane">
+            {/* En-tête fixe ; seul le contenu défile (espacements resserrés pour
+                voir « Actions rapides » à 1280 × 800 sans supprimer de bloc). */}
+            <div style={{ color: C.t1, fontSize: 14, fontWeight: 700, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>Client</div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16 }}>
+            {/* Identité : avatar + nom + badge vérifié, puis coordonnées en lignes
+                (pas de carte grise imbriquée) ; chaque section est séparée par
+                un filet fin, titres de section uniformes. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <Avatar nom={citoyenInfo.nom} photoUrl={citoyenInfo.photo_url} C={C} size={48}/>
+              <div style={{ minWidth: 0 }}>
+                <div title={citoyenInfo.nom} style={{ color: C.t1, fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{citoyenInfo.nom}</div>
+                {citoyenInfo.identite_verifiee && (
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.blueL, color: C.blue, fontSize: 12, fontWeight: 500, padding: "1px 8px", borderRadius: 6, marginTop: 4 }}>
+                    {Ic.Shield()} Identité Yelen vérifiée
+                  </div>
+                )}
               </div>
-              {citoyenInfo.identite_verifiee && (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.blueL, color: C.blue, fontSize: 10.5, fontWeight: 700, padding: "3px 8px", borderRadius: 7, marginBottom: 10 }}>
-                  {Ic.Shield()} Identité Yelen vérifiée
-                </div>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 12, color: C.t2 }}>
-                {citoyenInfo.telephone && <div style={{ display: "flex", alignItems: "center", gap: 7 }}><span style={{ color: C.t3, display: "flex", flexShrink: 0 }}>{Ic.Phone()}</span>{citoyenInfo.telephone}</div>}
-                {citoyenInfo.email && <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}><span style={{ color: C.t3, display: "flex", flexShrink: 0 }}>{Ic.Mail()}</span><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{citoyenInfo.email}</span></div>}
-                {citoyenInfo.ville && <div style={{ display: "flex", alignItems: "center", gap: 7 }}><span style={{ color: C.t3, display: "flex", flexShrink: 0 }}>{Ic.Pin()}</span>{citoyenInfo.ville}</div>}
-              </div>
-              {onVoirProfilClient && (
-                <button onClick={() => onVoirProfilClient(citoyenInfo.id)} className="msgv2-tap" style={{ marginTop: 10, background: "none", border: "none", color: C.gold, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>Voir le profil complet →</button>
-              )}
             </div>
+            {(citoyenInfo.telephone || citoyenInfo.email || citoyenInfo.ville) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, fontSize: 13, color: C.t2 }}>
+                {citoyenInfo.telephone && <div style={{ display: "flex", alignItems: "center", gap: 8, fontVariantNumeric: "tabular-nums" }}><span style={{ color: C.t3, display: "flex", flexShrink: 0 }}>{Ic.Phone()}</span>{citoyenInfo.telephone}</div>}
+                {citoyenInfo.email && <div title={citoyenInfo.email} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><span style={{ color: C.t3, display: "flex", flexShrink: 0 }}>{Ic.Mail()}</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{citoyenInfo.email}</span></div>}
+                {citoyenInfo.ville && <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ color: C.t3, display: "flex", flexShrink: 0 }}>{Ic.Pin()}</span>{citoyenInfo.ville}</div>}
+              </div>
+            )}
 
             {detail.rdv && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.t1, fontSize: 12, fontWeight: 800, marginBottom: 8 }}><span style={{ display: "flex" }}>{Ic.Calendar()}</span>Rendez-vous</div>
-                <div style={{ background: C.bgCard2, borderRadius: 10, padding: 12 }}>
-                  <div style={{ color: C.t3, fontSize: 10.5 }}>{formatDateRdv(detail.rdv.date_rdv, detail.rdv.heure_rdv)}</div>
-                  <div style={{ color: C.t1, fontSize: 12.5, fontWeight: 700, marginTop: 2 }}>{detail.rdv.service ?? "Consultation"}</div>
-                  {onVoirRdv && <button onClick={onVoirRdv} className="msgv2-tap" style={{ marginTop: 8, background: "none", border: "none", color: C.gold, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}>Voir le rendez-vous →</button>}
+              <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 14, paddingTop: 12 }}>
+                <div style={titreSection(C)}>Rendez-vous</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px" }}>
+                  <span style={{ color: C.gold, display: "flex", flexShrink: 0 }}>{Ic.Calendar()}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: C.t1, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detail.rdv.service ?? "Consultation"}</div>
+                    <div style={{ color: C.t2, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{formatDateRdv(detail.rdv.date_rdv, detail.rdv.heure_rdv)}</div>
+                  </div>
                 </div>
               </div>
             )}
 
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ color: C.t1, fontSize: 12, fontWeight: 800, marginBottom: 8 }}>Conversation</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 8 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: statutMeta(detail.statut, C).color }}/>
-                <span style={{ color: statutMeta(detail.statut, C).color, fontSize: 11.5, fontWeight: 700 }}>{statutMeta(detail.statut, C).label}</span>
+            <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 14, paddingTop: 12 }}>
+              <div style={titreSection(C)}>Conversation</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: statutMeta(detail.statut, C).color }}/>
+                <span style={{ color: statutMeta(detail.statut, C).color, fontSize: 13, fontWeight: 600 }}>{statutMeta(detail.statut, C).label}</span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.t3, fontSize: 10.5, marginBottom: 4 }}><span style={{ display: "flex" }}>{Ic.User()}</span>Assignée à</div>
-              <div style={{ color: C.t1, fontSize: 12, fontWeight: 700 }}>{detail.assigned_membre?.nom ?? "Personne"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.t3, fontSize: 12 }}>
+                <span style={{ display: "flex" }}>{Ic.User()}</span>
+                {detail.assigned_membre ? `Assignée à · ${detail.assigned_membre.nom}` : "Non assignée"}
+              </div>
             </div>
 
-            <div>
-              <div style={{ color: C.t1, fontSize: 12, fontWeight: 800, marginBottom: 8 }}>Actions rapides</div>
+            <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 14, paddingTop: 12 }}>
+              <div style={titreSection(C)}>Actions rapides</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {onVoirProfilClient && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.User()} onClick={() => onVoirProfilClient(citoyenInfo.id)}>Voir le profil</Button>}
                 {detail.rdv && onVoirRdv && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.Calendar()} onClick={onVoirRdv}>Voir le RDV</Button>}
-                {detail.statut === "ouverte" && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.Pause()} loading={actionLoading} onClick={() => doAction("mettre_en_attente")}>Mettre en attente</Button>}
+                {detail.statut === "ouverte" && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.Pause()} loading={actionLoading} onClick={() => { setConfirmAction("mettre_en_attente"); }}>Mettre en attente</Button>}
                 {detail.statut === "en_attente" && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.Pause()} loading={actionLoading} onClick={() => doAction("reprendre")}>Reprendre</Button>}
-                {detail.statut !== "fermee" && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.Check()} loading={actionLoading} onClick={() => doAction("fermer")}>Terminer</Button>}
+                {detail.statut !== "fermee" && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.Check()} loading={actionLoading} onClick={() => { setConfirmAction("fermer"); }}>Terminer</Button>}
                 {detail.statut === "fermee" && <Button tokens={toUiTokens(C)} variant="secondary" size="sm" className="tap" fullWidth icon={Ic.Check()} loading={actionLoading} onClick={() => doAction("reouvrir")}>Réouvrir</Button>}
               </div>
+            </div>
             </div>
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={confirmAction !== null}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={async () => {
+          const action = confirmAction;
+          setConfirmAction(null);
+          if (action) await doAction(action);
+        }}
+        tokens={toUiTokens(C)}
+        level={1}
+        title={confirmAction === "fermer" ? `Terminer la conversation avec ${nomOuvert} ?` : `Mettre la conversation avec ${nomOuvert} en attente ?`}
+        description={confirmAction === "fermer"
+          ? "La conversation sera marquée comme terminée et la zone de saisie sera remplacée. Vous pourrez la réouvrir à tout moment."
+          : "La conversation passera en attente. Elle reprendra automatiquement dès votre prochain message, ou via « Reprendre la conversation »."}
+        reversible
+        confirmLabel={confirmAction === "fermer" ? "Terminer" : "Mettre en attente"}
+      />
 
       {lightbox && (
         <div onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -835,7 +1047,7 @@ export function MessagerieTab({ onToast, initialCitoyenId, suspendu, onVoirProfi
 
 function MenuItem({ C, label, onClick, small }: { C: ThemeTokens; label: string; onClick: () => void; small?: boolean }) {
   return (
-    <button onClick={onClick} className="msgv2-tap" style={{ display: "flex", alignItems: "center", width: "100%", textAlign: "left", background: "none", border: "none", padding: small ? "7px 14px 7px 22px" : "9px 14px", color: small ? C.t2 : C.t1, fontSize: small ? 11.5 : 12.5, fontWeight: small ? 500 : 600, cursor: "pointer" }}>
+    <button type="button" role="menuitem" tabIndex={-1} onClick={onClick} className="msgv2-tap msgv2-menuitem" style={{ display: "flex", alignItems: "center", width: "100%", textAlign: "left", background: "none", border: "none", padding: small ? "8px 14px 8px 22px" : "10px 14px", color: small ? C.t2 : C.t1, fontSize: small ? 12.5 : 13, fontWeight: small ? 500 : 600, cursor: "pointer", fontFamily: "inherit" }}>
       {label}
     </button>
   );

@@ -3,10 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can } from "@/lib/institutionPermissions";
 import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
-import { notifierFinPrestation, logRdvEvent } from "@/lib/notificationEngine";
+import { notifierFinPrestation, envoyerNotification, formatDateLongue, formatHeureCourte, salutation, logRdvEvent } from "@/lib/notificationEngine";
 import { accorderPoints } from "@/lib/rewardsEngine";
 import { chargerRestrictionActive, notifierSiEscalade } from "@/lib/rdvRestrictions";
-import { absenceDeclarable, RDV_ABSENT_TROP_TOT_MESSAGE } from "@/lib/rdvGating";
+import { absenceDeclarable, RDV_ABSENT_TROP_TOT_MESSAGE, rdvNonTraite, RDV_NON_TRAITE_ABSENT_INTERDIT_MESSAGE } from "@/lib/rdvGating";
+import { toucherActiviteInstitution } from "@/lib/activiteInstitution";
+import { getBookingAccess, bloqueTraitementExistant, BOOKING_ACCESS_SUSPENDU_MESSAGE } from "@/lib/bookingAccess";
 
 // Sécurise les 4 actions RDV (accepter/refuser/terminer/absent) —
 // auparavant un supabase.from("rdv").update(...) direct depuis le
@@ -27,28 +29,22 @@ const LABEL_PAR_ACTION: Record<Action, string> = {
   absent: "rdv_absent",
 };
 
-// Message humanisé (jamais une erreur Postgres/générique brute) — trouvé en
-// testant en conditions réelles le 15/09/2026 (Bryan) : une institution
-// suspendue (dont via la nouvelle suspension automatique "RDV non
-// traités", voir docs/product/YELEN_RDV_NOSHOW_RESTRICTIONS.md §7)
-// pouvait toujours accepter/refuser/terminer/marquer absent un RDV déjà
-// existant — rien ne vérifiait institutions.statut ici, seul le
-// tab-gating de app/[slug]/[id]/layout.tsx (ALLOWED_TABS_SUSPENDU)
-// limitait l'UI principale, contournable via un raccourci (widget
-// calendrier notamment). "Compte bloqué" doit être un vrai verrou
-// serveur, jamais seulement une restriction de navigation — même
-// principe déjà appliqué partout ailleurs dans ce projet.
-const INSTITUTION_SUSPENDUE_MESSAGE =
-  "Votre établissement est actuellement suspendu — vous ne pouvez plus traiter de rendez-vous tant que cette mesure n'est pas levée. Consultez l'écran « Espace suspendu » pour comprendre pourquoi et, si besoin, demander une révision.";
+// "Compte bloqué" doit être un vrai verrou serveur, jamais seulement une
+// restriction de navigation (trou trouvé en conditions réelles le
+// 15/09/2026 : le tab-gating de app/[slug]/[id]/layout.tsx
+// (ALLOWED_TABS_SUSPENDU) ne couvrait pas un raccourci type widget
+// calendrier). Vérification centralisée depuis le 19/10/2026
+// (Booking Governance Lot 3, docs/product/YELEN_BOOKING_GOVERNANCE.md
+// §13) — ne plus dupliquer un SELECT institutions.statut ici.
 
 export async function PATCH(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   if (!can(membre.role, "rdv.write", membre.accesRestreints)) return NextResponse.json({ error: "Accès non autorisé pour votre rôle" }, { status: 403 });
 
-  const { data: institution } = await sb.from("institutions").select("statut").eq("id", membre.institutionId).maybeSingle();
-  if (institution?.statut === "suspendue") {
-    return NextResponse.json({ error: INSTITUTION_SUSPENDUE_MESSAGE }, { status: 403 });
+  const bookingAccess = await getBookingAccess(sb, membre.institutionId);
+  if (bloqueTraitementExistant(bookingAccess.etat)) {
+    return NextResponse.json({ error: BOOKING_ACCESS_SUSPENDU_MESSAGE }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);
@@ -87,6 +83,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: RDV_ABSENT_TROP_TOT_MESSAGE }, { status: 403 });
   }
 
+  // Un RDV déjà "non traité" (fenêtre de grâce dépassée sans la moindre
+  // décision de l'établissement) ne peut plus être résolu par "absent" —
+  // ce serait imputer au citoyen le retard de traitement de l'établissement
+  // lui-même. Refuser/Annuler reste possible (durcissement demandé par
+  // Bryan 13/10/2026, revient sur l'ancienne absence de borne).
+  if (action === "absent" && rdvNonTraite(rdvAvant.statut, rdvAvant.presence_status, rdvAvant.date_rdv, rdvAvant.heure_rdv)) {
+    return NextResponse.json({ error: RDV_NON_TRAITE_ABSENT_INTERDIT_MESSAGE }, { status: 403 });
+  }
+
   // Motif obligatoire pour "absent" (décision CEO 08/09/2026, revenant sur
   // le choix initial du 05/08/2026 qui l'excluait volontairement — un
   // no-show déclenche désormais une mécanique de restriction citoyen
@@ -104,7 +109,7 @@ export async function PATCH(req: NextRequest) {
       : {
           statut: action,
           ...(action === "en_attente" ? { accepte_le: new Date().toISOString() } : {}),
-          ...(action === "annule" ? { motif_annulation: motif } : {}),
+          ...(action === "annule" ? { motif_annulation: motif, annule_par: "institution" } : {}),
           ...(action === "termine" ? { termine_at: new Date().toISOString(), termine_par: membre.membreId, avis_demande: true } : {}),
         };
 
@@ -115,6 +120,9 @@ export async function PATCH(req: NextRequest) {
 
   const { error } = await sb.from("rdv").update(updates).eq("id", rdvId).eq("institution_id", membre.institutionId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Action métier qualifiante (chantier COMPTES-INACTIFS.md, Phase 3).
+  await toucherActiviteInstitution(sb, membre.institutionId);
 
   // rdv_events (chantier "Détail du rendez-vous" citoyen, 03/09/2026) —
   // avant ce correctif, seules les actions citoyen (annulation/report,
@@ -162,19 +170,43 @@ export async function PATCH(req: NextRequest) {
   // insert dupliqué (citoyen uniquement, texte générique) par le vrai
   // moteur : notifie aussi l'institution (jamais fait avant), avec le texte
   // exact du brief CEO + salutation.
+  const institutionsRel = rdvAvant.institutions as unknown as { name: string } | { name: string }[] | null;
+  const usersRel = rdvAvant.users as unknown as { prenom: string | null; nom: string | null; phone: string | null } | { prenom: string | null; nom: string | null; phone: string | null }[] | null;
+  const instRow = Array.isArray(institutionsRel) ? institutionsRel[0] : institutionsRel;
+  const userRow = Array.isArray(usersRel) ? usersRel[0] : usersRel;
+  const citoyenPrenom = userRow?.prenom || userRow?.nom || "Citoyen";
+  const institutionNom = instRow?.name ?? "l'établissement";
+
   if (action === "termine") {
-    const institutionsRel = rdvAvant.institutions as unknown as { name: string } | { name: string }[] | null;
-    const usersRel = rdvAvant.users as unknown as { prenom: string | null; nom: string | null; phone: string | null } | { prenom: string | null; nom: string | null; phone: string | null }[] | null;
-    const instRow = Array.isArray(institutionsRel) ? institutionsRel[0] : institutionsRel;
-    const userRow = Array.isArray(usersRel) ? usersRel[0] : usersRel;
     await notifierFinPrestation({
       rdvId,
       citoyenId: rdvAvant.citoyen_id,
-      citoyenPrenom: userRow?.prenom || userRow?.nom || "Citoyen",
+      citoyenPrenom,
       institutionId: rdvAvant.institution_id,
-      institutionNom: instRow?.name ?? "l'établissement",
+      institutionNom,
       dateRdv: rdvAvant.date_rdv,
       heureRdv: rdvAvant.heure_rdv,
+    });
+  }
+
+  // Refus/annulation par l'établissement (13/10/2026) — jusqu'ici le
+  // citoyen n'était notifié d'aucune façon (seul le journal interne était
+  // écrit), il n'apprenait jamais que son rendez-vous avait été refusé.
+  // Texte distinct du message système d'annulation pour cause de
+  // suspension (migration 20261013000001) : celui-ci porte le vrai motif
+  // tapé par l'établissement, jamais un motif interne ou générique.
+  if (action === "annule") {
+    // motif n'est pas obligatoire sur cette route (contrairement à
+    // paid-bookings/valider) — la citation ne s'ajoute que si l'établissement
+    // en a réellement saisi un, jamais un "« null »" affiché au citoyen.
+    const motifClause = motif?.trim() ? ` « ${motif.trim()} ».` : "";
+    await envoyerNotification({
+      destinataireId: rdvAvant.citoyen_id,
+      destinataireType: "citoyen",
+      rdvId,
+      type: "rdv_refuse",
+      titre: salutation(citoyenPrenom),
+      message: `Votre rendez-vous du ${formatDateLongue(rdvAvant.date_rdv)} à ${formatHeureCourte(rdvAvant.heure_rdv)} chez ${institutionNom} a été refusé.${motifClause} Vous pouvez réserver un nouveau créneau dès maintenant.`,
     });
   }
 

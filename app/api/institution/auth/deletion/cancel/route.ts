@@ -44,6 +44,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Aucune demande de suppression en cours', code: 'NOT_FOUND' }, { status: 404 })
     }
 
+    await enregistrerAction({
+      institutionId, membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: 'suppression_compte_annulee', cibleTable: 'institution_deletion_requests',
+      cibleId: updated[0].id,
+      details: { role: membre.role },
+      req: request,
+    })
+
     return NextResponse.json({ success: true })
 
   } catch (error) {

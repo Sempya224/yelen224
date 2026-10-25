@@ -28,6 +28,17 @@ type Institution = {
 
 const GOLD = '#F5A623'
 
+// Fond de carte : Mapbox (compte Sempya224) via l'API Static Tiles dans
+// Leaflet, jeton public `pk.` propre à Yelen224 restreint par URL côté
+// Mapbox (jamais partagé avec Youngouser). Sans jeton, repli sur les tuiles
+// OpenStreetMap publiques (dev local seulement — usage intensif interdit par
+// la politique OSM). Mapbox impose le logo ET le texte "© Mapbox © OpenStreetMap"
+// visibles : voir CompactAttribution.
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+const TILE_URL = MAPBOX_TOKEN
+  ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`
+  : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+
 function initiales(name: string): string {
   return name.split(' ').slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('') || '?'
 }
@@ -335,6 +346,25 @@ function CompactAttribution() {
       >
         i
       </button>
+      {/* Crédit court toujours visible (la licence OSM demande une attribution
+          clairement affichée — le "i" seul, replié, n'est pas garanti suffisant) */}
+      <div style={{ position: 'absolute', left: '42px', bottom: '10px', zIndex: 900, height: '26px', display: 'flex', alignItems: 'center', gap: '6px', padding: '0 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.85)', color: '#374151', fontSize: '10px', fontWeight: 600 }}>
+        {MAPBOX_TOKEN && (
+          <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noreferrer" aria-label="Mapbox" style={{ display: 'flex' }}>
+            {/* IMG-EXCEPTION: reason=logo SVG statique local, next/image refuse les SVG sans dangerouslyAllowSVG | reviewed=2026-10-19 */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/mapbox-logo.svg" alt="Mapbox" height={14} style={{ height: '14px', width: 'auto', display: 'block' }} />
+          </a>
+        )}
+        <span>
+          {MAPBOX_TOKEN && (
+            <>
+              <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>© Mapbox</a>{' '}
+            </>
+          )}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>© OpenStreetMap</a>
+        </span>
+      </div>
       {open && (
         <div style={{ position: 'absolute', left: '10px', bottom: '44px', zIndex: 900, background: '#fff', borderRadius: '12px', padding: '10px 12px', boxShadow: '0 6px 20px rgba(0,0,0,0.22)', display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '240px' }}>
           <span style={{ fontSize: '11px', color: '#374151', fontWeight: 600, lineHeight: 1.4 }}>
@@ -342,6 +372,14 @@ function CompactAttribution() {
             <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" style={{ color: GOLD, fontWeight: 800, textDecoration: 'underline' }}>
               contributeurs OpenStreetMap
             </a>
+            {MAPBOX_TOKEN && (
+              <>
+                {' '}· Fond de carte ©{' '}
+                <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noreferrer" style={{ color: GOLD, fontWeight: 800, textDecoration: 'underline' }}>Mapbox</a>
+                {' '}·{' '}
+                <a href="https://www.mapbox.com/map-feedback/" target="_blank" rel="noreferrer" style={{ color: GOLD, fontWeight: 800, textDecoration: 'underline' }}>Améliorer cette carte</a>
+              </>
+            )}
           </span>
           <button onClick={() => setOpen(false)} aria-label="Fermer l'attribution" className="tap" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#9ca3af', flexShrink: 0 }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -393,7 +431,7 @@ export default function CarteMap({ institutions, selectedId = null, onSelect, on
         @keyframes yelenSpin{to{transform:rotate(360deg)}}
       `}</style>
       <MapContainer center={[9.6412, -13.5784]} zoom={12} attributionControl={false} style={{ height: '100%', width: '100%' }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <TileLayer url={TILE_URL} />
         {/* Contour doré Yelen — forme EXACTE de la Guinée (décision CEO
             06/08/2026, mission carte citoyen), tracé depuis le vrai GeoJSON
             officiel (geoBoundaries ADM0, fourni par Bryan) en coordonnées

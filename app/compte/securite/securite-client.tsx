@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
@@ -23,6 +23,29 @@ function Section({ titre, t2, children }: { titre: string; t2: string; children:
       <div style={{ color: t2, fontSize: "12px", fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>{titre}</div>
       {children}
     </section>
+  );
+}
+
+// Confirmation en deux temps, en ligne : un premier clic demande confirmation,
+// un second exécute ; Échap ou « Annuler » abandonne ; le focus passe sur
+// « Confirmer ». Remplace window.confirm (boîte native non stylée). Défini au
+// niveau module (cf. Section ci-dessus : jamais de composant dans un composant).
+function ActionDeuxTemps({ enConfirmation, declencheur, libelleConfirmer, ariaDemande, ariaConfirmer, ariaAnnuler, styleDemande, styleConfirmer, styleAnnuler, styleGroupe, desactive, onDemander, onConfirmer, onAnnuler }: {
+  enConfirmation: boolean; declencheur: React.ReactNode; libelleConfirmer: string;
+  ariaDemande: string; ariaConfirmer: string; ariaAnnuler: string;
+  styleDemande: React.CSSProperties; styleConfirmer: React.CSSProperties; styleAnnuler: React.CSSProperties; styleGroupe?: React.CSSProperties;
+  desactive: boolean; onDemander: () => void; onConfirmer: () => void; onAnnuler: () => void;
+}) {
+  const refConfirmer = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (enConfirmation) refConfirmer.current?.focus(); }, [enConfirmation]);
+  if (!enConfirmation) {
+    return <button type="button" disabled={desactive} className="tap" style={styleDemande} aria-label={ariaDemande} onClick={onDemander}>{declencheur}</button>;
+  }
+  return (
+    <span role="group" aria-label="Confirmation requise" onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); onAnnuler(); } }} style={{ display: "inline-flex", gap: "8px", ...styleGroupe }}>
+      <button ref={refConfirmer} type="button" className="tap" style={styleConfirmer} aria-label={ariaConfirmer} onClick={onConfirmer}>{libelleConfirmer}</button>
+      <button type="button" className="tap" style={styleAnnuler} aria-label={ariaAnnuler} onClick={onAnnuler}>Annuler</button>
+    </span>
   );
 }
 
@@ -78,6 +101,8 @@ export function SecuriteClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // id de l'action en cours (bouton désactivé ciblé)
+  // Action dont la confirmation est attendue (`cred-<id>`, `dev-<id>` ou `dev-all`), une seule à la fois.
+  const [aConfirmer, setAConfirmer] = useState<string | null>(null);
 
   const [pinForm, setPinForm] = useState<"aucun" | "creer" | "supprimer">("aucun");
   const [pin1, setPin1] = useState("");
@@ -146,7 +171,7 @@ export function SecuriteClient() {
   }
 
   async function handleRevoquerCredential(id: string) {
-    if (!window.confirm("Retirer cet appareil biométrique ?")) return;
+    setAConfirmer(null);
     setBusy(`cred-${id}`);
     setError(null);
     const accessToken = await getAccessToken();
@@ -164,7 +189,7 @@ export function SecuriteClient() {
   }
 
   async function handleRevoquerAppareil(id: string) {
-    if (!window.confirm("Déconnecter cet appareil mémorisé ?")) return;
+    setAConfirmer(null);
     setBusy(`dev-${id}`);
     setError(null);
     const accessToken = await getAccessToken();
@@ -181,7 +206,7 @@ export function SecuriteClient() {
   }
 
   async function handleRevoquerTout() {
-    if (!window.confirm("Déconnecter tous les autres appareils mémorisés ?")) return;
+    setAConfirmer(null);
     setBusy("dev-all");
     setError(null);
     const accessToken = await getAccessToken();
@@ -425,9 +450,12 @@ export function SecuriteClient() {
                         <div style={{ color: t1, fontSize: "13px", fontWeight: 600 }}>{c.device_label ?? "Appareil"}</div>
                         <div style={{ color: t3, fontSize: "11.5px" }}>Dernière utilisation : {formatDate(c.last_used_at)}</div>
                       </div>
-                      <button disabled={busy === `cred-${c.id}`} className="tap" style={{ ...btnDanger, opacity: busy === `cred-${c.id}` ? 0.6 : 1, flexShrink: 0 }} onClick={() => handleRevoquerCredential(c.id)}>
-                        <Ic.Trash/>
-                      </button>
+                      <ActionDeuxTemps
+                        enConfirmation={aConfirmer === `cred-${c.id}`} declencheur={<Ic.Trash/>} libelleConfirmer="Confirmer le retrait"
+                        ariaDemande={`Retirer l'appareil biométrique ${c.device_label ?? ""}`.trim()} ariaConfirmer="Confirmer le retrait de cet appareil biométrique" ariaAnnuler="Annuler le retrait"
+                        styleDemande={{ ...btnDanger, opacity: busy === `cred-${c.id}` ? 0.6 : 1, flexShrink: 0 }} styleConfirmer={{ ...btnDanger, flexShrink: 0 }} styleAnnuler={{ ...btnGhost, flexShrink: 0 }} styleGroupe={{ flexShrink: 0 }}
+                        desactive={busy === `cred-${c.id}`}
+                        onDemander={() => setAConfirmer(`cred-${c.id}`)} onConfirmer={() => handleRevoquerCredential(c.id)} onAnnuler={() => setAConfirmer(null)}/>
                     </div>
                   ))}
                 </div>
@@ -526,17 +554,23 @@ export function SecuriteClient() {
                       </div>
                     </div>
                     {!d.is_current_device && (
-                      <button disabled={busy === `dev-${d.id}`} className="tap" style={{ ...btnDanger, opacity: busy === `dev-${d.id}` ? 0.6 : 1, flexShrink: 0 }} onClick={() => handleRevoquerAppareil(d.id)}>
-                        <Ic.Trash/>
-                      </button>
+                      <ActionDeuxTemps
+                        enConfirmation={aConfirmer === `dev-${d.id}`} declencheur={<Ic.Trash/>} libelleConfirmer="Confirmer la déconnexion"
+                        ariaDemande="Déconnecter cet appareil mémorisé" ariaConfirmer="Confirmer la déconnexion de cet appareil" ariaAnnuler="Annuler la déconnexion"
+                        styleDemande={{ ...btnDanger, opacity: busy === `dev-${d.id}` ? 0.6 : 1, flexShrink: 0 }} styleConfirmer={{ ...btnDanger, flexShrink: 0 }} styleAnnuler={{ ...btnGhost, flexShrink: 0 }} styleGroupe={{ flexShrink: 0 }}
+                        desactive={busy === `dev-${d.id}`}
+                        onDemander={() => setAConfirmer(`dev-${d.id}`)} onConfirmer={() => handleRevoquerAppareil(d.id)} onAnnuler={() => setAConfirmer(null)}/>
                     )}
                   </div>
                 ))}
               </div>
               {statut.remember_devices.length > 1 && (
-                <button disabled={busy === "dev-all"} className="tap" style={{ ...btnGhost, width: "100%", marginTop: "12px", opacity: busy === "dev-all" ? 0.6 : 1 }} onClick={handleRevoquerTout}>
-                  {busy === "dev-all" ? "Déconnexion…" : "Déconnecter tous les autres appareils"}
-                </button>
+                <ActionDeuxTemps
+                  enConfirmation={aConfirmer === "dev-all"} declencheur={busy === "dev-all" ? "Déconnexion…" : "Déconnecter tous les autres appareils"} libelleConfirmer="Confirmer la déconnexion"
+                  ariaDemande="Déconnecter tous les autres appareils mémorisés" ariaConfirmer="Confirmer la déconnexion de tous les autres appareils" ariaAnnuler="Annuler la déconnexion"
+                  styleDemande={{ ...btnGhost, width: "100%", marginTop: "12px", opacity: busy === "dev-all" ? 0.6 : 1 }} styleConfirmer={{ ...btnDanger, flex: 1 }} styleAnnuler={{ ...btnGhost, flex: 1 }} styleGroupe={{ display: "flex", width: "100%", marginTop: "12px" }}
+                  desactive={busy === "dev-all"}
+                  onDemander={() => setAConfirmer("dev-all")} onConfirmer={handleRevoquerTout} onAnnuler={() => setAConfirmer(null)}/>
               )}
             </Section>
 

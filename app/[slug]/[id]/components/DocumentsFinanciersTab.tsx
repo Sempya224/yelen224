@@ -32,6 +32,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CATEGORIES_DOCUMENT_TRAVAIL, CATEGORIES_FINANCIERES, type CategorieDocumentTravail } from "@/lib/documentsTravail";
 import { YelenLoader } from "@/components/YelenLoader";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 type DocumentFinancier = {
   id: string; nom: string; description: string | null; categorie: CategorieDocumentTravail;
@@ -63,7 +64,7 @@ function formatTaille(o: number): string {
   return `${(o / (1024 * 1024)).toFixed(1)} Mo`;
 }
 function formatDate(iso: string): string { return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }); }
-function formatDateHeure(iso: string): string { return formatDate(iso) + " à " + new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+function formatDateHeure(iso: string): string { return formatDate(iso) + " à " + heureDepuisHorodatage(iso); }
 function refCourte(id: string): string { return "DOC-" + id.replace(/-/g, "").slice(0, 8).toUpperCase(); }
 function nomMembre(membreId: string, membres: Membre[]): string {
   const m = membres.find(m => m.id === membreId);

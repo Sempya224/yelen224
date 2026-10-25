@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 type Transaction = {
   id: string; reference: string; type_transaction: string; montant: number; motif: string | null;
@@ -29,9 +30,9 @@ type Stats = {
 
 function formatPrix(p: number): string { return Math.round(p).toLocaleString("fr-FR") + " " + DEVISE_LABEL; }
 function formatDateHeure(iso: string): string {
-  return new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + ", " + heureDepuisHorodatage(iso);
 }
-function formatHeure(iso: string): string { return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+function formatHeure(iso: string): string { return heureDepuisHorodatage(iso); }
 
 const TYPE_LABEL: Record<string, { label: string; color: (C: ThemeTokens) => string }> = {
   encaissement: { label: "Encaissement", color: C => C.green },
@@ -129,6 +130,8 @@ export function TransactionsTab({ instId }: { instId: string }) {
   const [search, setSearch] = useState("");
   const [detailOuvert, setDetailOuvert] = useState<Transaction | null>(null);
   const [exportEnCours, setExportEnCours] = useState<Format | null>(null);
+  // Résultat du dernier export : référence et début d'empreinte, ou message d'erreur.
+  const [messageExport, setMessageExport] = useState<{ ok: boolean; texte: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -191,15 +194,34 @@ export function TransactionsTab({ instId }: { instId: string }) {
       const d = new Date(); d.setDate(d.getDate() - periode.jours); d.setHours(0, 0, 0, 0);
       params.set("depuis", d.toISOString());
     }
-    const res = await fetch(`/api/institution/transactions/export?${params.toString()}`);
-    setExportEnCours(null);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `transactions_${new Date().toISOString().slice(0, 10)}.${format}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setMessageExport(null);
+    try {
+      const res = await fetch(`/api/institution/transactions/export?${params.toString()}`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setMessageExport({ ok: false, texte: typeof j?.error === "string" ? j.error : "L'export a échoué. Réessayez." });
+        return;
+      }
+      // Nom du fichier (référence incluse) fourni par le serveur.
+      const filename = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || `transactions.${format}`;
+      const reference = res.headers.get("X-Export-Reference");
+      const empreinte = res.headers.get("X-Empreinte-Sha256");
+      const tronque = res.headers.get("X-Export-Tronque") === "true";
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMessageExport({
+        ok: true,
+        texte: `Export ${reference ?? ""} généré${empreinte ? ` — empreinte SHA-256 : ${empreinte.slice(0, 16)}…` : ""}${tronque ? " (résultat limité aux transactions les plus récentes : affinez les filtres pour un extrait complet)" : ""}`.replace("  ", " "),
+      });
+    } catch {
+      setMessageExport({ ok: false, texte: "Erreur réseau lors de l'export. Réessayez." });
+    } finally {
+      setExportEnCours(null);
+    }
   }
 
   return (
@@ -276,6 +298,9 @@ export function TransactionsTab({ instId }: { instId: string }) {
             onClick={() => exporter(f)}>Exporter {f.toUpperCase()}</Button>
         ))}
       </div>
+      {messageExport && (
+        <div role={messageExport.ok ? "status" : "alert"} style={{ color: messageExport.ok ? C.t2 : C.red, fontSize: "12.5px", lineHeight: 1.5, margin: "-6px 0 16px" }}>{messageExport.texte}</div>
+      )}
 
       <div style={{ display: "flex", gap: "7px", marginBottom: "16px", overflowX: "auto" }}>
         {["tous", "encaissement", "remboursement", "correction", "annulation", "ajustement"].map(t => (

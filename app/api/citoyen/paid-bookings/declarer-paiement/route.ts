@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifierCitoyenToken } from "@/lib/citoyenAuth";
+import { calculerMontantReservation } from "@/lib/montantReservation";
+import { reponseErreurServeur } from "@/lib/erreursApi";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,11 +44,11 @@ export async function POST(request: NextRequest) {
 
     const { data: booking, error: bkErr } = await supabaseAdmin
       .from("paid_bookings")
-      .select("id,statut,montant_paye,declare_le,paid_services(prix)")
+      .select("id,statut,montant_paye,montant_total_reserve,declare_le,date_rdv,date_depart,paid_services(prix)")
       .eq("id", paidBookingId)
       .eq("citoyen_id", citoyenId)
       .maybeSingle();
-    if (bkErr) return NextResponse.json({ error: bkErr.message }, { status: 500 });
+    if (bkErr) return reponseErreurServeur("declarer-paiement lecture réservation", bkErr);
     if (!booking) return NextResponse.json({ error: "Réservation introuvable" }, { status: 404 });
     if (booking.statut !== "en_attente") {
       return NextResponse.json({ error: "Ce paiement a déjà été traité par l'institution.", code: "STATUT_INVALIDE" }, { status: 409 });
@@ -56,8 +58,25 @@ export async function POST(request: NextRequest) {
     }
 
     const prixService = (booking.paid_services as unknown as { prix: number } | null)?.prix ?? null;
-    const montant = booking.montant_paye ?? prixService;
-    if (montant == null) return NextResponse.json({ error: "Montant du service introuvable — impossible de déclarer ce paiement." }, { status: 400 });
+    // Lot 1a : séjour hôtel = prix × nuits (calculerMontantReservation).
+    // Appliqué UNIQUEMENT au calcul initial (montant_paye encore vide) :
+    // un montant_paye déjà figé est repris tel quel, jamais recalculé.
+    // Priorité : montant_paye, puis le montant figé à la RÉSERVATION
+    // (montant_total_reserve, migration 20261025000001 — insensible à un
+    // changement de prix du service depuis), puis seulement le calcul au prix
+    // actuel (réservations antérieures à la migration, services gratuits).
+    let montant: number | null = booking.montant_paye ?? booking.montant_total_reserve ?? null;
+    if (montant == null) {
+      if (prixService == null) {
+        return NextResponse.json({ error: "Montant du service introuvable — impossible de déclarer ce paiement.", code: "MONTANT_INTROUVABLE" }, { status: 400 });
+      }
+      const calcul = calculerMontantReservation({ prix: prixService, dateRdv: booking.date_rdv, dateDepart: booking.date_depart });
+      if (!calcul.ok) {
+        console.error("[declarer-paiement] calcul du montant impossible:", calcul.code, JSON.stringify({ paid_booking_id: paidBookingId }));
+        return NextResponse.json({ error: "Les dates du séjour sont invalides — impossible de calculer le montant. Contactez l'établissement.", code: calcul.code }, { status: 409 });
+      }
+      montant = calcul.montant;
+    }
 
     const declareLe = new Date().toISOString();
     const { error: upErr } = await supabaseAdmin
@@ -68,7 +87,7 @@ export async function POST(request: NextRequest) {
         declare_le: declareLe,
       })
       .eq("id", paidBookingId);
-    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+    if (upErr) return reponseErreurServeur("declarer-paiement mise à jour", upErr);
 
     return NextResponse.json({ success: true, montant, declare_le: declareLe });
   } catch (error) {

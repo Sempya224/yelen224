@@ -7,34 +7,28 @@
 // requis sont dérivés automatiquement de statut_juridique (déjà collecté à
 // l'onboarding) — jamais de re-choix de profil. Renvoi possible uniquement
 // si le document est en 'complement_demande' ou 'rejete'.
+//
+// Refonte visuelle 24/10/2026 (frontend uniquement) : toute la présentation
+// vit dans DocumentsUi.tsx ; ici ne restent que l'état, les appels API et le
+// choix de l'écran selon le statut du compte et des documents.
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toCardTokens } from "../theme";
 import { Card } from "@/components/ui/Card";
-import { YelenLoader } from "@/components/YelenLoader";
+import { dateHeureComplete } from "@/lib/heure";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import { RemerciementYelen } from "./RemerciementYelen";
+import {
+  BanniereEtat, DecisionsVerification, DocumentCarte, DocumentLigneValidee, DocumentsStyles, EnteteDocuments,
+  ErreurDocuments, GuideStatutsDocuments, IllustrationExamen, LogoEtablissementVerifie, NoteConfidentialite, ParcoursVerification, ProgressionDocuments, SqueletteDocuments,
+  type DocumentsResponse,
+} from "./DocumentsUi";
 
-type DocStatut = "recu" | "valide" | "complement_demande" | "rejete" | null;
-
-type DocumentItem = {
-  type: string;
-  label: string;
-  description: string;
-  formats: string;
-  obligatoire: boolean;
-  statut: DocStatut;
-  motif_rejet: string | null;
-  soumis_le: string | null;
-};
-
-type DocumentsResponse = {
-  institution_statut: string;
-  statut_juridique: string | null;
-  documents: DocumentItem[];
-};
-
-const RECU_VERS_EN_EXAMEN_MS = 24 * 60 * 60 * 1000;
-
-export function DocumentsTab({ instId, onToast, access = "full" }: { instId: string; onToast: (msg: string, color?: string) => void; access?: "full" | "read" }) {
+export function DocumentsTab({ instId, onToast, access = "full", instName, instLogo, badgeVerifie = false, onNavigate }: {
+  instId: string; onToast: (msg: string, color?: string) => void; access?: "full" | "read";
+  instName?: string | null; instLogo?: string | null; badgeVerifie?: boolean;
+  onNavigate?: (onglet: "disponibilites" | "services" | "codeqr" | "communaute-pro" | "profil-entreprise") => void;
+}) {
   const readOnly = access === "read";
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
@@ -43,39 +37,79 @@ export function DocumentsTab({ instId, onToast, access = "full" }: { instId: str
   const [uploadingType, setUploadingType] = useState<string | null>(null);
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const load = async () => {
-    const res = await fetch("/api/institution/documents");
-    const j = res.ok ? await res.json().catch(() => null) : null;
-    setData(j);
-    setLoading(false);
+  // Erreur technique (réseau, HTTP non OK, corps illisible) distincte du
+  // "Profil incomplet" : ce dernier ne s'affiche que si la donnée est bien
+  // reçue ET que statut_juridique est réellement vide.
+  const [erreur, setErreur] = useState(false);
+  const [relance, setRelance] = useState(false);
+
+  // `silencieux` : rafraîchissement périodique — un échec ponctuel ne remplace
+  // jamais l'écran déjà affiché par l'écran d'erreur.
+  const load = async (silencieux = false) => {
+    try {
+      const res = await fetch("/api/institution/documents");
+      const j: DocumentsResponse | null = res.ok ? await res.json().catch(() => null) : null;
+      if (j) { setData(j); setErreur(false); } else if (!silencieux) setErreur(true);
+    } catch {
+      if (!silencieux) setErreur(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reessayer = async () => {
+    setRelance(true);
+    await load();
+    setRelance(false);
   };
 
   useEffect(() => {
     load();
   }, [instId]);
 
+  // L'onglet reste monté (KeepMounted) : sans rafraîchissement, une décision
+  // de l'équipe Yelen n'apparaîtrait qu'au rechargement de la page. Tant que le
+  // compte n'est pas validé, on relit toutes les 30 s (même cadence que le
+  // chargement de l'établissement dans le dashboard).
+  const statutCompte = data?.institution_statut;
+  useEffect(() => {
+    if (!statutCompte || statutCompte === "validee") return;
+    const interval = setInterval(() => { if (!document.hidden) load(true); }, 30000);
+    return () => clearInterval(interval);
+  }, [statutCompte, instId]);
+
   const handleFile = async (type: string, file: File) => {
     setUploadingType(type);
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("type", type);
-    const res = await fetch("/api/institution/documents", { method: "POST", body: fd });
-    const j = await res.json().catch(() => null);
-    setUploadingType(null);
-    if (!res.ok) { onToast(j?.error || "Échec de l'envoi du document.", C.red); return; }
-    onToast("Document envoyé — en attente d'examen.", C.green);
-    load();
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("type", type);
+      const res = await fetch("/api/institution/documents", { method: "POST", body: fd });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) { onToast(j?.error || "Échec de l'envoi du document.", C.red); return; }
+      onToast("Document envoyé — en attente d'examen.", C.green);
+      load();
+    } catch {
+      onToast("Échec de l'envoi du document. Vérifiez votre connexion.", C.red);
+    } finally {
+      setUploadingType(null);
+    }
   };
 
   if (loading) {
     return (
-      <div style={{ padding: "48px 16px", display: "flex", justifyContent: "center" }}>
-        <YelenLoader size={28}/>
+      <div className="dc-page" style={{ padding: "16px", paddingBottom: "100px" }}>
+        <DocumentsStyles C={C}/>
+        <SqueletteDocuments/>
       </div>
     );
   }
 
-  if (!data || !data.statut_juridique) {
+  if (erreur || !data) {
+    return <ErreurDocuments C={C} relance={relance} onRetry={reessayer}/>;
+  }
+
+  if (!data.statut_juridique) {
     return (
       <div style={{ padding: "48px 16px", textAlign: "center" }}>
         <p style={{ color: C.t2, fontSize: "13px" }}>Profil incomplet — le statut juridique de l&apos;établissement n&apos;a pas encore été renseigné.</p>
@@ -83,182 +117,87 @@ export function DocumentsTab({ instId, onToast, access = "full" }: { instId: str
     );
   }
 
-  // ── Compte validé : écran figé, jamais les fichiers, juste les types validés ──
-  if (data.institution_statut === "validee") {
-    return (
-      <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-        <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-          <div style={{ textAlign: "center", padding: "32px 16px" }}>
-            <div style={{ width: "56px", height: "56px", borderRadius: "50%", backgroundColor: C.greenL, border: `1.5px solid ${C.green}40`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-              <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><path d="M6 13.5L11 18.5L20 8" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </div>
-            <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", marginBottom: "8px" }}>Vos documents ont été validés</h1>
-            <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, maxWidth: "420px", margin: "0 auto" }}>
-              Votre établissement est vérifié auprès de Yelen224. Voici les documents retenus pour cette validation.
-            </p>
-          </div>
-          <Card tokens={toCardTokens(C)} noPadding>
-            {data.documents.map((d) => (
-              <div key={d.type} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
-                <div style={{ width: "26px", height: "26px", borderRadius: "50%", backgroundColor: C.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke={C.green} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </div>
-                <span style={{ color: C.t1, fontSize: "13px", fontWeight: "600" }}>{d.label}</span>
-              </div>
-            ))}
-          </Card>
-        </div>
-      </div>
+  const compteValide = data.institution_statut === "validee";
+  const compteBloque = data.institution_statut === "refusee" || data.institution_statut === "suspendue";
+  const total = data.documents.length;
+  const soumis = data.documents.filter((d) => d.statut === "recu" || d.statut === "valide").length;
+  const depotComplet = total > 0 && soumis === total;
+  // Date du dépôt le plus récent parmi les versions actives (ISO : comparable
+  // telle quelle), null si rien n'a jamais été déposé.
+  const dernierDepot = data.documents.reduce<string | null>((max, d) => (d.soumis_le && (!max || d.soumis_le > max) ? d.soumis_le : max), null);
+
+  const sousTitre = compteValide
+    ? "Voici les documents retenus pour la validation de votre établissement."
+    : "Ces documents permettent à Yelen224 de vérifier l'existence légale de votre établissement.";
+
+  // Bannière d'état en tête de la colonne principale, selon le compte puis le
+  // dépôt (même hiérarchie qu'avant : refusé/suspendu d'abord, jamais l'écran
+  // "Merci" quand rien n'est réellement en cours d'examen).
+  let banniere: React.ReactNode = null;
+  if (compteValide) {
+    banniere = <BanniereEtat C={C} ton="succes" illustration={<LogoEtablissementVerifie C={C} nom={instName} logo={instLogo}/>} titre="Vos documents ont été validés" texte={`Votre établissement est vérifié auprès de Yelen224${data.validee_le ? ` depuis le ${dateHeureComplete(data.validee_le)}` : ""}.`}/>;
+  } else if (compteBloque) {
+    const refuse = data.institution_statut === "refusee";
+    // Aucun motif inventé : le motif d'un refus est communiqué par notification
+    // (voir refuser/route.ts), le texte renvoie donc vers elle et le support.
+    banniere = (
+      <BanniereEtat C={C} ton="alerte" role="alert"
+        titre={refuse ? "Votre dossier a été refusé" : "Votre espace est suspendu"}
+        texte={refuse
+          ? "Le motif vous a été communiqué par notification. Vous pouvez renvoyer un document uniquement lorsqu'un renvoi vous est demandé ci-dessous."
+          : "Votre établissement n'est plus visible des citoyens pendant la suspension. Contactez le support pour connaître la suite à donner."}
+        action={<a href="mailto:support@yelen224.com" className="yelen-focus-ring" style={{ color: C.t1, fontSize: 13, fontWeight: 600, textDecoration: "underline" }}>Contacter le support</a>}/>
+    );
+  } else if (depotComplet) {
+    banniere = (
+      <BanniereEtat C={C} ton="attente" role="status" illustration={<IllustrationExamen C={C}/>}
+        titre="Merci, vos documents sont bien reçus"
+        texte="Merci de l'intérêt que vous portez à Yelen et de votre patience — notre équipe vérifie actuellement ces documents. Vous serez averti par notification dès que l'examen sera terminé, aucune action supplémentaire n'est nécessaire de votre part."/>
     );
   }
 
-  // ── Tous les documents requis soumis, institution pas encore validée :
-  // écran dédié "merci, en attente d'examen" (retour Bryan 14/08/2026 :
-  // "le statut et la vue et contenu de l'écran doit changer complètement
-  // si documents soumis") — jamais laisser affiché le formulaire d'envoi
-  // une fois qu'il n'y a plus rien à envoyer. Illustration dupliquée
-  // volontairement depuis CentreConfigurationTab.tsx (même retour, même
-  // état "en attente de vérification") : simple SVG décoratif, pas de
-  // logique à factoriser en composant partagé.
-  const allSubmitted = data.documents.length > 0 && data.documents.every((d) => d.statut === "recu" || d.statut === "valide");
-  if (allSubmitted) {
-    return (
-      <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-        <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-          <div style={{ textAlign: "center", padding: "32px 16px" }}>
-            <svg width="88" height="88" viewBox="0 0 96 96" fill="none" style={{ margin: "0 auto 16px" }}>
-              <rect x="24" y="14" width="40" height="52" rx="4" fill="none" stroke={C.t2} strokeWidth="2" />
-              <line x1="32" y1="28" x2="56" y2="28" stroke={C.t3} strokeWidth="2" strokeLinecap="round" />
-              <line x1="32" y1="36" x2="56" y2="36" stroke={C.t3} strokeWidth="2" strokeLinecap="round" />
-              <line x1="32" y1="44" x2="48" y2="44" stroke={C.t3} strokeWidth="2" strokeLinecap="round" />
-              {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
-                <line key={a}
-                  x1={66 + 18 * Math.cos((a * Math.PI) / 180)} y1={58 + 18 * Math.sin((a * Math.PI) / 180)}
-                  x2={66 + 23 * Math.cos((a * Math.PI) / 180)} y2={58 + 23 * Math.sin((a * Math.PI) / 180)}
-                  stroke={C.gold} strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
-              ))}
-              <circle cx="66" cy="58" r="14" fill={C.bgCard} stroke={C.gold} strokeWidth="3" />
-              <path d="M60 58l4 4 8-8" stroke={C.gold} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", marginBottom: "8px" }}>Merci, vos documents sont bien reçus</h1>
-            <p style={{ color: C.t2, fontSize: "13px", lineHeight: 1.6, maxWidth: "440px", margin: "0 auto" }}>
-              Merci de l&apos;intérêt que vous portez à Yelen et de votre patience — notre équipe vérifie actuellement ces documents. Vous serez automatiquement redirigé vers votre tableau de bord dès que l&apos;examen sera terminé, aucune action supplémentaire n&apos;est nécessaire de votre part.
-            </p>
-          </div>
-          <Card tokens={toCardTokens(C)} noPadding>
-            {data.documents.map((d) => (
-              <div key={d.type} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ color: C.t1, fontSize: "13px", fontWeight: "600" }}>{d.label}</span>
-                {statutBadge(d.statut, d.soumis_le, C)}
-              </div>
-            ))}
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Écran actif : soumission / examen / renvoi ──
   return (
-    <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
-      <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Documents institutionnels</h1>
-        <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
-          Ces documents permettent à Yelen224 de vérifier l&apos;existence légale de votre établissement. Ils ne sont consultables que par l&apos;équipe de vérification — jamais visibles publiquement.
-        </p>
+    <div className="dc-page" style={{ padding: "16px", paddingBottom: "100px" }}>
+      <DocumentsStyles C={C}/>
+      <EnteteDocuments C={C} statut={data.institution_statut} sousTitre={sousTitre} aide={<HelpCenterGuide tab="documents" />}/>
 
-        {data.documents.map((d) => (
-          <DocumentCard
-            key={d.type}
-            doc={d}
-            uploading={uploadingType === d.type}
-            onPick={() => fileInputs.current[d.type]?.click()}
-            inputRef={(el) => { fileInputs.current[d.type] = el; }}
-            onFile={(f) => handleFile(d.type, f)}
-            readOnly={readOnly}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
+      <div className="dc-grid">
+        <div className="dc-main">
+          {banniere}
+          <DecisionsVerification decisions={data.decisions} C={C}/>
 
-function DocumentCard({ doc, uploading, onPick, inputRef, onFile, readOnly }: {
-  doc: DocumentItem; uploading: boolean; onPick: () => void;
-  inputRef: (el: HTMLInputElement | null) => void; onFile: (f: File) => void; readOnly: boolean;
-}) {
-  const { theme } = useTheme();
-  const C = T[theme] as ThemeTokens;
-  // Dirigeant (lecture seule) : jamais de zone de dépôt, quel que soit le
-  // statut du document — seul l'admin peut soumettre/renvoyer.
-  const locked = readOnly || doc.statut === "recu" || doc.statut === "valide";
-  const badge = statutBadge(doc.statut, doc.soumis_le, C);
-
-  return (
-    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "12px" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "8px" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: C.t1, fontSize: "14px", fontWeight: "700", marginBottom: "3px" }}>{doc.label}</div>
-          <p style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.5, margin: 0 }}>{doc.description}</p>
+          {compteValide ? (
+            // Compte validé : jamais les fichiers, juste les types retenus,
+            // puis la section de bienvenue (uniquement dans cet état).
+            <>
+              <Card tokens={toCardTokens(C)} noPadding style={{ border: `1px solid ${C.border2}` }}>
+                {data.documents.map((d, i) => <DocumentLigneValidee key={d.type} C={C} label={d.label} dernier={i === data.documents.length - 1}/>)}
+              </Card>
+              {onNavigate && <RemerciementYelen C={C} nomEtablissement={instName} badgeVerifie={badgeVerifie} onNavigate={onNavigate}/>}
+            </>
+          ) : (
+            data.documents.map((d) => (
+              <DocumentCarte
+                key={d.type}
+                C={C}
+                doc={d}
+                uploading={uploadingType === d.type}
+                onPick={() => fileInputs.current[d.type]?.click()}
+                inputRef={(el) => { fileInputs.current[d.type] = el; }}
+                onFile={(f) => handleFile(d.type, f)}
+                readOnly={readOnly}
+              />
+            ))
+          )}
         </div>
-        {badge}
+
+        <aside className="dc-side" aria-label="Suivi de la vérification">
+          <ProgressionDocuments C={C} soumis={compteValide ? total : soumis} total={total} compteValide={compteValide}/>
+          {!compteBloque && <ParcoursVerification C={C} depotComplet={compteValide || depotComplet} compteValide={compteValide} dernierDepot={dernierDepot} valideeLe={data.validee_le ?? null}/>}
+          <NoteConfidentialite C={C}/>
+        </aside>
       </div>
 
-      {doc.motif_rejet && (doc.statut === "rejete" || doc.statut === "complement_demande") && (
-        <div style={{ backgroundColor: C.orangeL, border: `1px solid ${C.orange}30`, borderRadius: "10px", padding: "10px 12px", marginBottom: "10px" }}>
-          <p style={{ color: C.orange, fontSize: "11.5px", lineHeight: 1.5, margin: 0, fontWeight: "600" }}>{doc.motif_rejet}</p>
-        </div>
-      )}
-
-      {locked ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px", borderRadius: "12px", backgroundColor: C.bg3, border: `1px solid ${C.border}` }}>
-          <span style={{ color: C.t3, fontSize: "12px" }}>
-            {readOnly && doc.statut !== "recu" && doc.statut !== "valide"
-              ? "Consultation seule — l'envoi est réservé à l'administrateur."
-              : doc.statut === "valide" ? "Document validé — plus aucune action requise." : "Document reçu, en attente d'examen. Aucun renvoi possible pour l'instant."}
-          </span>
-        </div>
-      ) : (
-        <div onClick={onPick} className="tap" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px", borderRadius: "12px", border: `1.5px dashed ${C.border2}`, cursor: uploading ? "default" : "pointer", position: "relative" }}>
-          <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: C.bg3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            {uploading ? (
-              <YelenLoader size={16}/>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 12V4M8 4L5 7M8 4L11 7" stroke={C.t3} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            )}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: C.t2, fontSize: "12.5px", fontWeight: "600" }}>{uploading ? "Envoi en cours…" : (doc.statut ? "Renvoyer le document" : "Sélectionner un fichier")}</div>
-            <div style={{ color: C.t3, fontSize: "10.5px" }}>Formats acceptés : {doc.formats} — 10 Mo max</div>
-          </div>
-          <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }}/>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function statutBadge(statut: DocStatut, soumisLe: string | null, C: ThemeTokens) {
-  if (statut === "valide") {
-    return <Badge color={C.green} bg={C.greenL} label="Validé"/>;
-  }
-  if (statut === "rejete") {
-    return <Badge color={C.red} bg={C.redL} label="Rejeté"/>;
-  }
-  if (statut === "complement_demande") {
-    return <Badge color={C.orange} bg={C.orangeL} label="Complément demandé"/>;
-  }
-  if (statut === "recu") {
-    const enExamen = soumisLe ? (Date.now() - new Date(soumisLe).getTime()) > RECU_VERS_EN_EXAMEN_MS : false;
-    return <Badge color={C.blue} bg={C.blueL} label={enExamen ? "En cours d'examen" : "Reçu"}/>;
-  }
-  return <Badge color={C.t3} bg={C.bg3} label="À fournir"/>;
-}
-
-function Badge({ color, bg, label }: { color: string; bg: string; label: string }) {
-  return (
-    <span style={{ backgroundColor: bg, border: `1px solid ${color}30`, color, fontSize: "10px", fontWeight: "800", padding: "4px 10px", borderRadius: "20px", flexShrink: 0, whiteSpace: "nowrap" }}>
-      {label}
-    </span>
+      <GuideStatutsDocuments C={C} onOuvrirEntreprise={onNavigate ? () => onNavigate("profil-entreprise") : undefined}/>    </div>
   );
 }

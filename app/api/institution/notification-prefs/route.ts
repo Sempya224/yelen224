@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getAuthenticatedInstitutionId } from '@/lib/institutionAuth'
+import { getAuthenticatedInstitutionId, getAuthenticatedMembre } from '@/lib/institutionAuth'
+import { canAccessTab } from '@/lib/institutionPermissions'
+import { enregistrerAction, getMembreNomPourJournal } from '@/lib/journalActivite'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,10 +50,15 @@ export async function GET(request: NextRequest) {
 // ignore silencieusement toute tentative côté client, seul inapp est réellement modifiable.
 export async function PATCH(request: NextRequest) {
   try {
-    const institutionId = await getAuthenticatedInstitutionId(request)
-    if (!institutionId) {
+    const membre = await getAuthenticatedMembre(request)
+    if (!membre) {
       return NextResponse.json({ error: 'Non authentifié', code: 'NO_SESSION' }, { status: 401 })
     }
+    // Même règle que l'écran : onglet parametres-notifications (admin seul).
+    if (canAccessTab(membre.role, 'parametres-notifications', membre.accesRestreints) !== 'full') {
+      return NextResponse.json({ error: 'Accès réservé aux administrateurs', code: 'FORBIDDEN' }, { status: 403 })
+    }
+    const institutionId = membre.institutionId
 
     const body = await request.json().catch(() => ({}))
     const { category, inapp } = body as { category?: string; inapp?: boolean }
@@ -80,6 +87,16 @@ export async function PATCH(request: NextRequest) {
       console.error('[INSTITUTION NOTIF PREFS PATCH ERROR]', upsertError.code, upsertError.message)
       return NextResponse.json({ error: "Erreur lors de l'enregistrement", code: 'UPSERT_ERROR' }, { status: 500 })
     }
+
+    await enregistrerAction({
+      institutionId, membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: 'preferences_notification_modifiees', cibleTable: 'institution_notification_prefs',
+      details: { categorie: category },
+      ancienneValeur: { inapp: currentPrefs[category as Category]?.inapp ?? null },
+      nouvelleValeur: { inapp },
+      req: request,
+    })
 
     return NextResponse.json({ success: true, prefs: nextPrefs })
 

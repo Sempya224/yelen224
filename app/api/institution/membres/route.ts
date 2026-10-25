@@ -90,6 +90,17 @@ export async function POST(req: NextRequest) {
   const role = body?.role;
   const pin = body?.pin;
 
+  // Moteur de réauthentification (audit Profil Responsable, 19/10/2026) —
+  // créer un nouveau membre avec le rôle admin a le même impact qu'une
+  // promotion (PATCH ci-dessous, déjà soumise à réauth) : une session admin
+  // détournée dans sa fenêtre de validité (8h) pourrait sinon planter un
+  // second compte admin qui survit à la révocation de la session volée.
+  // Les 4 autres rôles ne sont pas concernés (nouvelle identité créée, pas
+  // de prise de contrôle d'un compte existant).
+  if (role === "admin" && !estReauthRecente(membre)) {
+    return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: "REAUTH_REQUIRED" }, { status: 403 });
+  }
+
   if (typeof identifiant !== "string" || !identifiant.trim()) return NextResponse.json({ error: "Identifiant requis" }, { status: 400 });
   if (typeof prenom !== "string" || !prenom.trim()) return NextResponse.json({ error: "Prénom requis" }, { status: 400 });
   if (typeof nom !== "string" || !nom.trim()) return NextResponse.json({ error: "Nom requis" }, { status: 400 });
@@ -125,7 +136,14 @@ export async function POST(req: NextRequest) {
     })
     .select("id")
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // 23505 = violation de institution_membres_identifiant_key : deux
+    // créations simultanées avec le même identifiant ont passé le contrôle
+    // ci-dessus en même temps — même réponse que ce contrôle, sans exposer
+    // le message brut Postgres.
+    if (error.code === "23505") return NextResponse.json({ error: "Cet identifiant est déjà utilisé" }, { status: 409 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   await enregistrerAction({
     institutionId: membre.institutionId,

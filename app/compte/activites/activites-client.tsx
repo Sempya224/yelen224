@@ -314,7 +314,7 @@ export function ActivitesClient() {
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
-      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}@keyframes overlayIn{from{opacity:0}to{opacity:1}}`}</style>
+      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}@keyframes overlayIn{from{opacity:0}to{opacity:1}}.md-search-input:focus{outline:none;box-shadow:0 0 0 2px rgba(245,166,35,0.4)}`}</style>
       <CompteHeader titre="Activités passées"/>
       <PullToRefresh onRefresh={charger} isDark={isDark}>
       <main style={{ padding: "16px 16px 40px" }}>
@@ -377,7 +377,7 @@ export function ActivitesClient() {
         {/* Recherche */}
         <div style={{ position: "relative", marginBottom: "12px" }}>
           <div style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: t3 }}><Ic.Search/></div>
-          <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Rechercher (établissement, service, mot-clé)…" style={{ width: "100%", backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "12px 14px 12px 40px", color: t1, fontSize: "14px" }}/>
+          <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Rechercher (établissement, service, mot-clé)…" className="md-search-input" style={{ width: "100%", backgroundColor: card, border: `1px solid ${brd}`, borderRadius: "14px", padding: "12px 14px 12px 40px", color: t1, fontSize: "14px" }}/>
         </div>
 
         {/* Filtres date */}

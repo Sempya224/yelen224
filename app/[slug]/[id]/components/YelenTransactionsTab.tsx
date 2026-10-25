@@ -19,6 +19,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 import { SectionHeader } from "../dashboardShared";
 import type { InstCompte } from "@/lib/compteYelenDisplay";
 import { can, type MembreRole } from "@/lib/institutionPermissions";
@@ -91,7 +92,10 @@ export function YelenTransactionsTab({ inst, onToast, membreRole, onVoirForfait 
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px", marginBottom: "6px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Transactions</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Transactions</div>
+            <HelpCenterGuide tab="yelen-transactions" />
+          </div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "480px" }}>Consultez et suivez l&apos;ensemble des mouvements financiers liés à votre compte Yelen.</p>
         </div>
         {peutExporter && (

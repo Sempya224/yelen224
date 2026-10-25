@@ -15,8 +15,12 @@ import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { YelenLoader } from "@/components/YelenLoader";
 import { Button } from "@/components/ui/Button";
 import { ReauthModal } from "./ReauthModal";
+import { EtatTexte, LigneSecurite } from "./SecuriteUi";
 
-export function TotpSection({ onToast, onChange }: { onToast: (msg: string, color?: string) => void; onChange?: () => void }) {
+// `variante="ligne"` : rendu au gabarit de lignes de « Sécurité du compte »
+// (SecuriteUi.tsx), à placer directement dans une carte `.sec-carte`. Par défaut
+// ("defaut") le rendu historique est inchangé — ProfilTab.tsx n'est pas affecté.
+export function TotpSection({ onToast, onChange, variante = "defaut" }: { onToast: (msg: string, color?: string) => void; onChange?: () => void; variante?: "defaut" | "ligne" }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
 
@@ -47,7 +51,22 @@ export function TotpSection({ onToast, onChange }: { onToast: (msg: string, colo
     setStatusLoading(false);
   }
 
-  useEffect(() => { loadStatus(); }, []);
+  // Premier chargement : statusLoading vaut déjà true et les setState ne sont
+  // appelés que dans des callbacks de la requête (pas de setState synchrone
+  // dans l'effet).
+  useEffect(() => {
+    let actif = true;
+    fetch("/api/institution/security-status")
+      .then(async res => ({ ok: res.ok, data: await res.json() }))
+      .then(({ ok, data }) => {
+        if (!actif || !ok) return;
+        setEnabled(!!data.totp_enabled);
+        setBackupCodesRemaining(data.totp_backup_codes_remaining ?? 0);
+      })
+      .catch(() => { /* silencieux, garde l'état précédent */ })
+      .finally(() => { if (actif) setStatusLoading(false); });
+    return () => { actif = false; };
+  }, []);
 
   async function startTotpActivation() {
     setTotpLoading(true); setTotpError("");
@@ -121,33 +140,58 @@ export function TotpSection({ onToast, onChange }: { onToast: (msg: string, colo
     setRegenLoading(false);
   }
 
+  const descriptionStatut = statusLoading ? <YelenLoader size={10}/> : enabled ? "Activée — code demandé à chaque connexion" : "Non activée · protège votre compte personnel";
+  const texteCodes = `${backupCodesRemaining} code${backupCodesRemaining > 1 ? "s" : ""} restant${backupCodesRemaining > 1 ? "s" : ""}`;
+
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Authentification à deux facteurs (2FA)</div>
-          <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>
-            {statusLoading ? <YelenLoader size={10}/> : enabled ? "Activée — code demandé à chaque connexion" : "Non activée · protège votre compte personnel"}
+      {variante === "ligne" ? (
+        <>
+          <LigneSecurite
+            C={C} icone="2fa" titre="Authentification à deux facteurs (2FA)" description={descriptionStatut}
+            etat={!statusLoading && <EtatTexte C={C} ok={enabled} libelle={enabled ? "Activée" : "Non activée"}/>}
+            action={!statusLoading && (
+              enabled
+                ? <Button tokens={toUiTokens(C)} className="tap yelen-focus-ring" variant="secondary" size="md" style={{ color: C.red, border: `1px solid ${C.red}40` }} ariaLabel="Désactiver la double authentification" onClick={() => { setTotpModal("desactiver"); setTotpDisableCode(""); setTotpError(""); }}>Désactiver</Button>
+                : <Button tokens={toUiTokens(C)} variant="secondary" size="md" className="tap yelen-focus-ring" loading={totpLoading} ariaLabel="Activer la double authentification" onClick={startTotpActivation}>Activer</Button>
+            )}
+          />
+          {!statusLoading && enabled && (
+            <LigneSecurite
+              C={C} icone="cle" titre="Codes de récupération" description={texteCodes}
+              action={<Button tokens={toUiTokens(C)} className="tap yelen-focus-ring" variant="secondary" size="md" loading={regenLoading} ariaLabel="Régénérer les codes de récupération" onClick={regenererCodesSecours}>Régénérer</Button>}
+            />
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Authentification à deux facteurs (2FA)</div>
+              <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>
+                {descriptionStatut}
+              </div>
+            </div>
+            {!statusLoading && (
+              enabled
+                ? <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" style={{ flexShrink: 0 }} onClick={() => { setTotpModal("desactiver"); setTotpDisableCode(""); setTotpError(""); }}>Désactiver</Button>
+                : <Button tokens={toUiTokens(C)} variant="secondary" size="sm" style={{ color: C.gold, border: `1px solid ${C.gold}30`, flexShrink: 0 }} loading={totpLoading} onClick={startTotpActivation} className="tap">Activer</Button>
+            )}
           </div>
-        </div>
-        {!statusLoading && (
-          enabled
-            ? <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" style={{ flexShrink: 0 }} onClick={() => { setTotpModal("desactiver"); setTotpDisableCode(""); setTotpError(""); }}>Désactiver</Button>
-            : <Button tokens={toUiTokens(C)} variant="secondary" size="sm" style={{ color: C.gold, border: `1px solid ${C.gold}30`, flexShrink: 0 }} loading={totpLoading} onClick={startTotpActivation} className="tap">Activer</Button>
-        )}
-      </div>
 
-      {/* Codes de récupération — n'existent qu'en tant que secours de la 2FA
-          (institution_membres.totp_backup_codes), jamais un mécanisme
-          indépendant fabriqué de toutes pièces. */}
-      {!statusLoading && enabled && (
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${C.border}` }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Codes de récupération</div>
-            <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>{backupCodesRemaining} code{backupCodesRemaining > 1 ? "s" : ""} restant{backupCodesRemaining > 1 ? "s" : ""}</div>
-          </div>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ flexShrink: 0 }} loading={regenLoading} onClick={regenererCodesSecours}>Régénérer</Button>
-        </div>
+          {/* Codes de récupération — n'existent qu'en tant que secours de la 2FA
+              (institution_membres.totp_backup_codes), jamais un mécanisme
+              indépendant fabriqué de toutes pièces. */}
+          {!statusLoading && enabled && (
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${C.border}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Codes de récupération</div>
+                <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>{texteCodes}</div>
+              </div>
+              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" style={{ flexShrink: 0 }} loading={regenLoading} onClick={regenererCodesSecours}>Régénérer</Button>
+            </div>
+          )}
+        </>
       )}
 
       {(totpModal || totpBackupCodes) && (

@@ -52,9 +52,31 @@ export const inputFieldStyle = (C: ThemeTokens): React.CSSProperties => ({
   fontFamily: "inherit",
 });
 
+// Pastille "Modifié" (point + texte, jamais la couleur seule) affichée à droite
+// d'un label quand la valeur diffère de la dernière version enregistrée.
+export function ModifiedMark({ C }: { C: ThemeTokens }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", marginLeft: "8px", color: C.gold, fontSize: "10px", fontWeight: "700", textTransform: "none", letterSpacing: 0 }}>
+      <span aria-hidden style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: C.gold }}/>
+      Modifié
+    </span>
+  );
+}
+
+// Style d'un champ suivi par un formulaire (`modified` défini) : fond de carte
+// + bordure neutre quand enregistré, orange quand modifié, vert bref juste
+// après un enregistrement. Sans `modified`, le style historique (fond gris
+// plein) est conservé pour les autres écrans.
+export function trackedFieldColors(C: ThemeTokens, modified: boolean, justSaved: boolean, hovered: boolean) {
+  if (modified) return { bg: `${C.gold}0f`, border: `1.5px solid ${C.gold}` };
+  if (justSaved) return { bg: C.greenL, border: `1.5px solid ${C.green}` };
+  return { bg: C.bgCard, border: `1px solid ${hovered ? C.border2 : C.border}` };
+}
+
 export function FormField({
   C, label, required = false, value, onChange, type = "text", placeholder,
   disabled = false, error, icon, name, autoComplete, maxLength,
+  modified, justSaved = false, readOnly = false,
 }: {
   C: ThemeTokens;
   label: string;
@@ -69,13 +91,19 @@ export function FormField({
   name?: string;
   autoComplete?: string;
   maxLength?: number;
+  modified?: boolean;
+  justSaved?: boolean;
+  readOnly?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const tracked = modified !== undefined;
+  const colors = tracked ? trackedFieldColors(C, modified, justSaved, hovered) : null;
 
   return (
     <div>
       <label style={{ ...fieldLabel(C), marginBottom: INPUT_DIMENSIONS.labelGap }}>
-        {label}{required && " *"}
+        {label}{required && " *"}{modified && <ModifiedMark C={C}/>}
       </label>
       <div style={{ position: "relative" }}>
         {icon && (
@@ -92,15 +120,19 @@ export function FormField({
           disabled={disabled}
           autoComplete={autoComplete}
           maxLength={maxLength}
+          readOnly={readOnly}
+          className="yl-field"
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
           style={{
             width: "100%",
             boxSizing: "border-box",
             height: INPUT_DIMENSIONS.height,
             padding: `0 ${INPUT_DIMENSIONS.paddingX} 0 ${icon ? "38px" : INPUT_DIMENSIONS.paddingX}`,
-            backgroundColor: C.bg3,
-            border: `${INPUT_DIMENSIONS.borderWidth} solid ${error ? C.red : focused ? C.gold : C.border}`,
+            backgroundColor: colors ? colors.bg : C.bg3,
+            border: error ? `${INPUT_DIMENSIONS.borderWidth} solid ${C.red}` : focused ? `${INPUT_DIMENSIONS.borderWidth} solid ${C.gold}` : colors ? colors.border : `${INPUT_DIMENSIONS.borderWidth} solid ${C.border}`,
             borderRadius: INPUT_DIMENSIONS.radius,
             color: C.t1,
             fontSize: INPUT_DIMENSIONS.fontSize,
@@ -110,7 +142,7 @@ export function FormField({
             boxShadow: focused && !error ? `0 0 0 3px ${C.gold}25` : "none",
             opacity: disabled ? 0.55 : 1,
             cursor: disabled ? "not-allowed" : "text",
-            transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+            transition: "border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.3s ease",
           }}
         />
       </div>

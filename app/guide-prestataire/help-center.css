@@ -56,9 +56,15 @@
   left: 0;
 }
 
+/* Ancré à gauche (jamais centré par auto-margin) — s'aligne avec le
+   logo du header (lui-même pinné au bord gauche, voir .hc-header) sur
+   n'importe quelle largeur d'écran. Centrer via `margin: 0 auto` créait
+   un vide variable à gauche sur les écrans plus larges que 1180px+padding,
+   désaligné du logo et perçu comme non professionnel (retour Bryan
+   19/10/2026, Guide Prestataire). */
 .hc-shell {
   max-width: 1180px;
-  margin: 0 auto;
+  margin: 0;
   padding: 0 20px 64px;
   padding-top: var(--hc-header-h);
 }
@@ -79,14 +85,20 @@
    grise fine, légèrement décollée du bord droit, fixe et toujours visible
    sur PC. Sur mobile, `--masquee` fait disparaître le pouce après une
    courte inactivité (géré en JS). */
+/* Pouce élargi et collé au bord + flèches haut/bas (retour Bryan
+   19/10/2026, référence YouTube) — remplace le filet fin (6px, décollé de
+   5px, sans flèches) par une vraie scrollbar cliquable : les flèches
+   défilent la page d'un pas fixe, le pouce reste purement un repère visuel
+   (`pointer-events: none`, comme avant). Desktop uniquement (`.hc-scroll-arrow`
+   masquées sous 1024px, plus bas) — sur tactile le défilement se fait au
+   doigt, un bouton de 14px n'est pas une cible fiable. */
 .hc-scroll-progress {
   position: fixed;
   top: var(--hc-header-h);
   bottom: 0;
-  right: 5px;
-  width: 6px;
+  right: 2px;
+  width: 14px;
   z-index: 41;
-  pointer-events: none;
   opacity: 1;
   transition: opacity 0.25s ease;
 }
@@ -95,13 +107,60 @@
   opacity: 0;
 }
 
+.hc-scroll-progress--masquee .hc-scroll-arrow {
+  pointer-events: none;
+}
+
+.hc-scroll-arrow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(33, 26, 14, 0.45);
+  cursor: pointer;
+}
+
+.hc-scroll-arrow:hover,
+.hc-scroll-arrow:focus-visible {
+  color: rgba(33, 26, 14, 0.8);
+}
+
+.hc-scroll-arrow--up {
+  top: 0;
+}
+
+.hc-scroll-arrow--down {
+  bottom: 0;
+}
+
+@media (min-width: 1024px) {
+  .hc-scroll-arrow {
+    display: flex;
+  }
+}
+
+.hc-scroll-track {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 2px;
+  right: 2px;
+  pointer-events: none;
+}
+
 .hc-scroll-progress__fill {
   position: absolute;
   left: 0;
   right: 0;
-  min-height: 32px;
+  min-height: 40px;
   border-radius: 999px;
-  background: rgba(33, 26, 14, 0.22);
+  background: rgba(33, 26, 14, 0.38);
 }
 
 .hc-header {
@@ -619,55 +678,108 @@
    désormais entièrement par le menu overlay (HeaderMobileMenu.tsx), plus
    par une pile de 9 liens empilée au-dessus du contenu (corrige le
    problème bloquant relevé par l'audit UX/UI 22/09/2026, §4).
-   Carte visible (fond + bordure), pas juste des liens flottants sans
-   contour — retour Bryan 25/09/2026 : sans conteneur, la sidebar se
-   confondait avec le fond de page et passait inaperçue. */
+   Refonte "vraie sidebar professionnelle" (retour Bryan 19/10/2026) —
+   liste plate posée directement sur le fond de page (plus de carte
+   bordée autour de l'ensemble, qui lisait comme une boîte isolée plutôt
+   qu'une navigation intégrée, façon Stripe Docs/Linear/Zendesk Guide) :
+   icône + libellé + badge de compte par ligne, groupe "Accueil" séparé
+   des catégories par un simple filet. */
 .hc-nav {
   display: none;
   flex-direction: column;
   gap: 2px;
-  background: var(--hc-surface);
-  border: 1px solid var(--hc-border);
-  border-radius: var(--hc-radius);
-  padding: 14px;
+}
+
+.hc-nav__divider {
+  height: 1px;
+  background: var(--hc-border);
+  margin: 10px 10px 14px;
 }
 
 .hc-nav__label {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
   color: var(--hc-text-muted);
-  padding: 4px 14px 10px;
+  padding: 0 10px 8px;
+}
+
+.hc-nav__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .hc-nav-link {
-  display: block;
-  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   border-radius: var(--hc-radius-sm);
   color: var(--hc-text);
   text-decoration: none;
   font-size: 13.5px;
   font-weight: 600;
-  border: 1px solid transparent;
-  border-left: 3px solid transparent;
+  border-left: 2.5px solid transparent;
+}
+
+.hc-nav-link--accueil {
+  font-weight: 700;
+}
+
+.hc-nav-link-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  color: var(--hc-text-muted);
+}
+
+.hc-nav-link-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.hc-nav-link-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--hc-bg);
+  color: var(--hc-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .hc-nav-link:hover {
   background: var(--hc-bg);
-  border-color: var(--hc-border);
-  border-left-color: var(--hc-border);
+}
+
+.hc-nav-link:hover .hc-nav-link-icon {
+  color: var(--hc-text);
 }
 
 /* État actif distinct du survol par 2 signaux non colorés en plus de la
-   couleur (graisse + accent gauche plein), pas seulement une bordure dorée
+   couleur (graisse + accent gauche plein), pas seulement une teinte dorée
    (corrige B2.6 de l'audit UX/UI 22/09/2026). */
 .hc-nav-link[aria-current="page"] {
-  background: var(--hc-bg);
-  border-color: var(--hc-border);
+  background: rgba(245, 166, 35, 0.12);
   border-left-color: var(--hc-gold);
   color: var(--hc-gold-ink);
   font-weight: 800;
+}
+
+.hc-nav-link[aria-current="page"] .hc-nav-link-icon {
+  color: var(--hc-gold-ink);
+}
+
+.hc-nav-link[aria-current="page"] .hc-nav-link-count {
+  background: rgba(245, 166, 35, 0.2);
+  color: var(--hc-gold-ink);
 }
 
 .hc-main {
@@ -1421,6 +1533,16 @@
   border-left-color: var(--hc-gold);
 }
 
+/* Scroll-spy (ArticleToc.tsx, retour Bryan 19/10/2026) — la section
+   réellement visible à l'écran reste surlignée en continu pendant le
+   défilement, pas seulement au survol (qui garde son propre effet
+   ci-dessus, cumulable). */
+.hc-toc a[aria-current="location"] {
+  color: var(--hc-gold-ink);
+  border-left-color: var(--hc-gold);
+  font-weight: 800;
+}
+
 .hc-article-header {
   margin: 12px 0 32px;
   padding-bottom: 24px;
@@ -1745,6 +1867,9 @@
   .hc-header {
     padding-left: 10px;
   }
+  .hc-footer-inner {
+    padding-left: 10px;
+  }
 }
 
 /* Module de feedback "cet article vous a-t-il aidé ?" (ArticleFeedback.tsx,
@@ -1961,7 +2086,7 @@
 
 .hc-footer-inner {
   max-width: 1180px;
-  margin: 0 auto;
+  margin: 0;
   padding: 36px 20px 28px;
   /* Neutralise un hack global mobile (app/globals.css, "FOOTER MOBILE",
      `footer > div { text-align: center !important }`) écrit pour les

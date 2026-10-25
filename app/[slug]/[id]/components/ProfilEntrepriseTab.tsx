@@ -17,20 +17,26 @@
 // app/institution/inscription/engine/steps/ActiviteStep.tsx.
 // institutions.secteur reste gelée (jamais réécrite par cet écran depuis
 // cette phase, voir lib/institutionTaxonomy.tsx).
-import { useCallback, useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { useCallback, useEffect, useState } from "react";
+import { useDirtyForm } from "./useDirtyForm";
 import dynamic from "next/dynamic";
-import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
+import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { useTheme } from "@/components/ThemeProvider";
 import { STATUTS_JURIDIQUES, type StatutJuridiqueId } from "@/lib/institutionTaxonomy";
 import { validerUrlExterne } from "@/lib/urlValidation";
 import { ACTIVITE_CATEGORIE_COLORS, ActiviteCategorieIcon } from "@/lib/activiteVisuels";
 import { supabase } from "@/lib/supabase";
 import { YelenLoader } from "@/components/YelenLoader";
-import { FormField, fieldLabel, inputFieldStyle as fieldInput } from "./FormField";
+import { FormField, ModifiedMark, trackedFieldColors, fieldLabel, inputFieldStyle as fieldInput } from "./FormField";
 import { HelpCenterGuide } from "./HelpCenterGuide";
+import { ProfileSection } from "./ProfileSection";
+import { SaveBar, FormStatusIndicator } from "./SaveBar";
+import { HoursEditor, type Horaire } from "./HoursEditor";
+import { BannerLogoField } from "./BannerLogoField";
+import { PhoneFieldGuinee } from "./PhoneFieldGuinee";
+import { ReauthModal } from "./ReauthModal";
+import { ChangementsProfilSuivi } from "./ChangementsProfilSuivi";
 
 // react-leaflet touche `window` dès l'évaluation du module (pas seulement
 // au montage) — même en "use client", Next.js App Router fait un premier
@@ -47,8 +53,6 @@ type Categorie = { id: string; code: string; label: string };
 type Activite = { id: string; code: string; label: string; categorie_id: string };
 
 const LANGUES_OPTIONS = ["Français", "Pular", "Malinké", "Soussou", "Anglais", "Arabe"];
-
-type Horaire = { jour: string; ouvert: boolean; debut: string; fin: string };
 
 const JOURS_DEFAUT: Horaire[] = [
   { jour: "Lundi",    ouvert: true,  debut: "08:00", fin: "17:00" },
@@ -75,17 +79,35 @@ const EMPTY_FORM: EntrepriseForm = {
   latitude: null, longitude: null,
 };
 
-export function ProfilEntrepriseTab({ instId, onToast }: {
-  instId: string; onToast: (msg: string, color?: string) => void;
+export function ProfilEntrepriseTab({ instId, onToast, onNavigate, onChangementsProfilMaj }: {
+  instId: string; onToast: (msg: string, color?: string) => void; onNavigate?: (tab: string) => void;
+  // Appelé après un enregistrement réussi pour que la pastille rouge du header
+  // et des menus se mette à jour immédiatement (voir layout.tsx).
+  onChangementsProfilMaj?: () => void;
 }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
-  const [form, setForm] = useState<EntrepriseForm>(EMPTY_FORM);
-  // Snapshot de la dernière version connue comme enregistrée (chargement ou
-  // sauvegarde réussie) — pilote le bouton Enregistrer/Modifier ci-dessous :
-  // désactivé et libellé "Modifier" tant que `form` ne diverge pas de ce
-  // snapshot, retour à "Enregistrer" (actif) dès la moindre modification.
-  const [savedForm, setSavedForm] = useState<EntrepriseForm | null>(null);
+  // `useDirtyForm` garde le snapshot de la dernière version enregistrée
+  // (chargement ou sauvegarde réussie) et en déduit les champs modifiés
+  // (`dirtyFields`), le statut (clean/dirty/saving/saved/error) et l'horodatage
+  // de la dernière sauvegarde — pilote la barre, l'indicateur de statut et le
+  // marquage champ par champ.
+  const {
+    values: form, setValues: setForm, init: initForm, dirtyFields, flashFields, status: saveStatus,
+    setSaving: setSavingState, lastSavedAt, markSaved, markError, reset: cancelChanges,
+  } = useDirtyForm<EntrepriseForm>(EMPTY_FORM);
+  const [bandeauVerifFerme, setBandeauVerifFerme] = useState(false);
+  // Réauthentification pour changement sensible (PIN, + TOTP si activé) via la
+  // modale partagée ReauthModal. Mémorise QUELLE action rejouer plutôt qu'une
+  // fonction : on appelle toujours la version la plus récente du gestionnaire.
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"save" | "taxo" | null>(null);
+  // Incrémenté après chaque enregistrement réussi pour recharger le suivi des
+  // changements sensibles (ChangementsProfilSuivi) sans intervalle de polling.
+  const [suiviVersion, setSuiviVersion] = useState(0);
+  const saving = saveStatus === "saving";
+  const isModified = (f: keyof EntrepriseForm) => dirtyFields.has(f);
+  const isFlashing = (f: keyof EntrepriseForm) => flashFields.has(f);
   // Erreurs de validation par champ (bordure rouge sur le champ concerné,
   // en plus du toast global — un toast seul est invisible si le formulaire
   // est long et que l'utilisateur ne le voit/lit pas). Clé = nom de champ
@@ -96,11 +118,11 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
   const [activitePrincipaleId, setActivitePrincipaleId] = useState<string | null>(null);
   const [activitesSecondairesIds, setActivitesSecondairesIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingBanniere, setUploadingBanniere] = useState(false);
-  const logoInputRef = useRef<HTMLInputElement>(null);
-  const banniereInputRef = useRef<HTMLInputElement>(null);
+  // "Identique au téléphone" (WhatsApp) — pur confort de saisie, défaut
+  // déduit au chargement si les deux valeurs stockées sont déjà identiques.
+  const [whatsappSyncPhone, setWhatsappSyncPhone] = useState(false);
 
   // Catégories/activités — chargées une fois (tables publiques, lecture
   // directe sans risque de RLS quel que soit le statut de l'institution,
@@ -144,15 +166,15 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
         latitude: typeof inst?.latitude === "number" ? inst.latitude : null,
         longitude: typeof inst?.longitude === "number" ? inst.longitude : null,
       };
-      setForm(loaded);
-      setSavedForm(loaded);
+      initForm(loaded);
+      setWhatsappSyncPhone(!!loaded.whatsapp && loaded.whatsapp === loaded.phone);
       setStatutJuridique(inst?.statut_juridique ?? null);
       setActiviteCategorieId(inst?.activite_categorie_id ?? null);
       setActivitePrincipaleId(inst?.activite_principale_id ?? null);
       setActivitesSecondairesIds(Array.isArray(inst?.activites_secondaires_ids) ? inst.activites_secondaires_ids : []);
       setLoading(false);
     })();
-  }, [instId]);
+  }, [instId, initForm]);
 
   useEffect(() => {
     (async () => {
@@ -172,8 +194,13 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
     setForm(f => ({ ...f, [field]: value }));
     setFieldErrors(fe => (fe[field] ? { ...fe, [field]: undefined } : fe));
   };
-  const dirty = savedForm ? JSON.stringify(form) !== JSON.stringify(savedForm) : false;
   const setPosition = (lat: number, lng: number) => setForm(f => ({ ...f, latitude: lat, longitude: lng }));
+  const annuler = useCallback(() => { cancelChanges(); setFieldErrors({}); }, [cancelChanges]);
+  const setPhone = (value: string) => setForm(f => ({ ...f, phone: value, whatsapp: whatsappSyncPhone ? value : f.whatsapp }));
+  const toggleWhatsappSync = (checked: boolean) => {
+    setWhatsappSyncPhone(checked);
+    if (checked) fc("whatsapp", form.phone);
+  };
 
   // Upload via route service_role — storage.objects n'a pas de policy RLS
   // pour les institutions (pas de session Supabase Auth), un upload direct
@@ -185,7 +212,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
     fd.append("kind", kind);
     const res = await fetch("/api/institution/upload", { method: "POST", body: fd });
     const j = await res.json().catch(() => null);
-    if (!res.ok) { onToast(j?.error || "Échec de l'envoi de l'image.", C.red); return null; }
+    if (!res.ok) { onToast(j?.error || "L'envoi de l'image a échoué. Vérifiez son format et son poids (2 Mo maximum), puis réessayez.", C.red); return null; }
     return j.url as string;
   };
 
@@ -203,6 +230,9 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
     if (url) fc("banniere", url);
   };
 
+  const removeLogo = () => fc("logo", "");
+  const removeBanniere = () => fc("banniere", "");
+
   const toggleLangue = (l: string) => setForm(f => ({
     ...f, langue: f.langue.includes(l) ? f.langue.filter(x => x !== l) : [...f.langue, l],
   }));
@@ -210,6 +240,7 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
   const updateHoraire = (idx: number, field: keyof Horaire, value: string | boolean) => {
     setForm(f => ({ ...f, horaires: f.horaires.map((h, i) => i === idx ? { ...h, [field]: value } : h) }));
   };
+  const setHoraires = (horaires: Horaire[]) => setForm(f => ({ ...f, horaires }));
 
   const handleSave = useCallback(async () => {
     const errors: Partial<Record<keyof EntrepriseForm, string>> = {};
@@ -223,21 +254,42 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
       return;
     }
     setFieldErrors({});
-    setSaving(true);
-    const res = await fetch("/api/institution/profile", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    setSaving(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => null);
-      onToast(j?.error || "Erreur lors de l'enregistrement.", C.red);
+    setSavingState(true);
+    let res: Response;
+    try {
+      res = await fetch("/api/institution/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+    } catch {
+      setSavingState(false);
+      markError();
+      onToast("L'enregistrement a échoué. Vérifiez votre connexion puis réessayez.", C.red);
       return;
     }
-    setSavedForm(form);
-    onToast("Profil entreprise enregistré.", C.green);
-  }, [form, onToast, C.red, C.green]);
+    setSavingState(false);
+    const j = await res.json().catch(() => null);
+    if (!res.ok) {
+      // Changement sensible (nom, adresse, localisation, activité) sans
+      // réauthentification récente : ce n'est pas un échec, on demande le PIN
+      // puis on rejoue l'enregistrement. Le formulaire reste modifié, aucun
+      // état d'erreur n'est affiché.
+      if (j?.code === "REAUTH_REQUIRED") { setPendingAction("save"); setReauthOpen(true); return; }
+      markError();
+      onToast(j?.error || "L'enregistrement a échoué. Veuillez réessayer dans quelques instants.", C.red);
+      return;
+    }
+    markSaved(form);
+    setSuiviVersion(v => v + 1);
+    onChangementsProfilMaj?.();
+    onToast(
+      Array.isArray(j?.demandes) && j.demandes.length > 0
+        ? "Modifications enregistrées. Les changements sensibles seront visibles des citoyens après validation par l'équipe Yelen."
+        : "Modifications enregistrées. Votre fiche est à jour.",
+      C.green
+    );
+  }, [form, onToast, C.red, C.green, setSavingState, markError, markSaved]);
 
   // Ouvre le sélecteur — si statut_juridique est déjà connu, vérifie d'abord
   // si des documents ont été soumis (verrou : les documents requis sont
@@ -302,15 +354,21 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
     setSavingTaxo(false);
     if (!res.ok) {
       const j = await res.json().catch(() => null);
-      onToast(j?.error || "Erreur lors de l'enregistrement.", C.red);
+      // Changer l'activité principale est un changement sensible : la fenêtre
+      // de sélection reste ouverte (ses choix sont conservés), on demande le
+      // PIN puis on rejoue l'enregistrement.
+      if (j?.code === "REAUTH_REQUIRED") { setPendingAction("taxo"); setReauthOpen(true); return; }
+      onToast(j?.error || "L'enregistrement a échoué. Veuillez réessayer dans quelques instants.", C.red);
       return;
     }
+    setSuiviVersion(v => v + 1);
+    onChangementsProfilMaj?.();
     setStatutJuridique(pendingStatut);
     setActiviteCategorieId(pendingCategorieId);
     setActivitePrincipaleId(pendingActivitePrincipaleId);
     setActivitesSecondairesIds(pendingActivitesSecondairesIds);
     setTaxoModalOpen(false);
-    onToast("Statut juridique et activité enregistrés.", C.green);
+    onToast("Informations enregistrées. Vous pouvez désormais transmettre vos documents de vérification.", C.green);
   }, [pendingStatut, pendingCategorieId, pendingActivitePrincipaleId, pendingActivitesSecondairesIds, onToast, C.red, C.green]);
 
   if (loading) {
@@ -331,44 +389,63 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
           deviendraient inutilement larges. */}
       <div className="profil-entreprise-form" style={{ maxWidth: "720px", margin: "0 auto" }}>
         <style>{`
+          .profil-section{display:flex;flex-direction:column;gap:12px;margin-bottom:32px}
           @media(min-width:1024px){
             .profil-entreprise-form{max-width:1000px!important}
+            .profil-section{display:grid!important;grid-template-columns:260px 1fr!important;gap:32px!important;align-items:start!important}
           }
         `}</style>
+        {/* Bandeau purement informatif (aucune règle backend ne déclenche de
+            re-vérification aujourd'hui, voir api/institution/profile PUT).
+            Fermeture en état local, comme les autres bandeaux du dashboard
+            (ex. dismissRetard, layout.tsx) : réapparaît à la prochaine
+            ouverture de l'onglet, aucune persistance ajoutée. */}
+        {!bandeauVerifFerme && (
+          <div role="note" style={{ display: "flex", alignItems: "flex-start", gap: "12px", backgroundColor: `${C.gold}14`, border: `1px solid ${C.gold}35`, borderRadius: "12px", padding: "12px 14px", marginBottom: "20px" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ flexShrink: 0, marginTop: "1px" }}>
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>Attention aux modifications de l&apos;établissement</div>
+              <div style={{ color: C.t2, fontSize: "12px", lineHeight: 1.55, marginTop: "3px" }}>
+                Le changement du nom, du secteur d&apos;activité, du statut ou de la localisation de votre entreprise peut nécessiter une nouvelle vérification de son identité. Certaines modifications peuvent entraîner un contrôle complémentaire avant validation. En attendant la décision de l&apos;équipe Yelen, les citoyens continuent de voir l&apos;information actuelle.
+              </div>
+            </div>
+            <button type="button" onClick={() => setBandeauVerifFerme(true)} className="tap" aria-label="Fermer le message" style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", display: "flex", flexShrink: 0, color: C.t3 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "6px" }}>
           <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Profil Entreprise</h1>
           <HelpCenterGuide tab="profil-entreprise" />
         </div>
-        <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", lineHeight: 1.5 }}>
+        <p style={{ color: C.t2, fontSize: "13px", marginBottom: "10px", lineHeight: 1.5 }}>
           Identité publique de votre institution — visible par les citoyens sur Yelen224.
         </p>
+        <FormStatusIndicator status={saveStatus} count={dirtyFields.size} lastSavedAt={lastSavedAt}/>
+        <ChangementsProfilSuivi C={C} version={suiviVersion}/>
 
         {/* ── Identité visuelle ── */}
-        <SectionLabel>Identité visuelle</SectionLabel>
-        <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "18px" }}>
-          <label style={fieldLabel(C)}>Bannière de couverture</label>
-          <div onClick={() => banniereInputRef.current?.click()} className="tap" style={{ position: "relative", width: "100%", height: "110px", borderRadius: "14px", backgroundColor: C.bg3, border: `1.5px dashed ${C.border2}`, cursor: "pointer", overflow: "hidden", marginBottom: "16px" }}>
-            {form.banniere ? <Image src={form.banniere} alt="" fill sizes="(min-width: 640px) 600px, 100vw" style={{ objectFit: "cover" }}/> : (
-              <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round"><path d="M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v13"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                <span style={{ color: C.t3, fontSize: "11px", fontWeight: "600" }}>Ajouter une bannière (1200×400px)</span>
-              </div>
-            )}
-            {uploadingBanniere && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}><YelenLoader size={18} color="#fff"/></div>}
-            <input ref={banniereInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleBannierePick(f); }}/>
-          </div>
+        <ProfileSection title="Image de marque" description="Bannière, logo et activité affichés en tête de votre fiche publique." cardPadding="18px">
+          {(isModified("logo") || isModified("banniere")) && <div style={{ marginBottom: "10px", marginLeft: "-8px" }}><ModifiedMark C={C}/></div>}
+          <BannerLogoField
+            banniere={form.banniere}
+            logo={form.logo}
+            uploadingBanniere={uploadingBanniere}
+            uploadingLogo={uploadingLogo}
+            onPickBanniere={handleBannierePick}
+            onPickLogo={handleLogoPick}
+            onRemoveBanniere={removeBanniere}
+            onRemoveLogo={removeLogo}
+            C={C}
+          />
 
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <div onClick={() => logoInputRef.current?.click()} className="tap" style={{ width: "64px", height: "64px", borderRadius: "16px", backgroundColor: C.bg3, border: `1.5px dashed ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", overflow: "hidden", position: "relative" }}>
-              {form.logo ? <Image src={form.logo} alt="" fill sizes="64px" style={{ objectFit: "cover" }}/> : (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round"><path d="M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v13"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-              )}
-              {uploadingLogo && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}><YelenLoader size={16} color="#fff"/></div>}
-              <input ref={logoInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoPick(f); }}/>
-            </div>
-            <div style={{ flex: 1, minWidth: 0, display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+          <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: `1px solid ${C.border2}` }}>
+            <div style={{ color: C.t3, fontSize: "11px", fontWeight: "600", marginBottom: "10px" }}>Catégorie et type</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
               {activitePrincipaleId && (
-                <span style={{ backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}30`, color: C.gold, fontSize: "11px", fontWeight: "700", padding: "5px 11px", borderRadius: "20px" }}>
+                <span style={{ backgroundColor: `${C.gold}12`, border: `1px solid ${C.gold}30`, color: C.t1, fontSize: "11px", fontWeight: "700", padding: "5px 11px", borderRadius: "20px" }}>
                   {activiteLabelById[activitePrincipaleId] || "…"}
                   {activiteCategorieId && categorieLabelById[activiteCategorieId] ? ` — ${categorieLabelById[activiteCategorieId]}` : ""}
                 </span>
@@ -377,13 +454,14 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
                 <span style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, color: C.t2, fontSize: "11px", fontWeight: "700", padding: "5px 11px", borderRadius: "20px" }}>{STATUT_JURIDIQUE_LABEL_BY_ID[statutJuridique] || statutJuridique}</span>
               )}
               {activitePrincipaleId && statutJuridique && (
-                <button onClick={openTaxoModal} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "2px", textDecoration: "underline" }}>
+                <button onClick={openTaxoModal} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "2px", marginLeft: "4px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
                   Modifier
                 </button>
               )}
             </div>
           </div>
-        </Card>
+        </ProfileSection>
 
         {(!activitePrincipaleId || !statutJuridique) && (
           <div style={{ backgroundColor: C.orangeL, border: `1px solid ${C.orange}40`, borderRadius: "14px", padding: "14px 16px", marginBottom: "18px", display: "flex", alignItems: "center", gap: "12px" }}>
@@ -392,8 +470,8 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
               <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: C.orange, fontSize: "12.5px", fontWeight: "800" }}>Statut juridique et activité manquants</div>
-              <div style={{ color: C.t2, fontSize: "11.5px", marginTop: "2px", lineHeight: 1.5 }}>Requis pour soumettre vos documents de vérification Yelen224.</div>
+              <div style={{ color: C.orange, fontSize: "12.5px", fontWeight: "800" }}>Complétez votre profil pour lancer la vérification</div>
+              <div style={{ color: C.t2, fontSize: "11.5px", marginTop: "2px", lineHeight: 1.5 }}>Renseignez votre statut juridique et votre activité principale. Ces informations sont nécessaires pour traiter vos documents.</div>
             </div>
             <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ backgroundColor: C.orange, borderColor: C.orange, color: "#000", flexShrink: 0 }} onClick={openTaxoModal}>
               Compléter maintenant
@@ -402,63 +480,88 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
         )}
 
         {/* ── Informations générales ── */}
-        <SectionLabel>Informations générales</SectionLabel>
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
-          <FormField C={C} label="Nom officiel" required value={form.name} onChange={v => fc("name", v)} name="name" error={fieldErrors.name}/>
-          <div>
-            <label style={fieldLabel(C)}>Description publique</label>
-            <textarea value={form.description} onChange={e => fc("description", e.target.value)} rows={4} style={{ ...fieldInput(C), resize: "none", lineHeight: 1.6 }}/>
+        <ProfileSection title="Présentation de l'entreprise" description="Nom, description et informations de base visibles par vos clients." cardPadding="16px">
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <FormField C={C} label="Nom officiel" required value={form.name} onChange={v => fc("name", v)} name="name" error={fieldErrors.name} modified={isModified("name")} justSaved={isFlashing("name")} readOnly={saving}/>
+            <div>
+              <label style={fieldLabel(C)}>Description publique{isModified("description") && <ModifiedMark C={C}/>}</label>
+              <textarea className="yl-field" value={form.description} readOnly={saving} onChange={e => fc("description", e.target.value)} rows={4} style={{ ...fieldInput(C), resize: "none", lineHeight: 1.6, boxSizing: "border-box", transition: "border-color 0.15s ease, background-color 0.3s ease", backgroundColor: trackedFieldColors(C, isModified("description"), isFlashing("description"), false).bg, border: trackedFieldColors(C, isModified("description"), isFlashing("description"), false).border }}/>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <FormField C={C} label="Année de création" value={form.annee_creation} onChange={v => fc("annee_creation", v)} placeholder="Ex: 1998" name="annee_creation" modified={isModified("annee_creation")} justSaved={isFlashing("annee_creation")} readOnly={saving}/>
+              <FormField C={C} label="Capacité d'accueil" value={form.capacite} onChange={v => fc("capacite", v)} placeholder="Ex: 50" name="capacite" modified={isModified("capacite")} justSaved={isFlashing("capacite")} readOnly={saving}/>
+            </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <FormField C={C} label="Année de création" value={form.annee_creation} onChange={v => fc("annee_creation", v)} placeholder="Ex: 1998" name="annee_creation"/>
-            <FormField C={C} label="Capacité d'accueil" value={form.capacite} onChange={v => fc("capacite", v)} placeholder="Ex: 50" name="capacite"/>
-          </div>
-        </Card>
+        </ProfileSection>
 
         {/* ── Services proposés — déplacé dans l'onglet "Services" (section
              "Offre générale"), pour ne plus cohabiter avec Services payants
              dans deux écrans différents ── */}
-        <SectionLabel>Services proposés</SectionLabel>
-        <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "16px", padding: "16px", marginBottom: "18px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" style={{ flexShrink: 0 }}><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-          <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.5, margin: 0 }}>
-            La liste de ce que vous proposez à vos clients se gère maintenant depuis l&apos;onglet <strong style={{ color: C.t1 }}>Services</strong> (section &quot;Offre gratuite&quot;).
-          </p>
-        </div>
+        <ProfileSection title="Services proposés" cardPadding="16px">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round" style={{ flexShrink: 0 }}><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.5, margin: 0 }}>
+              La liste de ce que vous proposez à vos clients se gère maintenant depuis l&apos;onglet <strong style={{ color: C.t1 }}>Services</strong> (section &quot;Offre gratuite&quot;).
+            </p>
+          </div>
+        </ProfileSection>
 
         {/* ── Langues de service ── */}
-        <SectionLabel>Langues de service</SectionLabel>
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "18px" }}>
+        <ProfileSection title="Langues de service" description="Langues dans lesquelles votre équipe accueille vos clients." cardPadding="16px">
+          {isModified("langue") && <div style={{ marginBottom: "10px", marginLeft: "-8px" }}><ModifiedMark C={C}/></div>}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
             {LANGUES_OPTIONS.map(l => (
-              <button key={l} onClick={() => toggleLangue(l)} className="tap" style={{ backgroundColor: form.langue.includes(l) ? `${C.gold}15` : C.bg3, border: `1.5px solid ${form.langue.includes(l) ? C.gold + "50" : C.border2}`, borderRadius: "20px", padding: "7px 14px", color: form.langue.includes(l) ? C.gold : C.t2, fontSize: "12px", fontWeight: form.langue.includes(l) ? "700" : "500", cursor: "pointer" }}>
+              <button key={l} onClick={() => toggleLangue(l)} className="tap" style={{ backgroundColor: form.langue.includes(l) ? "transparent" : C.bg3, border: `1.5px solid ${form.langue.includes(l) ? C.gold : C.border2}`, borderRadius: "20px", padding: "7px 14px", color: form.langue.includes(l) ? C.gold : C.t2, fontSize: "12px", fontWeight: form.langue.includes(l) ? "700" : "500", cursor: "pointer" }}>
                 {form.langue.includes(l) ? "✓ " : ""}{l}
               </button>
             ))}
           </div>
-        </Card>
+        </ProfileSection>
 
-        {/* ── Contact & Localisation ── */}
-        <SectionLabel>Contact et localisation</SectionLabel>
-        <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "18px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <FormField C={C} label="Ville" required value={form.ville} onChange={v => fc("ville", v)} name="ville" autoComplete="address-level2" error={fieldErrors.ville}/>
-            <FormField C={C} label="Quartier" value={form.quartier} onChange={v => fc("quartier", v)} name="quartier"/>
+        {/* ── Localisation ── */}
+        <ProfileSection title="Adresse et localisation" description="Permet à vos clients de vous situer et de vous rejoindre facilement." cardPadding="16px">
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <FormField C={C} label="Ville" required value={form.ville} onChange={v => fc("ville", v)} name="ville" autoComplete="address-level2" error={fieldErrors.ville} modified={isModified("ville")} justSaved={isFlashing("ville")} readOnly={saving}/>
+              <FormField C={C} label="Quartier" value={form.quartier} onChange={v => fc("quartier", v)} name="quartier" modified={isModified("quartier")} justSaved={isFlashing("quartier")} readOnly={saving}/>
+            </div>
+            <FormField C={C} label="Adresse complète" value={form.adresse} onChange={v => fc("adresse", v)} name="adresse" autoComplete="street-address" modified={isModified("adresse")} justSaved={isFlashing("adresse")} readOnly={saving}/>
+            <div>
+              <label style={fieldLabel(C)}>Position sur la carte{(isModified("latitude") || isModified("longitude")) && <ModifiedMark C={C}/>}</label>
+              <LocationPicker latitude={form.latitude} longitude={form.longitude} ville={form.ville} onChange={setPosition} C={C}/>
+            </div>
           </div>
-          <FormField C={C} label="Adresse complète" value={form.adresse} onChange={v => fc("adresse", v)} name="adresse" autoComplete="street-address"/>
-          <div>
-            <label style={fieldLabel(C)}>Position sur la carte</label>
-            <LocationPicker latitude={form.latitude} longitude={form.longitude} ville={form.ville} onChange={setPosition} C={C}/>
+        </ProfileSection>
+
+        {/* ── Contact ── */}
+        <ProfileSection title="Coordonnées" description="Moyens par lesquels vos clients peuvent vous contacter." cardPadding="16px">
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <PhoneFieldGuinee C={C} label="Téléphone" value={form.phone} onChange={setPhone} name="phone" modified={isModified("phone")} justSaved={isFlashing("phone")} readOnly={saving}/>
+              <PhoneFieldGuinee
+                C={C}
+                label="WhatsApp"
+                value={form.whatsapp}
+                onChange={v => fc("whatsapp", v)}
+                name="whatsapp"
+                disabled={whatsappSyncPhone}
+                modified={isModified("whatsapp")}
+                justSaved={isFlashing("whatsapp")}
+                readOnly={saving}
+                extra={
+                  <label style={{ display: "flex", alignItems: "center", gap: "5px", cursor: "pointer" }}>
+                    <input type="checkbox" checked={whatsappSyncPhone} onChange={e => toggleWhatsappSync(e.target.checked)} style={{ cursor: "pointer", accentColor: C.gold }}/>
+                    <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: "600" }}>Identique au téléphone</span>
+                  </label>
+                }
+              />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <FormField C={C} label="Email" type="email" value={form.email} onChange={v => fc("email", v)} name="email" autoComplete="email" modified={isModified("email")} justSaved={isFlashing("email")} readOnly={saving}/>
+              <FormField C={C} label="Site web" type="url" value={form.website} onChange={v => fc("website", v)} name="website" error={fieldErrors.website} modified={isModified("website")} justSaved={isFlashing("website")} readOnly={saving}/>
+            </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <FormField C={C} label="Téléphone" value={form.phone} onChange={v => fc("phone", v)} name="phone" autoComplete="tel"/>
-            <FormField C={C} label="WhatsApp" value={form.whatsapp} onChange={v => fc("whatsapp", v)} name="whatsapp" autoComplete="tel"/>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <FormField C={C} label="Email" type="email" value={form.email} onChange={v => fc("email", v)} name="email" autoComplete="email"/>
-            <FormField C={C} label="Site web" type="url" value={form.website} onChange={v => fc("website", v)} name="website" error={fieldErrors.website}/>
-          </div>
-        </Card>
+        </ProfileSection>
 
         {/* ── Identité internationale (chantier Taxonomie des activités,
              Phase 4, 20/08/2026) — composant autonome (état/chargement/
@@ -478,42 +581,36 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
             fusion reportée faute de temps avant le lancement (3 semaines,
             juillet 2026). Voir mémoire projet. Ne pas fusionner ici sans
             revalider l'impact sur DisponibilitesTab. */}
-        <SectionLabel>Horaires</SectionLabel>
-        <div style={{ backgroundColor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: "12px", padding: "12px 14px", marginBottom: "12px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.6 }}>
-            Ces horaires déterminent le badge <strong style={{ color: C.blue }}>Ouvert / Fermé</strong> affiché sur votre fiche publique. Ils sont distincts des créneaux de rendez-vous configurés dans l&apos;onglet <strong style={{ color: C.t1 }}>Disponibilités</strong> — les deux restent séparés pour le moment.
-          </div>
-        </div>
-        <Card tokens={toCardTokens(C)} padding="8px" style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "18px" }}>
-          {form.horaires.map((h, i) => (
-            <div key={h.jour} style={{ display: "grid", gridTemplateColumns: "100px 1fr auto", gap: "10px", alignItems: "center", padding: "8px 8px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div onClick={() => updateHoraire(i, "ouvert", !h.ouvert)} className="tap" style={{ width: "34px", height: "20px", borderRadius: "10px", backgroundColor: h.ouvert ? C.gold : C.bg3, position: "relative", cursor: "pointer", flexShrink: 0 }}>
-                  <div style={{ position: "absolute", top: "2px", left: h.ouvert ? "16px" : "2px", width: "16px", height: "16px", borderRadius: "50%", backgroundColor: h.ouvert ? "#000" : C.t3, transition: "left 0.15s" }}/>
-                </div>
-                <span style={{ color: h.ouvert ? C.t1 : C.t3, fontSize: "12px", fontWeight: "700" }}>{h.jour}</span>
-              </div>
-              {h.ouvert ? (
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <input type="time" value={h.debut} onChange={e => updateHoraire(i, "debut", e.target.value)} style={{ ...fieldInput(C), padding: "7px 9px", fontSize: "12px" }}/>
-                  <span style={{ color: C.t3, fontSize: "11px" }}>→</span>
-                  <input type="time" value={h.fin} onChange={e => updateHoraire(i, "fin", e.target.value)} style={{ ...fieldInput(C), padding: "7px 9px", fontSize: "12px" }}/>
-                </div>
-              ) : (
-                <span style={{ color: C.t3, fontSize: "12px", fontStyle: "italic" }}>Fermé ce jour</span>
-              )}
-              <span/>
+        <ProfileSection title="Horaires d'ouverture" description="Affichés sur votre fiche publique. Les créneaux de rendez-vous se configurent dans l'onglet Disponibilités." cardPadding="8px">
+          <div style={{ backgroundColor: `${C.gold}0c`, border: `1px solid ${C.gold}25`, borderRadius: "12px", padding: "12px 14px", margin: "8px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.6 }}>
+              Ces horaires déterminent le badge <strong style={{ color: C.gold }}>Ouvert / Fermé</strong> affiché sur votre fiche publique. Ils sont distincts des créneaux de rendez-vous configurés dans l&apos;onglet{" "}
+              <button type="button" onClick={() => onNavigate?.("disponibilites")} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.t1, fontWeight: "700", textDecoration: "underline", cursor: "pointer", fontSize: "11px", fontFamily: "inherit" }}>
+                Disponibilités
+              </button>
+              {" "}— les deux restent séparés pour le moment.
             </div>
-          ))}
-        </Card>
+          </div>
+          {isModified("horaires") && <div style={{ margin: "0 8px 8px" }}><ModifiedMark C={C}/></div>}
+          <HoursEditor horaires={form.horaires} onUpdate={updateHoraire} onBulkUpdate={setHoraires}/>
+        </ProfileSection>
 
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!dirty} loading={saving} style={{ padding: "0 28px", boxShadow: !dirty ? "none" : `0 4px 20px ${C.gold}40` }} onClick={handleSave}>
-            {saving ? "Sauvegarde…" : dirty ? "Enregistrer" : "Modifier"}
-          </Button>
-        </div>
+        <SaveBar status={saveStatus} count={dirtyFields.size} onSave={handleSave} onCancel={annuler}/>
       </div>
+
+      <ReauthModal
+        open={reauthOpen}
+        reason="Vous modifiez le nom, l'adresse, la localisation ou l'activité de votre établissement. Entrez votre PIN pour confirmer ; l'équipe Yelen pourra examiner ces changements."
+        onClose={() => { setReauthOpen(false); setPendingAction(null); }}
+        onSuccess={() => {
+          const action = pendingAction;
+          setReauthOpen(false);
+          setPendingAction(null);
+          if (action === "save") void handleSave();
+          else if (action === "taxo") void saveTaxonomy();
+        }}
+      />
 
       <TaxoModal
         open={taxoModalOpen}
@@ -538,12 +635,6 @@ export function ProfilEntrepriseTab({ instId, onToast }: {
       />
     </div>
   );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  const { theme } = useTheme();
-  const C = T[theme] as ThemeTokens;
-  return <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", marginBottom: "10px", marginTop: "4px" }}>{children}</div>;
 }
 
 const STATUT_PRESENCE_GUINEE_OPTIONS: { id: string; label: string }[] = [
@@ -643,19 +734,17 @@ function IdentiteInternationaleSection({ onToast }: { onToast: (msg: string, col
     setSaving(false);
     if (!res.ok) {
       const j = await res.json().catch(() => null);
-      onToast(j?.error || "Erreur lors de l'enregistrement.", C.red);
+      onToast(j?.error || "L'enregistrement a échoué. Veuillez réessayer dans quelques instants.", C.red);
       return;
     }
     setSavedForm(form);
-    onToast("Identité internationale enregistrée.", C.green);
+    onToast("Modifications enregistrées. Les informations de votre organisation sont à jour.", C.green);
   }
 
   if (loading) return null;
 
   return (
-    <>
-      <SectionLabel>Origine de l&apos;organisation</SectionLabel>
-      <Card tokens={toCardTokens(C)} padding="18px" style={{ marginBottom: "18px" }}>
+    <ProfileSection title="Origine de l'organisation" description="À déclarer si votre institution opère en Guinée depuis une base à l'étranger." cardPadding="18px">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: origineType === "etrangere" ? "18px" : 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: "700", marginBottom: "3px" }}>Organisation basée à l&apos;étranger</div>
@@ -712,8 +801,7 @@ function IdentiteInternationaleSection({ onToast }: { onToast: (msg: string, col
             </div>
           </div>
         )}
-      </Card>
-    </>
+    </ProfileSection>
   );
 }
 

@@ -12,7 +12,7 @@ import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
   enregistrerTentative, messageSecurite,
 } from '@/lib/security/authSecurity'
-import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from '@/lib/institutionAuth'
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT, estAppelMobile, finaliserConnexionMembre } from '@/lib/institutionAuth'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -177,20 +177,35 @@ export async function POST(request: NextRequest) {
     // role dans le même JWT si le membre Admin principal existe déjà.
     const { data: membrePrincipal } = await supabaseAdmin
       .from('institution_membres')
-      .select('id, role, totp_enabled')
+      .select('id, role, totp_enabled, prenom, nom')
       .eq('institution_id', institution.id)
       .eq('compte_principal', true)
       .maybeSingle()
 
     // 2FA TOTP (chantier sécurité institution 25/07/2026) — voir verify-otp/route.ts.
+    // membreNom transmis (audit Profil Responsable, 19/10/2026) — sans lui,
+    // totp/login-verify ne journalise pas "connexion" une fois la 2FA
+    // validée (voir lib/auth/institutionSession.ts::TotpChallengePayload).
     if (membrePrincipal?.totp_enabled) {
       const totpToken = await mintInstitutionTotpChallengeToken({
         institutionId: institution.id,
         membreId: membrePrincipal.id,
         role: membrePrincipal.role,
         rememberMe: false,
+        membreNom: `${membrePrincipal.prenom} ${membrePrincipal.nom}`,
       })
       return finaliser({ requiresTotp: true, totpToken, security: etatVerifie }, 200)
+    }
+
+    // Traçabilité de connexion (audit Profil Responsable, 19/10/2026) — ce
+    // flux (passkey) ne journalisait jamais "connexion" ni ne mettait à
+    // jour institution_membres.derniere_connexion, contrairement à
+    // verify-otp/route.ts. Voir lib/institutionAuth.ts::finaliserConnexionMembre.
+    if (membrePrincipal) {
+      await finaliserConnexionMembre(supabaseAdmin, {
+        institutionId: institution.id, membreId: membrePrincipal.id,
+        membreNom: `${membrePrincipal.prenom} ${membrePrincipal.nom}`, req: request,
+      })
     }
 
     // institution_sessions (dette technique comblée 30/08/2026, mirroring
@@ -215,7 +230,9 @@ export async function POST(request: NextRequest) {
       .setAudience('yelen224-institution-dashboard')
       .sign(JWT_SECRET)
 
-    const response = finaliser({ success: true, institution: { id: institution.id, name: institution.name }, suspended, security: etatVerifie }, 200)
+    // Yelen Business Mobile (02/10/2026) : voir verify-otp/route.ts pour la
+    // justification — token dans le corps uniquement pour l'appelant mobile.
+    const response = finaliser({ success: true, institution: { id: institution.id, name: institution.name }, suspended, security: etatVerifie, ...(estAppelMobile(request) ? { token } : {}) }, 200)
 
     response.cookies.set('yelen224_institution_session', token, {
       httpOnly: true,

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { verify } from "otplib";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { genererCodesSecours } from "@/lib/totpBackupCodes";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,6 +44,19 @@ export async function POST(request: NextRequest) {
       .update({ totp_enabled: true, totp_backup_codes: hashes })
       .eq("id", membre.membreId);
     if (error) throw error;
+
+    // Journalisation (audit Profil Responsable, 19/10/2026) — enregistrée
+    // uniquement après confirmation réelle du premier code, jamais à
+    // /totp/setup (secret généré mais pas encore prouvé).
+    await enregistrerAction({
+      institutionId: membre.institutionId,
+      membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: "totp_active",
+      cibleTable: "institution_membres",
+      cibleId: membre.membreId,
+      req: request,
+    });
 
     return NextResponse.json({ success: true, backupCodes: clair });
 

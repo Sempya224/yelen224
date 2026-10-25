@@ -29,7 +29,7 @@ type RdvVerifie = {
   heure_rdv: string;
   statut: string;
   institutions: { name: string } | null;
-  users: { prenom: string | null; nom: string | null; phone: string | null } | null;
+  users: { prenom: string | null; nom: string | null; phone: string | null; compte_complete_le: string | null } | null;
 };
 
 type VerifResult = { ok: false; error: string } | { ok: true; rdv: RdvVerifie };
@@ -40,7 +40,7 @@ async function chargerRdvEtVerifier(rdvId: string, accessToken: string): Promise
 
   const { data: rdv } = await sb
     .from("rdv")
-    .select("id,citoyen_id,institution_id,date_rdv,heure_rdv,statut,institutions!rdv_institution_id_fkey(name),users!rdv_citoyen_id_fkey(prenom,nom,phone)")
+    .select("id,citoyen_id,institution_id,date_rdv,heure_rdv,statut,institutions!rdv_institution_id_fkey(name),users!rdv_citoyen_id_fkey(prenom,nom,phone,compte_complete_le)")
     .eq("id", rdvId)
     .maybeSingle();
   if (!rdv || rdv.citoyen_id !== user.id) return { ok: false, error: "Rendez-vous introuvable." };
@@ -65,7 +65,7 @@ export async function annulerRdv(params: {
   if (!verif.ok) return verif;
   const rdv = verif.rdv;
 
-  const { error } = await sb.from("rdv").update({ statut: "annule", motif_annulation: motif }).eq("id", rdv.id);
+  const { error } = await sb.from("rdv").update({ statut: "annule", motif_annulation: motif, annule_par: "citoyen" }).eq("id", rdv.id);
   if (error) return { ok: false, error: error.message };
 
   const instNom = rdv.institutions?.name ?? "l'établissement";
@@ -76,7 +76,7 @@ export async function annulerRdv(params: {
   await envoyerNotification({
     destinataireId: rdv.institution_id, destinataireType: "institution", rdvId: rdv.id, type: "rdv_annule",
     titre: salutation(instNom),
-    message: `Le rendez-vous de ${citNom} du ${dateLabel} à ${heure} a été annulé par le citoyen. Motif : ${motif}`,
+    message: `${citNom} a annulé son rendez-vous du ${dateLabel} à ${heure}. Motif indiqué : « ${motif} ».`,
   });
   await envoyerNotification({
     destinataireId: rdv.citoyen_id, destinataireType: "citoyen", rdvId: rdv.id, type: "rdv_annule",
@@ -176,6 +176,13 @@ export async function soumettreAvis(params: {
   const verif = await chargerRdvEtVerifier(params.rdvId, params.accessToken);
   if (!verif.ok) return verif;
   const rdv = verif.rdv;
+
+  // Filtre identité (ADR-001 E0.1) ici et non dans chargerRdvEtVerifier,
+  // partagée avec annulerRdv/reporterRdv qui restent ouvertes à l'invité.
+  // Fail-closed : sans compte complété, pas d'avis.
+  if (!rdv.users?.compte_complete_le) {
+    return { ok: false, error: "Complétez votre compte pour laisser un avis." };
+  }
 
   if (rdv.statut !== "termine") {
     return { ok: false, error: "Un avis ne peut être laissé que pour un rendez-vous terminé." };

@@ -29,11 +29,15 @@ const NOTIF_LABELS: Record<NotifCategory, { titre: string; desc: string }> = {
   rdv_termine: { titre: "RDV terminés", desc: "Un rendez-vous est marqué terminé" },
 };
 
-function Toggle({ C, checked, onChange, disabled }: { C: ThemeTokens; checked: boolean; onChange: () => void; disabled?: boolean }) {
+function Toggle({ C, checked, onChange, disabled, label }: { C: ThemeTokens; checked: boolean; onChange: () => void; disabled?: boolean; label: string }) {
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
       onClick={disabled ? undefined : onChange}
-      className={disabled ? undefined : "tap"}
+      className={disabled ? "yelen-focus-ring" : "tap yelen-focus-ring"}
       disabled={disabled}
       style={{ width: "38px", height: "22px", borderRadius: "20px", border: "none", padding: "2px", backgroundColor: disabled ? C.bg3 : checked ? C.gold : C.border2, cursor: disabled ? "not-allowed" : "pointer", display: "flex", justifyContent: checked ? "flex-end" : "flex-start", flexShrink: 0, opacity: disabled ? 0.5 : 1 }}
     >
@@ -122,10 +126,14 @@ export function NotificationsTab({ }: { instId: string }) {
   return (
     <div style={{ padding: "16px", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "16px" }}>Notifications</h1>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "8px" }}>Notifications</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+          <span style={{ color: C.t3, fontSize: "9px", fontWeight: "800", textTransform: "uppercase", border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "2px 6px", flexShrink: 0 }}>Bientôt</span>
+          <span style={{ color: C.t2, fontSize: "12px" }}>Ces préférences seront appliquées prochainement. Elles sont enregistrées dès maintenant.</span>
+        </div>
 
         {msg && (
-          <div style={{ position: "fixed", top: "66px", left: "50%", transform: "translateX(-50%)", zIndex: 950, backgroundColor: C.bgCard2, border: `1px solid ${msg.color}40`, borderLeft: `3px solid ${msg.color}`, borderRadius: "12px", padding: "10px 16px", color: C.t1, fontSize: "12px", fontWeight: "700", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
+          <div role="status" aria-live="polite" style={{ position: "fixed", top: "66px", left: "50%", transform: "translateX(-50%)", zIndex: 950, backgroundColor: C.bgCard2, border: `1px solid ${msg.color}40`, borderLeft: `3px solid ${msg.color}`, borderRadius: "12px", padding: "10px 16px", color: C.t1, fontSize: "12px", fontWeight: "700", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
             {msg.text}
           </div>
         )}
@@ -134,8 +142,8 @@ export function NotificationsTab({ }: { instId: string }) {
           <div style={{ padding: "10px 16px 4px", display: "flex", gap: "8px", color: C.t3, fontSize: "9px", fontWeight: "800", textTransform: "uppercase" }}>
             <span style={{ flex: 1 }} />
             <span style={{ width: "38px", textAlign: "center" }}>App</span>
-            <span style={{ width: "50px", textAlign: "center" }}>Email</span>
-            <span style={{ width: "44px", textAlign: "center" }}>SMS</span>
+            <span style={{ width: "50px", textAlign: "center" }}>Email<br/>Bientôt</span>
+            <span style={{ width: "44px", textAlign: "center" }}>SMS<br/>Bientôt</span>
           </div>
           {(Object.keys(NOTIF_LABELS) as NotifCategory[]).map((cat, i, arr) => (
             <div key={cat} style={{ padding: "11px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", display: "flex", alignItems: "center", gap: "8px" }}>
@@ -144,13 +152,13 @@ export function NotificationsTab({ }: { instId: string }) {
                 <div style={{ color: C.t3, fontSize: "10px", marginTop: "1px" }}>{NOTIF_LABELS[cat].desc}</div>
               </div>
               <div style={{ width: "38px", display: "flex", justifyContent: "center" }}>
-                <Toggle C={C} checked={prefs[cat].inapp} onChange={() => togglePref(cat)} disabled={prefsLoading || savingCategory === cat} />
+                <Toggle C={C} label={`Application — ${NOTIF_LABELS[cat].titre} (appliqué prochainement)`} checked={prefs[cat].inapp} onChange={() => togglePref(cat)} disabled={prefsLoading || savingCategory === cat} />
               </div>
               <div style={{ width: "50px", display: "flex", justifyContent: "center" }} title="Bientôt disponible">
-                <Toggle C={C} checked={false} onChange={() => {}} disabled />
+                <Toggle C={C} label={`Email — ${NOTIF_LABELS[cat].titre} (bientôt disponible)`} checked={false} onChange={() => {}} disabled />
               </div>
               <div style={{ width: "44px", display: "flex", justifyContent: "center" }} title="Bientôt disponible">
-                <Toggle C={C} checked={false} onChange={() => {}} disabled />
+                <Toggle C={C} label={`SMS — ${NOTIF_LABELS[cat].titre} (bientôt disponible)`} checked={false} onChange={() => {}} disabled />
               </div>
             </div>
           ))}

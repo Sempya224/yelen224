@@ -163,6 +163,8 @@ async function verifierTokenAdmin(token: string): Promise<{ valide: boolean; mfa
 //  - *.tile.openstreetmap.org : tuiles de carte Leaflet
 //    (components/CarteMap.tsx, LocationPicker.tsx) — sous-domaines a/b/c,
 //    d'où le wildcard.
+//  - api.mapbox.com : tuiles Mapbox (Static Tiles API) de components/CarteMap.tsx,
+//    actives seulement si NEXT_PUBLIC_MAPBOX_TOKEN est défini.
 //  - formsubmit.co (connect-src) : app/contact/page.tsx fait un fetch()
 //    direct vers ce service tiers pour le formulaire de contact.
 // Google Fonts (fonts.googleapis.com/fonts.gstatic.com) : PAS de source
@@ -184,7 +186,7 @@ const CSP_REPORT_ONLY = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://pgcabxgrgjgukuagpuhc.supabase.co https://images.pexels.com https://img.youtube.com https://*.tile.openstreetmap.org",
+  "img-src 'self' data: blob: https://pgcabxgrgjgukuagpuhc.supabase.co https://images.pexels.com https://img.youtube.com https://*.tile.openstreetmap.org https://api.mapbox.com",
   "font-src 'self' data:",
   "connect-src 'self' https://pgcabxgrgjgukuagpuhc.supabase.co wss://pgcabxgrgjgukuagpuhc.supabase.co https://formsubmit.co",
   "frame-src https://www.youtube.com https://pgcabxgrgjgukuagpuhc.supabase.co",
@@ -273,7 +275,10 @@ export async function proxy(request: NextRequest) {
   if (
     process.env.GEO_BLOCK_ENABLED === 'true' &&
     pathname !== '/region-non-disponible' &&
-    !pathname.startsWith('/api/')
+    !pathname.startsWith('/api/') &&
+    // Pages publiques de vérification (/verify/recu, /verify/export) : ouvertes
+    // par des tiers (banque, ambassade) qui peuvent être hors zone autorisée.
+    !pathname.startsWith('/verify/')
   ) {
     const bypassToken = process.env.GEO_BYPASS_TOKEN
     const bypassCookie = request.cookies.get(GEO_BYPASS_COOKIE)?.value

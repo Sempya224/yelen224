@@ -5,6 +5,7 @@ import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { getRequiredDocuments, getRequiredDocumentsInternational, MAX_DOCUMENT_SIZE } from "@/lib/documentsInstitution";
 import { validateUpload } from "@/lib/uploadSecurity";
 import { createHash } from "crypto";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 // Contourne RLS via service role — documents_institution n'a volontairement
 // aucune policy (voir migration 20260711000005), accès exclusivement via
@@ -43,10 +44,23 @@ export async function GET(req: NextRequest) {
 
   const { data: rows, error: rowsErr } = await sb
     .from("documents_institution")
-    .select("type, statut, motif_rejet, soumis_le")
+    .select("type, statut, motif_rejet, soumis_le, examine_le")
     .eq("institution_id", authInstId)
     .eq("statut_actif", true);
   if (rowsErr) return NextResponse.json({ error: rowsErr.message }, { status: 500 });
+
+  // B2 (24/10/2026) — dernière décision de vérification par axe, pour que
+  // l'établissement voie ce que l'équipe Yelen a décidé (jusqu'ici seule une
+  // notification la portait). Colonnes explicites : justification et motif
+  // sont déjà transmis tels quels à l'établissement par la notification de
+  // décision ; jamais le nom de l'examinateur, les preuves ni les chemins.
+  const { data: decisionsRows, error: decisionsErr } = await sb
+    .from("verification_decisions")
+    .select("axe, type_decision, justification, complement_demande_motif, decide_le, expire_le")
+    .eq("institution_id", authInstId)
+    .order("decide_le", { ascending: false });
+  if (decisionsErr) return NextResponse.json({ error: decisionsErr.message }, { status: 500 });
+  const derniereParAxe = (axe: "identite" | "autorite") => (decisionsRows ?? []).find((d) => d.axe === axe) ?? null;
 
   const documents = required.map((doc) => {
     const row = (rows || []).find((r) => r.type === doc.type);
@@ -59,13 +73,24 @@ export async function GET(req: NextRequest) {
       statut: row?.statut ?? null,
       motif_rejet: row?.motif_rejet ?? null,
       soumis_le: row?.soumis_le ?? null,
+      // Date seule : jamais le nom de l'examinateur (examine_par non sélectionné).
+      examine_le: row?.examine_le ?? null,
     };
   });
 
+  // Date de validation du compte (colonne ajoutée par la migration
+  // 20261024000004). Requête séparée et tolérante : tant que la migration n'est
+  // pas exécutée, l'écran Documents continue de fonctionner, sans cette date.
+  const { data: validation, error: validationErr } = await sb
+    .from("institutions").select("validee_le").eq("id", authInstId).maybeSingle();
+  const valideeLe: string | null = validationErr ? null : (validation?.validee_le ?? null);
+
   return NextResponse.json({
     institution_statut: inst.statut,
+    validee_le: valideeLe,
     statut_juridique: inst.statut_juridique,
     documents,
+    decisions: { identite: derniereParAxe("identite"), autorite: derniereParAxe("autorite") },
   });
 }
 
@@ -156,7 +181,24 @@ export async function POST(req: NextRequest) {
     p_hash_integrite: hashIntegrite,
     p_soumis_par_membre_id: membre.membreId,
   });
-  if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
+  if (rpcErr) {
+    // Faille corrigée le 24/10/2026 : le fichier est envoyé avant l'écriture
+    // en base ; si celle-ci échoue il restait orphelin dans le bucket (pièce
+    // d'identité sans aucune ligne qui la référence, jamais nettoyée).
+    await sb.storage.from("documents").remove([path]);
+    return NextResponse.json({ error: rpcErr.message }, { status: 500 });
+  }
+
+  // Journal d'activité (non bloquant) : dépôt d'un document de vérification.
+  // Ni le nom du fichier, ni le chemin de stockage, ni l'empreinte : le type
+  // de document suffit à la traçabilité (le fichier reste invisible côté
+  // institution, voir en-tête).
+  await enregistrerAction({
+    institutionId: authInstId, membreId: membre.membreId, membreNom: await getMembreNomPourJournal(membre.membreId),
+    action: "document_institutionnel_depose", cibleTable: "documents_institution", cibleId: documentId,
+    details: { type },
+    req,
+  });
 
   return NextResponse.json({ ok: true });
 }

@@ -25,6 +25,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 import { SectionHeader } from "../dashboardShared";
 import type { InstCompte } from "@/lib/compteYelenDisplay";
 import { can, type MembreRole } from "@/lib/institutionPermissions";
@@ -83,7 +84,10 @@ export function YelenFraisTab({ inst, onToast, membreRole }: {
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px", marginBottom: "6px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Frais &amp; commissions</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Frais &amp; commissions</div>
+            <HelpCenterGuide tab="yelen-frais-commissions" />
+          </div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "500px" }}>Consultez les frais appliqués à vos transactions et comprenez leur impact sur les montants nets reçus ou réglés.</p>
         </div>
         {peutExporter && (

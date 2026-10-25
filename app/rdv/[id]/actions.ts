@@ -3,9 +3,13 @@
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { createAuthedSupabaseClient } from "@/lib/supabase";
+import { messageControleBase } from "@/lib/reservationErreurs";
 import { notifierReservation, notifierReservationChambre } from "@/lib/notificationEngine";
 import { generateSlotsInRange } from "@/lib/disponibilites";
 import { chargerRestrictionActive, RDV_RESTRICTION_MESSAGE_CREATION } from "@/lib/rdvRestrictions";
+import { chargerSuspensionInactiviteActive } from "@/lib/inactiviteCitoyenne";
+import { toucherActiviteCitoyenne } from "@/lib/activiteCitoyenne";
+import { chargerPauseEtablissementActive, PAUSE_MESSAGE_CITOYEN } from "@/lib/institutionReservationPause";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -22,6 +26,25 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 // revenir avec des secondes ("09:00:00") selon le type Postgres, seule la
 // comparaison sur les 5 premiers caractères est fiable.
 const JOURS_FENETRE_CRENEAUX = 28;
+
+// Message différencié par statut réel (retour Bryan 18/10/2026, chantier
+// Booking Governance) — "n'est plus disponible" était vague pour tous les
+// cas (en_attente/suspendue/refusee confondus). Le motif INTERNE d'une
+// suspension (conformité/comportement) reste en revanche jamais exposé,
+// même règle explicite que le §6 de docs/product/YELEN_BOOKING_GOVERNANCE.md
+// pour la pause volontaire — seul l'état "suspendu" est dit, jamais pourquoi.
+function messageInstitutionIndisponible(statut: string): string {
+  switch (statut) {
+    case "en_attente":
+      return "Cet établissement est en cours de validation par Yelen et n'est pas encore ouvert aux réservations.";
+    case "suspendue":
+      return "Les réservations sont temporairement suspendues pour cet établissement.";
+    case "refusee":
+      return "Cet établissement n'est pas disponible sur Yelen.";
+    default:
+      return "Cet établissement n'est plus disponible pour la réservation.";
+  }
+}
 
 // Vérifie uniquement ce qui reste légitimement côté JS : l'institution
 // existe/est validée, et le créneau correspond à ses disponibilités réelles
@@ -45,7 +68,17 @@ async function validerCreneauServeur(
     return { ok: false, error: "Cet établissement est introuvable." };
   }
   if (institution.statut !== "validee") {
-    return { ok: false, error: "Cet établissement n'est plus disponible pour la réservation." };
+    return { ok: false, error: messageInstitutionIndisponible(institution.statut) };
+  }
+
+  // Booking Governance, Lot 1 (docs/product/YELEN_BOOKING_GOVERNANCE.md §3)
+  // — pause volontaire établissement. Même principe que les checks
+  // restriction/inactivité ci-dessus : le vrai verrou est la policy RLS
+  // INSERT (institution_a_pause_active(), migration 20261018000006), ceci
+  // ne sert qu'à renvoyer le message humanisé du §6 avant l'appel RPC.
+  const pause = await chargerPauseEtablissementActive(sb, institutionId);
+  if (pause) {
+    return { ok: false, error: PAUSE_MESSAGE_CITOYEN };
   }
 
   const heureCourte = heureRdv.slice(0, 5);
@@ -124,6 +157,15 @@ export async function createRdv(payload: {
     return { ok: false, error: RDV_RESTRICTION_MESSAGE_CREATION };
   }
 
+  // Suspension pour inactivité (chantier COMPTES-INACTIFS.md, Phase 3) —
+  // même principe : le vrai verrou est la policy RLS INSERT étendue
+  // (migration 20261015000003), cette vérification amont ne sert qu'à
+  // renvoyer un message humanisé.
+  const suspensionInactivite = await chargerSuspensionInactiviteActive(sb, c);
+  if (suspensionInactivite) {
+    return { ok: false, error: "Votre compte est actuellement en pause. Reconnectez-vous pour le réactiver avant de prendre un nouveau rendez-vous." };
+  }
+
   const verifCreneau = await validerCreneauServeur(i, payload.dateRdv.trim(), payload.heureRdv.trim());
   if (!verifCreneau.ok) {
     return verifCreneau;
@@ -185,6 +227,7 @@ export async function createRdv(payload: {
     }
   }
 
+  await toucherActiviteCitoyenne(sb, c);
   return { ok: true, code: qrToken };
 }
 
@@ -246,6 +289,15 @@ export async function creerReservationPayante(payload: {
     return { ok: false, error: RDV_RESTRICTION_MESSAGE_CREATION };
   }
 
+  // Suspension pour inactivité (chantier COMPTES-INACTIFS.md, Phase 3) —
+  // même principe : le vrai verrou est la policy RLS INSERT étendue
+  // (migration 20261015000003), cette vérification amont ne sert qu'à
+  // renvoyer un message humanisé.
+  const suspensionInactivite = await chargerSuspensionInactiviteActive(sb, c);
+  if (suspensionInactivite) {
+    return { ok: false, error: "Votre compte est actuellement en pause. Reconnectez-vous pour le réactiver avant de prendre un nouveau rendez-vous." };
+  }
+
   const verifCreneau = await validerCreneauServeur(i, payload.dateRdv.trim(), payload.heureRdv.trim());
   if (!verifCreneau.ok) {
     return verifCreneau;
@@ -278,6 +330,8 @@ export async function creerReservationPayante(payload: {
     if (error.message.includes("SERVICE_INTROUVABLE")) {
       return { ok: false, error: "Ce service n'est plus disponible." };
     }
+    const controleBase = messageControleBase(error.message);
+    if (controleBase) return { ok: false, error: controleBase };
     return { ok: false, error: "Une erreur est survenue pendant la réservation. Réessayez dans un instant." };
   }
 
@@ -302,6 +356,7 @@ export async function creerReservationPayante(payload: {
     }
   }
 
+  await toucherActiviteCitoyenne(sb, c);
   return { ok: true, code: confirmationCode };
 }
 
@@ -332,7 +387,14 @@ async function validerChambreServeur(
     return { ok: false, error: "Cet établissement est introuvable." };
   }
   if (institution.statut !== "validee") {
-    return { ok: false, error: "Cet établissement n'est plus disponible pour la réservation." };
+    return { ok: false, error: messageInstitutionIndisponible(institution.statut) };
+  }
+
+  // Booking Governance, Lot 1 — voir validerCreneauServeur() ci-dessus,
+  // même check pour le flux chambre hôtel.
+  const pauseChambre = await chargerPauseEtablissementActive(sb, institutionId);
+  if (pauseChambre) {
+    return { ok: false, error: PAUSE_MESSAGE_CITOYEN };
   }
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -401,6 +463,15 @@ export async function creerReservationChambre(payload: {
     return { ok: false, error: RDV_RESTRICTION_MESSAGE_CREATION };
   }
 
+  // Suspension pour inactivité (chantier COMPTES-INACTIFS.md, Phase 3) —
+  // même principe : le vrai verrou est la policy RLS INSERT étendue
+  // (migration 20261015000003), cette vérification amont ne sert qu'à
+  // renvoyer un message humanisé.
+  const suspensionInactivite = await chargerSuspensionInactiviteActive(sb, c);
+  if (suspensionInactivite) {
+    return { ok: false, error: "Votre compte est actuellement en pause. Reconnectez-vous pour le réactiver avant de prendre un nouveau rendez-vous." };
+  }
+
   const verifDates = await validerChambreServeur(i, dateArrivee, dateDepart);
   if (!verifDates.ok) {
     return verifDates;
@@ -434,6 +505,8 @@ export async function creerReservationChambre(payload: {
     if (error.message.includes("SERVICE_INTROUVABLE")) {
       return { ok: false, error: "Cette chambre n'est plus disponible." };
     }
+    const controleBase = messageControleBase(error.message);
+    if (controleBase) return { ok: false, error: controleBase };
     return { ok: false, error: "Une erreur est survenue pendant la réservation. Réessayez dans un instant." };
   }
 
@@ -458,5 +531,6 @@ export async function creerReservationChambre(payload: {
     }
   }
 
+  await toucherActiviteCitoyenne(sb, c);
   return { ok: true, code: confirmationCode };
 }

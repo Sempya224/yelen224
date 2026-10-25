@@ -51,6 +51,37 @@ export async function POST(req: NextRequest) {
     if (rdv.presence_status === "present")
       return NextResponse.json({ error: "Déjà confirmé" }, { status: 400 });
 
+    // Protection du RDV lié à une réservation payante (Mission A, 22/10/2026) :
+    // le RDV jumeau d'une réservation payante porte qr_token = code de
+    // confirmation à 6 chiffres. Régénérer son qr_token ici coupait le lien
+    // avec la réservation (fiche de validation, liste des RDV, Mes clients,
+    // détail de paiement côté citoyen). Le code de ces RDV est permanent et
+    // se consulte dans l'onglet « Payant » de Mon QR — aucun QR de présence
+    // gratuit ne doit être généré dessus. Fail closed : si la vérification
+    // échoue, on n'écrit rien.
+    const { data: parRdvId, error: payantErr1 } = await supabase
+      .from("paid_bookings").select("id")
+      .eq("citoyen_id", citoyen_id).eq("institution_id", rdv.institution_id).eq("rdv_id", rdv.id).limit(1);
+    let payant = (parRdvId?.length ?? 0) > 0;
+    let payantErr2 = null;
+    if (!payantErr1 && !payant && rdv.qr_token) {
+      const { data: parCode, error } = await supabase
+        .from("paid_bookings").select("id")
+        .eq("citoyen_id", citoyen_id).eq("institution_id", rdv.institution_id).eq("confirmation_code", rdv.qr_token).limit(1);
+      payantErr2 = error;
+      payant = (parCode?.length ?? 0) > 0;
+    }
+    if (payantErr1 || payantErr2) {
+      console.error("[QR GENERATE] vérification réservation payante impossible:", (payantErr1 ?? payantErr2)?.message);
+      return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    }
+    if (payant) {
+      return NextResponse.json({
+        error: "Ce rendez-vous est une réservation payante : son code de confirmation se trouve dans l'onglet « Payant » de Mon QR Code.",
+        code: "RDV_PAYANT",
+      }, { status: 409 });
+    }
+
     const maintenant = new Date();
     const etat = calculerEtatQr(rdv.qr_expires_at, rdv.qr_regenere_le, maintenant);
 
