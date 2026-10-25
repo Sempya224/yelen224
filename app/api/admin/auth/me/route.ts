@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     // l'expiration naturelle du token.
     const { data: admin } = await supabaseAdmin
       .from('admin_users')
-      .select('is_active, locked_until, totp_enabled, last_login')
+      .select('is_active, locked_until, totp_enabled, extra_code_enabled, last_login')
       .eq('id', payload.adminId as string)
       .maybeSingle()
 
@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
         role: payload.role,
         nom: payload.nom,
         totp_enabled: admin.totp_enabled,
+        extra_code_enabled: admin.extra_code_enabled,
         last_login: admin.last_login,
       }
     })

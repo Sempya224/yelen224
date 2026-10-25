@@ -30,6 +30,7 @@ import { SectionHeader } from "../dashboardShared";
 import { SECTEUR_LABELS } from "@/lib/institutionTaxonomy";
 import { STATUT_META, PLAN_LABELS, formatDateLongue, type InstCompte } from "@/lib/compteYelenDisplay";
 import { Champ, ChampBientot, SectionBientot, StatusDot } from "./YelenBusinessShared";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 export function YelenCompteTab({ inst, onToast, onVoirJournal, onContacterSupport }: {
   inst: InstCompte | null;
@@ -56,7 +57,10 @@ export function YelenCompteTab({ inst, onToast, onVoirJournal, onContacterSuppor
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "14px", marginBottom: "16px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Compte Yelen</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ color: C.t1, fontSize: "19px", fontWeight: 800 }}>Compte Yelen</div>
+            <HelpCenterGuide tab="yelen-compte" />
+          </div>
           <p style={{ color: C.t3, fontSize: "12px", marginTop: "4px", maxWidth: "480px" }}>Gérez les informations commerciales et contractuelles de votre établissement auprès de Yelen.</p>
         </div>
         <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => onToast("Bientôt disponible — la modification des informations du compte arrive dans un prochain chantier.")}>Modifier les informations</Button>

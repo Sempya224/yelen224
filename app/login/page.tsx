@@ -283,10 +283,20 @@ function LoginCitoyenInner() {
   // forme). Centralisé ici (chantier 2FA TOTP, 25/07/2026) pour n'avoir
   // qu'une seule implémentation du "se souvenir de moi" + redirection.
   const finaliserConnexion = useCallback(async (uid: string, tokenHash: string): Promise<boolean> => {
-    const { error: sessionError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "email" });
+    const { data: otpData, error: sessionError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "email" });
     if (sessionError) {
       setError("Nous n'avons pas pu sécuriser votre connexion. Réessayez.");
       return false;
+    }
+
+    // Connexion vérifiée fraîche (chantier COMPTES-INACTIFS.md, Phase 3) —
+    // best-effort, ne bloque jamais la connexion si la levée échoue.
+    const freshAccessToken = otpData.session?.access_token;
+    if (freshAccessToken) {
+      fetch("/api/citoyen/auth/touch-login", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${freshAccessToken}` },
+      }).catch(() => {});
     }
 
     localStorage.removeItem("yelen_login_phone");

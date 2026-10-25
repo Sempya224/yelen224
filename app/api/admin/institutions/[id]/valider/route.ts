@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { envoyerNotification, salutation } from '@/lib/notificationEngine'
 import { authorizeAdmin, adminAuthErrorResponse, AdminAuthError } from '@/lib/adminAuth'
+import { verifierDocumentsAvantValidation } from '@/lib/validationDocuments'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,6 +29,16 @@ export async function POST(
       .select('origine_type')
       .eq('id', id)
       .maybeSingle()
+
+    // Garde "documents soumis" (24/10/2026, décision Bryan) — même un admin
+    // ne peut pas valider un établissement dont les documents requis n'ont
+    // pas été déposés. Contrôle serveur, indépendant de l'écran admin ; logique
+    // partagée avec la réactivation (lib/validationDocuments.ts), doublée en
+    // base par un trigger.
+    const verdictDocuments = await verifierDocumentsAvantValidation(supabaseAdmin, id)
+    if (!verdictDocuments.ok) {
+      return NextResponse.json({ error: verdictDocuments.error }, { status: 400 })
+    }
 
     if (instOrigine?.origine_type === 'etrangere') {
       const { data: derniereDecisionIdentite } = await supabaseAdmin

@@ -93,15 +93,34 @@ export const MINUTES_GRACE_NON_TRAITE = 30;
 // 13/09/2026 — sert à donner à l'établissement un signal agrégé (KPI, filtre
 // dédié) sur son propre retard de traitement, jamais à imputer quoi que ce
 // soit au citoyen tant que rien n'a été explicitement constaté.
-export function rdvNonTraite(statut: string, presenceStatus: string | null | undefined, dateRdv: string, heureRdv: string, maintenant: Date = new Date()): boolean {
-  const enAttenteNonResolu = statut === "nouveau" || (statut === "en_attente" && presenceStatus !== "absent");
-  if (!enAttenteNonResolu || !dateRdv || !heureRdv) return false;
+// Seuil temporel seul (sans la condition de statut) — extrait pour
+// paid_bookings, qui n'a pas de colonne presence_status équivalente à
+// `rdv` : son propre statut "en_attente" joue déjà ce rôle (voir
+// paid-bookings/valider/route.ts).
+export function depasseFenetreGraceNonTraite(dateRdv: string, heureRdv: string, maintenant: Date = new Date()): boolean {
+  if (!dateRdv || !heureRdv) return false;
   const [y, m, d] = dateRdv.split("-").map(Number);
   const [hh, mm] = heureRdv.split(":").map(Number);
   if (!y || !m || !d) return false;
   const seuilNonTraite = new Date(y, m - 1, d, hh, (mm || 0) + MINUTES_GRACE_NON_TRAITE, 0, 0);
   return seuilNonTraite < maintenant;
 }
+
+export function rdvNonTraite(statut: string, presenceStatus: string | null | undefined, dateRdv: string, heureRdv: string, maintenant: Date = new Date()): boolean {
+  const enAttenteNonResolu = statut === "nouveau" || (statut === "en_attente" && presenceStatus !== "absent");
+  if (!enAttenteNonResolu) return false;
+  return depasseFenetreGraceNonTraite(dateRdv, heureRdv, maintenant);
+}
+
+// Message partagé par les deux routes (gratuit + payant) qui déclarent une
+// absence — un RDV "non traité" (fenêtre de grâce dépassée sans la moindre
+// décision de l'établissement) ne peut plus être imputé au citoyen : c'est
+// l'établissement qui n'a pas réagi à temps, pas une absence constatée.
+// Seule issue encore possible sur ce RDV : Refuser/Annuler (n'impute rien
+// au citoyen), jamais "Absent"/"no_show" (déclenche restriction + malus
+// Yelen Rewards côté citoyen, voir rdvRestrictions.ts/rewardsEngine.ts).
+export const RDV_NON_TRAITE_ABSENT_INTERDIT_MESSAGE =
+  "Ce rendez-vous n'a pas été traité à temps. Il est trop tard pour marquer ce client absent, car cela reviendrait à lui faire porter un retard qui vous incombe.";
 
 // Un RDV est "en fenêtre de grâce" quand son heure est dépassée
 // (rdvEstEnRetard) mais que les MINUTES_GRACE_NON_TRAITE ne sont pas encore
@@ -148,6 +167,22 @@ export const RDV_HORS_CRENEAU_MESSAGE = {
     "Pour garantir la sécurité des citoyens, des établissements et de la plateforme Yelen, la confirmation de présence est uniquement autorisée le jour du rendez-vous et à partir de 10 minutes avant l'heure prévue.\n\n" +
     "Cette mesure évite les validations anticipées, les erreurs de manipulation et protège l'intégrité des statistiques, des paiements et de l'historique des rendez-vous.\n\n" +
     "Veuillez patienter jusqu'au créneau autorisé.",
+};
+
+// Distinct de RDV_HORS_CRENEAU_MESSAGE (trop tôt, règle temporaire qui se
+// lève d'elle-même) — ce cas est permanent : la journée du rendez-vous est
+// entièrement passée (creneauEstOuvert ne redeviendra jamais vrai pour cette
+// réservation). Trouvé en conditions réelles le 15/10/2026 sur la fiche de
+// validation paiement : le serveur renvoyait le message "trop tôt" ci-dessus
+// même pour une réservation expirée depuis plusieurs jours, invitant
+// l'agent à "patienter" pour une fenêtre qui ne se rouvrira jamais. Même
+// distinction que CHECK_IN_EXPIRED/CheckInUnavailableDialog.tsx côté RDV
+// gratuit, jamais construite côté paiement jusqu'ici.
+export const RDV_EXPIRE_MESSAGE = {
+  titre: "Ce rendez-vous est passé",
+  message:
+    "La journée de ce rendez-vous est terminée : pour la sécurité des citoyens, des établissements et de la plateforme Yelen, la confirmation de présence, le paiement et l'annulation ne sont plus possibles depuis cet écran.\n\n" +
+    "Cette réservation reste consultable telle quelle, à titre d'historique.",
 };
 
 // Cycle de vie du QR de présence gratuit (décision CEO 01/09/2026) — un

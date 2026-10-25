@@ -5,7 +5,7 @@ import { mintCitoyenSessionTokenHash } from '@/lib/auth/citoyenSession'
 import { extraireIpClient } from '@/lib/edgeSecurity'
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
-  enregistrerTentative, messageSecurite,
+  enregistrerTentative, messageSecurite, destinationCitoyen,
 } from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
@@ -31,15 +31,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Porte anti-abus — AVANT toute requête Supabase.
-    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
-    if (porte.state === 'blocked' || porte.state === 'support_only') {
-      return finaliser(
-        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
-        423
-      )
-    }
-
+    // Format validé AVANT la porte anti-abus (réordonné, Priorités 3/4,
+    // 18/10/2026) — voir lookup/route.ts pour le raisonnement complet.
     const body = await request.json()
     const { phone, code, prenom, nom, ville } = body
 
@@ -56,6 +49,15 @@ export async function POST(request: NextRequest) {
       return finaliser({ error: 'Le nom est requis', code: 'MISSING_FIELDS' }, 400)
     }
 
+    // Porte anti-abus — AVANT toute requête Supabase.
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip, destination: destinationCitoyen(phone) }, undefined, request)
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
+      )
+    }
+
     // Ne pas dupliquer un compte déjà enregistré sur ce numéro
     const { data: existing } = await supabaseAdmin
       .from('users')
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     if (existing) {
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory: 'citoyen_register', deviceId, ip, identifiant: phone, outcome: 'deja_enregistre', userAgent,
+        endpointCategory: 'citoyen_register', deviceId, ip, identifiant: phone, outcome: 'deja_enregistre', userAgent, destination: destinationCitoyen(phone),
       })
       return finaliser({ error: 'Ce numéro est déjà enregistré. Connectez-vous à la place.', code: 'ALREADY_REGISTERED', security: etat }, 409)
     }
@@ -84,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
     if (code !== otpFallback) {
       const etat = await enregistrerTentative(supabaseAdmin, {
-        endpointCategory: 'citoyen_register', deviceId, ip, identifiant: phone, outcome: 'code_incorrect', userAgent,
+        endpointCategory: 'citoyen_register', deviceId, ip, identifiant: phone, outcome: 'code_incorrect', userAgent, destination: destinationCitoyen(phone),
       })
       return finaliser({ error: 'Ce code ne semble pas correct.', code: 'INVALID_CODE', security: etat }, 401)
     }
@@ -141,6 +143,9 @@ export async function POST(request: NextRequest) {
         nom: nom.trim(),
         cgu_acceptee_le: acceptationLe,
         confidentialite_acceptee_le: acceptationLe,
+        // Compte réellement complété (CGU + identité) — distingue un permanent
+        // d'une identité invité vérifiée par OTP seulement (ADR-001 E0.1).
+        compte_complete_le: acceptationLe,
         ...(typeof ville === 'string' && ville.trim() ? { ville: ville.trim() } : {}),
       })
 
@@ -169,7 +174,7 @@ export async function POST(request: NextRequest) {
     }
 
     const etat = await enregistrerTentative(supabaseAdmin, {
-      endpointCategory: 'citoyen_register', deviceId, ip, identifiant: phone, outcome: 'compte_cree', userAgent,
+      endpointCategory: 'citoyen_register', deviceId, ip, identifiant: phone, outcome: 'compte_cree', userAgent, destination: destinationCitoyen(phone),
     })
 
     return finaliser({ success: true, userId, tokenHash, security: etat }, 200)

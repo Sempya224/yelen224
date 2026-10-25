@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Exception : documentation de la variable requise par mobile/, aucun
+# secret réel dedans (placeholder CHANGEME) — doit être versionnée.
+!mobile/.env.example
 
 # vercel
 .vercel

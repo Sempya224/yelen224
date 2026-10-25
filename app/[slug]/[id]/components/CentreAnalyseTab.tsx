@@ -18,7 +18,8 @@
 // personnalisé" ci-dessous, conservée telle quelle du Lot 1 — c'est déjà
 // une recommandation 100% déterministe sur données réelles (zéro LLM), la
 // carte "Insight IA" du brief la remplacera au Lot 6.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLogo } from "@/components/YelenLogo";
@@ -26,10 +27,14 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { T, type ThemeTokens, toCardTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { KpiCard, KpiGrid, AnalyseStyles } from "./analyse/KpiCard";
+import { AnalyseHeader, PeriodPicker } from "./analyse/AnalyseHeader";
+import { TeamTabs } from "./equipe/TeamTabs";
+import { PerformanceChart } from "./analyse/PerformanceChart";
 import { parseLocalDate, SectionHeader, timeAgo } from "../dashboardShared";
 import { DEVISE_LABEL } from "@/lib/devise";
 import type { RDV, Stats } from "../layout";
-import type { VueEnsemble, KpiMetric, PointEvolution, TopOffre, PeriodeJours, CanalStat, AnalyseGeo, RegionStat, PrefectureStat } from "@/lib/analyseAggregation";
+import type { VueEnsemble, PointEvolution, TopOffre, PeriodeJours, CanalStat, AnalyseGeo, RegionStat, PrefectureStat } from "@/lib/analyseAggregation";
 import { genererInsightAnalyse, genererInsightClients, genererPointsAttention, type PointAttention } from "@/lib/analyseInsight";
 import { GUINEE_REGIONS_GEO, GUINEE_VIEWBOX, GUINEE_CONTOUR_PATH, type RegionKey } from "@/lib/guineeRegionsGeo";
 import { REGIONS_GUINEE_LABELS } from "@/lib/villes";
@@ -42,14 +47,14 @@ import type { AnalyseHeatmap, HeatmapCell, CreneauInfo, PerformanceJour } from "
 
 type SousOnglet = "vue-ensemble" | "acquisition" | "tunnel" | "heatmap" | "geographie" | "mes-clients" | "performances";
 
-const SOUS_ONGLETS: { key: SousOnglet; label: string; icon: React.ReactNode }[] = [
-  { key: "vue-ensemble", label: "Vue d'ensemble", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg> },
-  { key: "acquisition", label: "Acquisition", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg> },
-  { key: "tunnel", label: "Tunnel", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg> },
-  { key: "heatmap", label: "Heatmap", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
-  { key: "geographie", label: "Géographie", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> },
-  { key: "mes-clients", label: "Mes clients", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-  { key: "performances", label: "Performances", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
+const SOUS_ONGLETS: { key: SousOnglet; label: string }[] = [
+  { key: "vue-ensemble", label: "Vue d'ensemble" },
+  { key: "acquisition", label: "Acquisition" },
+  { key: "tunnel", label: "Tunnel" },
+  { key: "heatmap", label: "Heatmap" },
+  { key: "geographie", label: "Géographie" },
+  { key: "mes-clients", label: "Mes clients" },
+  { key: "performances", label: "Performances" },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -199,7 +204,7 @@ function TunnelAcquisition({ rdvs }: { rdvs: RDV[] }) {
           return (
             <div key={e.label}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-                <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${e.color}18`, color: e.color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{e.icon}</div>
+                <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: C.bg3, color: e.color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{e.icon}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2px", gap: "8px" }}>
                     <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 700 }}>{e.label}</span>
@@ -382,7 +387,7 @@ function CarteInteractiveGuinee({ regions, prefectures, selected, onSelect, C }:
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>{statActif.label}</span>
+              <span style={{ color: C.t1, fontSize: "16px", fontWeight: 600 }}>{statActif.label}</span>
               {statActif.delta !== null && <TendanceBadge tendance={statActif.delta > 5 ? "hausse" : statActif.delta < -5 ? "baisse" : "stable"} delta={statActif.delta} C={C}/>}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "8px" }}>
@@ -405,7 +410,7 @@ function ClassementPrefectures({ prefectures, C }: { prefectures: PrefectureStat
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
             {["#", "Préfecture", "Région", "Citoyens", "RDV", "Conversion", "Tendance", ""].map(h => (
-              <th key={h} style={{ textAlign: h === "Préfecture" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
+              <th key={h} style={{ textAlign: h === "Préfecture" ? "left" : "right", color: C.t3, fontSize: "12px", fontWeight: 500, padding: "8px 6px" }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -418,7 +423,7 @@ function ClassementPrefectures({ prefectures, C }: { prefectures: PrefectureStat
               <td style={{ padding: "8px 6px", color: C.t2, textAlign: "right" }}>{p.citoyens}</td>
               <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 800, textAlign: "right" }}>{p.rdv}</td>
               <td style={{ padding: "8px 6px", textAlign: "right" }}>
-                <span style={{ color: p.tauxConfirmation >= 60 ? C.green : p.tauxConfirmation >= 30 ? C.orange : C.red, fontWeight: 800, backgroundColor: `${p.tauxConfirmation >= 60 ? C.green : p.tauxConfirmation >= 30 ? C.orange : C.red}15`, padding: "1px 6px", borderRadius: "8px" }}>{p.tauxConfirmation}%</span>
+                <span style={{ color: p.tauxConfirmation >= 60 ? C.green : p.tauxConfirmation >= 30 ? C.orange : C.red, fontWeight: 800, backgroundColor: C.bg3, padding: "1px 6px", borderRadius: "8px" }}>{p.tauxConfirmation}%</span>
               </td>
               <td style={{ padding: "8px 6px", textAlign: "right" }}><TendanceBadge tendance={p.tendance} delta={p.deltaRdv} C={C}/></td>
               <td style={{ padding: "8px 6px", width: "70px" }}><Sparkline serie={p.serie} color={p.tendance === "hausse" ? C.green : p.tendance === "baisse" ? C.red : C.t3}/></td>
@@ -486,107 +491,19 @@ function Sparkline({ serie, color }: { serie: number[]; color: string }) {
   );
 }
 
-function DeltaLabel({ delta, unite, C }: { delta: number | null; unite: "%" | "pts"; C: ThemeTokens }) {
-  if (delta === null) return <span style={{ color: C.t3, fontSize: "10px" }}>Pas de comparaison disponible</span>;
-  const positif = delta >= 0;
-  return (
-    <span style={{ color: positif ? C.green : C.red, fontSize: "10px", fontWeight: 700 }}>
-      {positif ? "+" : ""}{delta}{unite === "pts" ? " pts" : "%"} vs période précédente
-    </span>
-  );
-}
-
-function KpiCard({ label, icon, color, metric, unite, format, C }: {
-  label: string;
-  icon: React.ReactNode;
-  color: string;
-  metric: KpiMetric | null;
-  unite: "%" | "pts";
-  format?: (v: number) => string;
-  C: ThemeTokens;
-}) {
-  const valeurAffichee = metric === null ? null : metric.valeur === null ? "—" : (format ? format(metric.valeur) : metric.valeur.toLocaleString("fr-FR"));
-  return (
-    <Card tokens={toCardTokens(C)} padding="14px" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <div style={{ width: "26px", height: "26px", borderRadius: "8px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
-        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 700 }}>{label}</span>
-      </div>
-      {valeurAffichee === null ? (
-        <div style={{ display: "flex", alignItems: "center", height: "20px" }}><YelenLoader size={16} color={color}/></div>
-      ) : (
-        <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1 }}>{valeurAffichee}</div>
-      )}
-      {metric !== null && metric.valeur !== null && <DeltaLabel delta={metric.delta} unite={unite} C={C}/>}
-      {metric !== null && metric.valeur !== null && metric.serie.some(v => v > 0) && <Sparkline serie={metric.serie} color={color}/>}
-    </Card>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════════
 // ÉVOLUTION DES PERFORMANCES (3 courbes)
 // ═══════════════════════════════════════════════════════════════════════
-const EVOL_WIDTH = 600;
-const EVOL_HEIGHT = 220;
-const EVOL_PAD = 10;
-
-function toEvolPolyline(data: PointEvolution[], key: "vues" | "clics" | "conversions", maxVal: number): string {
-  if (data.length === 0) return "";
-  const stepX = data.length > 1 ? (EVOL_WIDTH - EVOL_PAD * 2) / (data.length - 1) : 0;
-  return data.map((d, i) => {
-    const x = EVOL_PAD + i * stepX;
-    const y = EVOL_HEIGHT - EVOL_PAD - (d[key] / maxVal) * (EVOL_HEIGHT - EVOL_PAD * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-}
-
-const PLAGES_EVOLUTION = [
-  { key: 7, label: "7 jours" },
-  { key: 30, label: "30 jours" },
-  { key: 90, label: "90 jours" },
-  { key: 365, label: "1 an" },
-] as const;
-
-function EvolutionPerformances({ jours, C }: { jours: PointEvolution[] | null; C: ThemeTokens }) {
-  const [range, setRange] = useState<7 | 30 | 90 | 365>(30);
-  const data = (jours ?? []).slice(-range);
-  const maxVal = Math.max(1, ...data.map(d => Math.max(d.vues, d.clics, d.conversions)));
-  const totaux = data.reduce((acc, d) => ({ vues: acc.vues + d.vues, clics: acc.clics + d.clics, conversions: acc.conversions + d.conversions }), { vues: 0, clics: 0, conversions: 0 });
-  const vide = jours === null || data.length === 0 || (totaux.vues === 0 && totaux.clics === 0 && totaux.conversions === 0);
-
+// Le graphique suit le sélecteur de période global (un seul état,
+// `periodeJours`) — rendu dans analyse/PerformanceChart.tsx.
+function EvolutionPerformances({ jours, periodeJours, C }: { jours: PointEvolution[] | null; periodeJours: PeriodeJours; C: ThemeTokens }) {
   return (
-    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px", flexWrap: "wrap", gap: "10px" }}>
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Évolution des performances</div>
-        <div style={{ display: "flex", gap: "6px" }}>
-          {PLAGES_EVOLUTION.map(p => (
-            <button key={p.key} onClick={() => setRange(p.key)} className="tap" style={{ backgroundColor: range === p.key ? `${C.blue}15` : C.bgCard2, border: `1px solid ${range === p.key ? C.blue + "50" : C.border}`, borderRadius: "10px", padding: "6px 12px", color: range === p.key ? C.blue : C.t2, fontSize: "11px", fontWeight: range === p.key ? 800 : 600, cursor: "pointer" }}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: "16px", margin: "10px 0" }}>
-        <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.t2, fontSize: "11px", fontWeight: 700 }}><span style={{ width: "8px", height: "8px", borderRadius: "50%", background: C.purple, display: "inline-block" }}/>Vues ({totaux.vues.toLocaleString("fr-FR")})</span>
-        <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.t2, fontSize: "11px", fontWeight: 700 }}><span style={{ width: "8px", height: "8px", borderRadius: "50%", background: C.orange, display: "inline-block" }}/>Clics ({totaux.clics.toLocaleString("fr-FR")})</span>
-        <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.t2, fontSize: "11px", fontWeight: 700 }}><span style={{ width: "8px", height: "8px", borderRadius: "50%", background: C.green, display: "inline-block" }}/>Conversions ({totaux.conversions.toLocaleString("fr-FR")})</span>
-      </div>
-      {vide ? (
-        <div style={{ height: "220px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {jours === null ? <YelenLoader size={26}/> : (
-            <EmptyState C={C} illustration={<IllustrationCourbe C={C}/>}
-              titre="Rien à tracer pour l'instant"
-              texte="Vues, clics et conversions apparaîtront ici jour après jour, dès que votre présence sur Yelen commencera à être consultée."/>
-          )}
-        </div>
-      ) : (
-        <svg viewBox={`0 0 ${EVOL_WIDTH} ${EVOL_HEIGHT}`} preserveAspectRatio="none" style={{ width: "100%", height: "220px" }}>
-          <polyline points={toEvolPolyline(data, "vues", maxVal)} fill="none" stroke={C.purple} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
-          <polyline points={toEvolPolyline(data, "clics", maxVal)} fill="none" stroke={C.orange} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
-          <polyline points={toEvolPolyline(data, "conversions", maxVal)} fill="none" stroke={C.green} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
-        </svg>
-      )}
-    </Card>
+    <PerformanceChart C={C} jours={jours} periodeJours={periodeJours}
+      vide={
+        <EmptyState C={C} illustration={<IllustrationCourbe C={C}/>}
+          titre="Rien à tracer pour l'instant"
+          texte="Vues, clics et conversions apparaîtront ici jour après jour, dès que votre présence sur Yelen commencera à être consultée."/>
+      }/>
   );
 }
 
@@ -615,7 +532,7 @@ function RepartitionCanal({ canaux, C }: { canaux: CanalStat[] | null; C: ThemeT
 
   return (
     <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Répartition par canal</div>
+      <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Répartition par canal</div>
       {canaux === null ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
       ) : total === 0 ? (
@@ -657,7 +574,7 @@ function RepartitionCanal({ canaux, C }: { canaux: CanalStat[] | null; C: ThemeT
 function TopOffresPerformantes({ offres, C }: { offres: TopOffre[] | null; C: ThemeTokens }) {
   return (
     <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Top offres performantes</div>
+      <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Top offres performantes</div>
       {offres === null ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
       ) : offres.length === 0 ? (
@@ -708,7 +625,7 @@ function ObjectifsAtteints({ vueEnsemble, C }: { vueEnsemble: VueEnsemble | null
 
   return (
     <Card tokens={toCardTokens(C)} padding="16px">
-      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Objectifs atteints</div>
+      <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Objectifs atteints</div>
       {vueEnsemble === null ? (
         <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div>
       ) : (
@@ -737,7 +654,7 @@ function ActivitesRecentes({ stats, C }: { stats: Stats; C: ThemeTokens }) {
   return (
     <Card tokens={toCardTokens(C)} noPadding>
       <div style={{ padding: "16px 16px 12px" }}>
-        <span style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Activités récentes</span>
+        <span style={{ color: C.t1, fontSize: "16px", fontWeight: 600 }}>Activités récentes</span>
       </div>
       {stats.recent_activity.length === 0 ? (
         <EmptyState C={C} illustration={<IllustrationPulse C={C}/>}
@@ -754,41 +671,10 @@ function ActivitesRecentes({ stats, C }: { stats: Stats; C: ThemeTokens }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// SÉLECTEUR DE PÉRIODE GLOBAL (en-tête)
-// ═══════════════════════════════════════════════════════════════════════
-// Pilote les KPI "Vue d'ensemble" + "Top offres performantes" (le
-// graphique d'évolution garde son propre sélecteur 7j/30j/90j/1an, déjà
-// construit au Lot 3 — même presets, deux contrôles indépendants comme
-// dans la maquette). Pas de bouton "Filtres" : aucune dimension réelle à
-// filtrer n'existe encore (canal/appareil sont des stubs) — un bouton
-// décoratif sans effet aurait été un faux affordance, contraire aux
-// règles UI du projet.
-function formatDateFr(d: Date): string {
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-function PeriodeSelector({ periodeJours, onChange, C }: { periodeJours: PeriodeJours; onChange: (j: PeriodeJours) => void; C: ThemeTokens }) {
-  const [nowTick] = useState(() => Date.now());
-  const fin = new Date(nowTick);
-  const debut = new Date(nowTick - periodeJours * 86400000);
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-      <span style={{ color: C.t3, fontSize: "10.5px" }}>{formatDateFr(debut)} – {formatDateFr(fin)}</span>
-      <select value={periodeJours} onChange={e => onChange(Number(e.target.value) as PeriodeJours)} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "7px 10px", color: C.t1, fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>
-        <option value={7}>7 derniers jours</option>
-        <option value={30}>30 derniers jours</option>
-        <option value={90}>90 derniers jours</option>
-        <option value={365}>Cette année</option>
-      </select>
-    </div>
-  );
-}
-
 function PerformancesStub({ C }: { C: ThemeTokens }) {
   return (
     <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-      <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Performances par appareil</div>
+      <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Performances par appareil</div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "24px 8px", textAlign: "center" }}>
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6, maxWidth: "260px" }}>Bientôt disponible — nécessite de capturer le type d&apos;appareil sur les visites, pas encore suivi aujourd&apos;hui.</div>
@@ -876,7 +762,7 @@ function AnalyseRfm({ rfm, C }: { rfm: RfmSegment[]; C: ThemeTokens }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: "8px" }}>
       {rfm.map(seg => (
-        <div key={seg.cle} style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px", borderLeft: `3px solid ${rfmCouleur(seg.cle, C)}` }}>
+        <div key={seg.cle} style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
           <div style={{ color: C.t1, fontSize: "16px", fontWeight: 800 }}>{seg.count}</div>
           <div style={{ color: rfmCouleur(seg.cle, C), fontSize: "10.5px", fontWeight: 800, marginTop: "2px" }}>{seg.label}</div>
           <div style={{ color: C.t3, fontSize: "9.5px", marginTop: "3px", lineHeight: 1.4 }}>{seg.description}</div>
@@ -898,7 +784,7 @@ function TopClientsTable({ topClients, C }: { topClients: ClientAnalyseStat[]; C
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
             {["", "Client", "Segment", "Score fidélité", "Visites", "Dernière visite", "Valeur générée"].map(h => (
-              <th key={h} style={{ textAlign: h === "Client" || h === "" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
+              <th key={h} style={{ textAlign: h === "Client" || h === "" ? "left" : "right", color: C.t3, fontSize: "12px", fontWeight: 500, padding: "8px 6px" }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -906,10 +792,10 @@ function TopClientsTable({ topClients, C }: { topClients: ClientAnalyseStat[]; C
           {topClients.map(c => (
             <tr key={c.citoyenId} style={{ borderBottom: `1px solid ${C.border}` }}>
               <td style={{ padding: "8px 6px" }}>
-                <div style={{ width: "26px", height: "26px", borderRadius: "50%", background: `linear-gradient(135deg, ${C.purple}30, ${C.purple}10)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 800, color: C.purple }}>{c.nom.slice(0, 2).toUpperCase()}</div>
+                <div style={{ width: "26px", height: "26px", borderRadius: "50%", backgroundColor: C.bg3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 800, color: C.purple }}>{c.nom.slice(0, 2).toUpperCase()}</div>
               </td>
               <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 700, whiteSpace: "nowrap" }}>{c.nom}</td>
-              <td style={{ padding: "8px 6px" }}><span style={{ color: segmentCouleur(c.segment, C), fontSize: "10px", fontWeight: 800, backgroundColor: `${segmentCouleur(c.segment, C)}15`, padding: "1px 7px", borderRadius: "8px" }}>{SEGMENT_LABELS[c.segment]}</span></td>
+              <td style={{ padding: "8px 6px" }}><span style={{ color: segmentCouleur(c.segment, C), fontSize: "10px", fontWeight: 800, backgroundColor: C.bg3, padding: "1px 7px", borderRadius: "8px" }}>{SEGMENT_LABELS[c.segment]}</span></td>
               <td style={{ padding: "8px 6px", color: C.t1, fontWeight: 800, textAlign: "right" }}>{c.scoreFidelite}</td>
               <td style={{ padding: "8px 6px", color: C.t2, textAlign: "right" }}>{c.nbRdv}</td>
               <td style={{ padding: "8px 6px", color: C.t3, textAlign: "right", whiteSpace: "nowrap" }}>{timeAgo(c.derniereVisite)}</td>
@@ -1016,7 +902,7 @@ function SourcesTableAcq({ sources, C, triPar, onCliquerSource }: { sources: Sou
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
             {["Source", "Visiteurs", "Part", "Actions", "Taux d'action"].map(h => (
-              <th key={h} style={{ textAlign: h === "Source" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
+              <th key={h} style={{ textAlign: h === "Source" ? "left" : "right", color: C.t3, fontSize: "12px", fontWeight: 500, padding: "8px 6px" }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -1140,7 +1026,7 @@ function AcquisitionTab({ data, C, sourceFiltre, onChangeSourceFiltre, onVoirSou
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Évolution des découvertes</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600 }}>Évolution des découvertes</div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <select value={metrique} onChange={e => setMetrique(e.target.value as MetriqueEvolutionAcq)} className="tap" style={selectStyle}>
                   {METRIQUES_EVOLUTION_ACQ.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
@@ -1154,14 +1040,14 @@ function AcquisitionTab({ data, C, sourceFiltre, onChangeSourceFiltre, onVoirSou
           </Card>
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Quelles sources génèrent le plus d&apos;actions ?</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Quelles sources génèrent le plus d&apos;actions ?</div>
             <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>{onVoirSourceDetail ? "Cliquez sur une source pour voir son détail." : "Lecture seule."}</p>
             <SourcesTableAcq sources={data.sources} C={C} triPar="actions" onCliquerSource={onVoirSourceDetail}/>
           </Card>
 
           {data.sources.length > 0 && (
             <Card tokens={toCardTokens(C)} padding="16px">
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Ce qui amène vos visiteurs</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Ce qui amène vos visiteurs</div>
               <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Répartition réelle de vos sources de découverte sur la période.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {data.sources.slice(0, 5).map(s => (
@@ -1216,7 +1102,7 @@ function AcquisitionSourceDrawer({ instId, periodeJours, source, onClose, C }: {
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800 }}>Évolution</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600 }}>Évolution</div>
               <select value={metrique} onChange={e => setMetrique(e.target.value as MetriqueEvolutionAcq)} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "6px 9px", color: C.t1, fontSize: "10.5px", fontWeight: 700, cursor: "pointer" }}>
                 {METRIQUES_EVOLUTION_ACQ.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
               </select>
@@ -1277,7 +1163,7 @@ function CohorteHeatmap({ cohortes, C }: { cohortes: CohorteRetention[]; C: Them
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
             {["Cohorte", "Taille", "S1", "S2", "S3", "S4"].map(h => (
-              <th key={h} style={{ textAlign: h === "Cohorte" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
+              <th key={h} style={{ textAlign: h === "Cohorte" ? "left" : "right", color: C.t3, fontSize: "12px", fontWeight: 500, padding: "8px 6px" }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -1322,7 +1208,7 @@ function SegmentCards({ data, C, onVoirSegment }: { data: AnalyseClients; C: The
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "10px" }}>
       {SEGMENT_CARD_META.map(m => (
-        <div key={m.key} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "14px", borderLeft: `3px solid ${m.couleur(C)}` }}>
+        <div key={m.key} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "14px" }}>
           <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800 }}>{counts[m.key]}</div>
           <div style={{ color: C.t1, fontSize: "12px", fontWeight: 700, marginTop: "4px" }}>{m.label}</div>
           <div style={{ color: C.t3, fontSize: "10.5px", marginTop: "2px" }}>{m.sousTitre}</div>
@@ -1349,7 +1235,7 @@ function PointsAttentionList({ points, C, onVoirClients }: { points: PointAttent
         const couleur = TON_COULEUR[p.ton](C);
         const cta = p.cible ? CIBLE_META[p.cible] : undefined;
         return (
-          <div key={i} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px", borderLeft: `3px solid ${couleur}` }}>
+          <div key={i} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px" }}>
             <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6, margin: 0 }}>{p.message}</p>
             {cta && onVoirClients && (
               <button onClick={() => onVoirClients(cta.filtre)} className="tap" style={{ background: "none", border: "none", color: couleur, fontSize: "10.5px", fontWeight: 800, padding: 0, marginTop: "8px", cursor: "pointer" }}>{cta.label} →</button>
@@ -1389,11 +1275,11 @@ function AnalyseClientsTab({ data, C, geo, onVoirGeographie, onVoirClients }: { 
             <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Voyez comment votre clientèle évolue et identifiez les habitudes qui comptent.</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "14px" }}>
               <div>
-                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Évolution de la clientèle</div>
+                <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Évolution de la clientèle</div>
                 <EvolutionClients evolution={data.evolution} C={C}/>
               </div>
               <div>
-                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Votre clientèle aujourd&apos;hui</div>
+                <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Votre clientèle aujourd&apos;hui</div>
                 <DonutSegments segments={data.segments} C={C}/>
                 {data.clientsRecurrents.valeur !== null && data.clientsRecurrents.valeur > 0 && (
                   <div style={{ marginTop: "12px" }}>
@@ -1412,11 +1298,11 @@ function AnalyseClientsTab({ data, C, geo, onVoirGeographie, onVoirClients }: { 
             <p style={{ color: C.t3, fontSize: "11px", marginBottom: "14px", lineHeight: 1.5 }}>Comprenez combien de clients reviennent et à quel rythme.</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "14px" }}>
               <div>
-                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Taux de retour {data.tauxFidelite.valeur !== null ? `— ${data.tauxFidelite.valeur}%` : ""}</div>
+                <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Taux de retour {data.tauxFidelite.valeur !== null ? `— ${data.tauxFidelite.valeur}%` : ""}</div>
                 <RetentionBars tauxRetour={data.tauxRetour} C={C}/>
               </div>
               <div>
-                <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Rétention par cohorte</div>
+                <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Rétention par cohorte</div>
                 <CohorteHeatmap cohortes={data.cohortes} C={C}/>
               </div>
             </div>
@@ -1443,7 +1329,7 @@ function AnalyseClientsTab({ data, C, geo, onVoirGeographie, onVoirClients }: { 
                 </div>
               ))}
             </div>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Fréquence des visites</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Fréquence des visites</div>
             <FidelisationHisto fidelisation={data.fidelisation} C={C}/>
           </Card>
 
@@ -1484,19 +1370,19 @@ function AnalyseClientsTab({ data, C, geo, onVoirGeographie, onVoirClients }: { 
           )}
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Analyse RFM simplifiée</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Analyse RFM simplifiée</div>
             <AnalyseRfm rfm={data.rfm} C={C}/>
           </Card>
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Top clients</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Top clients</div>
             <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Lecture seule — pour gérer un client, utilisez l&apos;écran CRM dédié.</p>
             <TopClientsTable topClients={data.topClients} C={C}/>
           </Card>
 
           {data.commentairesRecents.length > 0 && (
             <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Avis récents</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Avis récents</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 {data.commentairesRecents.map((a, i) => (
                   <div key={i} style={{ borderBottom: i < data.commentairesRecents.length - 1 ? `1px solid ${C.border}` : "none", paddingBottom: "10px" }}>
@@ -1515,7 +1401,7 @@ function AnalyseClientsTab({ data, C, geo, onVoirGeographie, onVoirClients }: { 
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
               <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>Insight IA</span>
-              <span style={{ backgroundColor: `${C.gold}20`, color: C.gold, fontSize: "9px", fontWeight: 800, padding: "2px 7px", borderRadius: "10px", textTransform: "uppercase", letterSpacing: "0.3px" }}>Recommandation</span>
+              <span style={{ backgroundColor: C.bg3, color: C.gold, fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "10px" }}>Recommandation</span>
             </div>
             <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.7 }}>{genererInsightClients(data)}</p>
           </Card>
@@ -1548,7 +1434,7 @@ function AnalyseClientsTab({ data, C, geo, onVoirGeographie, onVoirClients }: { 
 function NiveauBadge({ niveau, C }: { niveau: PerteEtape["niveau"]; C: ThemeTokens }) {
   const map = { critique: { c: C.red, l: "Très critique" }, moyen: { c: C.orange, l: "Moyen" }, faible: { c: C.green, l: "Faible" } };
   const m = map[niveau];
-  return <span style={{ color: m.c, fontSize: "9.5px", fontWeight: 800, backgroundColor: `${m.c}15`, padding: "2px 8px", borderRadius: "8px" }}>{m.l}</span>;
+  return <span style={{ color: m.c, fontSize: "9.5px", fontWeight: 800, backgroundColor: C.bg3, padding: "2px 8px", borderRadius: "8px" }}>{m.l}</span>;
 }
 
 function PanelPertes({ pertes, C }: { pertes: PerteEtape[]; C: ThemeTokens }) {
@@ -1629,13 +1515,13 @@ function TunnelComplet({ rdvsPeriode, tunnel, C }: { rdvsPeriode: RDV[]; tunnel:
       <TunnelAcquisition rdvs={rdvsPeriode}/>
 
       <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Où perdons-nous les citoyens ?</div>
+        <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Où perdons-nous les citoyens ?</div>
         <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Classement des étapes du tunnel par taux de perte, sur la période sélectionnée.</p>
         {tunnel === null ? <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div> : <PanelPertes pertes={tunnel.pertes} C={C}/>}
       </Card>
 
       <Card tokens={toCardTokens(C)} padding="16px">
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "4px" }}>Causes d&apos;abandon</div>
+        <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "4px" }}>Causes d&apos;abandon</div>
         <p style={{ color: C.t3, fontSize: "10.5px", marginBottom: "14px" }}>Motifs réels saisis par votre équipe (refus) et par les citoyens (annulation) — jamais reclassés, affichés tels quels.</p>
         {tunnel === null ? <div style={{ display: "flex", justifyContent: "center", padding: "16px" }}><YelenLoader size={22}/></div> : <CausesAbandon causes={tunnel.causesAbandon} C={C}/>}
       </Card>
@@ -1745,7 +1631,7 @@ function PerformanceParJourTable({ rows, C }: { rows: PerformanceJour[]; C: Them
         <thead>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
             {["Jour", "RDV", "Annulation", "Non traités", "Occupation"].map(h => (
-              <th key={h} style={{ textAlign: h === "Jour" ? "left" : "right", color: C.t3, fontSize: "9.5px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px", padding: "8px 6px" }}>{h}</th>
+              <th key={h} style={{ textAlign: h === "Jour" ? "left" : "right", color: C.t3, fontSize: "12px", fontWeight: 500, padding: "8px 6px" }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -1786,18 +1672,18 @@ function HeatmapComplete({ heatmap, C }: { heatmap: AnalyseHeatmap | null; C: Th
       {heatmap !== null && (
         <>
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Résumé automatique</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Résumé automatique</div>
             <ResumeCreneaux critiques={heatmap.creneauxCritiques} disponibles={heatmap.creneauxDisponibles} C={C}/>
           </Card>
 
           <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Évolution hebdomadaire</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Évolution hebdomadaire</div>
             <EvolutionHebdoBar evolutionHebdo={heatmap.evolutionHebdo} C={C}/>
           </Card>
 
           {heatmap.annulationsParTranche.length > 0 && (
             <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px" }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Annulations par période de la journée</div>
+              <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Annulations par période de la journée</div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {heatmap.annulationsParTranche.map(t => (
                   <div key={t.label}>
@@ -1810,7 +1696,7 @@ function HeatmapComplete({ heatmap, C }: { heatmap: AnalyseHeatmap | null; C: Th
           )}
 
           <Card tokens={toCardTokens(C)} padding="16px">
-            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Performance par jour</div>
+            <div style={{ color: C.t1, fontSize: "16px", fontWeight: 600, marginBottom: "14px" }}>Performance par jour</div>
             <PerformanceParJourTable rows={heatmap.performanceParJour} C={C}/>
           </Card>
         </>
@@ -1829,7 +1715,18 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
 }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
-  const [sousOnglet, setSousOnglet] = useState<SousOnglet>("vue-ensemble");
+  // Onglet actif représenté dans l'URL (?subtab=...) — même convention que
+  // Équipe & Accès et Clock In Shift : dérivé de l'URL, pas un second état.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const rawSubtab = searchParams.get("subtab");
+  const sousOnglet: SousOnglet = SOUS_ONGLETS.find(t => t.key === rawSubtab)?.key ?? "vue-ensemble";
+  const setSousOnglet = useCallback((next: SousOnglet) => {
+    const qp = new URLSearchParams(searchParams.toString());
+    qp.set("subtab", next);
+    router.push(`${pathname}?${qp.toString()}`);
+  }, [searchParams, pathname, router]);
   const [periodeJours, setPeriodeJours] = useState<PeriodeJours>(30);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -1923,8 +1820,8 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
     })();
   }, [instId, periodeJours, acquisitionSourceFiltre]);
 
-  // Le graphique d'évolution garde son propre sélecteur 7j/30j/90j/1an
-  // (Lot 3) — un seul fetch large, indépendant du sélecteur global.
+  // Le graphique d'évolution suit le sélecteur global : un seul fetch large
+  // (365 jours), découpé côté client selon `periodeJours`.
   useEffect(() => {
     (async () => {
       const res = await fetch("/api/institution/analyse/evolution");
@@ -1935,32 +1832,22 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
 
   return (
     <div style={{ animation: "fadeUp 0.2s ease" }}>
-      <div style={{ padding: "16px 16px 0" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "14px", marginBottom: "14px", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `linear-gradient(135deg, ${C.blue}30, ${C.blue}10)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-            </div>
-            <div>
-              <h1 style={{ color: C.t1, fontSize: "20px", fontWeight: "800", letterSpacing: "-0.4px" }}>Centre d&apos;Analyse</h1>
-              <p style={{ color: C.t3, fontSize: "10px" }}>Prenez des décisions éclairées grâce à des données fiables et en temps réel.</p>
-            </div>
-          </div>
-          <PeriodeSelector periodeJours={periodeJours} onChange={setPeriodeJours} C={C}/>
-        </div>
-        <div style={{ display: "flex", gap: "6px", marginBottom: "14px", overflowX: "auto", paddingBottom: "2px" }}>
-          {SOUS_ONGLETS.map(t => (
-            <button key={t.key} onClick={() => setSousOnglet(t.key)} className="tap" style={{ flexShrink: 0, backgroundColor: sousOnglet === t.key ? `${C.blue}20` : C.bgCard, border: `1px solid ${sousOnglet === t.key ? C.blue + "40" : C.border}`, borderRadius: "20px", padding: "7px 14px", color: sousOnglet === t.key ? C.blue : C.t2, fontSize: "11px", fontWeight: sousOnglet === t.key ? 800 : 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-              {t.icon}{t.label}
-            </button>
-          ))}
-        </div>
+      <AnalyseStyles C={C}/>
+      <div className="ya-pad" style={{ maxWidth: "1440px", margin: "0 auto", paddingTop: "24px" }}>
+        <AnalyseHeader C={C}>
+          <PeriodPicker C={C} periodeJours={periodeJours} onChange={setPeriodeJours}/>
+        </AnalyseHeader>
+        <TeamTabs
+          C={C} idPrefix="analyse" ariaLabel="Sections du Centre d'Analyse"
+          active={sousOnglet} onChange={setSousOnglet}
+          tabs={SOUS_ONGLETS.map(t => ({ key: t.key, label: t.label }))}
+        />
       </div>
 
-      <div style={{ padding: "0 16px 16px" }}>
+      <div className="ya-pad" role="tabpanel" id={`analyse-panel-${sousOnglet}`} aria-labelledby={`analyse-tab-${sousOnglet}`} style={{ maxWidth: "1440px", margin: "0 auto", paddingBottom: "24px" }}>
         {sousOnglet === "vue-ensemble" && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "10px", marginBottom: "14px" }}>
+            <KpiGrid>
               <KpiCard label="Vues totales" unite="%" C={C} color={C.purple} metric={vueEnsemble?.vues ?? null}
                 icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}/>
               <KpiCard label="Clics totaux" unite="%" C={C} color={C.orange} metric={vueEnsemble?.clics ?? null}
@@ -1973,8 +1860,8 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
                 icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}/>
               <KpiCard label="Satisfaction" unite="%" C={C} color={C.gold} metric={vueEnsemble?.satisfaction ?? null} format={v => `${v}/5`}
                 icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>}/>
-            </div>
-            <EvolutionPerformances jours={evolution} C={C}/>
+            </KpiGrid>
+            <EvolutionPerformances jours={evolution} periodeJours={periodeJours} C={C}/>
             <RepartitionCanal canaux={canaux} C={C}/>
             <TopOffresPerformantes offres={topOffres} C={C}/>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "10px", marginBottom: "14px" }}>
@@ -1987,7 +1874,7 @@ export function CentreAnalyseTab({ instId, rdvs, stats, onOpenGuide, active = tr
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
                 <span style={{ color: C.gold, fontSize: "13px", fontWeight: "800" }}>Insight IA</span>
-                <span style={{ backgroundColor: `${C.gold}20`, color: C.gold, fontSize: "9px", fontWeight: 800, padding: "2px 7px", borderRadius: "10px", textTransform: "uppercase", letterSpacing: "0.3px" }}>Recommandation</span>
+                <span style={{ backgroundColor: C.bg3, color: C.gold, fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "10px" }}>Recommandation</span>
               </div>
               <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.7 }}>{genererInsightAnalyse(vueEnsemble, periodeJours)}</p>
               <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" style={{ marginTop: "12px" }} icon={<YelenLogo size={14} color="#000" />} onClick={onOpenGuide}>Guide complet pour scaler</Button>

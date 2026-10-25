@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAuthenticatedMembre, estReauthRecente } from '@/lib/institutionAuth'
+import { enregistrerAction, getMembreNomPourJournal } from '@/lib/journalActivite'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -75,6 +76,18 @@ export async function POST(request: NextRequest) {
     if (!deleted || deleted.length === 0) {
       return NextResponse.json({ error: "Cette clé d'accès est introuvable — elle a peut-être déjà été retirée.", code: 'NOT_FOUND' }, { status: 404 })
     }
+
+    // Journalisation (audit Profil Responsable, 19/10/2026) — enregistrée
+    // seulement après suppression effective de la clé.
+    await enregistrerAction({
+      institutionId,
+      membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: 'passkey_retiree',
+      cibleTable: 'institution_webauthn_credentials',
+      cibleId: deleted[0].id,
+      req: request,
+    })
 
     return NextResponse.json({ success: true })
 

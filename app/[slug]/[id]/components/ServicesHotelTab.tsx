@@ -35,6 +35,7 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { type Horaire, JOURS_SEMAINE, isOuvertNow } from "@/lib/horaires";
 import { EQUIPEMENTS_CHAMBRE } from "@/lib/hotelEquipements";
+import { heureAmPm } from "@/lib/heure";
 
 // Horaires (retour Bryan 20/08/2026 : "pas du texte libre, utilise celle
 // du système") — même type Horaire[] que institutions.horaires
@@ -1411,7 +1412,7 @@ export function ServicesHotelTab({}: { instId: string }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{b.citoyen_nom || "Citoyen"}</div>
                     <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{svc?.nom ?? "Prestation"}{svc ? ` · ${formatPrix(svc.prix)}` : ""}</div>
-                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {b.heure_rdv}</div>
+                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {heureAmPm(b.heure_rdv) || b.heure_rdv}</div>
                   </div>
                   <span style={{ color: C.t2, fontSize: "10px", fontFamily: "monospace", letterSpacing: "1.5px", backgroundColor: C.bg3, padding: "2px 8px", borderRadius: "7px", border: `1px solid ${C.border}` }}>#{b.confirmation_code}</span>
                 </div>

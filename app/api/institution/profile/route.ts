@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getAuthenticatedMembre } from "@/lib/institutionAuth";
+import { getAuthenticatedMembre, estReauthRecente, INSTITUTION_REAUTH_WINDOW_MS } from "@/lib/institutionAuth";
+import { extraireIpClient } from "@/lib/edgeSecurity";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import {
+  estCleRpcProfil, versCoordonnee, champsSensiblesModifies, estErreurReauthRpc, extraireDemandesCreees,
+  extraireDemandesAvecId, valeursAvantApres, appliquerPropositions, extraireListeChamps, champsEnAttente,
+  type CleRpcProfil, type ProfilSensibleActuel,
+} from "@/lib/institutionProfilSensible";
 import { can, type ActionKey } from "@/lib/institutionPermissions";
 import { validerUrlExterne } from "@/lib/urlValidation";
+import { nettoyerTextePublic } from "@/lib/texteBrut";
 import { SECTEUR_ID_LIST, STATUT_JURIDIQUE_ID_LIST } from "@/lib/institutionTaxonomy";
 import { CODES_EQUIPEMENTS_ETABLISSEMENT } from "@/lib/hotelEquipements";
 import { generateInstitutionSlug } from "@/lib/institutionSlug";
@@ -77,7 +85,51 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ institution: data ? { ...data, institution_membres, activite_principale_id, activite_principale_code, activites_secondaires_ids } : data });
+  // Publication différée (docs/product/YELEN_REVERIFICATION_POLICY.md) :
+  // institutions.* = valeurs PUBLIÉES, vues par les citoyens. Cette route sert
+  // l'espace de l'établissement lui-même (membre authentifié, même institution) :
+  // il y voit SA proposition en attente (nom, adresse, localisation, activité)
+  // à la place de la valeur publiée, et `champs_en_attente` liste ce qui n'est
+  // pas encore publié. Requête séparée (jamais d'embed PostgREST sur cette route
+  // centrale) ; en cas d'échec on sert les valeurs publiées plutôt que de casser
+  // le tableau de bord entier.
+  let overlay: Record<string, unknown> = {};
+  let champs_en_attente: string[] = [];
+  if (data) {
+    const { data: propositions, error: propositionsError } = await sb
+      .from("institution_change_requests")
+      .select("champ,nouvelle_valeur")
+      .eq("institution_id", institution_id)
+      .eq("statut", "a_examiner");
+    if (propositionsError) {
+      console.error("[INSTITUTION PROFILE GET] propositions en attente:", propositionsError.code);
+    } else if (propositions && propositions.length > 0) {
+      const publie: ProfilSensibleActuel = {
+        name: data.name ?? null, ville: data.ville ?? null, adresse: data.adresse ?? null,
+        latitude: typeof data.latitude === "number" ? data.latitude : null,
+        longitude: typeof data.longitude === "number" ? data.longitude : null,
+        activite_categorie_id: data.activite_categorie_id ?? null,
+        activite_principale_id,
+      };
+      const effectif = appliquerPropositions(publie, propositions);
+      overlay = {
+        name: effectif.name ?? data.name, ville: effectif.ville, adresse: effectif.adresse,
+        latitude: effectif.latitude, longitude: effectif.longitude,
+        activite_categorie_id: effectif.activite_categorie_id,
+      };
+      if (effectif.activite_principale_id !== activite_principale_id) {
+        activite_principale_id = effectif.activite_principale_id;
+        activite_principale_code = null;
+        if (activite_principale_id) {
+          const { data: actRow } = await sb.from("activites").select("code").eq("id", activite_principale_id).maybeSingle();
+          activite_principale_code = actRow?.code ?? null;
+        }
+      }
+      champs_en_attente = champsEnAttente(propositions);
+    }
+  }
+
+  return NextResponse.json({ institution: data ? { ...data, ...overlay, institution_membres, activite_principale_id, activite_principale_code, activites_secondaires_ids, champs_en_attente } : data });
 }
 
 // Champs éditables depuis l'onglet "Profil Entreprise". secteur et
@@ -105,6 +157,9 @@ const DATE_STAMP_FIELDS: Record<string, string> = {
   informations_importantes: "informations_importantes_le",
   informations_legales: "informations_legales_le",
 };
+
+// Plafond de longueur des 3 textes publics (en caractères).
+const TEXTE_PUBLIC_MAX = 5000;
 
 // Date de première écriture (migration 20260831000001) — posée une seule
 // fois, jamais réécrite ensuite (contrairement à DATE_STAMP_FIELDS
@@ -143,10 +198,14 @@ export async function PUT(req: NextRequest) {
 
   const authInstId = membre.institutionId;
   const payload: Record<string, unknown> = {};
-  // Renseigné seulement si activite_categorie_id + activite_principale_id
-  // sont validés plus bas — la table institution_activites est écrite
-  // après le succès de l'UPDATE institutions, jamais avant (cohérence).
-  let activitesAEcrire: { principale: string; secondaires: string[] } | null = null;
+  // Niveau B (docs/product/YELEN_REVERIFICATION_POLICY.md) : nom, ville,
+  // adresse, coordonnées, catégorie + activité principale (et secondaires,
+  // niveau A mais écrites avec la principale). Jamais écrits par cette route
+  // directement : transmis à la fonction SQL appliquer_modifications_sensibles
+  // qui applique la modification ET crée les demandes d'examen dans une seule
+  // transaction, après revérification de la réauthentification en base.
+  // `payload` ne contient donc plus que des champs de niveau A.
+  const champsRpc: Partial<Record<CleRpcProfil, unknown>> = {};
   // Un seul horodatage pour toute la requête — réutilisé pour _le ET,
   // sur une première écriture, pour _creee_le : les deux doivent être
   // rigoureusement identiques ce jour-là, sinon la fiche publique
@@ -156,11 +215,40 @@ export async function PUT(req: NextRequest) {
   for (const field of EDITABLE_FIELDS) {
     if (!(field in body)) continue;
     let value = body[field];
+    if (estCleRpcProfil(field)) {
+      champsRpc[field] = value;
+      continue;
+    }
     if (NUMERIC_FIELDS.has(field) && typeof value === "string" && value.trim() === "") {
       value = null;
     }
     payload[field] = value;
     if (field in DATE_STAMP_FIELDS) payload[DATE_STAMP_FIELDS[field]] = nowIso;
+  }
+
+  // Les 3 textes publics "Conditions & Informations" : chaîne obligatoire
+  // (une chaîne vide = section vidée) et plafond de longueur — jusque-là
+  // n'importe quel type et n'importe quelle taille étaient écrits tels quels.
+  const champsTexte = Object.keys(DATE_STAMP_FIELDS).filter(f => f in payload);
+  for (const f of champsTexte) {
+    const v = payload[f];
+    if (typeof v !== "string") {
+      return NextResponse.json({ error: "Le texte doit être une chaîne de caractères." }, { status: 400 });
+    }
+    // Normalisé avant le contrôle de longueur : le plafond s'applique au
+    // texte réellement stocké. Un octet nul dans le JSON ferait sinon
+    // échouer l'UPDATE Postgres en 500.
+    const propre = nettoyerTextePublic(v);
+    if (propre.length > TEXTE_PUBLIC_MAX) {
+      return NextResponse.json({ error: `Le texte ne doit pas dépasser ${TEXTE_PUBLIC_MAX} caractères (${propre.length} saisis).` }, { status: 400 });
+    }
+    payload[f] = propre;
+  }
+  // Valeurs avant écriture, pour ne journaliser que les vrais changements.
+  let valeursAvantTexte: Record<string, unknown> | null = null;
+  if (champsTexte.length > 0) {
+    const { data: avantTexte } = await sb.from("institutions").select(champsTexte.join(",")).eq("id", authInstId).maybeSingle();
+    valeursAvantTexte = (avantTexte ?? null) as Record<string, unknown> | null;
   }
 
   // Date de première écriture — posée seulement si elle n'existe pas déjà
@@ -205,14 +293,28 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "equipements_etablissement doit être un tableau" }, { status: 400 });
   }
 
+  // Validation des champs de niveau B avant tout appel — la fonction SQL
+  // refait ces contrôles (défense en profondeur), mais un message clair 400 est
+  // préférable à une exception SQL.
+  if ("name" in champsRpc && (typeof champsRpc.name !== "string" || !champsRpc.name.trim())) {
+    return NextResponse.json({ error: "Le nom de l'institution est requis." }, { status: 400 });
+  }
+  if ("ville" in champsRpc && (typeof champsRpc.ville !== "string" || !champsRpc.ville.trim())) {
+    return NextResponse.json({ error: "La ville est requise." }, { status: 400 });
+  }
+  if ("adresse" in champsRpc && champsRpc.adresse !== null && typeof champsRpc.adresse !== "string") {
+    return NextResponse.json({ error: "Adresse invalide" }, { status: 400 });
+  }
   // Bornes géographiques réelles — filet de sécurité serveur même si la
   // valeur vient normalement du sélecteur carte contrôlé (LocationPicker),
-  // jamais d'une saisie libre.
-  if (typeof payload.latitude === "number" && (payload.latitude < -90 || payload.latitude > 90)) {
-    return NextResponse.json({ error: "Latitude invalide" }, { status: 400 });
-  }
-  if (typeof payload.longitude === "number" && (payload.longitude < -180 || payload.longitude > 180)) {
-    return NextResponse.json({ error: "Longitude invalide" }, { status: 400 });
+  // jamais d'une saisie libre. Une chaîne vide devient null (comme avant).
+  for (const [cle, borne, libelle] of [["latitude", 90, "Latitude invalide"], ["longitude", 180, "Longitude invalide"]] as const) {
+    if (!(cle in champsRpc)) continue;
+    const valeur = versCoordonnee(champsRpc[cle]);
+    if (valeur === undefined || (valeur !== null && (valeur < -borne || valeur > borne))) {
+      return NextResponse.json({ error: libelle }, { status: 400 });
+    }
+    champsRpc[cle] = valeur;
   }
 
   // Legacy — encore utilisé par l'ancien sélecteur secteur de
@@ -245,7 +347,7 @@ export async function PUT(req: NextRequest) {
     if (!categorieRow) {
       return NextResponse.json({ error: "Catégorie d'activité invalide" }, { status: 400 });
     }
-    payload.activite_categorie_id = body.activite_categorie_id;
+    champsRpc.activite_categorie_id = body.activite_categorie_id;
 
     if ("activite_principale_id" in body || "activites_secondaires_ids" in body) {
       if (typeof body.activite_principale_id !== "string") {
@@ -270,11 +372,11 @@ export async function PUT(req: NextRequest) {
       if (!activiteRows || activiteRows.length !== new Set(activiteIdsAVerifier).size) {
         return NextResponse.json({ error: "Activité invalide ou n'appartenant pas à la catégorie choisie" }, { status: 400 });
       }
-      // Écrite seulement après le succès de l'UPDATE institutions
-      // principal, pas ici — voir plus bas, pour ne jamais laisser
-      // institution_activites divergent de institutions.activite_categorie_id
-      // si l'UPDATE échoue après ce point.
-      activitesAEcrire = { principale: body.activite_principale_id, secondaires };
+      // Écrites par la fonction SQL dans la même transaction que
+      // institutions.activite_categorie_id : institution_activites ne peut
+      // jamais diverger de la catégorie si une étape échoue.
+      champsRpc.activite_principale_id = body.activite_principale_id;
+      champsRpc.activites_secondaires_ids = secondaires;
     }
   }
 
@@ -304,35 +406,156 @@ export async function PUT(req: NextRequest) {
     payload.statut_juridique = body.statut_juridique;
   }
 
-  // Renommage — le slug (racine des URLs /{slug}/{id}/{screen}, chantier
-  // "URLs dynamiques institution" 28/08/2026) doit rester cohérent avec le
-  // nom affiché. L'id reste seul canonique : régénérer le slug ici ne casse
-  // aucune ancienne URL, le layout du dashboard redirige automatiquement
-  // tout visiteur arrivant avec un slug périmé vers le slug à jour.
-  if (typeof payload.name === "string" && payload.name.trim()) {
-    const { data: current } = await sb.from("institutions").select("name").eq("id", authInstId).maybeSingle();
-    if (current && current.name !== payload.name) {
-      payload.slug = await generateInstitutionSlug(sb, payload.name, authInstId);
+  const aDesChampsNiveauB = Object.keys(champsRpc).length > 0;
+  if (Object.keys(payload).length === 0 && !aDesChampsNiveauB) {
+    return NextResponse.json({ error: "Aucun champ éditable fourni" }, { status: 400 });
+  }
+
+  let demandesCreees: { numero: string; champ: string }[] = [];
+  // Champs appliqués directement (établissement pas encore public : rien à protéger).
+  let champsAppliques: string[] = [];
+
+  if (aDesChampsNiveauB) {
+    // Valeurs actuelles — nécessaires pour (1) répondre 403 REAUTH_REQUIRED
+    // AVANT toute écriture quand un changement sensible est réellement détecté,
+    // (2) décider si le slug doit être régénéré. Le diff faisant foi est celui
+    // de la fonction SQL (recalculé sous verrou) ; celui-ci n'est qu'un
+    // filtre précoce. Requêtes séparées, jamais d'embed PostgREST (route centrale).
+    const { data: actuelRow, error: actuelError } = await sb
+      .from("institutions")
+      .select("name,ville,adresse,latitude,longitude,activite_categorie_id")
+      .eq("id", authInstId)
+      .maybeSingle();
+    const { data: activitesRows, error: activitesError } = await sb
+      .from("institution_activites")
+      .select("activite_id,principale")
+      .eq("institution_id", authInstId);
+    if (actuelError || activitesError || !actuelRow) {
+      console.error("[INSTITUTION PROFILE PUT] lecture valeurs actuelles:", actuelError?.code ?? activitesError?.code ?? "institution introuvable");
+      return NextResponse.json({ error: "Erreur lors de l'enregistrement." }, { status: 500 });
+    }
+    const publie: ProfilSensibleActuel = {
+      name: actuelRow.name ?? null,
+      ville: actuelRow.ville ?? null,
+      adresse: actuelRow.adresse ?? null,
+      latitude: typeof actuelRow.latitude === "number" ? actuelRow.latitude : null,
+      longitude: typeof actuelRow.longitude === "number" ? actuelRow.longitude : null,
+      activite_categorie_id: actuelRow.activite_categorie_id ?? null,
+      activite_principale_id: activitesRows?.find(a => a.principale)?.activite_id ?? null,
+    };
+
+    // Publication différée : institutions.* = valeurs PUBLIÉES. Ce que
+    // l'établissement voit (et modifie) est la valeur EFFECTIVE = publiée,
+    // surchargée par ses propositions en attente. Le diff se fait donc contre
+    // l'effectif : renvoyer telle quelle une proposition en attente n'est pas un
+    // nouveau changement sensible (pas de réauthentification redemandée).
+    const { data: propositionsRows, error: propositionsError } = await sb
+      .from("institution_change_requests")
+      .select("champ,nouvelle_valeur")
+      .eq("institution_id", authInstId)
+      .eq("statut", "a_examiner");
+    if (propositionsError) {
+      console.error("[INSTITUTION PROFILE PUT] lecture propositions en attente:", propositionsError.code);
+      return NextResponse.json({ error: "Erreur lors de l'enregistrement." }, { status: 500 });
+    }
+    const actuel = appliquerPropositions(publie, propositionsRows ?? []);
+
+    if (champsSensiblesModifies(actuel, champsRpc).length > 0 && !estReauthRecente(membre)) {
+      return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: "REAUTH_REQUIRED" }, { status: 403 });
+    }
+
+    // Renommage — le slug (racine des URLs /{slug}/{id}/{screen}, chantier
+    // "URLs dynamiques institution" 28/08/2026) doit rester cohérent avec le
+    // nom affiché. L'id reste seul canonique : régénérer le slug ici ne casse
+    // aucune ancienne URL, le layout du dashboard redirige automatiquement
+    // tout visiteur arrivant avec un slug périmé vers le slug à jour. La
+    // fonction SQL ne l'applique que si le nom change réellement (hors simple
+    // changement de casse/espaces).
+    const slug = typeof champsRpc.name === "string" && actuel.name !== champsRpc.name
+      ? await generateInstitutionSlug(sb, champsRpc.name, authInstId)
+      : null;
+
+    // institution, membre et session viennent EXCLUSIVEMENT de la session
+    // authentifiée — jamais du corps de la requête. Aucun PIN / mot de passe
+    // ne transite ici (la réauthentification a eu lieu via auth/reauth).
+    const { data: rpcData, error: rpcError } = await sb.rpc("appliquer_modifications_sensibles", {
+      p_institution_id: authInstId,
+      p_membre_id: membre.membreId,
+      p_session_id: membre.sid,
+      p_champs: champsRpc,
+      p_slug: slug,
+      p_ip: extraireIpClient(req),
+      p_user_agent: req.headers.get("user-agent"),
+      p_fenetre_reauth_secondes: Math.floor(INSTITUTION_REAUTH_WINDOW_MS / 1000),
+    });
+    if (rpcError) {
+      if (estErreurReauthRpc(rpcError)) {
+        return NextResponse.json({ error: "Pour votre sécurité, confirmez à nouveau votre identité pour continuer.", code: "REAUTH_REQUIRED" }, { status: 403 });
+      }
+      console.error("[INSTITUTION PROFILE PUT] appliquer_modifications_sensibles:", rpcError.code);
+      return NextResponse.json({ error: "Erreur lors de l'enregistrement." }, { status: 500 });
+    }
+    demandesCreees = extraireDemandesCreees(rpcData);
+    champsAppliques = extraireListeChamps(rpcData, "appliquees");
+
+    // Journal d'activité interne : une ligne par champ sensible réellement
+    // modifié (cible = la demande d'examen). Non bloquant — enregistrerAction
+    // n'échoue jamais l'action métier, la modification est déjà enregistrée.
+    const demandesJournal = extraireDemandesAvecId(rpcData);
+    if (demandesJournal.length > 0 || champsAppliques.length > 0) {
+      const membreNom = await getMembreNomPourJournal(membre.membreId);
+      for (const champ of champsAppliques) {
+        const valeurs = valeursAvantApres(champ, publie, champsRpc);
+        await enregistrerAction({
+          institutionId: authInstId, membreId: membre.membreId, membreNom,
+          action: "changement_profil_sensible", cibleTable: "institutions", cibleId: authInstId,
+          details: { champ, publie_directement: true },
+          ancienneValeur: valeurs?.avant ?? null, nouvelleValeur: valeurs?.apres ?? null,
+          req,
+        });
+      }
+      for (const d of demandesJournal) {
+        const valeurs = valeursAvantApres(d.champ, publie, champsRpc);
+        await enregistrerAction({
+          institutionId: authInstId, membreId: membre.membreId, membreNom,
+          action: "changement_profil_sensible", cibleTable: "institution_change_requests", cibleId: d.id,
+          details: { champ: d.champ, numero: d.numero },
+          ancienneValeur: valeurs?.avant ?? null, nouvelleValeur: valeurs?.apres ?? null,
+          req,
+        });
+      }
     }
   }
 
-  if (Object.keys(payload).length === 0) return NextResponse.json({ error: "Aucun champ éditable fourni" }, { status: 400 });
-
-  const { error } = await sb.from("institutions").update(payload).eq("id", authInstId);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // institution_activites n'est pas une colonne institutions — écrite ici,
-  // seulement après le succès de l'UPDATE ci-dessus, remplace intégralement
-  // les lignes existantes (principale + secondaires).
-  if (activitesAEcrire) {
-    const { error: deleteError } = await sb.from("institution_activites").delete().eq("institution_id", authInstId);
-    if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
-    const { error: insertActivitesError } = await sb.from("institution_activites").insert([
-      { institution_id: authInstId, activite_id: activitesAEcrire.principale, principale: true, ordre: 0 },
-      ...activitesAEcrire.secondaires.map((id, i) => ({ institution_id: authInstId, activite_id: id, principale: false, ordre: i + 1 })),
-    ]);
-    if (insertActivitesError) return NextResponse.json({ error: insertActivitesError.message }, { status: 500 });
+  // Champs de niveau A — enregistrement immédiat, inchangé. Exécuté APRÈS la
+  // fonction SQL : si cette écriture échoue, le niveau B reste enregistré et un
+  // rejeu ne crée aucune demande supplémentaire (le diff est alors vide).
+  if (Object.keys(payload).length > 0) {
+    const { error } = await sb.from("institutions").update(payload).eq("id", authInstId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  // Journal d'activité des 3 textes publics : auteur (membre), IP et
+  // user-agent via enregistrerAction. Le contenu n'est pas recopié dans le
+  // journal (jusqu'à 5000 caractères par ligne), seulement présence et
+  // longueur avant/après. Non bloquant, une ligne par texte réellement modifié.
+  const textesModifies = champsTexte.filter(f => (valeursAvantTexte?.[f] ?? "") !== payload[f]);
+  if (textesModifies.length > 0) {
+    const membreNom = await getMembreNomPourJournal(membre.membreId);
+    const resume = (v: unknown) => {
+      const t = typeof v === "string" ? v : "";
+      return { renseigne: t.trim().length > 0, longueur: t.length };
+    };
+    for (const champ of textesModifies) {
+      await enregistrerAction({
+        institutionId: authInstId, membreId: membre.membreId, membreNom,
+        action: "modification_texte_public", cibleTable: "institutions", cibleId: authInstId,
+        details: { champ },
+        ancienneValeur: resume(valeursAvantTexte?.[champ]), nouvelleValeur: resume(payload[champ]),
+        req,
+      });
+    }
+  }
+
+  return NextResponse.json({ ok: true, demandes: demandesCreees, appliques: champsAppliques });
 }

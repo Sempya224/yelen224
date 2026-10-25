@@ -8,7 +8,6 @@ import { YELEN224_USER_ID_KEY } from "@/lib/auth/constants";
 import { useTheme } from "@/components/ThemeProvider";
 import { CompteHeader, CompteLoadingScreen } from "@/components/CompteEcranVide";
 import { PullToRefresh } from "@/components/PullToRefresh";
-import { deleteCitoyenAccount } from "@/app/profil/actions";
 import { SuppressionCompteOverlay } from "@/components/SuppressionCompteOverlay";
 import type { ChampsVisibles } from "@/lib/citoyenConfidentialite";
 
@@ -285,19 +284,18 @@ export function ConfidentialiteClient() {
     return { ok: true };
   }
 
-  // Vérifie l'identité avant d'autoriser l'écran de confirmation finale :
-  // code SMS toujours requis, + PIN et/ou TOTP si le citoyen les a activés
-  // (retour Bryan 12/09/2026) — aucune suppression n'a lieu ici.
+  // Vérifie l'identité avant d'autoriser l'écran de confirmation finale.
+  // OTP et TOTP ne sont PAS revérifiés ici (Lot B, 18/10/2026) : verifierOtp()
+  // consomme le code à usage unique (lib/auth/otp.ts) et un code de secours
+  // TOTP est retiré dès sa vérification — les vérifier ici puis une 2e fois
+  // au moment du DELETE (executer/route.ts, qui fait la VRAIE vérification
+  // liée à la suppression elle-même) échouerait systématiquement au 2e
+  // essai. Seul le PIN (bcrypt.compare, sans effet de bord) est revérifié
+  // ici pour un retour immédiat ; otp/totp sont simplement transportés
+  // jusqu'à la confirmation finale sans être consommés prématurément.
   async function handleVerifierIdentite(otp: string, pin: string, totp: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const accessToken = await getAccessToken();
     if (!accessToken) return { ok: false, error: "Session expirée, reconnectez-vous." };
-
-    const otpRes = await fetch("/api/citoyen/confidentialite/suppression/otp-verifier", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accessToken, code: otp }),
-    });
-    const otpJson = await otpRes.json().catch(() => null);
-    if (!otpRes.ok || !otpJson?.success) return { ok: false, error: otpJson?.error ?? "Code incorrect." };
 
     if (pinConfigure) {
       const pinRes = await fetch("/api/citoyen/securite/pin/verify", {
@@ -308,25 +306,26 @@ export function ConfidentialiteClient() {
       if (!pinRes.ok || !pinJson?.success) return { ok: false, error: pinJson?.error ?? "Code PIN incorrect." };
     }
 
-    if (totpEnabled) {
-      const totpRes = await fetch("/api/citoyen/securite/totp/verify-code", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken, code: totp }),
-      });
-      const totpJson = await totpRes.json().catch(() => null);
-      if (!totpRes.ok || !totpJson?.success) return { ok: false, error: totpJson?.error ?? "Code de double authentification incorrect." };
-    }
-
+    void otp;
+    void totp;
     return { ok: true };
   }
 
-  async function handleConfirmerSuppression(): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (!userId) return { ok: false, error: "Session expirée, reconnectez-vous." };
+  // Seul point d'exécution réelle (Lot B) : re-vérifie OTP+PIN/TOTP et
+  // supprime le compte dans la même requête serveur — remplace
+  // deleteCitoyenAccount (app/profil/actions.ts), qui faisait un DELETE via
+  // la session citoyen (RLS) sans aucune re-vérification.
+  async function handleConfirmerSuppression(otp: string, pin: string, totp: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const accessToken = await getAccessToken();
     if (!accessToken) return { ok: false, error: "Session expirée, reconnectez-vous." };
 
-    const result = await deleteCitoyenAccount(userId, accessToken);
-    if (!result.ok) return { ok: false, error: result.error };
+    const res = await fetch("/api/citoyen/confidentialite/suppression/executer", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken, otp, pin, totp }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.success) return { ok: false, error: json?.error ?? "Suppression impossible." };
+
     await supabase.auth.signOut();
     try { localStorage.removeItem(YELEN224_USER_ID_KEY); } catch {}
     router.replace("/");

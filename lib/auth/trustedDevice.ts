@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import crypto from "crypto";
 import { extraireContexteRequete } from "@/lib/journalActivite";
+import { parseNetlifyGeo } from "@/lib/geoAccess";
+import { logSecurite } from "@/lib/edgeSecurity";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Trusted Device (Mission 30/08/2026, brief CEO) — logique générique
@@ -45,13 +47,18 @@ export async function evaluerAppareil(
   req?: NextRequest
 ): Promise<EvaluationAppareil> {
   const rawToken = req?.cookies.get(config.cookieName)?.value;
+  // Pays courant (Priorité 5, 18/10/2026) — scaffolding uniquement : sert à
+  // journaliser un changement de pays sur un appareil par ailleurs connu,
+  // jamais à bloquer/ajouter de friction à ce stade (voir proposition
+  // technique §Priorité 5 — "préparer", pas un step-up complet).
+  const paysActuel = parseNetlifyGeo(req?.headers.get("x-nf-geo") ?? null)?.country?.code ?? null;
   if (rawToken) {
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const { data: existing } = await sb
       .from(config.table)
-      .select(`id, ${config.idColumn}, status, expires_at`)
+      .select(`id, ${config.idColumn}, status, expires_at, last_country_code`)
       .eq("token_hash", tokenHash)
-      .maybeSingle<{ id: string; status: string; expires_at: string; [key: string]: unknown }>();
+      .maybeSingle<{ id: string; status: string; expires_at: string; last_country_code: string | null; [key: string]: unknown }>();
     if (
       existing && existing[config.idColumn] === entiteId &&
       existing.status !== "revoked" && new Date(existing.expires_at) > new Date()
@@ -59,6 +66,10 @@ export async function evaluerAppareil(
       if (existing.status === "pending") {
         await sb.from(config.table).update({ status: "trusted" }).eq("id", existing.id);
       }
+      if (paysActuel && existing.last_country_code && paysActuel !== existing.last_country_code) {
+        logSecurite("trusted_device_pays_different", { table: config.table, entiteId, ancien: existing.last_country_code, nouveau: paysActuel });
+      }
+      await sb.from(config.table).update({ last_country_code: paysActuel ?? existing.last_country_code, last_seen_at: new Date().toISOString() }).eq("id", existing.id);
       return { connu: true, statutPourNouvelleLigne: "trusted" };
     }
   }
@@ -85,6 +96,11 @@ export async function enregistrerConnexion(
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const deviceLabel = navigateur && os ? `${navigateur} sur ${os}` : navigateur || os || null;
   const expiresAt = new Date(Date.now() + config.maxAgeS * 1000).toISOString();
+  // Pays d'amorçage (Priorité 5) — sert de référence pour la prochaine
+  // comparaison dans evaluerAppareil ci-dessus, jamais pour un jugement à
+  // la création elle-même (un tout premier appareil ne peut par
+  // définition rien avoir "de différent" à ce stade).
+  const paysActuel = parseNetlifyGeo(req?.headers.get("x-nf-geo") ?? null)?.country?.code ?? null;
 
   const { error } = await sb.from(config.table).insert({
     [config.idColumn]: entiteId,
@@ -95,6 +111,8 @@ export async function enregistrerConnexion(
     device_type: plateforme,
     status: evaluation.statutPourNouvelleLigne,
     expires_at: expiresAt,
+    last_country_code: paysActuel,
+    last_seen_at: new Date().toISOString(),
   });
   if (error) {
     console.error(`[TRUSTED DEVICE ${config.table}] Erreur insertion:`, error.message);

@@ -54,17 +54,8 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     const scheduledPurgeAt = new Date(now.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000)
 
-    // institution_sessions (dette technique comblée 30/08/2026, remplace
-    // institutions.session_revoked_at de GAP-04-04) — invalide toute session
-    // active, y compris celle-ci, en plus des cookies déjà effacés
-    // ci-dessous et des remember-tokens/credentials WebAuthn déjà purgés.
-    const { error: revokeError } = await supabaseAdmin
-      .from('institution_sessions')
-      .update({ revoked_at: now.toISOString(), revoked_reason: 'deletion_request' })
-      .eq('institution_id', institutionId)
-      .is('revoked_at', null)
-    if (revokeError) console.error('[INSTITUTION DELETION REQUEST] Erreur révocation session:', revokeError.message)
-
+    // La demande est enregistrée AVANT toute révocation : un échec ici ne doit
+    // jamais déconnecter l'admin ni supprimer ses appareils.
     const { error: upsertError } = await supabaseAdmin
       .from('institution_deletion_requests')
       .upsert(
@@ -85,12 +76,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Erreur lors de l'enregistrement", code: 'UPSERT_ERROR' }, { status: 500 })
     }
 
-    await Promise.all([
-      supabaseAdmin.from('institution_remember_tokens').delete().eq('institution_id', institutionId),
-      supabaseAdmin.from('institution_webauthn_credentials').delete().eq('institution_id', institutionId),
-    ])
+    // Ni le motif ni le commentaire du sondage ne sont journalisés.
+    const membreNom = await getMembreNomPourJournal(membre.membreId)
+    await enregistrerAction({
+      institutionId, membreId: membre.membreId, membreNom,
+      action: 'suppression_compte_demandee', cibleTable: 'institution_deletion_requests',
+      details: { role: membre.role, scheduled_purge_at: scheduledPurgeAt.toISOString() },
+      req: request,
+    })
 
-    const response = NextResponse.json({ success: true, scheduled_purge_at: scheduledPurgeAt.toISOString() })
+    // Révocations en best-effort, sans rollback de la demande : chaque échec est
+    // journalisé et signalé via revocation_partielle. Sessions en dernier
+    // (institution_sessions, dette comblée 30/08/2026) : invalide toute session
+    // active, y compris celle-ci.
+    const echecs: string[] = []
+    const revocations: Array<{ nom: string; run: () => PromiseLike<{ error: { message: string } | null }> }> = [
+      { nom: 'appareils_memorises', run: () => supabaseAdmin.from('institution_remember_tokens').delete().eq('institution_id', institutionId) },
+      { nom: 'passkeys', run: () => supabaseAdmin.from('institution_webauthn_credentials').delete().eq('institution_id', institutionId) },
+      { nom: 'sessions', run: () => supabaseAdmin.from('institution_sessions').update({ revoked_at: now.toISOString(), revoked_reason: 'deletion_request' }).eq('institution_id', institutionId).is('revoked_at', null) },
+    ]
+    for (const { nom, run } of revocations) {
+      const { error } = await run()
+      if (!error) continue
+      echecs.push(nom)
+      console.error('[INSTITUTION DELETION REQUEST] Erreur révocation', nom, error.message)
+      await enregistrerAction({
+        institutionId, membreId: membre.membreId, membreNom,
+        action: 'suppression_compte_revocation_echec', cibleTable: 'institution_deletion_requests',
+        details: { revocation_echec: nom },
+        niveau: 'attention',
+        req: request,
+      })
+    }
+
+    const response = NextResponse.json({
+      success: true,
+      scheduled_purge_at: scheduledPurgeAt.toISOString(),
+      ...(echecs.length > 0 ? { revocation_partielle: true } : {}),
+    })
     response.cookies.delete('yelen224_institution_session')
     response.cookies.delete('yelen224_institution_remember')
     return response

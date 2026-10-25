@@ -42,7 +42,7 @@ export function SuppressionCompteOverlay({
   onEnvoyerFeedback: (raison: string | null, detail: string) => Promise<void>;
   onEnvoyerOtp: () => Promise<{ ok: true } | { ok: false; error: string }>;
   onVerifierIdentite: (otp: string, pin: string, totp: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-  onConfirmer: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  onConfirmer: (otp: string, pin: string, totp: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }) {
   const [etape, setEtape] = useState<"feedback" | "verification" | "confirmation">("feedback");
   const [raison, setRaison] = useState<string | null>(null);
@@ -109,7 +109,7 @@ export function SuppressionCompteOverlay({
     setSuppMsg(null);
     if (suppTexte.trim().toUpperCase() !== "SUPPRIMER") { setSuppMsg('Tapez "SUPPRIMER" pour confirmer.'); return; }
     setSuppEnCours(true);
-    const result = await onConfirmer();
+    const result = await onConfirmer(otp, pin, totp);
     setSuppEnCours(false);
     if (!result.ok) setSuppMsg(result.error);
   }

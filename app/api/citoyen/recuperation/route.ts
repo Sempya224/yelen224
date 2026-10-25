@@ -4,7 +4,7 @@ import { validateUpload } from '@/lib/uploadSecurity'
 import { extraireIpClient } from '@/lib/edgeSecurity'
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
-  enregistrerTentative, messageSecurite,
+  enregistrerTentative, messageSecurite, destinationCitoyen,
 } from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
@@ -19,9 +19,10 @@ const MAX_CIN_SIZE = 10 * 1024 * 1024
 export async function POST(request: NextRequest) {
   // Auth Security (chantier 28/08/2026) — remplace la Map IP locale
   // (pas de session possible ici par définition, c'est justement le
-  // problème à résoudre), voir lib/security/authSecurity.ts. Pas de
-  // signal "compte" possible non plus pour ce flux (l'identifiant n'est
-  // pas encore fiable) — device+IP suffisent, mêmes garanties anti-DoS.
+  // problème à résoudre), voir lib/security/authSecurity.ts. Porte
+  // device/IP ici, avant même de connaître ancien_phone (lu dans le
+  // FormData plus bas) — le scope destination (ancien_phone) s'ajoute dès
+  // qu'il est connu, voir la 2e porte ci-dessous.
   const { deviceId, estNouveau } = resoudreDeviceId(request)
   const ip = extraireIpClient(request)
   const userAgent = request.headers.get('user-agent')
@@ -55,24 +56,60 @@ export async function POST(request: NextRequest) {
     const file = form.get('file')
 
     if (typeof ancienPhone !== 'string' || !PHONE_REGEX.test(ancienPhone)) {
-      return finaliser({ error: 'Numéro invalide', code: 'INVALID_FORMAT' }, 400)
+      // Pas de destination connue (numéro invalide) — device/IP seuls,
+      // pour que le martèlement de formulaires illisibles reste visible
+      // au throttle plutôt qu'invisible (revue critique 18/10/2026).
+      const etat = await enregistrerTentative(supabaseAdmin, {
+        endpointCategory: 'recuperation', deviceId, ip, outcome: 'format_invalide', userAgent,
+      })
+      return finaliser({ error: 'Numéro invalide', code: 'INVALID_FORMAT', security: etat }, 400)
     }
+
+    // 2e porte, scope destination (Priorités 3/4, 18/10/2026) — la porte
+    // device/IP ci-dessus ne pouvait pas connaître ancien_phone avant la
+    // lecture du FormData (qui contient aussi le fichier). Positionnée ICI,
+    // avant tout accès Storage/DB coûteux, mais après la lecture du
+    // formulaire (déjà consommée, inévitable pour atteindre ce champ) —
+    // seuils les plus stricts du module (1 avertissement / 2 blocage) :
+    // opération à fort impact (changement de numéro de récupération).
+    const porteDestination = await evaluerTentative(
+      supabaseAdmin, { deviceId, ip, destination: destinationCitoyen(ancienPhone) }, undefined, request
+    )
+    if (porteDestination.state === 'blocked' || porteDestination.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porteDestination.state), code: porteDestination.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porteDestination },
+        423
+      )
+    }
+
+    // À partir d'ici, ancien_phone est connu et valide — chaque échec
+    // compte désormais contre le budget device/IP/destination (revue
+    // critique 18/10/2026) plutôt que d'être invisible au throttle.
+    const echecRecuperation = (outcome: string) => enregistrerTentative(supabaseAdmin, {
+      endpointCategory: 'recuperation', deviceId, ip, identifiant: ancienPhone, outcome, userAgent, destination: destinationCitoyen(ancienPhone),
+    })
+
     if (typeof nouveauPhone !== 'string' || !PHONE_REGEX.test(nouveauPhone)) {
-      return finaliser({ error: 'Nouveau numéro invalide', code: 'INVALID_FORMAT' }, 400)
+      const etat = await echecRecuperation('nouveau_numero_invalide')
+      return finaliser({ error: 'Nouveau numéro invalide', code: 'INVALID_FORMAT', security: etat }, 400)
     }
     if (type === 'numero' && ancienPhone === nouveauPhone) {
-      return finaliser({ error: "Le nouveau numéro doit être différent de l'ancien", code: 'SAME_PHONE' }, 400)
+      const etat = await echecRecuperation('meme_numero')
+      return finaliser({ error: "Le nouveau numéro doit être différent de l'ancien", code: 'SAME_PHONE', security: etat }, 400)
     }
     if (typeof prenom !== 'string' || !prenom.trim() || typeof nom !== 'string' || !nom.trim()) {
-      return finaliser({ error: 'Nom et prénom requis', code: 'MISSING_FIELDS' }, 400)
+      const etat = await echecRecuperation('champs_manquants')
+      return finaliser({ error: 'Nom et prénom requis', code: 'MISSING_FIELDS', security: etat }, 400)
     }
     if (!(file instanceof File)) {
-      return finaliser({ error: "Pièce d'identité requise", code: 'MISSING_FILE' }, 400)
+      const etat = await echecRecuperation('fichier_manquant')
+      return finaliser({ error: "Pièce d'identité requise", code: 'MISSING_FILE', security: etat }, 400)
     }
     const buffer = Buffer.from(await file.arrayBuffer())
     const verif = await validateUpload(buffer, 'DOCUMENT_KYC', MAX_CIN_SIZE, file.name)
     if (!verif.valid) {
-      return finaliser({ error: verif.reason, code: 'INVALID_FORMAT' }, 400)
+      const etat = await echecRecuperation('fichier_invalide')
+      return finaliser({ error: verif.reason, code: 'INVALID_FORMAT', security: etat }, 400)
     }
 
     // Rapprochement automatique avec le compte existant sur l'ancien numéro
@@ -100,20 +137,22 @@ export async function POST(request: NextRequest) {
 
     if (insertError || !demande) {
       console.error('[CITOYEN RECUPERATION INSERT ERROR]', insertError)
-      return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR' }, 500)
+      const etat = await echecRecuperation('erreur_insertion')
+      return finaliser({ error: 'Erreur serveur', code: 'SERVER_ERROR', security: etat }, 500)
     }
 
     const path = `recuperation/${demande.id}/${crypto.randomUUID()}.${verif.extension}`
     const { error: upErr } = await supabaseAdmin.storage.from('documents-citoyens').upload(path, buffer, { contentType: verif.detectedType })
     if (upErr) {
       console.error('[CITOYEN RECUPERATION UPLOAD ERROR]', upErr)
-      return finaliser({ error: 'Erreur lors du dépôt du document', code: 'UPLOAD_ERROR' }, 500)
+      const etat = await echecRecuperation('erreur_upload')
+      return finaliser({ error: 'Erreur lors du dépôt du document', code: 'UPLOAD_ERROR', security: etat }, 500)
     }
 
     await supabaseAdmin.from('citoyen_demandes_recuperation').update({ cin_document_url: path }).eq('id', demande.id)
 
     const etat = await enregistrerTentative(supabaseAdmin, {
-      endpointCategory: 'recuperation', deviceId, ip, identifiant: ancienPhone, outcome: 'demande_creee', userAgent,
+      endpointCategory: 'recuperation', deviceId, ip, identifiant: ancienPhone, outcome: 'demande_creee', userAgent, destination: destinationCitoyen(ancienPhone),
     })
 
     return finaliser({ success: true, security: etat }, 200)

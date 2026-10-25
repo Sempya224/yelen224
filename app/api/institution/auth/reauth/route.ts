@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import { verify as verifyTotp } from "otplib";
-import { getAuthenticatedMembre, INSTITUTION_SESSION_TTL_MS, INSTITUTION_SESSION_TTL_JWT } from "@/lib/institutionAuth";
+import { getAuthenticatedMembre, estAppelMobile, INSTITUTION_SESSION_TTL_MS, INSTITUTION_SESSION_TTL_JWT } from "@/lib/institutionAuth";
 import { enregistrerAction } from "@/lib/journalActivite";
 import { extraireIpClient } from "@/lib/edgeSecurity";
 import {
@@ -185,7 +185,13 @@ export async function POST(request: NextRequest) {
     .setAudience("yelen224-institution-dashboard")
     .sign(JWT_SECRET);
 
-  const response = finaliser({ success: true, security: etatVerifie }, 200);
+  // Jeton dans le corps JSON pour l'appelant mobile (même pattern que les 5
+  // routes de connexion, voir mobile/src/auth/session.ts) — cette route
+  // rotationne la session (nouveau sid) même en cas de succès ; sans ce
+  // token, le Bearer déjà stocké côté mobile pointerait vers un sid révoqué
+  // juste après une réauth réussie (premier usage mobile réel : suspendre/
+  // réactiver un membre depuis l'onglet Équipe, 12/10/2026).
+  const response = finaliser({ success: true, security: etatVerifie, ...(estAppelMobile(request) ? { token } : {}) }, 200);
   response.cookies.set("yelen224_institution_session", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

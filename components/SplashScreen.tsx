@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { YelenLoader } from "@/components/YelenLoader";
+import { YelenLogo } from "@/components/YelenLogo";
 
-// Écran de lancement façon Meta ("from Meta" sous le logo Instagram/WhatsApp
-// au démarrage, épinglé en bas d'écran plutôt que collé au logo) — couvre
-// le flash constaté à l'ouverture de l'app (avant que globals.css/
-// l'hydratation React ne posent le fond réel).
+// Écran de lancement — couvre le flash constaté à l'ouverture de l'app
+// (avant que globals.css/l'hydratation React ne posent le fond réel).
 // Fond doré de marque (retour Bryan 27/07/2026 : "branding Yelen jaune
 // fond") — fixe, indépendant du thème clair/sombre choisi par
 // l'utilisateur (un splash de marque ne doit pas dépendre d'un état pas
@@ -19,9 +17,11 @@ import { YelenLoader } from "@/components/YelenLoader";
 // contenu). Ce composant, seul, couvre déjà tout l'écran (position:fixed,
 // inset:0) pendant la fenêtre de chargement — suffisant pour éviter le
 // flash d'une autre couleur avant hydratation.
-// Logo = YelenLoader (le soleil qui tourne, indicateur de marque unique
-// du projet) plutôt que l'icône PNG statique — cohérent avec "on charge",
-// jamais un second indicateur de chargement inventé pour cet écran.
+// Logo fixe (YelenLogo, pas d'animation) + petit indicateur de chargement
+// distinct en bas (retour Bryan 02/10/2026) — identité ≠ état technique.
+// ⚠️ Exception volontaire à la règle "un seul loader dans toute l'app, le
+// soleil qui tourne" (décision CEO 26/07/2026, voir YelenLoader.tsx) :
+// cette règle reste valable partout ailleurs, seul ce splash s'en écarte.
 // Rendu côté serveur avec opacité 1 dès le HTML initial (composant client
 // mais toujours SSR par défaut) : aucune fenêtre où une autre couleur
 // peut passer, contrairement à un overlay monté uniquement après
@@ -54,12 +54,33 @@ export function SplashScreen() {
       }}
     >
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <YelenLoader size={76} color="#080812" />
+        <YelenLogo size={76} color="#080812" strokeWidth={2.4} />
       </div>
-      <div style={{ paddingBottom: "calc(40px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
-        <span style={{ color: "#080812", fontSize: "10px", fontWeight: 600, letterSpacing: "0.04em" }}>from</span>
-        <span style={{ color: "#C81E3A", fontSize: "14px", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>SemPya224</span>
+      <div style={{ paddingBottom: "calc(40px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", gap: "6px" }}>
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="yelen-splash-dot"
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              background: "#080812",
+              animationDelay: `${i * 0.18}s`,
+            }}
+          />
+        ))}
       </div>
+      <style>{`
+        .yelen-splash-dot { animation: yelenSplashDot 1s ease-in-out infinite; }
+        @keyframes yelenSplashDot {
+          0%, 80%, 100% { opacity: 0.25; }
+          40% { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .yelen-splash-dot { animation: none !important; opacity: 0.6; }
+        }
+      `}</style>
     </div>
   );
 }

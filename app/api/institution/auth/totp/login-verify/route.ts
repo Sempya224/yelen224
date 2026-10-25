@@ -7,7 +7,7 @@ import crypto from "crypto";
 import { verifyInstitutionTotpChallengeToken } from "@/lib/auth/institutionSession";
 import { enregistrerAction } from "@/lib/journalActivite";
 import { extraireIpClient } from "@/lib/edgeSecurity";
-import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT } from "@/lib/institutionAuth";
+import { creerSessionInstitution, INSTITUTION_SESSION_TTL_JWT, estAppelMobile } from "@/lib/institutionAuth";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -139,12 +139,15 @@ export async function POST(request: NextRequest) {
       .setAudience("yelen224-institution-dashboard")
       .sign(JWT_SECRET);
 
+    // Yelen Business Mobile (02/10/2026) : voir verify-otp/route.ts pour la
+    // justification — token dans le corps uniquement pour l'appelant mobile.
     const response = NextResponse.json({
       success: true,
       institution: { id: institution.id, name: institution.name },
       membreId: challenge.membreId,
       role: challenge.role,
       suspended,
+      ...(estAppelMobile(request) ? { token } : {}),
     });
 
     response.cookies.set("yelen224_institution_session", token, {

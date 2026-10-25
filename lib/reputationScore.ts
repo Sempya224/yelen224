@@ -56,23 +56,13 @@ export function extraireServiceDepuisObjet(objet: string | null): string | null 
   return m ? m[1].trim() : null;
 }
 
-/**
- * rdv.statut n'a pas de colonne "annulé par qui" — mais rdv_events ne trace
- * une annulation (action="annulation") que côté citoyen (le seul appelant
- * est app/mes-rdv/actions.ts::annulerRdv, toujours avec
- * auteur_type="citoyen" ; la route institution d'annulation n'écrit jamais
- * dans rdv_events). Donc un RDV annulé sans entrée rdv_events "citoyen"
- * associée est, par élimination, annulé par l'institution.
- * ⚠️ Avant le 20/07/2026, cette table n'avait aucune policy RLS et l'ancien
- * code écrivait via le client anonyme du navigateur — l'insert échouait
- * donc toujours silencieusement, ce signal était systématiquement faux
- * (toute annulation comptait par défaut comme "institution"). Corrigé en
- * déplaçant l'écriture vers un service_role côté serveur (chantier
- * notifications "Yelen Assistant", voir CLAUDE.md).
- */
-export function estAnnuleParInstitution(rdvId: string, rdvIdsAnnulesParCitoyen: Set<string>): boolean {
-  return !rdvIdsAnnulesParCitoyen.has(rdvId);
-}
+// Attribution d'une annulation (Phase "arbitrages CEO" 17/10/2026) :
+// source unique = rdv.annule_par ('citoyen'|'institution'|'system', colonne
+// dédiée depuis la migration 20261013000002). L'ancienne déduction par
+// élimination via rdv_events (tout ce qui n'était pas "citoyen" comptait
+// par défaut comme "institution") confondait à tort les annulations
+// système (RDV auto-annulés pour suspension institution) avec de vraies
+// annulations institution — remplacée, pas conservée en repli.
 
 export type AvisPourSignal = { note: number; reponse_institution: string | null };
 

@@ -10,26 +10,17 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 )
 
-const failedAttempts = new Map<string, { count: number; lockedUntil: number }>()
-
-function lockedMsRemaining(citoyenId: string): number {
-  const entry = failedAttempts.get(citoyenId)
-  if (!entry) return 0
-  const remaining = entry.lockedUntil - Date.now()
-  return remaining > 0 ? remaining : 0
-}
-
-function registerFailure(citoyenId: string) {
-  const now = Date.now()
-  const entry = failedAttempts.get(citoyenId)
-  const count = entry && entry.lockedUntil === 0 ? entry.count + 1 : 1
-  const lockedUntil = count >= 5 ? now + 5 * 60 * 1000 : 0
-  failedAttempts.set(citoyenId, { count, lockedUntil })
-}
-
-function clearFailures(citoyenId: string) {
-  failedAttempts.delete(citoyenId)
-}
+// Verrou persisté (chantier Limites d'authentification, Priorité 2
+// validée CEO 18/10/2026) — remplace une Map en mémoire locale, non
+// partagée entre instances serverless Netlify, remise à zéro à chaque
+// redémarrage/déploiement. Mirroring de institution_membres.failed_attempts/
+// locked_until (son équivalent institution avait déjà cette persistance,
+// seul le citoyen avait été oublié). Seuil durci par rapport à l'ancien
+// comportement en mémoire (5 essais / 5 min) : 4 essais / 15 min — un 2e
+// facteur déjà précédé d'un 1er facteur authentifié justifie une fenêtre
+// de blocage plus longue qu'un simple essai de mot de passe.
+const MAX_ATTEMPTS = 4
+const LOCK_MINUTES = 15
 
 // Finalise une connexion citoyen après que le facteur principal (OTP
 // téléphone ou WebAuthn) a déjà réussi et émis un totpToken (voir
@@ -50,18 +41,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session de vérification expirée. Reconnectez-vous.', code: 'INVALID_CHALLENGE' }, { status: 401 })
     }
 
-    if (lockedMsRemaining(citoyenId) > 0) {
-      return NextResponse.json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.', code: 'LOCKED' }, { status: 429 })
-    }
-
     const { data: user } = await supabaseAdmin
       .from('users')
-      .select('totp_secret, totp_backup_codes')
+      .select('totp_secret, totp_backup_codes, totp_failed_attempts, totp_locked_until')
       .eq('id', citoyenId)
       .maybeSingle()
 
     if (!user?.totp_secret) {
       return NextResponse.json({ error: 'Configuration 2FA introuvable.', code: 'NOT_FOUND' }, { status: 404 })
+    }
+
+    if (user.totp_locked_until && new Date(user.totp_locked_until).getTime() > Date.now()) {
+      return NextResponse.json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.', code: 'LOCKED' }, { status: 429 })
     }
 
     let codeValide = (await verifyTotp({ secret: user.totp_secret, token: code.trim(), epochTolerance: 30 })).valid
@@ -79,11 +70,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (!codeValide) {
-      registerFailure(citoyenId)
+      const failedAttempts = (user.totp_failed_attempts ?? 0) + 1
+      const lockedUntil = failedAttempts >= MAX_ATTEMPTS ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000).toISOString() : null
+      await supabaseAdmin.from('users').update({ totp_failed_attempts: failedAttempts, totp_locked_until: lockedUntil }).eq('id', citoyenId)
       return NextResponse.json({ error: 'Ce code ne semble pas correct. Vérifiez qu\'il n\'a pas expiré dans votre application et réessayez.', code: 'INVALID_CODE' }, { status: 401 })
     }
 
-    clearFailures(citoyenId)
+    if (user.totp_failed_attempts > 0 || user.totp_locked_until) {
+      await supabaseAdmin.from('users').update({ totp_failed_attempts: 0, totp_locked_until: null }).eq('id', citoyenId)
+    }
 
     const { tokenHash, remember } = await completerConnexionCitoyen(supabaseAdmin, citoyenId, request)
 

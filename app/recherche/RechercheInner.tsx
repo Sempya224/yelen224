@@ -487,6 +487,27 @@ function IllustrationRdv() {
   );
 }
 
+// Illustration du widget "Comment on s'en sort ?" — copie à l'identique de
+// InstitutionPublicClient.tsx::SatIllustration (même esprit de duplication
+// que le reste de l'app plutôt qu'un fichier partagé pour un composant de
+// 15 lignes utilisé par seulement 2 écrans).
+function SatIllustration({ variant }: { variant: "question" | "merci" }) {
+  const isThanks = variant === "merci";
+  return (
+    <div style={{ position: "relative", width: "52px", height: "52px", flexShrink: 0 }}>
+      <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: isThanks ? "linear-gradient(135deg,#22c55e,#4ade80)" : "linear-gradient(135deg,#F5A623,#FBBF24)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 6px 16px ${isThanks ? "rgba(34,197,94,0.35)" : "rgba(245,166,35,0.35)"}` }}>
+        {isThanks ? (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#080812" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        ) : (
+          <span style={{ color: "#080812", fontSize: "22px", fontWeight: "900", lineHeight: 1 }}>?</span>
+        )}
+      </div>
+      <span style={{ position: "absolute", top: "-3px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", backgroundColor: isThanks ? "#F5A623" : "#60a5fa" }}/>
+      <span style={{ position: "absolute", bottom: "-1px", left: "-5px", width: "7px", height: "7px", borderRadius: "50%", backgroundColor: isThanks ? "#60a5fa" : "#22c55e" }}/>
+    </div>
+  );
+}
+
 type HeroSlide = {
   id: string; bg: string; kicker: string; titre: string; texte: string; cta: string;
   illustration: React.ReactNode; href: string; onGo?: () => void;
@@ -860,6 +881,49 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
   useEffect(() => {
     fetch("/api/citoyen/institutions/populaires").then(r => r.ok ? r.json() : { ids: [] }).then(d => setPopulairesIds(d.ids || [])).catch(() => {});
   }, []);
+
+  // Widget "Comment on s'en sort ?" (satisfaction plateforme, repris ici le
+  // 05/10/2026, retour Bryan) — même clé localStorage et même table que la
+  // version fiche institution (InstitutionPublicClient.tsx) : la question
+  // porte sur Yelen en général, donc fermer/répondre ici masque aussi le
+  // widget sur la fiche pendant 30 jours, et réciproquement. institution_id
+  // envoyé `null` ici (pas de fiche précise concernée depuis cet écran).
+  const SAT_DISMISS_KEY = "yelen224_satisfaction_dismissed_until";
+  const [satDismissedUntil, setSatDismissedUntil] = useState(0);
+  const [satStep, setSatStep] = useState<1 | 2>(1);
+  const [satReponse, setSatReponse] = useState<string | null>(null);
+  const [satCommentaire, setSatCommentaire] = useState("");
+  const [satSubmitting, setSatSubmitting] = useState(false);
+  const [satSubmitted, setSatSubmitted] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SAT_DISMISS_KEY);
+      if (raw) setSatDismissedUntil(Number(raw) || 0);
+    } catch {}
+  }, []);
+
+  function dismissSatisfaction() {
+    const until = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    try { localStorage.setItem(SAT_DISMISS_KEY, String(until)); } catch {}
+    setSatDismissedUntil(until);
+  }
+
+  async function handleSubmitSatisfaction() {
+    if (!citoyenId || !satReponse) return;
+    setSatSubmitting(true);
+    const { error } = await supabase.from("enquete_satisfaction").insert({
+      citoyen_id: citoyenId,
+      reponse: satReponse,
+      commentaire: satCommentaire.trim() || null,
+      institution_id: null,
+    });
+    setSatSubmitting(false);
+    if (!error) {
+      setSatSubmitted(true);
+      dismissSatisfaction();
+    }
+  }
   // Géoloc appareil — même pattern permissif que app/page.tsx/mes-rdv/
   // favoris (demande silencieuse, aucune UI si refusé/indisponible), pour
   // la distance réelle affichée sur les fiches du sheet de la Vue Carte.
@@ -1704,6 +1768,76 @@ export function RechercheInner({ embedded = false, onBack }: { embedded?: boolea
           <Rail titre="Près de chez vous" sousTitre={citoyenVille ? `À ${citoyenVille}` : undefined} institutions={railPresDeChezVous} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={voirPlusPresDeChezVous}/>
           <Rail titre="Établissements vérifiés" sousTitre="Identité et activité confirmées par Yelen" institutions={railVerifiees} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={voirPlusVerifiees}/>
           <Rail titre="Les mieux notées" institutions={railMieuxNotees} C={C as typeof T["dark"]} t2={t2} categorieById={categorieById} citoyenGeoloc={citoyenGeoloc} favorisIdsSet={favorisIdsSet} onToggleFavori={handleToggleFavoriCarte} onVoirPlus={voirPlusMieuxNotees} hideCover/>
+        </div>
+      )}
+
+      {/* SATISFACTION PLATEFORME — "Comment on s'en sort ?" (repris ici le
+          05/10/2026, retour Bryan ; version d'origine sur la fiche
+          institution, InstitutionPublicClient.tsx, inchangée). Évalue
+          Yelen en général, pas un établissement précis : affiché sur cet
+          écran de découverte comme sur la fiche, citoyens connectés
+          uniquement, même fenêtre de 30 jours partagée entre les deux. */}
+      {citoyenId && Date.now() > satDismissedUntil && (
+        <div style={{ margin: "18px 16px 0", position: "relative", overflow: "hidden", borderRadius: "20px", background: isDark ? "linear-gradient(160deg, rgba(245,166,35,0.10), rgba(96,165,250,0.05))" : "linear-gradient(160deg, rgba(245,166,35,0.08), rgba(96,165,250,0.05))", border: `1px solid ${C.borderCard}`, padding: "20px" }}>
+          <button onClick={dismissSatisfaction} className="tap" aria-label="Fermer" style={{ position: "absolute", top: "14px", right: "14px", background: "none", border: "none", padding: "4px", color: C.textSubtle, cursor: "pointer" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+
+          {satSubmitted ? (
+            <div style={{ textAlign: "center", padding: "6px 4px" }}>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}><SatIllustration variant="merci"/></div>
+              <h3 style={{ color: C.text, fontSize: "15px", fontWeight: "800", margin: "0 0 4px" }}>Merci pour votre retour</h3>
+              <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.6, margin: 0 }}>Ça nous aide à rendre Yelen un peu meilleur chaque jour.</p>
+            </div>
+          ) : satStep === 1 ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+                <SatIllustration variant="question"/>
+                <div>
+                  <p style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.3px" }}>1 sur 2</p>
+                  <h3 style={{ color: C.text, fontSize: "15px", fontWeight: "800", margin: 0 }}>Comment on s&apos;en sort ?</h3>
+                </div>
+              </div>
+              <p style={{ color: C.text, fontSize: "13.5px", fontWeight: "700", margin: "0 0 12px", lineHeight: 1.5 }}>Il est facile de trouver et prendre rendez-vous sur Yelen</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {[
+                  { value: "accord_total", label: "Tout à fait d'accord", color: "#16a34a" },
+                  { value: "accord", label: "D'accord", color: "#22c55e" },
+                  { value: "neutre", label: "Neutre", color: "#94a3b8" },
+                  { value: "desaccord", label: "Pas d'accord", color: "#f97316" },
+                  { value: "desaccord_total", label: "Pas du tout d'accord", color: "#ef4444" },
+                ].map(opt => (
+                  <button key={opt.value} onClick={() => { setSatReponse(opt.value); setSatStep(2); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "11px", background: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.6)", border: `1px solid ${C.borderCard}`, borderRadius: "12px", padding: "11px 14px", cursor: "pointer", textAlign: "left" }}>
+                    <span style={{ width: "12px", height: "12px", borderRadius: "50%", backgroundColor: opt.color, flexShrink: 0 }}/>
+                    <span style={{ color: C.text, fontSize: "13px", fontWeight: "600" }}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+                <SatIllustration variant="question"/>
+                <div>
+                  <p style={{ color: C.textSubtle, fontSize: "10px", fontWeight: "700", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: "0.3px" }}>2 sur 2</p>
+                  <h3 style={{ color: C.text, fontSize: "15px", fontWeight: "800", margin: 0 }}>Presque fini</h3>
+                </div>
+              </div>
+              <p style={{ color: C.text, fontSize: "13.5px", fontWeight: "700", margin: "0 0 4px", lineHeight: 1.5 }}>Qu&apos;est-ce qui aurait pu rendre votre expérience meilleure aujourd&apos;hui ?</p>
+              <p style={{ color: C.textSubtle, fontSize: "11px", margin: "0 0 10px" }}>(optionnel)</p>
+              <textarea
+                value={satCommentaire}
+                onChange={e => setSatCommentaire(e.target.value.slice(0, 300))}
+                placeholder="Dites-nous en quelques mots…"
+                rows={3}
+                style={{ width: "100%", resize: "none", backgroundColor: C.pageBg, border: `1px solid ${C.borderCard}`, borderRadius: "10px", padding: "10px 12px", color: C.text, fontSize: "13px", fontFamily: "inherit", boxSizing: "border-box" }}
+              />
+              <p style={{ color: C.textFaint, fontSize: "10px", margin: "4px 0 12px", textAlign: "right" }}>{satCommentaire.length}/300</p>
+              <button onClick={handleSubmitSatisfaction} disabled={satSubmitting} className="tap" style={{ width: "100%", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "12px", fontSize: "13.5px", fontWeight: "800", cursor: satSubmitting ? "not-allowed" : "pointer", opacity: satSubmitting ? 0.6 : 1 }}>
+                {satSubmitting ? "Envoi…" : "Envoyer"}
+              </button>
+            </>
+          )}
         </div>
       )}
 

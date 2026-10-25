@@ -22,6 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { salutation } from "./salutation";
+import { buildMessagePreparation } from "./rdvPreparationMessage";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -283,16 +284,18 @@ export async function envoyerNotification(params: {
 // du navigateur échoue donc toujours silencieusement, quel que soit
 // l'auteur. L'ancien logRdvEvent() de lib/notifications.ts en souffrait
 // déjà (utilisé par notifierAnnulation/notifierReport, jamais persisté en
-// pratique) — reputationScore.ts::estAnnuleParInstitution() s'appuie sur
-// ces entrées pour distinguer annulation citoyen/institution ; ce signal
-// était donc faussé (toute annulation comptait par défaut comme
-// "institution"). Ce nouvel export, appelé depuis app/mes-rdv/actions.ts,
-// est le premier point qui écrit réellement dans cette table côté citoyen.
+// pratique) — à l'origine, reputationScore.ts s'appuyait sur ces entrées
+// pour distinguer annulation citoyen/institution par élimination (signal
+// faussé, toute annulation comptait par défaut comme "institution") ;
+// remplacé depuis par rdv.annule_par (17/10/2026), ce fichier garde son
+// rôle d'audit trail indépendamment de ce signal. Ce nouvel export, appelé
+// depuis app/mes-rdv/actions.ts, est le premier point qui écrit réellement
+// dans cette table côté citoyen.
 export async function logRdvEvent(params: {
   rdvId: string;
   auteurId: string;
   auteurType: "citoyen" | "institution" | "system";
-  action: "creation" | "confirmation" | "annulation" | "report" | "termine" | "absent" | "message" | "depasse";
+  action: "creation" | "confirmation" | "annulation" | "report" | "termine" | "absent" | "message" | "depasse" | "preparation";
   ancienStatut?: string;
   nouveauStatut?: string;
   motif?: string;
@@ -326,6 +329,23 @@ export async function notifierDocumentDemande(params: { citoyenId: string; citoy
     type: "document_demande",
     titre: salutation(params.citoyenPrenom || "cher client"),
     message: `${params.institutionNom} vous demande de fournir : « ${params.label} ». Vous pouvez le téléverser depuis Mes documents.`,
+  });
+}
+
+// Popup "Préparer la venue" (fiche RDV institution, chantier 13/10/2026) —
+// transforme l'ancien champ guichet passif en vraie action : l'institution
+// indique où accueillir le citoyen (+ consignes optionnelles) et déclenche
+// cette notification. buildMessagePreparation() est la même fonction pure
+// utilisée pour l'aperçu affiché à l'institution avant envoi — le message
+// réel ne peut jamais en diverger.
+export async function notifierPreparationVisite(params: { citoyenId: string; citoyenPrenom: string | null; institutionNom: string; guichet: string; instructions?: string | null; rdvId: string }): Promise<void> {
+  await envoyerNotification({
+    destinataireId: params.citoyenId,
+    destinataireType: "citoyen",
+    rdvId: params.rdvId,
+    type: "preparation_visite",
+    titre: salutation(params.citoyenPrenom || "cher client"),
+    message: buildMessagePreparation(params),
   });
 }
 

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { authentifierEntreeAdmin } from '@/lib/adminEntryClient'
 import { YelenLoader } from '@/components/YelenLoader'
+import { YelenLogo } from '@/components/YelenLogo'
 
 // Admin Entry Security V2 — Lot 3 (30/08/2026). Page PUBLIQUE, chemin fixe
 // et non secret (docs/security/YELEN_ADMIN_ENTRY_V2_DECISION.md, section 2) —
@@ -51,10 +52,12 @@ export default function EntreeAdmin() {
       <div style={{ width: '100%', maxWidth: '380px', padding: '0 24px', textAlign: 'center' }}>
         <div style={{
           width: '56px', height: '56px', borderRadius: '14px',
-          background: 'linear-gradient(135deg, #00c896 0%, #00a37a 100%)',
+          background: '#F5A623',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto 24px', fontSize: '24px', fontWeight: 800, color: '#fff',
-        }}>Y</div>
+          margin: '0 auto 24px',
+        }}>
+          <YelenLogo size={28} color="#1a1a1a" strokeWidth={2.2}/>
+        </div>
 
         <h1 style={{ color: '#fff', fontSize: '18px', fontWeight: 700, margin: '0 0 8px' }}>Accès administration</h1>
         <p style={{ color: '#666', fontSize: '13.5px', margin: '0 0 32px', lineHeight: 1.5 }}>
@@ -73,8 +76,8 @@ export default function EntreeAdmin() {
           disabled={loading}
           style={{
             width: '100%', padding: '14px',
-            background: loading ? '#2a2a2a' : 'linear-gradient(135deg, #00c896 0%, #00a37a 100%)',
-            border: 'none', borderRadius: '10px', color: loading ? '#555' : '#fff',
+            background: loading ? '#2a2a2a' : '#F5A623',
+            border: 'none', borderRadius: '10px', color: loading ? '#555' : '#1a1a1a',
             fontSize: '15px', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
           }}

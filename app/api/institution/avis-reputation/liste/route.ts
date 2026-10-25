@@ -17,6 +17,12 @@ const PLAFOND_SQL = 2000;
 const LIMITE_DEFAUT = 20;
 const LIMITE_MAX = 100;
 
+function buildNomClient(u: { nom: string | null; prenom: string | null; phone: string | null } | undefined): string {
+  if (!u) return "Client";
+  const parts = [u.prenom, u.nom].filter(Boolean).join(" ");
+  return parts || u.phone || "Client";
+}
+
 export async function GET(req: NextRequest) {
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
@@ -35,7 +41,7 @@ export async function GET(req: NextRequest) {
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "", 10) || 0);
 
   let query = sb.from("avis")
-    .select("id,note,commentaire,titre,reponse_institution,reponse_le,rdv_id,created_at")
+    .select("id,note,commentaire,titre,reponse_institution,reponse_le,rdv_id,citoyen_id,created_at")
     .eq("institution_id", authInstId)
     .eq("brouillon", false)
     .eq("masque", false);
@@ -65,9 +71,21 @@ export async function GET(req: NextRequest) {
 
   const servicesDisponibles = [...new Set(avecService.map(a => a.service).filter((s): s is string => !!s))].sort();
   const filtres = service ? avecService.filter(a => a.service === service) : avecService;
+  const page = filtres.slice(offset, offset + limit);
+
+  // Noms clients récupérés uniquement pour la page affichée (pas les 2000
+  // avis potentiels filtrés en mémoire) — même raison que pour les
+  // citations de status/route.ts, éviter une jointure inutilement large.
+  const citoyenIdsPage = [...new Set(page.map(a => a.citoyen_id).filter((x): x is string => !!x))];
+  const { data: usersPage } = citoyenIdsPage.length
+    ? await sb.from("users").select("id,nom,prenom,phone").in("id", citoyenIdsPage)
+    : { data: [] as { id: string; nom: string | null; prenom: string | null; phone: string | null }[] };
+  const userParId = new Map((usersPage ?? []).map(u => [u.id, u]));
+
+  const pageAvecClient = page.map(a => ({ ...a, client: buildNomClient(userParId.get(a.citoyen_id ?? "")) }));
 
   return NextResponse.json({
-    avis: filtres.slice(offset, offset + limit),
+    avis: pageAvecClient,
     total: filtres.length,
     limit, offset,
     servicesDisponibles,

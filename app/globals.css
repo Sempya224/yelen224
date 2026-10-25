@@ -221,6 +221,35 @@ input[inputmode="numeric"][maxlength="1"] {
 }
 
 /* ============================================
+   BARRE DE SCROLL VISIBLE ET ÉPAISSE — fiche client du
+   dashboard institution (MesClientsTab.tsx), retour Bryan
+   (13/10/2026) : style façon Supabase/YouTube — toujours
+   visible et large, contrairement aux barres fines ci-dessus
+   (.carte-sheet-scroll/.signup-modal-scroll/.profil-scroll/
+   .legende-post-scroll) qui restent discrètes à dessein.
+   ============================================ */
+.client-fiche-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(120, 120, 128, 0.55) rgba(120, 120, 128, 0.1);
+}
+.client-fiche-scroll::-webkit-scrollbar {
+  display: block;
+  width: 14px;
+}
+.client-fiche-scroll::-webkit-scrollbar-track {
+  background: rgba(120, 120, 128, 0.1);
+}
+.client-fiche-scroll::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 128, 0.55);
+  border-radius: 7px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.client-fiche-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 120, 128, 0.75);
+}
+
+/* ============================================
    HEADER NAVIGATION MOBILE
    ============================================ */
 @media (max-width: 768px) {

@@ -6,20 +6,23 @@
 // connecté. Mêmes tokens de couleur que app/admin/feedback/page.tsx (pas
 // de module de thème admin partagé pour l'instant).
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { D } from '@/app/admin/adminTheme'
 import { YelenLoader } from '@/components/YelenLoader'
 
-type AdminInfo = { id: string; email: string; role: string; nom: string; totp_enabled: boolean; last_login: string | null }
+type AdminInfo = { id: string; email: string; role: string; nom: string; totp_enabled: boolean; extra_code_enabled: boolean; last_login: string | null }
 type LogEntry = { id: string; action: string; created_at: string; details: Record<string, unknown> | null }
 
 const ACTION_LABELS: Record<string, string> = {
   LOGIN: 'Connexion', LOGOUT: 'Déconnexion',
   MOT_DE_PASSE_CHANGE: 'Mot de passe modifié',
   '2FA_ACTIVEE': '2FA activée', '2FA_DESACTIVEE': '2FA désactivée',
+  CODE_SECURITE_ACTIVE: 'Code de sécurité activé', CODE_SECURITE_DESACTIVE: 'Code de sécurité désactivé',
 }
 const ACTION_COLORS: Record<string, string> = {
   LOGIN: D.green, LOGOUT: D.textMuted,
   MOT_DE_PASSE_CHANGE: D.yellow, '2FA_ACTIVEE': D.blue, '2FA_DESACTIVEE': D.red,
+  CODE_SECURITE_ACTIVE: D.blue, CODE_SECURITE_DESACTIVE: D.red,
 }
 
 function fmtDate(d: string): string {
@@ -41,6 +44,7 @@ function inputStyle(): React.CSSProperties {
 }
 
 export default function AdminSecurityPage() {
+  const router = useRouter()
   const [admin, setAdmin] = useState<AdminInfo | null>(null)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,6 +66,14 @@ export default function AdminSecurityPage() {
   const [totpBusy, setTotpBusy] = useState(false)
   const [disabling, setDisabling] = useState(false)
   const [disablePassword, setDisablePassword] = useState('')
+
+  // Code de sécurité additionnel (3e facteur, après la 2FA)
+  const [codeActivating, setCodeActivating] = useState(false)
+  const [newCode, setNewCode] = useState('')
+  const [newCodeConfirm, setNewCodeConfirm] = useState('')
+  const [codeBusy, setCodeBusy] = useState(false)
+  const [codeDisabling, setCodeDisabling] = useState(false)
+  const [codeDisablePassword, setCodeDisablePassword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -91,9 +103,13 @@ export default function AdminSecurityPage() {
     const j = await res.json().catch(() => null)
     setPwdSaving(false)
     if (!res.ok) { setMsg({ text: j?.error || 'Erreur lors du changement.', color: D.red }); return }
+    // Le changement de mot de passe révoque TOUTES les sessions admin
+    // côté serveur, y compris la session en cours (voir
+    // change-password/route.ts) — rester sur cette page avec un cookie
+    // désormais mort ne fait que différer le 401 au prochain appel API.
+    // Reconnexion immédiate, jamais un load() qui échouerait en silence.
     setPwdActuel(''); setPwdNouveau(''); setPwdConfirme('')
-    setMsg({ text: 'Mot de passe mis à jour.', color: D.green })
-    load()
+    router.push('/admin/login?raison=mdp_change')
   }
 
   async function startActivation() {
@@ -141,6 +157,41 @@ export default function AdminSecurityPage() {
     setDisabling(false)
     setDisablePassword('')
     setMsg({ text: '2FA désactivée.', color: D.green })
+    load()
+  }
+
+  async function confirmActivateCode() {
+    if (newCode !== newCodeConfirm) { setMsg({ text: 'La confirmation ne correspond pas au code.', color: D.red }); return }
+    setCodeBusy(true)
+    setMsg(null)
+    const res = await fetch('/api/admin/auth/extra-code/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: newCode.trim(), confirm_code: newCodeConfirm.trim() }),
+    })
+    const j = await res.json().catch(() => null)
+    setCodeBusy(false)
+    if (!res.ok) { setMsg({ text: j?.error || 'Erreur lors de l’activation.', color: D.red }); return }
+    setCodeActivating(false)
+    setNewCode(''); setNewCodeConfirm('')
+    setMsg({ text: 'Code de sécurité activé — il sera demandé à la prochaine connexion.', color: D.green })
+    load()
+  }
+
+  async function confirmDisableCode() {
+    setCodeBusy(true)
+    setMsg(null)
+    const res = await fetch('/api/admin/auth/extra-code/disable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: codeDisablePassword }),
+    })
+    const j = await res.json().catch(() => null)
+    setCodeBusy(false)
+    if (!res.ok) { setMsg({ text: j?.error || 'Erreur lors de la désactivation.', color: D.red }); return }
+    setCodeDisabling(false)
+    setCodeDisablePassword('')
+    setMsg({ text: 'Code de sécurité désactivé.', color: D.green })
     load()
   }
 
@@ -234,6 +285,47 @@ export default function AdminSecurityPage() {
             <button onClick={startActivation} disabled={totpBusy} style={{ backgroundColor: D.green, color: '#000', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '12.5px', fontWeight: '700', cursor: totpBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
               {totpBusy ? <><YelenLoader size={12} color="#000"/>Préparation…</> : 'Activer'}
             </button>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Code de sécurité additionnel" subtitle="Un code que vous choisissez vous-même (8 à 16 chiffres), demandé après la 2FA à chaque connexion.">
+        {admin?.extra_code_enabled ? (
+          codeDisabling ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <p style={{ color: D.textSub, fontSize: '12.5px', margin: 0 }}>Confirmez votre mot de passe pour désactiver ce code.</p>
+              <input type="password" placeholder="Mot de passe" value={codeDisablePassword} onChange={e => setCodeDisablePassword(e.target.value)} style={inputStyle()} />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => { setCodeDisabling(false); setCodeDisablePassword('') }} style={{ background: 'none', border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '9px 16px', color: D.textSub, fontSize: '12.5px', fontWeight: '700', cursor: 'pointer' }}>Annuler</button>
+                <button onClick={confirmDisableCode} disabled={codeBusy} style={{ backgroundColor: D.red, color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', fontSize: '12.5px', fontWeight: '700', cursor: codeBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  {codeBusy ? <><YelenLoader size={12} color="#fff"/>Désactivation…</> : 'Désactiver le code'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <span style={{ backgroundColor: D.greenDim, color: D.green, fontSize: '11.5px', fontWeight: '700', padding: '4px 10px', borderRadius: '20px' }}>Activé</span>
+              <button onClick={() => setCodeDisabling(true)} style={{ background: 'none', border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '8px 14px', color: D.textSub, fontSize: '12.5px', fontWeight: '700', cursor: 'pointer' }}>Désactiver</button>
+            </div>
+          )
+        ) : codeActivating ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <p style={{ color: D.textSub, fontSize: '12.5px', margin: 0 }}>
+              Choisissez un code de 8 à 16 chiffres. Aucun code de secours ne sera généré — en cas d&apos;oubli, ce facteur devra être désactivé manuellement en base.
+            </p>
+            <input type="password" inputMode="numeric" placeholder="Nouveau code (8 à 16 chiffres)" value={newCode} onChange={e => setNewCode(e.target.value.replace(/\D/g, '').slice(0, 16))} style={inputStyle()} />
+            <input type="password" inputMode="numeric" placeholder="Confirmer le code" value={newCodeConfirm} onChange={e => setNewCodeConfirm(e.target.value.replace(/\D/g, '').slice(0, 16))} style={inputStyle()} />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => { setCodeActivating(false); setNewCode(''); setNewCodeConfirm('') }} style={{ background: 'none', border: `1px solid ${D.border2}`, borderRadius: '8px', padding: '9px 16px', color: D.textSub, fontSize: '12.5px', fontWeight: '700', cursor: 'pointer' }}>Annuler</button>
+              <button onClick={confirmActivateCode} disabled={codeBusy || newCode.length < 8 || newCode.length > 16} style={{ backgroundColor: D.green, color: '#000', border: 'none', borderRadius: '8px', padding: '9px 16px', fontSize: '12.5px', fontWeight: '700', cursor: codeBusy ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                {codeBusy ? <><YelenLoader size={12} color="#000"/>Activation…</> : 'Activer'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <span style={{ backgroundColor: D.surface2, color: D.textSub, fontSize: '11.5px', fontWeight: '700', padding: '4px 10px', borderRadius: '20px' }}>Désactivé</span>
+            <button onClick={() => setCodeActivating(true)} style={{ backgroundColor: D.green, color: '#000', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '12.5px', fontWeight: '700', cursor: 'pointer' }}>Activer</button>
           </div>
         )}
       </Card>

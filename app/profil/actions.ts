@@ -54,17 +54,9 @@ export async function updateCitoyenProfile(
   return { ok: true };
 }
 
-export async function deleteCitoyenAccount(userId: string, accessToken: string): Promise<ProfileActionResult> {
-  if (!accessToken?.trim()) {
-    return { ok: false, error: "Session expirée, reconnectez-vous." };
-  }
-  const supabase = createAuthedSupabaseClient(accessToken);
-  const { error } = await supabase.from("users").delete().eq("id", userId);
-
-  if (error) {
-    console.error("[profil] delete users:", error.message);
-    return { ok: false, error: error.message };
-  }
-
-  return { ok: true };
-}
+// deleteCitoyenAccount a été retiré (Lot B, 18/10/2026) : faisait un DELETE
+// via un client lié à la session citoyen (RLS citoyen_own_profile), sans
+// OTP/PIN/TOTP ni dérivation serveur de l'identité — voir
+// supabase/migrations/20261018000009_lot_b_suppression_compte_citoyen.sql.
+// Remplacé par POST /api/citoyen/confidentialite/suppression/executer,
+// seul point d'exécution autorisé (app/compte/confidentialite/confidentialite-client.tsx).

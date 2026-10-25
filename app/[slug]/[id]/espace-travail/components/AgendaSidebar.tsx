@@ -10,9 +10,8 @@
 // réduit avant que le calendrier ne devienne illisible (item 10 du brief).
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
-import { T, type ThemeTokens, toCardTokens } from "../../theme";
-import { Card } from "@/components/ui/Card";
-import { YelenLoader } from "@/components/YelenLoader";
+import { T, type ThemeTokens } from "../../theme";
+import { heureAmPm } from "@/lib/heure";
 
 type Evenement = { id: string; titre: string; type: string; heure_debut: string | null };
 type RdvItem = { id: string; objet: string | null; citoyen_nom: string; heure_rdv: string };
@@ -57,10 +56,10 @@ function IconChevron({ color, dir }: { color: string; dir: "left" | "right" }) {
 }
 
 function SectionLabel({ text, C }: { text: string; C: ThemeTokens }) {
-  return <div style={{ fontSize: "10px", fontWeight: "800", color: C.t3, letterSpacing: "0.6px", marginBottom: "10px" }}>{text}</div>;
+  return <h3 style={{ fontSize: "13px", fontWeight: 600, color: C.t1, margin: "0 0 10px" }}>{text}</h3>;
 }
 
-export function AgendaSidebar({ instId }: { instId: string }) {
+export function AgendaSidebar({ instId, onVoirTaches }: { instId: string; onVoirTaches?: () => void }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const [collapsed, setCollapsed] = useState(false);
@@ -104,7 +103,7 @@ export function AgendaSidebar({ instId }: { instId: string }) {
 
   if (collapsed) {
     return (
-      <button onClick={toggleCollapsed} title="Afficher le panneau" className="tap" style={{ width: "32px", flexShrink: 0, alignSelf: "stretch", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "16px", cursor: "pointer" }}>
+      <button onClick={toggleCollapsed} title="Afficher Votre journée" aria-label="Afficher le panneau Votre journée" className="tap" style={{ width: "32px", flexShrink: 0, alignSelf: "stretch", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "16px", cursor: "pointer" }}>
         <IconChevron color={C.t3} dir="left"/>
       </button>
     );
@@ -112,9 +111,9 @@ export function AgendaSidebar({ instId }: { instId: string }) {
 
   if (loading) {
     return (
-      <div className="agenda-sidebar" style={{ flexShrink: 0, display: "flex", justifyContent: "center", padding: "40px 0" }}>
+      <div className="agenda-sidebar" role="status" aria-label="Chargement de Votre journée" style={{ flexShrink: 0, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "16px", backgroundColor: C.bgCard }}>
         <style>{AGENDA_SIDEBAR_CSS}</style>
-        <YelenLoader size={22}/>
+        {[0, 1, 2, 3, 4].map(i => <div key={i} className="cix-skel" style={{ height: i === 0 ? "20px" : "34px", marginBottom: "12px" }}/>)}
       </div>
     );
   }
@@ -136,66 +135,78 @@ export function AgendaSidebar({ instId }: { instId: string }) {
     .sort((a, b) => (a.echeance || "9999").localeCompare(b.echeance || "9999"))
     .slice(0, 4);
 
+  const plur = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
+  const dateLabel = new Date().toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }).replace(/^./, c => c.toUpperCase());
+
   return (
     <div className="agenda-sidebar" style={{ flexShrink: 0 }}>
       <style>{AGENDA_SIDEBAR_CSS}</style>
-      <Card tokens={toCardTokens(C)} padding="16px" style={{ boxShadow: C.shadow, display: "flex", flexDirection: "column", gap: "16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: "13px", fontWeight: "800", color: C.t1 }}>Votre journée</div>
-          <button onClick={toggleCollapsed} title="Réduire le panneau" className="tap" style={{ width: "24px", height: "24px", borderRadius: "8px", background: "none", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+      <aside aria-label="Votre journée" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "18px", display: "flex", flexDirection: "column", gap: "18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 }}>
+            <h2 style={{ fontSize: "16px", fontWeight: 600, color: C.t1, margin: 0 }}>Votre journée</h2>
+            <span style={{ fontSize: "13px", color: C.t2 }}>{dateLabel}</span>
+          </div>
+          <button onClick={toggleCollapsed} title="Réduire le panneau" aria-label="Réduire le panneau Votre journée" className="tap" style={{ width: "28px", height: "28px", borderRadius: "8px", background: "none", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
             <IconChevron color={C.t3} dir="right"/>
           </button>
         </div>
 
-        <div>
-          <SectionLabel text="AUJOURD'HUI" C={C}/>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <section>
+          <SectionLabel text="Aujourd'hui" C={C}/>
+          <ul style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", listStyle: "none", margin: 0, padding: 0, fontSize: "13px", color: C.t1, fontVariantNumeric: "tabular-nums" }}>
             {[
-              { label: "rendez-vous", value: rdvToday.length, color: C.blue },
-              { label: "tâches", value: tachesAujourdhui, color: C.gold },
-              { label: "réunions", value: reunionsToday, color: C.purple },
+              { texte: plur(rdvToday.length, "rendez-vous"), color: C.blue },
+              { texte: plur(tachesAujourdhui, "tâche"), color: C.gold },
+              { texte: plur(reunionsToday, "réunion"), color: C.purple },
             ].map(item => (
-              <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: item.color, flexShrink: 0 }}/>
-                <span style={{ fontSize: "12.5px", color: C.t1, fontWeight: "700" }}>{item.value}</span>
-                <span style={{ fontSize: "11.5px", color: C.t3 }}>{item.label}</span>
-              </div>
+              <li key={item.texte} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: item.color }}/>{item.texte}
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </section>
 
-        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: "14px" }}>
-          <SectionLabel text="PROCHAINEMENT" C={C}/>
+        <section style={{ borderTop: `1px solid ${C.border}`, paddingTop: "16px" }}>
+          <SectionLabel text="Prochainement" C={C}/>
           {prochain.length === 0 ? (
-            <div style={{ fontSize: "11.5px", color: C.t3 }}>Rien de prévu pour la suite de la journée.</div>
+            <div style={{ fontSize: "13px", color: C.t3 }}>Rien de prévu pour la suite de la journée</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <ul style={{ display: "flex", flexDirection: "column", gap: "10px", listStyle: "none", margin: 0, padding: 0 }}>
               {prochain.map(item => (
-                <div key={item.id} style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: "800", color: item.color, width: "36px", flexShrink: 0, marginTop: "1px" }}>{item.heure.slice(0, 5)}</span>
-                  <span style={{ fontSize: "12px", color: C.t1, lineHeight: "1.35" }}>{item.label}</span>
-                </div>
+                <li key={item.id} style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: 600, color: C.t1, width: "68px", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{heureAmPm(item.heure) || item.heure.slice(0, 5)}</span>
+                  <span title={item.label} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: C.t1, lineHeight: 1.35, minWidth: 0 }}>
+                    <span aria-hidden="true" style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: item.color, flexShrink: 0 }}/>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+                  </span>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-        </div>
+        </section>
 
-        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: "14px" }}>
-          <SectionLabel text="À FAIRE" C={C}/>
+        <section style={{ borderTop: `1px solid ${C.border}`, paddingTop: "16px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "8px" }}>
+            <SectionLabel text="À faire" C={C}/>
+            {onVoirTaches && aFaire.length > 0 && (
+              <button type="button" onClick={onVoirTaches} className="tap" style={{ background: "none", border: "none", padding: 0, marginBottom: "10px", color: C.t2, fontSize: "12.5px", textDecoration: "underline", cursor: "pointer" }}>Voir tout</button>
+            )}
+          </div>
           {aFaire.length === 0 ? (
-            <div style={{ fontSize: "11.5px", color: C.t3 }}>Aucune tâche en cours.</div>
+            <div style={{ fontSize: "13px", color: C.t3 }}>Aucune tâche en cours</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "9px" }}>
+            <ul style={{ display: "flex", flexDirection: "column", gap: "10px", listStyle: "none", margin: 0, padding: 0 }}>
               {aFaire.map(t => (
-                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ width: "13px", height: "13px", borderRadius: "50%", border: `1.5px solid ${C.border2}`, flexShrink: 0 }}/>
-                  <span style={{ flex: 1, fontSize: "12px", color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.titre}</span>
-                </div>
+                <li key={t.id} style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                  <span aria-hidden="true" style={{ width: "14px", height: "14px", borderRadius: "50%", border: `1.5px solid ${C.border2}`, flexShrink: 0, marginTop: "2px" }}/>
+                  <span title={t.titre} style={{ flex: 1, fontSize: "13px", color: C.t1, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" }}>{t.titre}</span>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-        </div>
-      </Card>
+        </section>
+      </aside>
     </div>
   );
 }
@@ -206,6 +217,6 @@ export function AgendaSidebar({ instId }: { instId: string }) {
 // toucher le conteneur flex parent, EspaceTravailTab.tsx — hors périmètre
 // de cette passe, décision explicite avec Bryan le 20/09/2026).
 const AGENDA_SIDEBAR_CSS = `
-  .agenda-sidebar{width:300px}
-  @media(max-width:1439px){.agenda-sidebar{width:260px}}
+  .agenda-sidebar{width:100%}
+  @media(min-width:1280px){.agenda-sidebar{width:320px;position:sticky;top:16px}}
 `;

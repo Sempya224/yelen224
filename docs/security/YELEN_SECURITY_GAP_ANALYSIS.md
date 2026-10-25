@@ -410,7 +410,10 @@ en 16.3.0) — aucun impact non plus.
   `menu/interets/actions.ts`, `rdv/[id]/actions.ts`,
   `mes-rdv/actions.ts`, `compte/informations-personnelles/actions.ts`,
   `messagerie/citoyen/actions.ts`, `profil/actions.ts`,
-  `institution/abonnement/actions.ts`). 16.3.0 **durcit l'application de
+  `institution/abonnement/actions.ts` — [23/10/2026 : fichier supprimé,
+  la page `/institution/abonnement` n'est plus qu'une redirection serveur
+  vers `/institution/connexion` ; il ne reste donc que 8 fichiers
+  `"use server"` à cette ligne]). 16.3.0 **durcit l'application de
   `serverActions.bodySizeLimit` pour les actions en runtime Edge** — à
   tester une par une après upgrade, en particulier celles qui pourraient
   transporter des payloads plus lourds.
@@ -3660,3 +3663,156 @@ branch protection). Les ~101 fichiers de la "grosse" accumulation
 (nouveaux modules Yelen Business, Centre d'Analyse Acquisition,
 Communauté Pro) restent non commités à ce stade, volontairement laissés
 pour un chantier de sécurisation séparé.
+
+---
+
+## LOT 7 — Reprise d'audit, un mois après (16/10/2026)
+
+Aucune entrée dans ce document depuis le 18/09/2026. Audit en lecture
+seule (+ `npm audit` réel, aucune commande destructive) demandé par
+Bryan pour faire un état des lieux avant de reprendre le chantier
+sécurité. Méthode : relecture complète de ce document et du master plan
+du début à la fin, puis vérification ciblée contre le code/dépôt actuel
+des points les plus critiques plutôt qu'un ré-audit intégral (déjà fait
+6 fois depuis août). Pas de sous-agent utilisé (règle CLAUDE.md).
+
+### 1. Bonne nouvelle confirmée : la PR du 18/09 est bien mergée
+
+`git merge-base HEAD origin/main` = `HEAD` actuel de cette branche —
+c'est-à-dire que tout ce qui était documenté comme "code prêt, non
+commité" entre le 28/08 et le 18/09 (Auth Security/rate limiting
+persistant, révocation de session, Mission Hardening Admin, Trusted
+Device, RBAC `select("*")`/IDOR du 14-16/09) est bien passé en
+production depuis (PR #12/#13/#16, confirmées mergées). Vérifié
+concrètement sur 2 échantillons représentatifs : `lib/security/
+authSecurity.ts` (rate limiting persistant) présent sur disque et **pas**
+listé dans `git status` (donc committé, pas un résidu de travail en
+cours) ; `grep "123456"` sur `app/api/institution/auth/` → 0 résultat
+(bypass OTP bien resté supprimé). **GAP-10-01 et GAP-04-04 peuvent donc
+passer de "code prêt, non déployé" à VERIFIED EN PRODUCTION** — à
+confirmer formellement par Bryan si un test réel de rate limiting/
+révocation de session n'a jamais été fait depuis.
+
+### 2. Nouveau — `next@16.3.5` de nouveau vulnérable (critical), fix sans breaking change
+
+**Avant** : `npm audit --omit=dev` au 18/09/2026 ne montrait plus `next`
+comme problème après l'upgrade vers 16.3.5 (corrigeait alors l'advisory
+`GHSA-2xp9-vwfh-vxw4`).
+
+**Maintenant** (`npm audit --omit=dev` ré-exécuté aujourd'hui) :
+**4 vulnérabilités (3 high, 1 critical)**, toutes avec
+`fixAvailable: true` sans `--force` :
+- `next` 16.0.0–16.3.7, **critical** : RCE dans `next/og ImageResponse`
+  (`GHSA-vcvr-r3jv-pc5j`), + 5 advisories supplémentaires publiés depuis
+  le 18/09 (fuite de contenu Draft Mode via `use cache`, cache poisoning
+  SSG/ISR, divulgation d'information sur l'endpoint MCP du serveur de
+  dev, bypass `dynamicParams` sur les routes d'image metadata, SSRF
+  Image Optimization — répétition de l'ancienne CVE sous un identifiant
+  différent).
+- `sharp` <0.35.5, high : CVE-2026-96889 (librsvg).
+- `source-map-js` 1.0.0-1.2.1, high : DoS boucle d'événements.
+- `brace-expansion` (dépendance transitive de `readdir-glob`), high : 3
+  CVE de DoS par expansion quadratique/récursion.
+
+**Pourquoi c'est corrigeable sans risque de breaking change** :
+`package.json` a déjà `"next": "^16.3.5"` — la plage caret autorise
+jusqu'à `<17.0.0`. `npm info next dist-tags` confirme `latest: 16.4.2`,
+et un correctif existe dès `16.3.8`. `npm audit fix` (sans `--force`)
+suffit donc à tout corriger — contrairement au bump du 18/09, qui avait
+nécessité un changement de version majeure dans `package.json` lui-même.
+
+**Priorité** : **Critical** — c'est la seule vulnérabilité critique
+confirmée de tout cet audit, sur une dépendance de premier plan
+(`next/og`, utilisé par Yelen pour les images de partage réseaux
+sociaux d'après le dernier commit `d838468`), avec un correctif trivial
+disponible.
+
+**Non exécuté dans cette session** (changement de dépendance =
+modification de code, pas un audit en lecture seule) : `npm audit fix`
+proposé, à exécuter par Bryan puis vérifier `tsc`/`build`.
+
+### 3. Dependabot (34 alertes, GAP-14-01) — toujours non réconcilié
+
+Aucun outil `gh`/accès GitHub authentifié dans cet environnement —
+**NOT VERIFIED**, inchangé depuis le 18/09/2026. Le dernier chiffre connu
+(2 critical/17 high/13 moderate/2 low) n'a jamais été recoupé avec
+`npm audit` local, qui à son tour vient de changer (voir point 2
+ci-dessus). **Action requise de Bryan** : ouvrir
+`github.com/Sempya224/yelen224/security/dependabot`, comparer la liste
+réelle à `npm audit` post-correctif point 2 — si l'écart persiste après
+ça, ce sera soit des dépendances `devDependencies` (hors `--omit=dev`),
+soit des advisories GitHub sans équivalent npm (ex. GitHub Actions).
+
+### 4. Nouveau asset non inventorié : `mobile/` (app Expo/React Native)
+
+**Trouvé en vérifiant `git status`**, pas cherché activement : un
+répertoire `mobile/` complet (Expo 57, Expo Router, `node_modules`,
+`package-lock.json` propre) existe sur disque, **entièrement non suivi
+par git** (`??` dans `git status`, donc jamais commité nulle part).
+Dépendances notables déjà présentes : `expo-camera`,
+`expo-local-authentication` (biométrie native), `expo-image-picker`,
+`expo-device`.
+
+**Pourquoi c'est pertinent pour ce document** : le master plan (section
+29) dit explicitement *"Lorsque Yelen native commencera : Référentiel
+OWASP MASVS/MASTG"* — ce travail semble avoir commencé, sans qu'aucun
+audit sécurité mobile n'ait eu lieu, et sans trace dans CLAUDE.md
+(aucune section `/chantier-mobile` ou équivalent). Rien n'indique un
+risque actif aujourd'hui (app non commitée, non buildée en production,
+local au poste de Bryan) — mais c'est une surface d'audit entièrement
+nouvelle qui n'existait à aucun des 6 audits précédents (13/08 → 18/09).
+
+**Statut** : 🔴 NOT STARTED (section 29 du master plan, jusqu'ici
+"non applicable"). **Aucune action de code prise ici** — hors périmètre
+d'un audit en lecture seule, et l'app elle-même n'a pas été lue en
+détail (pas l'objet de la demande d'aujourd'hui). **Recommandation** :
+quand ce chantier mobile sera officiellement lancé par Bryan, le traiter
+comme une mission dédiée (comme Admin Entry V2 ou Trusted Device l'ont
+été) plutôt que comme une extension du périmètre web — stockage local,
+biométrie, deep links, et la façon dont l'app mobile va s'authentifier
+contre les APIs `/api/citoyen/**`/`/api/institution/**` existantes
+mériteront un vrai design d'authentification propre (probablement pas
+de cookies httpOnly, qui ne survivent pas nativement sur mobile).
+
+### 5. Chantiers d'audit déjà engagés, toujours inachevés — inchangé
+
+Vérifié qu'aucun progrès supplémentaire n'a été documenté ou trouvé dans
+le code sur ces deux items depuis le 18/09 :
+- **GAP-05-05** : second passage RBAC "accès direct par URL" institution
+  — toujours seulement un sous-ensemble des `TAB_KEYS` couvert (16/09).
+  `disponibilites`, `services`, `analyse/*`, `signalements/*`,
+  `documents-citoyen/*`, `clock-in/*`, `transactions`, `rapports/*`,
+  `offres/*`, `partenariat`, `documents-financiers`,
+  `documents-travail` restent non vérifiés route par route.
+- **GAP-17-01** : `acquisition_events` — insert public sans validation
+  `institution_id` ni rate limiting applicatif, toujours non corrigé
+  (documenté seulement, hors périmètre du gel produit du 18/09).
+
+### 6. Hors périmètre de ce lot — travail en cours non lié à la sécurité
+
+`git status` montre ~84 chemins modifiés/nouveaux sur la branche
+actuelle, en plus du point 4 ci-dessus. Vérifié que ce sont des
+chantiers produit distincts (Recommandations institutionnelles,
+inactivité citoyenne/comptes inactifs, préparation de visite RDV, code
+admin supplémentaire) et **pas** un reliquat du chantier sécurité — les
+fichiers sécurité historiquement "non commités" (point 1) n'y figurent
+plus. Non audités dans cette session (hors demande explicite de Bryan),
+signalé seulement pour qu'aucune confusion ne soit faite avec le
+chantier sécurité lors d'une prochaine reprise.
+
+### Synthèse LOT 7
+
+| ID | Constat | Priorité | Statut |
+|---|---|---|---|
+| — | PR du 18/09 confirmée mergée — GAP-10-01/GAP-04-04 et le reste du Lot 2/Mission Admin/Trusted Device/revue du 14-16/09 passent de "non déployé" à en production | — | 🟢 VERIFIED |
+| GAP-14-01 (nouveau cycle) | `next@16.3.5` de nouveau vulnérable (critical RCE `next/og`) + 3 autres high — fix sans breaking change (`npm audit fix`, pas `--force`) | **Critical** | 🔴 NOT STARTED — correctif trivial identifié, non exécuté (changement de code hors périmètre lecture seule) |
+| GAP-14-01 (Dependabot) | 34 alertes GitHub jamais réconciliées avec `npm audit` local | Medium (inchangé) | 🔴 NOT VERIFIED — accès GitHub requis |
+| — (nouveau) | `mobile/` (Expo/React Native) non suivi par git, biométrie+caméra déjà en dépendances, section 29 du master plan jusqu'ici "non applicable" | Informationnel aujourd'hui | 🔴 NOT STARTED — à traiter comme mission dédiée si/quand officiellement lancé |
+| GAP-05-05 | Second passage RBAC institution toujours incomplet | Unknown (présumé faible) | 🔴 NOT STARTED, inchangé depuis 16/09 |
+| GAP-17-01 | `acquisition_events` insert public non throttlé | Medium | 🔴 NOT STARTED, inchangé depuis 18/09 |
+
+**Aucune modification de code effectuée dans ce lot** — audit en
+lecture seule + `npm audit` (non destructif). Seule action recommandée
+immédiate : `npm audit fix` (sans `--force`) pour la vulnérabilité
+critique du point 2, suivi de `tsc`/`build`.
+**Date** : 16/10/2026.

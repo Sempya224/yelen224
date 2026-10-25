@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { email, password, totp_code: totpCode } = body
+    const { email, password, totp_code: totpCode, extra_code: extraCode } = body
 
     if (!email || !password) {
       return finaliser({ error: 'Email et mot de passe requis', code: 'MISSING_FIELDS' }, 400)
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     // Récupérer l'admin
     const { data: admin, error: dbError } = await supabaseAdmin
       .from('admin_users')
-      .select('id, email, password_hash, role, nom, is_active, failed_login_attempts, locked_until, totp_enabled, totp_secret, totp_backup_codes')
+      .select('id, email, password_hash, role, nom, is_active, failed_login_attempts, locked_until, totp_enabled, totp_secret, totp_backup_codes, extra_code_enabled, extra_code_hash')
       .eq('email', email.toLowerCase().trim())
       .single()
 
@@ -150,6 +150,35 @@ export async function POST(request: NextRequest) {
         })
         const etat = await enregistrerTentativeAdmin(supabaseAdmin, {
           deviceId, ip, identifiant: email.toLowerCase().trim(), outcome: 'totp_incorrect', userAgent,
+        })
+        return finaliser({ error: 'Code de vérification incorrect', code: 'INVALID_CREDENTIALS', security: etat }, 401)
+      }
+    }
+
+    // 3e facteur : code additionnel 8-16 chiffres (demande Bryan,
+    // 12/10/2026) — choisi et configuré par l'admin lui-même depuis
+    // /admin/security, exigé après le mot de passe et la 2FA si activé.
+    // Même traitement que la 2FA (compteur d'échecs partagé, message
+    // générique) pour ne jamais révéler quel facteur a échoué.
+    if (admin.extra_code_enabled) {
+      if (typeof extraCode !== 'string' || !extraCode) {
+        return finaliser({ requiresExtraCode: true }, 200)
+      }
+
+      const extraCodeValide = admin.extra_code_hash ? await bcrypt.compare(extraCode, admin.extra_code_hash) : false
+
+      if (!extraCodeValide) {
+        const attempts = (admin.failed_login_attempts ?? 0) + 1
+        const updates: Record<string, unknown> = { failed_login_attempts: attempts }
+        if (attempts >= 5) updates.locked_until = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+        await supabaseAdmin.from('admin_users').update(updates).eq('id', admin.id)
+        await supabaseAdmin.from('admin_logs').insert({
+          admin_id: admin.id,
+          action: 'LOGIN_FAILED',
+          details: { reason: 'extra_code_incorrect', role: admin.role, ip, user_agent: userAgent },
+        })
+        const etat = await enregistrerTentativeAdmin(supabaseAdmin, {
+          deviceId, ip, identifiant: email.toLowerCase().trim(), outcome: 'extra_code_incorrect', userAgent,
         })
         return finaliser({ error: 'Code de vérification incorrect', code: 'INVALID_CREDENTIALS', security: etat }, 401)
       }

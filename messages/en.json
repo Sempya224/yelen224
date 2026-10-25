@@ -6,6 +6,7 @@
       "intro": "Choose your Yelen language",
       "description": "Select the language you'd like to use Yelen in.",
       "available": "Available languages",
+      "selected": "Selected language",
       "comingSoon": "Coming soon",
       "options": {
         "fr": "Français",

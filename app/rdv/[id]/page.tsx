@@ -31,9 +31,15 @@ import QRCode from "qrcode";
 import { notFound, useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRdv, creerReservationPayante, creerReservationChambre } from "./actions";
+import { PAUSE_MESSAGE_CITOYEN } from "@/lib/institutionReservationPause";
 import { type CreneauSlot, generateSlotsInRange, toISODate } from "@/lib/disponibilites";
 import { ACTIVITE_CATEGORIE_COLORS, ActiviteCategorieIcon } from "@/lib/activiteVisuels";
 import { RdvRestrictionScreen, type RdvRestrictionData } from "@/components/RdvRestrictionScreen";
+import { GuestPhoneVerification } from "@/components/GuestPhoneVerification";
+
+// Feature flag réservation invité (ADR-001 E0.1) — désactivé par défaut.
+// Les routes /api/citoyen/auth/invite/* lisent la même variable (404 si off).
+const RESERVATION_INVITE_ENABLED = process.env.NEXT_PUBLIC_RESERVATION_INVITE_ENABLED === "true";
 import { getEnabledCountries, villesParPays, type Country, type Ville } from "@/lib/geographie";
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -848,6 +854,13 @@ function RdvPageContent() {
   const [paiementSheetOpen, setPaiementSheetOpen] = useState(false);
   const [submitting, setSubmitting]         = useState(false);
   const [submitError, setSubmitError]       = useState<string | null>(null);
+  const [showGuestVerification, setShowGuestVerification] = useState(false);
+  // Retour Bryan 18/10/2026 (Booking Governance, Lot 1) — la pause
+  // volontaire établissement n'est pas une erreur côté citoyen ni un signe
+  // de problème côté établissement, contrairement aux autres cas de
+  // submitError : style neutre/ambre dédié plutôt que le rouge "erreur"
+  // générique utilisé partout ailleurs ci-dessous.
+  const submitErrorIsPause = submitError === PAUSE_MESSAGE_CITOYEN;
   const [success, setSuccess]               = useState<{ code: string; dateRdv: string; heureRdv: string; dateDepart?: string | null } | null>(null);
   // Feedback d'abandon (retour Bryan 25/07/2026) — le X du header ouvre ce
   // pop-up plutôt que de quitter directement, pour comprendre pourquoi un
@@ -889,7 +902,9 @@ function RdvPageContent() {
     if (typeof window !== "undefined") {
       try { userId = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     }
-    if (!userId?.trim()) {
+    // Réservation invité : le visiteur reste dans le wizard, la vérification
+    // du téléphone se fait à la confirmation (handleConfirm).
+    if (!userId?.trim() && !RESERVATION_INVITE_ENABLED) {
       const returnUrl = encodeURIComponent(window.location.pathname);
       router.replace(`/inscription?redirect=${returnUrl}`);
     }
@@ -1273,7 +1288,13 @@ function RdvPageContent() {
     if (typeof window !== "undefined") {
       try { userId = localStorage.getItem(YELEN224_USER_ID_KEY); } catch {}
     }
-    if (!userId?.trim()) { setSubmitError("Vous devez être connecté."); return; }
+    if (!userId?.trim()) {
+      // Réservation invité (ADR-001 E0.1) : vérification du téléphone avant
+      // toute création ; handleConfirm() est rappelée à la réussite.
+      if (RESERVATION_INVITE_ENABLED) { setShowGuestVerification(true); return; }
+      setSubmitError("Vous devez être connecté.");
+      return;
+    }
 
     // serviceIdForBooking n'est renseigné (ligne ~675) que pour les services
     // payants, mais reste optionnel dans le type — un vrai service payant
@@ -1406,6 +1427,13 @@ function RdvPageContent() {
   return (
     <div style={{ minHeight: "100svh", backgroundColor: C.pageBg, color: C.text, paddingBottom: "40px", overflowX: "hidden" }}>
       <style>{CSS}</style>
+      {showGuestVerification && (
+        <GuestPhoneVerification
+          C={C}
+          onClose={() => setShowGuestVerification(false)}
+          onVerified={() => { setShowGuestVerification(false); void handleConfirm(); }}
+        />
+      )}
 
       {/* HEADER — neutre (même principe que app/page.tsx, 23/07/2026) : le
           doré reste réservé aux actions/états qui méritent attention. Barre
@@ -2009,7 +2037,7 @@ function RdvPageContent() {
               <span style={{ color: C.textSubtle, fontSize: "10.5px", fontWeight: "600" }}>Réservation sécurisée — traitée par Yelen224</span>
             </div>
             {submitError && submitError !== "Renseignez le nom et le téléphone." && (
-              <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "12px", color: "#ef4444", fontSize: "13px" }}>{submitError}</div>
+              <div style={{ marginBottom: "12px", padding: "12px 14px", background: submitErrorIsPause ? "rgba(217,119,6,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${submitErrorIsPause ? "rgba(217,119,6,0.25)" : "rgba(239,68,68,0.25)"}`, borderRadius: "12px", color: submitErrorIsPause ? "#d97706" : "#ef4444", fontSize: "13px", lineHeight: 1.5 }}>{submitError}</div>
             )}
 
             {/* CTA fixe (retour Bryan 26/09/2026 : "bouton fixe", même patron
@@ -2215,7 +2243,7 @@ function RdvPageContent() {
                 pas la peine de le répéter ici en plus. Style rouge, pas doré
                 — une erreur n'est pas une action à mettre en valeur. */}
             {submitError && submitError !== "Renseignez le nom et le téléphone." && (
-              <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "12px", color: "#ef4444", fontSize: "13px" }}>{submitError}</div>
+              <div style={{ marginBottom: "12px", padding: "12px 14px", background: submitErrorIsPause ? "rgba(217,119,6,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${submitErrorIsPause ? "rgba(217,119,6,0.25)" : "rgba(239,68,68,0.25)"}`, borderRadius: "12px", color: submitErrorIsPause ? "#d97706" : "#ef4444", fontSize: "13px", lineHeight: 1.5 }}>{submitError}</div>
             )}
             <button onClick={goToRecapOrConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "26px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "#F5A623", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
               {submitting ? <><div style={{ width: "16px", height: "16px", border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#080812", borderRadius: "50%", animation: "spin 0.7s linear infinite" }}/>Confirmation…</> : (selectedService.champs_complementaires.length > 0 ? "Continuer" : "Confirmer le rendez-vous")}
@@ -2300,7 +2328,7 @@ function RdvPageContent() {
                 </div>
               ))}
             </div>
-            {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "12px", color: "#ef4444", fontSize: "13px" }}>{submitError}</div>}
+            {submitError && <div style={{ marginBottom: "12px", padding: "12px 14px", background: submitErrorIsPause ? "rgba(217,119,6,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${submitErrorIsPause ? "rgba(217,119,6,0.25)" : "rgba(239,68,68,0.25)"}`, borderRadius: "12px", color: submitErrorIsPause ? "#d97706" : "#ef4444", fontSize: "13px", lineHeight: 1.5 }}>{submitError}</div>}
             <button onClick={handleConfirm} disabled={submitting} className="tap" style={{ width: "100%", padding: "16px", borderRadius: "26px", border: "none", background: submitting ? isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" : "#F5A623", color: submitting ? C.textSubtle : "#080812", fontSize: "15px", fontWeight: "800", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
               {submitting ? <><YelenLoader size={16} color="#080812"/>Confirmation…</> : isChambreFlow ? "Réserver" : "Confirmer le rendez-vous"}
             </button>

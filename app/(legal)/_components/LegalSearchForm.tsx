@@ -53,8 +53,10 @@ export function LegalSearchForm() {
 
   return (
     <div ref={containerRef} style={{ position: "relative", maxWidth: "440px", margin: "0 auto" }}>
+      <style>{`.legal-search-form:focus-within{border-color:#F5A623 !important;box-shadow:0 0 0 3px rgba(245,166,35,0.18) !important}.legal-search-form:focus-within :focus-visible{outline:none}`}</style>
       <form
         role="search"
+        className="legal-search-form"
         onSubmit={(e) => { e.preventDefault(); lancerRecherche(); }}
         style={{
           display: "flex", alignItems: "center", gap: "4px", padding: "4px",
@@ -94,7 +96,7 @@ export function LegalSearchForm() {
           onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
           autoComplete="off"
           style={{
-            flex: 1, minWidth: 0, padding: "10px 8px 10px 16px", border: "none",
+            flex: 1, minWidth: 0, padding: "10px 8px 10px 16px", border: "none", outline: "none",
             borderRadius: "999px", backgroundColor: "transparent", color: C.text, fontSize: "14px",
           }}
         />

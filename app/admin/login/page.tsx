@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { YelenLoader } from '@/components/YelenLoader'
+import { YelenLogo } from '@/components/YelenLogo'
 
 export default function AdminLogin() {
   const router = useRouter()
@@ -19,6 +20,23 @@ export default function AdminLogin() {
   // passe (voir app/api/admin/auth/login/route.ts).
   const [totpRequired, setTotpRequired] = useState(false)
   const [totpCode, setTotpCode] = useState('')
+  // 3e facteur : code additionnel 8-16 chiffres (demande Bryan, 12/10/2026),
+  // configuré depuis /admin/security — même logique que la 2FA ci-dessus,
+  // demandé après elle si activé.
+  const [extraCodeRequired, setExtraCodeRequired] = useState(false)
+  const [extraCode, setExtraCode] = useState('')
+  const [info, setInfo] = useState('')
+
+  // Lecture directe de window.location (pas useSearchParams) — évite le
+  // piège connu du build Netlify (useSearchParams sans Suspense casse le
+  // prerendering, voir CLAUDE.md /pieges-techniques-connus), inutile ici
+  // puisque c'est un simple message d'accueil, pas une donnée bloquante.
+  useEffect(() => {
+    const raison = new URLSearchParams(window.location.search).get('raison')
+    if (raison === 'mdp_change') {
+      setInfo('Mot de passe modifié avec succès. Merci de vous reconnecter.')
+    }
+  }, [])
 
   // Countdown si bloqué
   useEffect(() => {
@@ -36,18 +54,24 @@ export default function AdminLogin() {
   function retourEtapeMotDePasse() {
     setTotpRequired(false)
     setTotpCode('')
+    setExtraCodeRequired(false)
+    setExtraCode('')
     setError('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (blocked) return
-    if (!totpRequired && (!email || !password)) {
+    if (!totpRequired && !extraCodeRequired && (!email || !password)) {
       setError('Email et mot de passe requis.')
       return
     }
-    if (totpRequired && !totpCode.trim()) {
+    if (totpRequired && !extraCodeRequired && !totpCode.trim()) {
       setError('Code de vérification requis.')
+      return
+    }
+    if (extraCodeRequired && !extraCode.trim()) {
+      setError('Code de sécurité requis.')
       return
     }
 
@@ -69,6 +93,7 @@ export default function AdminLogin() {
           // y compris internes, sans toucher aux tirets des codes de secours
           // ("XXXX-XXXX", voir placeholder ci-dessous).
           ...(totpRequired ? { totp_code: totpCode.replace(/\s+/g, "") } : {}),
+          ...(extraCodeRequired ? { extra_code: extraCode.trim() } : {}),
         }),
       })
 
@@ -76,6 +101,11 @@ export default function AdminLogin() {
 
       if (data?.requiresTotp) {
         setTotpRequired(true)
+        return
+      }
+
+      if (data?.requiresExtraCode) {
+        setExtraCodeRequired(true)
         return
       }
 
@@ -142,16 +172,14 @@ export default function AdminLogin() {
             width: '56px',
             height: '56px',
             borderRadius: '14px',
-            background: 'linear-gradient(135deg, #00c896 0%, #00a37a 100%)',
+            background: '#F5A623',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             margin: '0 auto 20px',
-            fontSize: '24px',
-            fontWeight: '800',
-            color: '#fff',
-            letterSpacing: '-1px',
-          }}>Y</div>
+          }}>
+            <YelenLogo size={28} color="#1a1a1a" strokeWidth={2.2}/>
+          </div>
           <h1 style={{
             color: '#ffffff',
             fontSize: '22px',
@@ -174,6 +202,22 @@ export default function AdminLogin() {
           padding: '36px 32px',
           boxShadow: '0 24px 48px rgba(0,0,0,0.4)',
         }}>
+
+          {/* Bandeau info (ex: redirection après changement de mot de passe) */}
+          {info && !error && (
+            <div style={{
+              backgroundColor: '#15241d',
+              border: '1px solid #26402f',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+            }}>
+              <span style={{ color: '#5fd38a', fontSize: '13.5px', lineHeight: '1.4' }}>{info}</span>
+            </div>
+          )}
 
           {/* Bandeau erreur */}
           {error && (
@@ -209,7 +253,7 @@ export default function AdminLogin() {
           )}
 
           <form onSubmit={handleSubmit}>
-            {!totpRequired ? (
+            {!totpRequired && !extraCodeRequired ? (
               <>
                 {/* Email */}
                 <div style={{ marginBottom: '20px' }}>
@@ -242,7 +286,7 @@ export default function AdminLogin() {
                       boxSizing: 'border-box',
                       opacity: blocked ? 0.5 : 1,
                     }}
-                    onFocus={e => e.target.style.borderColor = '#00c896'}
+                    onFocus={e => e.target.style.borderColor = '#F5A623'}
                     onBlur={e => e.target.style.borderColor = '#333'}
                   />
                 </div>
@@ -278,10 +322,62 @@ export default function AdminLogin() {
                       boxSizing: 'border-box',
                       opacity: blocked ? 0.5 : 1,
                     }}
-                    onFocus={e => e.target.style.borderColor = '#00c896'}
+                    onFocus={e => e.target.style.borderColor = '#F5A623'}
                     onBlur={e => e.target.style.borderColor = '#333'}
                   />
                 </div>
+              </>
+            ) : extraCodeRequired ? (
+              <>
+                {/* Code de sécurité additionnel */}
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#999',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    letterSpacing: '0.6px',
+                    textTransform: 'uppercase',
+                    marginBottom: '8px',
+                  }}>Code de sécurité</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    value={extraCode}
+                    onChange={e => setExtraCode(e.target.value.replace(/\D/g, '').slice(0, 16))}
+                    placeholder="Code à 8-16 chiffres"
+                    disabled={loading || blocked}
+                    autoComplete="off"
+                    autoFocus
+                    style={{
+                      width: '100%',
+                      backgroundColor: '#1a1a1a',
+                      border: '1px solid #333',
+                      borderRadius: '10px',
+                      padding: '13px 16px',
+                      color: '#fff',
+                      fontSize: '15px',
+                      letterSpacing: '2px',
+                      outline: 'none',
+                      transition: 'border-color 0.2s',
+                      boxSizing: 'border-box',
+                      opacity: blocked ? 0.5 : 1,
+                    }}
+                    onFocus={e => e.target.style.borderColor = '#F5A623'}
+                    onBlur={e => e.target.style.borderColor = '#333'}
+                  />
+                  <p style={{ color: '#666', fontSize: '11.5px', margin: '8px 0 0', lineHeight: 1.5 }}>
+                    Le code additionnel configuré depuis l&apos;écran Sécurité du dashboard.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={retourEtapeMotDePasse}
+                  disabled={loading}
+                  style={{ background: 'none', border: 'none', color: '#666', fontSize: '12.5px', cursor: 'pointer', padding: 0, marginBottom: '20px' }}
+                >
+                  ← Revenir à l&apos;étape précédente
+                </button>
               </>
             ) : (
               <>
@@ -319,7 +415,7 @@ export default function AdminLogin() {
                       boxSizing: 'border-box',
                       opacity: blocked ? 0.5 : 1,
                     }}
-                    onFocus={e => e.target.style.borderColor = '#00c896'}
+                    onFocus={e => e.target.style.borderColor = '#F5A623'}
                     onBlur={e => e.target.style.borderColor = '#333'}
                   />
                   <p style={{ color: '#666', fontSize: '11.5px', margin: '8px 0 0', lineHeight: 1.5 }}>
@@ -346,10 +442,10 @@ export default function AdminLogin() {
                 padding: '14px',
                 background: loading || blocked
                   ? '#2a2a2a'
-                  : 'linear-gradient(135deg, #00c896 0%, #00a37a 100%)',
+                  : '#F5A623',
                 border: 'none',
                 borderRadius: '10px',
-                color: loading || blocked ? '#555' : '#fff',
+                color: loading || blocked ? '#555' : '#1a1a1a',
                 fontSize: '15px',
                 fontWeight: '600',
                 cursor: loading || blocked ? 'not-allowed' : 'pointer',
@@ -358,7 +454,7 @@ export default function AdminLogin() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
               }}
             >
-              {loading ? <><YelenLoader size={16} color="#fff"/>Vérification…</> : blocked ? 'Accès bloqué' : totpRequired ? 'Valider le code' : 'Accéder au dashboard'}
+              {loading ? <><YelenLoader size={16} color="#fff"/>Vérification…</> : blocked ? 'Accès bloqué' : (totpRequired || extraCodeRequired) ? 'Valider le code' : 'Accéder au dashboard'}
             </button>
           </form>
         </div>

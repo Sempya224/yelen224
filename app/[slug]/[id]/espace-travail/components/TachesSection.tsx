@@ -22,14 +22,15 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens } from "../../theme";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { YelenLoader } from "@/components/YelenLoader";
 import {
   type Tache, type Membre, type ChecklistItem, STATUTS, PRIORITES,
   prioriteColor, prioriteLabel, statutColor, statutLabel, estEnRetard, estAujourdhui, echeanceLabel,
   nomMembre, initiales, peutGerer, useDialogA11y,
-  AssigneePicker, StatusPicker, PriorityPicker, EcheancePicker, TaskDetailsPanel,
+  AssigneePicker, StatusPicker, EcheancePicker, TaskDetailsPanel,
 } from "./TachesOverlays";
-import { type Projet, ProjectLinkPicker } from "./ProjetsOverlays";
+import { type Projet } from "./ProjetsOverlays";
+import { TachesStyles, TasksToolbar, TasksSkeleton, TasksMessage, PriorityBadge, ChecklistProgress, DueLabel } from "./TachesUi";
+import { ClockStyles, ClockModal, ModalField, champStyle, ComboField, DateField, ScheduleTypeCards, StatusPill } from "../../components/ClockInShiftUi";
 
 type TabKey = "toutes" | "mes" | "retard" | "aujourdhui" | "terminees";
 type SortKey = "echeance" | "priorite" | "titre" | "recent";
@@ -303,67 +304,36 @@ export function TachesSection({ instId, onToast }: { instId: string; onToast: (m
   const isTrueEmpty = !loading && !loadError && taches.length === 0;
   const isNoResults = !loading && !loadError && taches.length > 0 && filtered.length === 0;
 
+  const aFiltre = activeFilterChips.length > 0 || search.trim() !== "" || tab !== "toutes";
+  const tabsDef = TABS.map(t => ({ key: t.value as string, label: t.label, count: taches.filter(x => matchesTab(x, t.value, moiId)).length, alerte: t.value === "retard" }));
+  const rienEnRetard = isNoResults && tab === "retard" && !search.trim() && activeFilterChips.length === 0;
+
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-          {TABS.map(t => (
-            <button key={t.value} onClick={() => setTab(t.value)} style={{ background: tab === t.value ? C.goldL : C.bgCard, border: `1px solid ${tab === t.value ? C.goldL : C.border}`, borderRadius: "8px", padding: "6px 12px", fontSize: "11.5px", fontWeight: tab === t.value ? 800 : 600, color: tab === t.value ? C.goldD : C.t2, cursor: "pointer" }}>{t.label}</button>
-          ))}
-        </div>
-        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={openCreateForm}>+ Nouvelle tâche</Button>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", minWidth: "180px" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher une tâche…" style={{ width: "100%", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 10px 8px 30px", fontSize: "12.5px", color: C.t1, boxSizing: "border-box" }}/>
-        </div>
-        <button ref={filtersBtnRef} onClick={() => setFiltersOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: "6px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>
-          Filtres{activeFilterChips.length > 0 && <span style={{ backgroundColor: C.gold, color: "#000", fontSize: "9.5px", fontWeight: "800", borderRadius: "20px", padding: "1px 6px" }}>{activeFilterChips.length}</span>}
-        </button>
-        <button ref={sortBtnRef} onClick={() => setSortOpen(v => !v)} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>Trier · {SORTS.find(s => s.value === sortBy)?.label}</button>
-        <div style={{ display: "flex", gap: "4px", backgroundColor: C.bg3, borderRadius: "9px", padding: "3px" }}>
-          {(["liste", "kanban"] as const).map(v => (
-            <button key={v} onClick={() => setView(v)} style={{ background: view === v ? C.bgCard : "transparent", border: "none", borderRadius: "7px", padding: "6px 12px", fontSize: "11.5px", fontWeight: "700", color: view === v ? C.gold : C.t2, cursor: "pointer", textTransform: "capitalize" }}>{v}</button>
-          ))}
-        </div>
-      </div>
-
-      {activeFilterChips.length > 0 && (
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
-          {activeFilterChips.map(c => (
-            <button key={c.key} onClick={c.onRemove} style={{ display: "flex", alignItems: "center", gap: "5px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "20px", padding: "3px 6px 3px 10px", fontSize: "11px", fontWeight: "700", color: C.t1, cursor: "pointer" }}>
-              {c.label}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          ))}
-          <button onClick={resetFilters} style={{ background: "none", border: "none", color: C.t3, fontSize: "11px", fontWeight: "700", cursor: "pointer", textDecoration: "underline" }}>Réinitialiser</button>
-        </div>
-      )}
+      <ClockStyles C={C}/>
+      <TachesStyles C={C}/>
+      <TasksToolbar C={C} tabs={tabsDef} tab={tab} onTab={k => { const t = TABS.find(x => x.value === k); if (t) setTab(t.value); }} onNew={openCreateForm}
+        search={search} onSearch={setSearch}
+        filtersRef={filtersBtnRef} filtersCount={activeFilterChips.length} onFilters={() => setFiltersOpen(v => !v)}
+        sortRef={sortBtnRef} sortLabel={SORTS.find(s => s.value === sortBy)?.label ?? ""} onSort={() => setSortOpen(v => !v)}
+        view={view} onView={setView} vues={[{ key: "liste", label: "Liste" }, { key: "kanban", label: "Kanban" }]} chips={activeFilterChips} onReset={resetFilters} aFiltre={aFiltre} total={filtered.length}/>
 
       {loadError && !loading && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "12.5px", fontWeight: "700", color: C.red }}>Impossible de charger les tâches.</span>
-          <button onClick={load} style={{ background: "none", border: "none", color: C.red, fontSize: "12px", fontWeight: "800", cursor: "pointer", textDecoration: "underline" }}>Réessayer</button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
+          <span role="alert" style={{ fontSize: "13px", fontWeight: 500, color: C.red }}>Impossible de charger les tâches.</span>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={load}>Réessayer</Button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: "40px", display: "flex", justifyContent: "center" }}>
-          <YelenLoader size={24}/>
-        </div>
+        <TasksSkeleton/>
       ) : isTrueEmpty ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "48px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "14px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Aucune tâche à afficher</div>
-          <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Créez votre première tâche ou modifiez vos filtres.</p>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={openCreateForm}>+ Nouvelle tâche</Button>
-        </div>
+        <TasksMessage C={C} titre="Aucune tâche" texte="Créez votre première tâche ou modifiez vos filtres." action={{ label: "+ Nouvelle tâche", onClick: openCreateForm, primaire: true }}/>
+      ) : rienEnRetard ? (
+        <TasksMessage C={C} titre="Rien en retard" texte="Toutes vos tâches sont à jour."
+          icone={<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>}/>
       ) : isNoResults ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "13px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Aucun résultat pour ces filtres</div>
-          <button onClick={resetFilters} style={{ color: C.gold, background: "none", border: "none", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>Réinitialiser les filtres</button>
-        </div>
+        <TasksMessage C={C} titre="Aucun résultat" texte="Aucune tâche ne correspond à ces filtres." action={{ label: "Réinitialiser les filtres", onClick: resetFilters }}/>
       ) : view === "liste" ? (
         <TaskList C={C} taches={filtered} membres={membres} projets={projets} moiId={moiId} moiRole={moiRole}
           onOpenDetails={setDetailsTask} onToggleFait={(t) => changerStatut(t.id, t.statut === "termine" ? "a_faire" : "termine")}
@@ -414,7 +384,7 @@ export function TachesSection({ instId, onToast }: { instId: string; onToast: (m
 // ───────────────────────────────────────────────────────────────────────
 // Vue Liste — table dense, une ligne = une tâche (item 3 du brief).
 // ───────────────────────────────────────────────────────────────────────
-function TaskList({ C, taches, membres, projets, moiId, moiRole, onOpenDetails, onToggleFait, onChangeStatut, onChangePriorite, onChangeEcheance, onChangeAssigne }: {
+function TaskList({ C, taches, membres, projets, moiId, moiRole, onOpenDetails, onToggleFait, onChangeStatut, onChangeEcheance, onChangeAssigne }: {
   C: ThemeTokens; taches: Tache[]; membres: Membre[]; projets: Projet[]; moiId: string | null; moiRole: string | null;
   onOpenDetails: (t: Tache) => void; onToggleFait: (t: Tache) => void;
   onChangeStatut: (id: string, s: string) => void; onChangePriorite: (id: string, p: string) => void;
@@ -426,9 +396,10 @@ function TaskList({ C, taches, membres, projets, moiId, moiRole, onOpenDetails, 
   function anchorRef(id: string) {
     return { current: refs.current[id] ?? null };
   }
+  const discret: React.CSSProperties = { background: "none", border: "none", padding: 0, font: "inherit" };
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
+    <div style={{ backgroundColor: C.bgCard, borderRadius: "12px", border: `1px solid ${C.border}` }}>
       {taches.map((t, i) => {
         const verrouille = !peutGerer(t, moiId, moiRole);
         const enRetard = estEnRetard(t);
@@ -436,40 +407,59 @@ function TaskList({ C, taches, membres, projets, moiId, moiRole, onOpenDetails, 
         const init = initiales(t.membre_id, membres);
         const assigneNom = nomMembre(t.membre_id, membres);
         const projet = t.projet_id ? projets.find(p => p.id === t.projet_id) : null;
+        const fait = t.statut === "termine";
+        const faits = t.checklist.filter(c => c.fait).length;
+        const echeanceComplete = t.echeance ? new Date(`${t.echeance}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Sans échéance";
+        const sousLigne = [projet ? `Projet : ${projet.nom}` : null, assigneNom ? `Assigné : ${assigneNom}` : null, (t.citoyen_id || t.rdv_id) ? "Client lié" : null].filter(Boolean).join(" · ");
         return (
-          <div key={t.id} onClick={() => onOpenDetails(t)} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", borderTop: i > 0 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
-            <div onClick={e => { e.stopPropagation(); if (!verrouille) onToggleFait(t); }} style={{ width: "17px", height: "17px", borderRadius: "5px", border: `1.5px solid ${t.statut === "termine" ? C.green : C.border2}`, backgroundColor: t.statut === "termine" ? C.green : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: verrouille ? "default" : "pointer", opacity: verrouille ? 0.5 : 1 }}>
-              {t.statut === "termine" && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+          <div key={t.id} role="button" tabIndex={0} onClick={() => onOpenDetails(t)}
+            onKeyDown={e => { if (e.target === e.currentTarget && e.key === "Enter") { e.preventDefault(); onOpenDetails(t); } }}
+            className="tsk-row tap" style={{ borderTop: i > 0 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
+            <div className="tsk-main">
+              <button type="button" role="checkbox" aria-checked={fait} aria-disabled={verrouille} className="tsk-btn"
+                aria-label={fait ? `Remettre « ${t.titre} » à faire` : `Marquer « ${t.titre} » comme terminée`}
+                onClick={e => { e.stopPropagation(); if (!verrouille) onToggleFait(t); }}
+                style={{ width: "20px", height: "20px", borderRadius: "5px", border: `1.5px solid ${fait ? C.green : C.border2}`, backgroundColor: fait ? C.green : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: verrouille ? "default" : "pointer", opacity: verrouille ? 0.5 : 1, padding: 0 }}>
+                {fait && <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div title={t.titre} style={{ fontSize: "14px", fontWeight: 500, color: fait ? C.t3 : C.t1, textDecoration: fait ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.titre}</div>
+                {sousLigne && <div title={sousLigne} style={{ fontSize: "12px", color: C.t3, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sousLigne}</div>}
+              </div>
             </div>
 
-            <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: prioriteColor(t.priorite, C), flexShrink: 0 }} title={prioriteLabel(t.priorite)}/>
+            <div className="tsk-meta">
+              <span className="tsk-prio"><PriorityBadge C={C} priorite={t.priorite} label={prioriteLabel(t.priorite)}/></span>
 
-            {/* Projet en 2e ligne discrète (pas un badge de plus) — une
-                liste chargée doit rester scannable (revue finale, item 3) :
-                la relation reste visible sans élargir chaque ligne pour
-                l'immense majorité des tâches qui n'ont pas de projet. */}
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: "13px", fontWeight: "600", color: t.statut === "termine" ? C.t3 : C.t1, textDecoration: t.statut === "termine" ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.titre}</div>
-              {projet && <div style={{ fontSize: "10px", color: C.goldD, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projet.nom}</div>}
-            </span>
+              <button ref={el => { refs.current[`${t.id}-echeance`] = el; }} type="button" className="tsk-due tsk-btn" aria-label={`Échéance : ${echeanceLabel(t)}`}
+                onClick={e => { e.stopPropagation(); if (!verrouille) setOpenPicker({ id: t.id, kind: "echeance" }); }} disabled={verrouille}
+                style={{ ...discret, cursor: verrouille ? "default" : "pointer" }}>
+                <DueLabel C={C} texte={echeanceLabel(t)} etat={enRetard ? "retard" : aujourdhui ? "aujourdhui" : t.echeance ? "normal" : "sans"} complet={echeanceComplete}/>
+              </button>
+              <EcheancePicker open={openPicker?.id === t.id && openPicker.kind === "echeance"} onClose={() => setOpenPicker(null)} anchorRef={anchorRef(`${t.id}-echeance`)} tokens={C} value={t.echeance || ""} onSelect={iso => onChangeEcheance(t.id, iso)}/>
 
-            {(t.citoyen_id || t.rdv_id) && <span style={{ color: C.blue, fontSize: "9.5px", fontWeight: "700", flexShrink: 0 }}>Client lié</span>}
-            {t.checklist.length > 0 && <span style={{ color: C.t3, fontSize: "10px", flexShrink: 0 }}>{t.checklist.filter(c => c.fait).length}/{t.checklist.length}</span>}
+              <span className="tsk-check"><ChecklistProgress C={C} fait={faits} total={t.checklist.length}/></span>
 
-            <button ref={el => { refs.current[`${t.id}-assigne`] = el; }} onClick={e => { e.stopPropagation(); if (!verrouille) setOpenPicker({ id: t.id, kind: "assigne" }); }} disabled={verrouille} style={{ display: "flex", alignItems: "center", gap: "5px", background: "none", border: "none", cursor: verrouille ? "default" : "pointer", flexShrink: 0, padding: "2px" }}>
-              <span style={{ width: "20px", height: "20px", borderRadius: "50%", backgroundColor: init ? C.gold : C.bg3, color: init ? "#000" : C.t3, fontSize: "8.5px", fontWeight: "800", display: "flex", alignItems: "center", justifyContent: "center" }}>{init || "—"}</span>
-            </button>
-            <AssigneePicker open={openPicker?.id === t.id && openPicker.kind === "assigne"} onClose={() => setOpenPicker(null)} anchorRef={anchorRef(`${t.id}-assigne`)} tokens={C} membres={membres} value={t.membre_id} onSelect={id => onChangeAssigne(t.id, id)}/>
+              <button ref={el => { refs.current[`${t.id}-assigne`] = el; }} type="button" className="tsk-btn" title={assigneNom ?? "Non assigné"} aria-label={`Assigné à : ${assigneNom ?? "personne"}`}
+                onClick={e => { e.stopPropagation(); if (!verrouille) setOpenPicker({ id: t.id, kind: "assigne" }); }} disabled={verrouille}
+                style={{ ...discret, cursor: verrouille ? "default" : "pointer", flexShrink: 0 }}>
+                <span style={{ width: "24px", height: "24px", borderRadius: "50%", backgroundColor: C.bg3, color: C.t2, fontSize: "10px", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: init ? "none" : `1px dashed ${C.border2}` }}>
+                  {init ?? <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+                </span>
+              </button>
+              <AssigneePicker open={openPicker?.id === t.id && openPicker.kind === "assigne"} onClose={() => setOpenPicker(null)} anchorRef={anchorRef(`${t.id}-assigne`)} tokens={C} membres={membres} value={t.membre_id} onSelect={id => onChangeAssigne(t.id, id)}/>
 
-            <button ref={el => { refs.current[`${t.id}-echeance`] = el; }} onClick={e => { e.stopPropagation(); if (!verrouille) setOpenPicker({ id: t.id, kind: "echeance" }); }} disabled={verrouille} style={{ background: "none", border: "none", cursor: verrouille ? "default" : "pointer", color: enRetard ? C.red : aujourdhui ? C.gold : C.t3, fontSize: "10.5px", fontWeight: enRetard || aujourdhui ? "800" : "600", flexShrink: 0, width: "78px", textAlign: "right" }}>{echeanceLabel(t)}</button>
-            <EcheancePicker open={openPicker?.id === t.id && openPicker.kind === "echeance"} onClose={() => setOpenPicker(null)} anchorRef={anchorRef(`${t.id}-echeance`)} tokens={C} value={t.echeance || ""} onSelect={iso => onChangeEcheance(t.id, iso)}/>
+              <button ref={el => { refs.current[`${t.id}-statut`] = el; }} type="button" className="tsk-btn" aria-label={`Statut : ${statutLabel(t.statut)}`}
+                onClick={e => { e.stopPropagation(); if (!verrouille) setOpenPicker({ id: t.id, kind: "statut" }); }} disabled={verrouille}
+                style={{ ...discret, cursor: verrouille ? "default" : "pointer", flexShrink: 0 }}>
+                <StatusPill label={statutLabel(t.statut)} color={statutColor(t.statut, C)}/>
+              </button>
+              <StatusPicker open={openPicker?.id === t.id && openPicker.kind === "statut"} onClose={() => setOpenPicker(null)} anchorRef={anchorRef(`${t.id}-statut`)} tokens={C} value={t.statut} onSelect={s => onChangeStatut(t.id, s)}/>
 
-            <button ref={el => { refs.current[`${t.id}-statut`] = el; }} onClick={e => { e.stopPropagation(); if (!verrouille) setOpenPicker({ id: t.id, kind: "statut" }); }} disabled={verrouille} style={{ background: `${statutColor(t.statut, C)}15`, border: "none", borderRadius: "20px", padding: "3px 10px", fontSize: "10px", fontWeight: "800", color: statutColor(t.statut, C), cursor: verrouille ? "default" : "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>{statutLabel(t.statut)}</button>
-            <StatusPicker open={openPicker?.id === t.id && openPicker.kind === "statut"} onClose={() => setOpenPicker(null)} anchorRef={anchorRef(`${t.id}-statut`)} tokens={C} value={t.statut} onSelect={s => onChangeStatut(t.id, s)}/>
-
-            {verrouille && (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }} aria-label="Vous ne pouvez pas modifier cet élément"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            )}
+              {verrouille && (
+                <svg role="img" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }} aria-label="Vous ne pouvez pas modifier cet élément"><title>Vous ne pouvez pas modifier cet élément</title><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              )}
+            </div>
           </div>
         );
       })}
@@ -487,9 +477,10 @@ function TaskKanban({ C, taches, membres, moiId, moiRole, onOpenDetails, onChang
   dragOverCol: string | null; setDragOverCol: (v: string | null) => void;
 }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${STATUTS.length}, 1fr)`, gap: "12px", alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`, gap: "16px", alignItems: "start" }}>
       {STATUTS.map(col => {
         const items = taches.filter(t => t.statut === col.value);
+        const survol = dragOverCol === col.value;
         return (
           <div key={col.value}
             onDragOver={e => { e.preventDefault(); setDragOverCol(col.value); }}
@@ -501,34 +492,40 @@ function TaskKanban({ C, taches, membres, moiId, moiRole, onOpenDetails, onChang
               const t = taches.find(x => x.id === id);
               if (t && t.statut !== col.value && peutGerer(t, moiId, moiRole)) onChangeStatut(id, col.value);
             }}
-            style={{ backgroundColor: dragOverCol === col.value ? `${C.gold}0D` : C.bg3, borderRadius: "12px", padding: "10px", minHeight: "80px", border: `1px solid ${dragOverCol === col.value ? C.gold + "60" : "transparent"}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "2px 4px 10px" }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: statutColor(col.value, C) }}/>
-              <span style={{ fontSize: "11.5px", fontWeight: "800", color: C.t1, letterSpacing: "0.3px" }}>{col.label.toUpperCase()}</span>
-              <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700" }}>{items.length}</span>
+            style={{ backgroundColor: survol ? `${C.gold}0d` : C.bgCard2, borderRadius: "12px", padding: "12px", minHeight: "96px", border: survol ? `1.5px dashed ${C.gold}` : "1.5px solid transparent" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "2px 4px 12px" }}>
+              <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: statutColor(col.value, C) }}/>
+              <h3 style={{ fontSize: "14px", fontWeight: 600, color: C.t1, margin: 0 }}>{col.label}</h3>
+              <span style={{ minWidth: "20px", height: "20px", borderRadius: "10px", backgroundColor: C.bg3, color: C.t2, fontSize: "12px", fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", fontVariantNumeric: "tabular-nums" }}>{items.length}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {items.map(t => {
                 const verrouille = !peutGerer(t, moiId, moiRole);
                 const init = initiales(t.membre_id, membres);
                 const enRetard = estEnRetard(t);
+                const aujourdhui = estAujourdhui(t);
+                const faits = t.checklist.filter(c => c.fait).length;
                 return (
-                  <div key={t.id}
+                  <div key={t.id} role="button" tabIndex={0}
                     draggable={!verrouille}
                     onDragStart={e => { e.dataTransfer.setData("text/plain", t.id); e.dataTransfer.effectAllowed = "move"; }}
                     onClick={() => onOpenDetails(t)}
-                    className="tap"
-                    style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px", cursor: verrouille ? "pointer" : "grab" }}>
-                    <div style={{ fontSize: "12.5px", fontWeight: "700", color: C.t1, marginBottom: "8px", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{t.titre}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: prioriteColor(t.priorite, C), flexShrink: 0 }}/>
-                      <span style={{ width: "18px", height: "18px", borderRadius: "50%", backgroundColor: init ? C.gold : C.bg3, color: init ? "#000" : C.t3, fontSize: "7.5px", fontWeight: "800", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{init || "—"}</span>
-                      <span style={{ fontSize: "9.5px", fontWeight: enRetard ? 800 : 600, color: enRetard ? C.red : C.t3, flexShrink: 0 }}>{echeanceLabel(t)}</span>
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); onOpenDetails(t); } }}
+                    className="tap tsk-btn"
+                    style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", cursor: verrouille ? "pointer" : "grab" }}>
+                    <div title={t.titre} style={{ fontSize: "14px", fontWeight: 500, color: t.statut === "termine" ? C.t3 : C.t1, textDecoration: t.statut === "termine" ? "line-through" : "none", marginBottom: "10px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" }}>{t.titre}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <PriorityBadge C={C} priorite={t.priorite} label={prioriteLabel(t.priorite)}/>
+                      <DueLabel C={C} texte={echeanceLabel(t)} etat={enRetard ? "retard" : aujourdhui ? "aujourdhui" : t.echeance ? "normal" : "sans"} complet={t.echeance ? new Date(`${t.echeance}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Sans échéance"}/>
+                      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                        <ChecklistProgress C={C} fait={faits} total={t.checklist.length}/>
+                        <span title={nomMembre(t.membre_id, membres) ?? "Non assigné"} style={{ width: "24px", height: "24px", borderRadius: "50%", backgroundColor: C.bg3, color: C.t2, fontSize: "10px", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{init ?? "—"}</span>
+                      </span>
                     </div>
                   </div>
                 );
               })}
-              {items.length === 0 && <div style={{ fontSize: "11px", color: C.t3, textAlign: "center", padding: "10px 0" }}>Aucune tâche</div>}
+              {items.length === 0 && <div style={{ fontSize: "13px", color: C.t3, textAlign: "center", padding: "10px 0" }}>Aucune tâche</div>}
             </div>
           </div>
         );
@@ -560,7 +557,7 @@ function FiltersPopover({ C, anchorRef, onClose, filters, setFilters, membres, p
   function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (
       <div style={{ marginBottom: "12px" }}>
-        <div style={{ fontSize: "9.5px", fontWeight: "800", color: C.t3, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>{title}</div>
+        <div style={{ fontSize: "13px", fontWeight: 600, color: C.t1, marginBottom: "6px" }}>{title}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{children}</div>
       </div>
     );
@@ -631,35 +628,16 @@ function SortPopover({ C, anchorRef, onClose, value, onSelect }: {
   );
 }
 
-function fieldBtnStyle(C: ThemeTokens): React.CSSProperties {
-  return { textAlign: "left", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 12px", fontSize: "12px", color: C.t1, cursor: "pointer", fontFamily: "inherit" };
-}
-function inputStyle(C: ThemeTokens): React.CSSProperties {
-  return { width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "13px", marginBottom: "8px", color: C.t1, boxSizing: "border-box", fontFamily: "inherit" };
-}
-
-// ───────────────────────────────────────────────────────────────────────
-// B — Création / édition (même composant, deux modes, item 9). PC-first :
-// dialogue centré unique, aucune logique mobile (retour Bryan 20/09/2026).
-// ───────────────────────────────────────────────────────────────────────
+// B — Création / édition (même composant, deux modes, item 9). Gabarit commun
+// ClockModal ; la garde « modifications non enregistrées » reste celle de la
+// section (ConfirmModal dédié), d'où modifie={false} ici.
 function TaskForm({ C, form, onChange, onRequestClose, onSave, saving, membres, projets }: {
   C: ThemeTokens; form: FormState; onChange: (patch: Partial<FormValues>) => void; onRequestClose: () => void;
   onSave: () => void; saving: boolean; membres: Membre[]; projets: Projet[];
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  useDialogA11y(panelRef, true, onRequestClose);
-
-  const statutBtnRef = useRef<HTMLButtonElement>(null);
-  const prioriteBtnRef = useRef<HTMLButtonElement>(null);
-  const echeanceBtnRef = useRef<HTMLButtonElement>(null);
-  const membreBtnRef = useRef<HTMLButtonElement>(null);
-  const projetBtnRef = useRef<HTMLButtonElement>(null);
-  const [openPicker, setOpenPicker] = useState<"statut" | "priorite" | "echeance" | "membre" | "projet" | null>(null);
   const [newItem, setNewItem] = useState("");
-
   const v = form.values;
-  const assigneLabel = v.membre_id ? (nomMembre(v.membre_id, membres) || "Non assigné") : "Non assigné";
-  const projetLabel = v.projet_id ? (projets.find(p => p.id === v.projet_id)?.nom ?? "Projet") : "Aucun projet";
+  const ui = toUiTokens(C);
   const faitCount = v.checklist.filter(c => c.fait).length;
 
   function ajouterItem() {
@@ -669,64 +647,95 @@ function TaskForm({ C, form, onChange, onRequestClose, onSave, saving, membres, 
   }
 
   return (
-    <>
-      <div
-        onClick={() => { if (openPicker) { setOpenPicker(null); return; } onRequestClose(); }}
-        style={{ position: "fixed", inset: 0, zIndex: 300, backgroundColor: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}
-      >
-        <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "24px", width: "100%", maxWidth: "540px", maxHeight: "88vh", overflowY: "auto", border: `1px solid ${C.border2}`, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", outline: "none" }}>
-          <div style={{ fontSize: "15px", fontWeight: "800", marginBottom: "14px" }}>{form.mode === "edit" ? "Modifier la tâche" : "Nouvelle tâche"}</div>
+    <ClockModal C={C} titre={form.mode === "edit" ? "Modifier la tâche" : "Nouvelle tâche"} labelId="tache-modal-titre" largeur={560}
+      onClose={onRequestClose} modifie={false} onSubmit={() => { if (v.titre.trim() && !saving) onSave(); }}
+      aide={!v.titre.trim() ? "Renseignez le titre." : undefined}
+      actions={
+        <>
+          <Button tokens={ui} className="tap" variant="secondary" size="md" disabled={saving} onClick={onRequestClose}>Annuler</Button>
+          <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!v.titre.trim()} loading={saving} onClick={onSave}>
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </Button>
+        </>
+      }>
+      <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+        <ModalField C={C} id="tache-titre" label="Titre" requis>
+          <input id="tache-titre" data-autofocus className="cix-input" value={v.titre} onChange={e => onChange({ titre: e.target.value })} placeholder="ex : Renouveler le contrat de maintenance" style={champStyle(C)}/>
+        </ModalField>
+        <ModalField C={C} id="tache-description" label="Description" optionnel>
+          <textarea id="tache-description" className="cix-input" rows={4} value={v.description} onChange={e => onChange({ description: e.target.value })}
+            style={{ ...champStyle(C), height: "auto", minHeight: "96px", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }}/>
+        </ModalField>
 
-          <input value={v.titre} onChange={e => onChange({ titre: e.target.value })} placeholder="Ex. Renouveler le contrat de maintenance" style={inputStyle(C)}/>
-          <textarea value={v.description} onChange={e => onChange({ description: e.target.value })} placeholder="Description (optionnel)" rows={2} style={{ ...inputStyle(C), resize: "none" }}/>
-
-          <div style={{ display: "grid", gridTemplateColumns: form.mode === "edit" ? "1fr 1fr 1fr" : "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
-            <button ref={prioriteBtnRef} onClick={() => setOpenPicker(p => p === "priorite" ? null : "priorite")} style={fieldBtnStyle(C)}>{prioriteLabel(v.priorite)}</button>
-            <button ref={echeanceBtnRef} onClick={() => setOpenPicker(p => p === "echeance" ? null : "echeance")} style={fieldBtnStyle(C)}>{v.echeance ? new Date(`${v.echeance}T00:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "Sans échéance"}</button>
-            {form.mode === "edit" && (
-              <button ref={statutBtnRef} onClick={() => setOpenPicker(p => p === "statut" ? null : "statut")} style={fieldBtnStyle(C)}>{statutLabel(v.statut)}</button>
-            )}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+          <div>
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 500, marginBottom: "6px" }}>Priorité</div>
+            <ScheduleTypeCards C={C} ariaLabel="Priorité" minCarte={90} value={v.priorite} onChange={p => onChange({ priorite: p })}
+              options={PRIORITES.map(p => ({ value: p.value, label: p.label, desc: "", couleur: p.value === "haute" ? C.orange : p.value === "basse" ? C.t3 : C.t2 }))}/>
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
-            <button ref={membreBtnRef} onClick={() => setOpenPicker(p => p === "membre" ? null : "membre")} style={fieldBtnStyle(C)}>Assigné à — {assigneLabel}</button>
-            <button ref={projetBtnRef} onClick={() => setOpenPicker(p => p === "projet" ? null : "projet")} style={fieldBtnStyle(C)}>{projetLabel}</button>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-            <label style={{ color: C.t3, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px" }}>Checklist</label>
-            {v.checklist.length > 0 && <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700" }}>{faitCount}/{v.checklist.length}</span>}
-          </div>
-          {v.checklist.map((item, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-              <div onClick={() => onChange({ checklist: v.checklist.map((it, idx) => idx === i ? { ...it, fait: !it.fait } : it) })} style={{ width: "17px", height: "17px", borderRadius: "5px", border: `1.5px solid ${item.fait ? C.green : C.border2}`, backgroundColor: item.fait ? C.green : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {item.fait && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
-              </div>
-              <span style={{ flex: 1, fontSize: "12.5px", color: item.fait ? C.t3 : C.t1, textDecoration: item.fait ? "line-through" : "none" }}>{item.label}</span>
-              <button onClick={() => onChange({ checklist: v.checklist.filter((_, idx) => idx !== i) })} aria-label="Retirer" style={{ background: "none", border: "none", color: C.red, cursor: "pointer", display: "flex" }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+          <ModalField C={C} id="tache-echeance" label="Échéance" optionnel>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <div style={{ flex: 1, minWidth: 0 }}><DateField C={C} id="tache-echeance" value={v.echeance} onChange={d => onChange({ echeance: d })} vide="Sans échéance"/></div>
+              {v.echeance && (
+                <button type="button" className="cix-btn tap" aria-label="Effacer l'échéance" title="Effacer l'échéance" onClick={() => onChange({ echeance: "" })}
+                  style={{ width: "40px", height: "40px", background: "none", border: `1px solid ${C.border2}`, borderRadius: "8px", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              )}
             </div>
-          ))}
-          <div style={{ display: "flex", gap: "6px", marginTop: "6px", marginBottom: "18px" }}>
-            <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ajouterItem(); } }} placeholder="Ajouter un élément…" style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "9px 11px", fontSize: "12px", color: C.t1 }}/>
-            <button onClick={ajouterItem} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "9px 14px", color: C.t2, fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>+</button>
-          </div>
+          </ModalField>
+        </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={onRequestClose}>Annuler</Button>
-            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!v.titre.trim()} loading={saving} onClick={onSave}>Enregistrer</Button>
+        {form.mode === "edit" && (
+          <div>
+            <div style={{ color: C.t1, fontSize: "13px", fontWeight: 500, marginBottom: "6px" }}>Statut</div>
+            <ScheduleTypeCards C={C} ariaLabel="Statut" minCarte={110} value={v.statut} onChange={s => onChange({ statut: s })}
+              options={STATUTS.map(s => ({ value: s.value, label: s.label, desc: "", couleur: statutColor(s.value, C) }))}/>
           </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
+          <ModalField C={C} id="tache-membre" label="Assigné à" optionnel>
+            <ComboField C={C} id="tache-membre" valeur={v.membre_id} onChange={id => onChange({ membre_id: id })} aucunLabel="Non assigné"
+              options={membres.map(m => ({ value: m.id, label: `${m.prenom} ${m.nom}`, avatar: `${m.prenom.slice(0, 1)}${m.nom.slice(0, 1)}`.toUpperCase() }))}/>
+          </ModalField>
+          <ModalField C={C} id="tache-projet" label="Projet" optionnel>
+            <ComboField C={C} id="tache-projet" valeur={v.projet_id} onChange={id => onChange({ projet_id: id })} aucunLabel="Aucun projet"
+              options={projets.map(p => ({ value: p.id, label: p.nom }))} vide={{ titre: "Aucun projet", aide: "Créez-en un dans l'onglet Projets." }}/>
+          </ModalField>
+        </div>
+
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "6px" }}>
+            <label htmlFor="tache-checklist" style={{ color: C.t1, fontSize: "13px", fontWeight: 500 }}>Checklist</label>
+            {v.checklist.length > 0 && <span aria-live="polite" style={{ color: C.t3, fontSize: "12px", fontVariantNumeric: "tabular-nums" }}>{v.checklist.length} élément{v.checklist.length > 1 ? "s" : ""} · {faitCount} terminé{faitCount > 1 ? "s" : ""}</span>}
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <input id="tache-checklist" className="cix-input" value={newItem} onChange={e => setNewItem(e.target.value)} placeholder="Ajouter un élément…"
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ajouterItem(); } }} style={{ ...champStyle(C), flex: 1, minWidth: 0 }}/>
+            <Button tokens={ui} className="tap" variant="secondary" size="md" style={{ height: "40px" }} disabled={!newItem.trim()} onClick={ajouterItem}
+              icon={<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}>Ajouter</Button>
+          </div>
+          {v.checklist.length > 0 && (
+            <ul style={{ listStyle: "none", margin: "10px 0 0", padding: 0, border: `1px solid ${C.border}`, borderRadius: "10px" }}>
+              {v.checklist.map((item, i) => (
+                <li key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 12px", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                  <button type="button" role="checkbox" aria-checked={item.fait} aria-label={`${item.fait ? "Décocher" : "Cocher"} : ${item.label}`} className="cix-btn"
+                    onClick={() => onChange({ checklist: v.checklist.map((it, idx) => idx === i ? { ...it, fait: !it.fait } : it) })}
+                    style={{ width: "18px", height: "18px", borderRadius: "5px", border: `1.5px solid ${item.fait ? C.green : C.border2}`, backgroundColor: item.fait ? C.green : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                    {item.fait && <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                  </button>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: "14px", color: item.fait ? C.t3 : C.t1, textDecoration: item.fait ? "line-through" : "none", overflowWrap: "anywhere" }}>{item.label}</span>
+                  <button type="button" className="cix-btn tap" aria-label={`Retirer : ${item.label}`} onClick={() => onChange({ checklist: v.checklist.filter((_, idx) => idx !== i) })}
+                    style={{ background: "none", border: "none", color: C.t3, cursor: "pointer", display: "flex", padding: "4px" }}>
+                    <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
-
-      <PriorityPicker open={openPicker === "priorite"} onClose={() => setOpenPicker(null)} anchorRef={prioriteBtnRef} tokens={C} value={v.priorite} onSelect={p => onChange({ priorite: p })}/>
-      <EcheancePicker open={openPicker === "echeance"} onClose={() => setOpenPicker(null)} anchorRef={echeanceBtnRef} tokens={C} value={v.echeance} onSelect={iso => onChange({ echeance: iso || "" })}/>
-      {form.mode === "edit" && (
-        <StatusPicker open={openPicker === "statut"} onClose={() => setOpenPicker(null)} anchorRef={statutBtnRef} tokens={C} value={v.statut} onSelect={s => onChange({ statut: s })}/>
-      )}
-      <AssigneePicker open={openPicker === "membre"} onClose={() => setOpenPicker(null)} anchorRef={membreBtnRef} tokens={C} membres={membres} value={v.membre_id || null} onSelect={id => onChange({ membre_id: id || "" })}/>
-      <ProjectLinkPicker open={openPicker === "projet"} onClose={() => setOpenPicker(null)} anchorRef={projetBtnRef} tokens={C} projets={projets} value={v.projet_id || null} onSelect={id => onChange({ projet_id: id || "" })}/>
-    </>
+    </ClockModal>
   );
 }

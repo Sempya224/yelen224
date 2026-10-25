@@ -27,6 +27,8 @@ import { YelenLoader } from "@/components/YelenLoader";
 import { YelenLogo } from "@/components/YelenLogo";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 type Revision = {
   reference: string; statut: "en_attente" | "acceptee" | "rejetee"; message: string;
@@ -35,13 +37,18 @@ type Revision = {
 type SuspensionData = {
   suspended: boolean; motif: string | null; reference: string | null;
   createdAt: string | null; jusquAu: string | null; revision: Revision | null;
+  // 'auto_inactivite' (chantier COMPTES-INACTIFS.md, Phase 3) — seule
+  // valeur qui change le texte affiché ci-dessous ; 'admin'/
+  // 'auto_rdv_non_traites' et les lignes antérieures à cette colonne
+  // (origine=null) gardent le texte générique d'origine.
+  origine: string | null;
 };
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 }
 function fmtDateHeure(iso: string): string {
-  return new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) + ", " + heureDepuisHorodatage(iso);
 }
 
 function IconShield({ C }: { C: ThemeTokens }) {
@@ -155,6 +162,10 @@ export function CompteSuspenduScreen({ C, instName, onOuvrirMessagerie, onOuvrir
         }
       `}</style>
 
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 16px 0" }}>
+        <HelpCenterGuide tab="accueil" />
+      </div>
+
       {/* ── Hero (ton non-punitif, brief CEO 17/08/2026) ── */}
       <div style={{ textAlign: "center", padding: "28px 16px 8px" }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
@@ -241,6 +252,13 @@ export function CompteSuspenduScreen({ C, instName, onOuvrirMessagerie, onOuvrir
             <div>
               {/* ── Système de révision ── */}
               <Section C={C} title="Demander une révision">
+                {data.origine === "auto_inactivite" && !revision && (
+                  <p style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6, margin: "0 0 12px" }}>
+                    Il suffit qu&apos;un membre actif de votre équipe se reconnecte à l&apos;espace Yelen Business pour
+                    réactiver immédiatement votre établissement — la demande ci-dessous reste disponible si vous
+                    rencontrez un empêchement.
+                  </p>
+                )}
                 {suiviIndisponible ? (
                   <p style={{ color: C.t3, fontSize: "12.5px", lineHeight: 1.6, margin: 0 }}>
                     Cette suspension a été appliquée avant la mise en place du suivi de dossier — aucune demande de révision ne peut être associée automatiquement. Contactez directement le support en indiquant le nom de votre établissement.
@@ -311,12 +329,16 @@ export function CompteSuspenduScreen({ C, instName, onOuvrirMessagerie, onOuvrir
               {/* ── Prévention ── */}
               <Section C={C} title="Comment éviter que cela se reproduise">
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {[
+                  {(data.origine === "auto_inactivite" ? [
+                    "Connectez-vous régulièrement à votre espace Yelen Business, vous ou un membre de votre équipe.",
+                    "Traitez vos rendez-vous, avis et messages régulièrement — chaque action compte comme une activité réelle.",
+                    "Une seule connexion d'un membre actif suffit à réactiver immédiatement votre établissement.",
+                  ] : [
                     "Respectez les conditions d'utilisation Yelen224 acceptées à l'inscription.",
                     "Traitez les rendez-vous et demandes citoyennes dans des délais raisonnables.",
                     "Maintenez vos informations (documents, coordonnées) à jour et exactes.",
                     "Répondez rapidement à tout avertissement reçu avant qu'il n'entraîne une suspension.",
-                  ].map((t, i) => (
+                  ]).map((t, i) => (
                     <div key={i} style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: "2px" }}><polyline points="20 6 9 17 4 12" /></svg>
                       <span style={{ color: C.t2, fontSize: "12.5px", lineHeight: 1.6 }}>{t}</span>

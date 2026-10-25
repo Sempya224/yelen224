@@ -38,6 +38,8 @@ export function PasskeySection({ onToast }: { onToast: (msg: string, color?: str
   const [deviceLabelInput, setDeviceLabelInput] = useState("");
   const [reauthOpen, setReauthOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  // Clé dont le retrait attend sa confirmation (une seule à la fois).
+  const [aRetirer, setARetirer] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -48,6 +50,11 @@ export function PasskeySection({ onToast }: { onToast: (msg: string, color?: str
   }
 
   useEffect(() => { load(); }, []);
+
+  // Le focus passe sur « Confirmer le retrait » quand la confirmation apparaît.
+  useEffect(() => {
+    if (aRetirer) document.querySelector<HTMLElement>("[data-confirmer] button")?.focus();
+  }, [aRetirer]);
 
   async function addDevice() {
     setShowLabelPrompt(false);
@@ -135,7 +142,16 @@ export function PasskeySection({ onToast }: { onToast: (msg: string, color?: str
                 <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cred.device_label || `Passkey #${i + 1}`}</div>
                 <div style={{ color: C.t3, fontSize: "10px", marginTop: "1px" }}>{cred.last_used_at ? `Utilisée ${timeAgoShort(cred.last_used_at)}` : `Ajoutée ${timeAgoShort(cred.created_at)}`}</div>
               </div>
-              <button onClick={() => revoke(cred.id)} className="tap" style={{ background: "none", border: "none", color: C.red, fontSize: "11px", fontWeight: "700", cursor: "pointer", flexShrink: 0 }}>Retirer</button>
+              {aRetirer === cred.id ? (
+                // Confirmation en deux temps (même patron que SecuriteCompteTab) :
+                // le retrait d'une clé d'accès n'est pas annulable.
+                <span data-confirmer="true" role="group" aria-label="Confirmation requise" onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); setARetirer(null); } }} style={{ display: "inline-flex", gap: "6px", flexShrink: 0 }}>
+                  <Button tokens={toUiTokens(C)} className="tap yelen-focus-ring" variant="danger" size="sm" ariaLabel={`Confirmer le retrait de la clé d'accès ${cred.device_label || `Passkey #${i + 1}`}`} onClick={async () => { setARetirer(null); await revoke(cred.id); }}>Confirmer le retrait</Button>
+                  <Button tokens={toUiTokens(C)} className="tap yelen-focus-ring" variant="secondary" size="sm" ariaLabel="Annuler le retrait" onClick={() => setARetirer(null)}>Annuler</Button>
+                </span>
+              ) : (
+                <Button tokens={toUiTokens(C)} className="tap yelen-focus-ring" variant="secondary" size="sm" style={{ color: C.red, border: `1px solid ${C.red}40`, flexShrink: 0 }} ariaLabel={`Retirer la clé d'accès ${cred.device_label || `Passkey #${i + 1}`}`} onClick={() => setARetirer(cred.id)}>Retirer</Button>
+              )}
             </div>
           ))}
         </div>

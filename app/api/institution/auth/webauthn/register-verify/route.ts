@@ -5,6 +5,7 @@ import { verifyRegistrationResponse } from '@simplewebauthn/server'
 import type { RegistrationResponseJSON } from '@simplewebauthn/server'
 import { getAuthenticatedMembre } from '@/lib/institutionAuth'
 import { can } from '@/lib/institutionPermissions'
+import { enregistrerAction, getMembreNomPourJournal } from '@/lib/journalActivite'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
 
     const { id, publicKey, counter } = verification.registrationInfo.credential
 
-    const { error: insertError } = await supabaseAdmin
+    const { data: inserted, error: insertError } = await supabaseAdmin
       .from('institution_webauthn_credentials')
       .insert({
         institution_id: institutionId,
@@ -96,6 +97,8 @@ export async function POST(request: NextRequest) {
         counter,
         device_label: typeof deviceLabel === 'string' && deviceLabel.trim() ? deviceLabel.trim() : null,
       })
+      .select('id')
+      .single()
 
     if (insertError) {
       console.error('[INSTITUTION WEBAUTHN REGISTER VERIFY INSERT ERROR]', insertError.code, insertError.message, insertError.details, insertError.hint)
@@ -107,6 +110,18 @@ export async function POST(request: NextRequest) {
         { status: insertError.code === '23505' ? 409 : 500 }
       )
     }
+
+    // Journalisation (audit Profil Responsable, 19/10/2026) — enregistrée
+    // seulement après insertion réussie de la clé.
+    await enregistrerAction({
+      institutionId,
+      membreId: membre.membreId,
+      membreNom: await getMembreNomPourJournal(membre.membreId),
+      action: 'passkey_ajoutee',
+      cibleTable: 'institution_webauthn_credentials',
+      cibleId: inserted?.id,
+      req: request,
+    })
 
     return NextResponse.json({ success: true })
 

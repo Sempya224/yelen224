@@ -19,6 +19,23 @@ export type FiltresJournal = {
   role: string | null;
 };
 
+// Masquage de l'IP et du user-agent bruts pour les rôles sans "journal.voir_ip"
+// (liste, événements liés, export). Les champs navigateur/os/plateforme, plus
+// grossiers, restent visibles.
+export function masquerDonneesTechniques<T extends { ip: string | null; user_agent: string | null }>(entrees: T[]): T[] {
+  return entrees.map(e => ({ ...e, ip: null, user_agent: null }));
+}
+
+// recherche_texte indexe l'adresse IP : sans garde, un rôle qui ne voit pas
+// les IP pourrait les retrouver par essais (« 197.149 » → lignes concernées).
+// Garde partielle : refuse les recherches qui ressemblent à un fragment d'IP
+// (IPv4 « 12.34 », IPv6 « 2a01:… »). Une garde complète demanderait une
+// colonne de recherche sans IP côté base.
+export function rechercheRessembleAUneIp(q: string | null): boolean {
+  const t = (q ?? "").trim();
+  return /\d{1,3}\.\d{1,3}/.test(t) || /[0-9a-f]{0,4}:[0-9a-f:]{2,}/i.test(t);
+}
+
 export function lireFiltresJournal(searchParams: URLSearchParams): FiltresJournal {
   return {
     action: searchParams.get("action"),

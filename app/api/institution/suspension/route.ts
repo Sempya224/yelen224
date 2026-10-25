@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
   const { data: suspension } = await sb
     .from("institution_suspensions")
-    .select("id, motif, reference, created_at, jusqu_au")
+    .select("id, motif, reference, created_at, jusqu_au, origine")
     .eq("institution_id", membre.institutionId)
     .eq("statut", "active")
     .order("created_at", { ascending: false })
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     // Institution suspendue avant ce chantier (jamais tracée dans
     // institution_suspensions) — aucune donnée structurée disponible,
     // l'écran doit rester honnête plutôt que d'inventer un motif.
-    return NextResponse.json({ suspended: true, motif: null, reference: null, createdAt: null, jusquAu: null, revision: null });
+    return NextResponse.json({ suspended: true, motif: null, reference: null, createdAt: null, jusquAu: null, revision: null, origine: null });
   }
 
   const { data: revision } = await sb
@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
     reference: suspension.reference,
     createdAt: suspension.created_at,
     jusquAu: suspension.jusqu_au,
+    origine: suspension.origine,
     revision: revision ? {
       reference: revision.reference,
       statut: revision.statut,

@@ -160,7 +160,7 @@ export function MesDocumentsClient() {
 
   return (
     <div style={{ minHeight: "100svh", backgroundColor: bg, fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter',sans-serif" }}>
-      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}`}</style>
+      <style>{`.tap{transition:transform 0.1s,opacity 0.1s;cursor:pointer !important;touch-action:manipulation}.tap:active{opacity:0.65;transform:scale(0.97)}@keyframes slideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}.md-search-input:focus{outline:none;box-shadow:0 0 0 2px rgba(245,166,35,0.4)}`}</style>
       <CompteHeader titre="Mes documents"/>
       <PullToRefresh onRefresh={charger} isDark={isDark}>
       <main style={{ padding: "16px 16px 40px" }}>
@@ -188,7 +188,7 @@ export function MesDocumentsClient() {
         {(documents?.length ?? 0) > 0 && (
           <div style={{ position: "relative", marginBottom: "20px" }}>
             <div style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: t3 }}><Ic.Search/></div>
-            <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Rechercher un document ou un établissement…" style={{ ...inputStyle, padding: "12px 14px 12px 40px" }}/>
+            <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Rechercher un document ou un établissement…" className="md-search-input" style={{ ...inputStyle, padding: "12px 14px 12px 40px" }}/>
           </div>
         )}
 

@@ -1324,7 +1324,7 @@ export default function MesRdvPage() {
                 : <div style={{ display: "flex", justifyContent: "center", padding: "14px 0" }}><YelenLoader size={20} color="#F5A623"/></div>}
             </div>
 
-            {detail.motif_annulation && (
+            {detail.motif_annulation && detail.presence_status !== "absent" && (
               <div style={{ background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
                 <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Motif d&apos;annulation</div>
                 <div style={{ color: t2, fontSize: 13, lineHeight: 1.5 }}>{detail.motif_annulation}</div>

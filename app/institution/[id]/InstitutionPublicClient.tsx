@@ -25,7 +25,7 @@ import { EQUIPEMENTS_ETABLISSEMENT, EQUIPEMENTS_CHAMBRE } from "@/lib/hotelEquip
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Annonce = { id: string; titre: string; contenu: string; type: string; format: string; media_urls: string[] | null; epingle: boolean; image_url: string | null; created_at: string; date_expiration: string | null };
-type Avis    = { id: string; citoyen_id: string; titre: string | null; note: number; commentaire: string | null; reponse_institution: string | null; reponse_le: string | null; created_at: string; nom: string; rdv_confirmed: boolean; utile_count: number };
+type Avis    = { id: string; citoyen_id: string; titre: string | null; note: number; commentaire: string | null; reponse_institution: string | null; reponse_le: string | null; created_at: string; nom: string; photo_url: string | null; rdv_confirmed: boolean; utile_count: number };
 // Ligne brute renvoyée par le select() sur `avis` (avant enrichissement nom/rdv_confirmed/utile_count).
 type AvisRow = { id: string; citoyen_id: string; titre: string | null; note: number; commentaire: string | null; reponse_institution: string | null; reponse_le: string | null; created_at: string; masque: boolean };
 type Commentaire = { id: string; annonce_id: string; contenu: string; citoyen_id: string; citoyen_nom: string | null; created_at: string };
@@ -313,6 +313,31 @@ function Stars({ note, size = 13, isDark }: { note: number; size?: number; isDar
   );
 }
 
+// "Cette réponse vous a-t-elle aidé ?" (brief Bryan 05/10/2026) — signal
+// produit interne (jamais un compteur public, contrairement à "Utile"
+// ci-dessus), affiché uniquement au citoyen qui a posé l'avis/la question
+// une fois que l'établissement y a répondu. Icônes reprises à l'identique
+// de ArticleFeedback.tsx (Help Center) pour rester cohérent dans le produit.
+function ReponseUtileFeedback({ voted, onVote, disabled, textColor, mutedColor, borderColor }: {
+  voted: boolean | null; onVote: (utile: boolean) => void; disabled?: boolean;
+  textColor: string; mutedColor: string; borderColor: string;
+}) {
+  if (voted !== null) {
+    return <p style={{ color: mutedColor, fontSize: "11px", fontWeight: "700", margin: "8px 0 0" }}>Merci pour votre retour.</p>;
+  }
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
+      <span style={{ color: mutedColor, fontSize: "11px", fontWeight: "700" }}>Cette réponse vous a-t-elle aidé ?</span>
+      <button type="button" disabled={disabled} onClick={() => onVote(true)} className="tap" aria-label="Oui, cette réponse m'a aidé" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "26px", height: "26px", borderRadius: "8px", background: "transparent", border: `1px solid ${borderColor}`, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1, flexShrink: 0 }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={textColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 22V11"/><path d="M12 22h6.5a2 2 0 0 0 2-1.6l1.4-7A2 2 0 0 0 20 11h-5.5l1-5a2 2 0 0 0-2-2.4L12 8l-3 3.5V22Z"/></svg>
+      </button>
+      <button type="button" disabled={disabled} onClick={() => onVote(false)} className="tap" aria-label="Non, cette réponse ne m'a pas aidé" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "26px", height: "26px", borderRadius: "8px", background: "transparent", border: `1px solid ${borderColor}`, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1, flexShrink: 0 }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={textColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 2v11"/><path d="M12 2H5.5a2 2 0 0 0-2 1.6l-1.4 7A2 2 0 0 0 4 13h5.5l-1 5a2 2 0 0 0 2 2.4L12 16l3-3.5V2Z"/></svg>
+      </button>
+    </div>
+  );
+}
+
 function SectionTitle({ icon, label, count, color = "#F5A623" }: { icon: React.ReactNode; label: string; count?: number; color?: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
@@ -524,8 +549,16 @@ function InstitutionProfilePageInner() {
   // garantit pas" varie selon paidServicesActifs (paiement/remboursement
   // n'a de sens que s'il y a un service payant).
   const [garantieSheetOpen, setGarantieSheetOpen] = useState(false);
+  // "Politique des avis" — plein écran dédié (pas un sheet, retour Bryan
+  // 17/10/2026 après vérification du contenu : "cet écran est trop
+  // important pour être un sheet") — même patron plein écran que l'overlay
+  // Avis lui-même (header grid 1fr auto 1fr, flèche retour), ouvert par
+  // l'icône d'aide de son header.
+  const [avisPolitiqueOpen, setAvisPolitiqueOpen] = useState(false);
   const prixFraisScroll = useSheetScrollThumb(prixFraisSheetOpen);
   const garantieScroll = useSheetScrollThumb(garantieSheetOpen);
+  const avisPolitiqueThumb = useSheetScrollThumb(avisPolitiqueOpen);
+  const [avisPolitiqueScrolled, setAvisPolitiqueScrolled] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
   const horairesRef = useRef<HTMLDivElement>(null);
   const servicesRef = useRef<HTMLDivElement>(null);
@@ -558,6 +591,11 @@ function InstitutionProfilePageInner() {
   const [likesCount, setLikesCount] = useState<Record<string, number>>({});
   const [mesLikes, setMesLikes] = useState<Set<string>>(new Set());
   const [mesUtile, setMesUtile] = useState<Set<string>>(new Set());
+  // Feedback "cette réponse vous a-t-elle aidé ?" (05/10/2026) — Map id →
+  // vote déjà casté par le citoyen (true/false), absent = pas encore voté.
+  const [mesReponseAvisUtile, setMesReponseAvisUtile] = useState<Map<string, boolean>>(new Map());
+  const [mesReponseQuestionUtile, setMesReponseQuestionUtile] = useState<Map<string, boolean>>(new Map());
+  const [reponseVoteEnCours, setReponseVoteEnCours] = useState<Set<string>>(new Set());
   // Chantier Favoris citoyen (18/07/2026)
   const [estFavori, setEstFavori] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -969,6 +1007,18 @@ function InstitutionProfilePageInner() {
         .order("created_at", { ascending: false });
       setQuestions(questionsData ?? []);
 
+      // Feedback "cette réponse vous a-t-elle aidé ?" (05/10/2026) — même
+      // principe que pour les avis ci-dessus. On récupère le viewer ici
+      // (pas via l'état citoyenId, fixé par un effet séparé et pas encore
+      // forcément résolu à ce stade) ; RLS restreint déjà à ses propres
+      // votes (question_reponse_utile_read_own).
+      const { data: { user: viewerQuestions } } = await supabase.auth.getUser();
+      const mesQuestionsIds = viewerQuestions ? (questionsData ?? []).filter(q => q.citoyen_id === viewerQuestions.id).map(q => q.id) : [];
+      if (mesQuestionsIds.length > 0) {
+        const { data: reponseUtileData } = await supabase.from("question_reponse_utile").select("question_id, utile").in("question_id", mesQuestionsIds);
+        setMesReponseQuestionUtile(new Map((reponseUtileData ?? []).map((r: { question_id: string; utile: boolean }) => [r.question_id, r.utile])));
+      }
+
       // Lot E1 (engagement citoyen, 16/07/2026) — une vue = un chargement de la
       // fiche pour une annonce donnée, dédoublonné par sessionStorage pour ne
       // pas gonfler le compteur à chaque refresh. citoyen_id = session Supabase
@@ -1040,11 +1090,19 @@ function InstitutionProfilePageInner() {
       if (avisVisibles.length > 0) {
         // Récupérer les noms des citoyens
         const ids = [...new Set(avisVisibles.map((a: AvisRow) => a.citoyen_id).filter(Boolean))];
+        // Correctif sécurité (Mission 01 audit RLS, 18/10/2026) : phone
+        // retiré du select — fiche publique accessible sans authentification,
+        // RLS (citoyen_own_profile) bloquait déjà la lecture du téléphone
+        // d'un autre citoyen au moment de l'audit, mais ce select n'avait
+        // aucune raison de demander la colonne : défense en profondeur,
+        // même discipline que le correctif institutions ci-dessus.
         const { data: usersData } = await supabase
-          .from("users").select("id,nom,prenom,phone").in("id", ids);
+          .from("users").select("id,nom,prenom,photo_url").in("id", ids);
         const uMap: Record<string, string> = {};
-        (usersData ?? []).forEach((u: { id: string; nom: string | null; prenom: string | null; phone: string | null }) => {
-          uMap[u.id] = [u.prenom, u.nom].filter(Boolean).join(" ") || u.phone || "Citoyen";
+        const photoMap: Record<string, string | null> = {};
+        (usersData ?? []).forEach((u: { id: string; nom: string | null; prenom: string | null; photo_url: string | null }) => {
+          uMap[u.id] = [u.prenom, u.nom].filter(Boolean).join(" ") || "Citoyen";
+          photoMap[u.id] = u.photo_url;
         });
 
         // Vérifier quels citoyens ont un RDV effectué/confirmé pour le badge
@@ -1064,6 +1122,14 @@ function InstitutionProfilePageInner() {
         const { data: { user: viewerUser } } = await supabase.auth.getUser();
         setMesUtile(new Set((utileData ?? []).filter((u: { avis_id: string; citoyen_id: string | null }) => u.citoyen_id === viewerUser?.id).map((u: { avis_id: string; citoyen_id: string | null }) => u.avis_id)));
 
+        // Feedback "cette réponse vous a-t-elle aidé ?" (05/10/2026) — RLS
+        // (avis_reponse_utile_read_own) ne renvoie de toute façon que les
+        // votes du citoyen connecté, filtre .in() juste pour limiter au scope.
+        if (viewerUser) {
+          const { data: reponseUtileData } = await supabase.from("avis_reponse_utile").select("avis_id, utile").in("avis_id", avisIds);
+          setMesReponseAvisUtile(new Map((reponseUtileData ?? []).map((r: { avis_id: string; utile: boolean }) => [r.avis_id, r.utile])));
+        }
+
         setAvis(avisVisibles.map((a: AvisRow) => ({
           id: a.id,
           citoyen_id: a.citoyen_id,
@@ -1074,6 +1140,7 @@ function InstitutionProfilePageInner() {
           reponse_le: a.reponse_le,
           created_at: a.created_at,
           nom: uMap[a.citoyen_id] || "Citoyen",
+          photo_url: photoMap[a.citoyen_id] ?? null,
           rdv_confirmed: citoyensVerifies.has(a.citoyen_id),
           utile_count: utileCountMap[a.id] ?? 0,
         })));
@@ -1187,6 +1254,26 @@ function InstitutionProfilePageInner() {
       setMesUtile(prev => { const s = new Set(prev); if (wasUtile) s.add(a.id); else s.delete(a.id); return s; });
       setAvis(prev => prev.map(x => x.id === a.id ? { ...x, utile_count: Math.max(0, x.utile_count + (wasUtile ? 1 : -1)) } : x));
     }
+  };
+
+  // Feedback "cette réponse vous a-t-elle aidé ?" (05/10/2026) — réservé à
+  // l'auteur de l'avis/de la question (seul concerné par la question
+  // posée), un seul vote définitif (UNIQUE avis_id/question_id+citoyen_id
+  // côté DB, jamais de retour en arrière proposé côté UI).
+  const voterReponseAvisUtile = async (avisId: string, utile: boolean) => {
+    if (!citoyenId || reponseVoteEnCours.has(avisId)) return;
+    setReponseVoteEnCours(prev => new Set(prev).add(avisId));
+    const { error } = await supabase.from("avis_reponse_utile").insert({ avis_id: avisId, citoyen_id: citoyenId, utile });
+    if (!error) setMesReponseAvisUtile(prev => new Map(prev).set(avisId, utile));
+    setReponseVoteEnCours(prev => { const s = new Set(prev); s.delete(avisId); return s; });
+  };
+
+  const voterReponseQuestionUtile = async (questionId: string, utile: boolean) => {
+    if (!citoyenId || reponseVoteEnCours.has(questionId)) return;
+    setReponseVoteEnCours(prev => new Set(prev).add(questionId));
+    const { error } = await supabase.from("question_reponse_utile").insert({ question_id: questionId, citoyen_id: citoyenId, utile });
+    if (!error) setMesReponseQuestionUtile(prev => new Map(prev).set(questionId, utile));
+    setReponseVoteEnCours(prev => { const s = new Set(prev); s.delete(questionId); return s; });
   };
 
   // Lot E2 (engagement citoyen, 16/07/2026) — insert/delete direct, RLS
@@ -2200,7 +2287,7 @@ function InstitutionProfilePageInner() {
         <div style={{ marginTop: "24px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "14px" }}>
             <h3 style={{ color: C.text, fontSize: "18px", fontWeight: "900", letterSpacing: "-0.3px", margin: 0 }}>Avis</h3>
-            <button onClick={() => setReviewsOpen(true)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", backgroundColor: "#F5A623", border: "none", borderRadius: "20px", padding: "8px 14px", color: "#080812", fontSize: "12.5px", fontWeight: "800", cursor: "pointer", flexShrink: 0 }}>
+            <button onClick={() => setReviewsOpen(true)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "20px", padding: "8px 14px", color: C.text, fontSize: "12.5px", fontWeight: "800", cursor: "pointer", flexShrink: 0 }}>
               {nbAvis > 0 ? `Voir les ${nbAvis} avis détaillés` : "Soyez le premier à laisser un avis"}
               <Icons.Chevron/>
             </button>
@@ -2237,9 +2324,15 @@ function InstitutionProfilePageInner() {
             return (
               <div style={{ backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "14px", padding: "14px 15px", marginBottom: "14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "9px", marginBottom: "8px" }}>
-                  <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
-                    {avisRepondu.nom.slice(0, 2).toUpperCase()}
-                  </div>
+                  {avisRepondu.photo_url ? (
+                    <div style={{ position: "relative", width: "32px", height: "32px", borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
+                      <Image src={avisRepondu.photo_url} alt="" fill sizes="32px" style={{ objectFit: "cover" }}/>
+                    </div>
+                  ) : (
+                    <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
+                      {avisRepondu.nom.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
                   <div>
                     <span style={{ color: C.text, fontSize: "13px", fontWeight: "800" }}>{avisRepondu.nom}</span>
                     <Stars note={avisRepondu.note} size={11} isDark={isDark}/>
@@ -2253,6 +2346,14 @@ function InstitutionProfilePageInner() {
                     {inst.name}{avisRepondu.reponse_le ? ` · ${new Date(avisRepondu.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}
                   </div>
                   <div style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.5 }}>{avisRepondu.reponse_institution}</div>
+                  {avisRepondu.citoyen_id === citoyenId && (
+                    <ReponseUtileFeedback
+                      voted={mesReponseAvisUtile.get(avisRepondu.id) ?? null}
+                      onVote={(utile) => voterReponseAvisUtile(avisRepondu.id, utile)}
+                      disabled={reponseVoteEnCours.has(avisRepondu.id)}
+                      textColor={C.text} mutedColor={C.textSubtle} borderColor={C.borderCard}
+                    />
+                  )}
                 </div>
               </div>
             );
@@ -2282,6 +2383,14 @@ function InstitutionProfilePageInner() {
                   Réponse de l&apos;établissement{questionVedette.reponse_le ? ` · ${new Date(questionVedette.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}
                 </div>
                 <p style={{ color: C.textMuted, fontSize: "13px", margin: 0, lineHeight: 1.6 }}>{questionVedette.reponse}</p>
+                {questionVedette.citoyen_id === citoyenId && (
+                  <ReponseUtileFeedback
+                    voted={mesReponseQuestionUtile.get(questionVedette.id) ?? null}
+                    onVote={(utile) => voterReponseQuestionUtile(questionVedette.id, utile)}
+                    disabled={reponseVoteEnCours.has(questionVedette.id)}
+                    textColor={C.text} mutedColor={C.textSubtle} borderColor={C.borderCard}
+                  />
+                )}
               </div>
             ) : (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "12px 15px" }}>
@@ -2300,7 +2409,7 @@ function InstitutionProfilePageInner() {
                   <span style={{ flexShrink: 0, display: "flex" }}><Icons.Chevron/></span>
                 </button>
               )}
-              <button onClick={ouvrirPoserQuestion} className="tap" style={{ display: "inline-flex", backgroundColor: "#F5A623", color: "#080812", border: "none", borderRadius: "12px", padding: "12px 18px", fontSize: "13px", fontWeight: "800", cursor: "pointer", boxShadow: "0 6px 20px rgba(245,166,35,0.35)", flexShrink: 0, whiteSpace: "nowrap" }}>
+              <button onClick={ouvrirPoserQuestion} className="tap" style={{ display: "inline-flex", backgroundColor: C.cardBg, color: C.text, border: `1px solid ${C.borderCard}`, borderRadius: "20px", padding: "12px 18px", fontSize: "13px", fontWeight: "800", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>
                 Poser une question
               </button>
             </div>
@@ -2459,8 +2568,14 @@ function InstitutionProfilePageInner() {
               <button onClick={() => { setReviewsOpen(false); setReviewsScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
-              <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Avis</div>
-              <div/>
+              <div style={{ color: C.text, fontSize: "14px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "220px" }}>Avis &amp; {inst.name}</div>
+              {/* Remplace le bandeau fixe "Seuls les citoyens ayant
+                  effectué un rendez-vous peuvent laisser un avis" — même
+                  règle, déplacée dans un plein écran dédié (avisPolitiqueOpen
+                  ci-dessous) pour ne pas occuper d'espace permanent. */}
+              <button onClick={() => setAvisPolitiqueOpen(true)} className="tap" aria-label="Politique des avis" style={{ justifySelf: "end", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 1 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </button>
             </div>
           </header>
 
@@ -2491,60 +2606,76 @@ function InstitutionProfilePageInner() {
               </div>
             </div>
 
-            {/* Info politique */}
-            <div style={{ background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${C.borderCard}`, borderRadius: "12px", padding: "11px 13px", display: "flex", alignItems: "flex-start", gap: "8px" }}>
-              <span style={{ color: "#3b82f6", flexShrink: 0 }}><Icons.Lock /></span>
-              <span style={{ color: C.textSubtle, fontSize: "11px", lineHeight: 1.55 }}>Seuls les citoyens ayant effectué un rendez-vous peuvent laisser un avis. Les avis vérifiés sont marqués d&apos;un badge.</span>
-            </div>
-
-            {/* ✅ Liste des avis — tous affichés */}
+            {/* ✅ Liste des avis — tous affichés, façon Airbnb (retour Bryan
+                17/10/2026 : "rendre les avis en natif", plus de carte par
+                avis — une liste séparée par des lignes). Réponse de
+                l'établissement : fond doré Yelen retiré, remplacé par une
+                simple citation indentée (filet gris + texte), même logique
+                que la citation du commentaire — jamais un bloc de couleur
+                de marque pour du contenu qui n'est pas un CTA. */}
             {avis.length > 0 ? (
-              avis.map((a, i) => (
-                <div key={a.id} style={{ backgroundColor: C.cardBg, borderRadius: "14px", padding: "14px 15px", animation: `fadeUp 0.2s ease ${i * 0.04}s both` }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-                      <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
-                        {a.nom.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span style={{ color: C.text, fontSize: "13px", fontWeight: "800" }}>{a.nom}</span>
-                          {/* Badge vérifié si le citoyen a un RDV confirmé */}
-                          {a.rdv_confirmed && (
-                            <span style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", color: "#22c55e", fontSize: "9px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px", display: "inline-flex", alignItems: "center", gap: "2px" }}>
-                              {Icons.Check()} Vérifié
-                            </span>
-                          )}
+              <div>
+                {avis.map((a, i) => (
+                  <div key={a.id} style={{ padding: i === 0 ? "0 0 20px" : "20px 0", borderTop: i === 0 ? "none" : `1px solid ${C.borderCard}`, animation: `fadeUp 0.2s ease ${i * 0.04}s both` }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+                        {a.photo_url ? (
+                          <div style={{ position: "relative", width: "36px", height: "36px", borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
+                            <Image src={a.photo_url} alt="" fill sizes="36px" style={{ objectFit: "cover" }}/>
+                          </div>
+                        ) : (
+                          <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", color: "#080812", flexShrink: 0 }}>
+                            {a.nom.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{ color: C.text, fontSize: "13px", fontWeight: "800" }}>{a.nom}</span>
+                            {/* Badge vérifié si le citoyen a un RDV confirmé */}
+                            {a.rdv_confirmed && (
+                              <span style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", color: "#22c55e", fontSize: "9px", fontWeight: "800", padding: "1px 6px", borderRadius: "10px", display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                                {Icons.Check()} Vérifié
+                              </span>
+                            )}
+                          </div>
+                          <Stars note={a.note} size={11} isDark={isDark}/>
                         </div>
-                        <Stars note={a.note} size={11} isDark={isDark}/>
                       </div>
+                      <span style={{ color: C.textSubtle, fontSize: "10px", flexShrink: 0 }}>
+                        {new Date(a.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}
+                      </span>
                     </div>
-                    <span style={{ color: C.textSubtle, fontSize: "10px", flexShrink: 0 }}>
-                      {new Date(a.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}
-                    </span>
+                    {a.titre && <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", marginBottom: "3px" }}>{a.titre}</div>}
+                    {a.commentaire && (
+                      <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: "0 0 8px", fontStyle: "italic" }}>&quot;{a.commentaire}&quot;</p>
+                    )}
+
+                    {a.reponse_institution && (
+                      <div style={{ borderLeft: `2px solid ${C.borderCard}`, paddingLeft: "12px", margin: "10px 0" }}>
+                        <div style={{ color: C.text, fontSize: "10.5px", fontWeight: "800", marginBottom: "3px" }}>
+                          Réponse de {inst.name}{a.reponse_le ? ` · ${new Date(a.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
+                        </div>
+                        <div style={{ color: C.textMuted, fontSize: "12px", lineHeight: 1.5 }}>{a.reponse_institution}</div>
+                      </div>
+                    )}
+
+                    {a.citoyen_id !== citoyenId && (
+                      <button onClick={() => handleToggleUtile(a)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: mesUtile.has(a.id) ? "rgba(34,197,94,0.1)" : "transparent", border: `1px solid ${mesUtile.has(a.id) ? "rgba(34,197,94,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer" }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill={mesUtile.has(a.id) ? "#22c55e" : "none"} stroke={mesUtile.has(a.id) ? "#22c55e" : C.textSubtle} strokeWidth="2" strokeLinecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                        <span style={{ color: mesUtile.has(a.id) ? "#22c55e" : C.textSubtle, fontSize: "11px", fontWeight: "700" }}>Utile{a.utile_count > 0 ? ` (${a.utile_count})` : ""}</span>
+                      </button>
+                    )}
+                    {a.citoyen_id === citoyenId && a.reponse_institution && (
+                      <ReponseUtileFeedback
+                        voted={mesReponseAvisUtile.get(a.id) ?? null}
+                        onVote={(utile) => voterReponseAvisUtile(a.id, utile)}
+                        disabled={reponseVoteEnCours.has(a.id)}
+                        textColor={C.text} mutedColor={C.textSubtle} borderColor={C.borderCard}
+                      />
+                    )}
                   </div>
-                  {a.titre && <div style={{ color: C.text, fontSize: "13px", fontWeight: "700", marginBottom: "3px" }}>{a.titre}</div>}
-                  {a.commentaire && (
-                    <p style={{ color: C.textMuted, fontSize: "12.5px", lineHeight: 1.65, margin: "0 0 8px", fontStyle: "italic" }}>&quot;{a.commentaire}&quot;</p>
-                  )}
-
-                  {a.reponse_institution && (
-                    <div style={{ background: "#F5A623", borderRadius: "10px", padding: "8px 10px", marginBottom: "8px" }}>
-                      <div style={{ color: "#080812", fontSize: "10.5px", fontWeight: "800", marginBottom: "3px" }}>
-                        {inst.name}{a.reponse_le ? ` · ${new Date(a.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
-                      </div>
-                      <div style={{ color: "#080812", fontSize: "12px", lineHeight: 1.5 }}>{a.reponse_institution}</div>
-                    </div>
-                  )}
-
-                  {a.citoyen_id !== citoyenId && (
-                    <button onClick={() => handleToggleUtile(a)} className="tap" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: mesUtile.has(a.id) ? "rgba(34,197,94,0.1)" : "transparent", border: `1px solid ${mesUtile.has(a.id) ? "rgba(34,197,94,0.3)" : C.borderCard}`, borderRadius: "20px", padding: "5px 12px", cursor: "pointer" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill={mesUtile.has(a.id) ? "#22c55e" : "none"} stroke={mesUtile.has(a.id) ? "#22c55e" : C.textSubtle} strokeWidth="2" strokeLinecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
-                      <span style={{ color: mesUtile.has(a.id) ? "#22c55e" : C.textSubtle, fontSize: "11px", fontWeight: "700" }}>Utile{a.utile_count > 0 ? ` (${a.utile_count})` : ""}</span>
-                    </button>
-                  )}
-                </div>
-              ))
+                ))}
+              </div>
             ) : (
               <div style={{ backgroundColor: C.cardBg, borderRadius: "16px", padding: "40px 20px", textAlign: "center" }}>
                 <div style={{ color: C.textSubtle, marginBottom: "10px", display: "flex", justifyContent: "center" }}>{Icons.Star(false)}</div>
@@ -2556,6 +2687,80 @@ function InstitutionProfilePageInner() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════
+          POLITIQUE DES AVIS — plein écran dédié (retour Bryan 17/10/2026 :
+          "cet écran est trop important pour être un sheet", contenu déjà
+          vérifié). Même patron que l'overlay Avis lui-même (header grid
+          1fr auto 1fr, flèche retour, pas de bouton X façon modale) plutôt
+          que le patron sheet "Prix & frais"/"Garantie". Contenu inchangé :
+          explicite sur la règle, sa raison d'être, et la responsabilité du
+          citoyen qui publie — renvoi vers les CGU (section 5.3, déjà en
+          place) pour la base contractuelle réelle.
+      ══════════════════════════════════════════════════════ */}
+      {avisPolitiqueOpen && (() => {
+        const bullets: { icon: React.ReactNode; titre: string; texte: React.ReactNode }[] = [
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+            titre: "Qui peut laisser un avis",
+            texte: <>Pour noter {inst.name}, vous devez avoir pris au moins un rendez-vous avec cet établissement via Yelen. Il n&apos;est pas possible de laisser un avis sans être passé par une réservation réelle sur la plateforme.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>,
+            titre: "Le badge « Vérifié » n&apos;est jamais déclaratif",
+            texte: <>Il est attribué automatiquement par notre système dès que votre rendez-vous est confirmé dans votre historique — jamais par une case à cocher ni une déclaration de votre part. Personne ne peut l&apos;obtenir autrement.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
+            titre: "Pourquoi cette règle existe",
+            texte: <>Elle protège la fiabilité des avis sur Yelen : pas d&apos;avis achetés, pas d&apos;attaque d&apos;un concurrent, pas de note sans rapport avec une expérience vécue. Chaque avis correspond à un rendez-vous qui a réellement eu lieu.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
+            titre: "Un établissement ne peut jamais acheter ni manipuler ses avis",
+            texte: <>Aucun établissement ne peut publier un avis sur lui-même, modifier la note ou le commentaire d&apos;un citoyen, supprimer un avis qui lui déplaît, ou proposer une contrepartie (remise, cadeau, service) en échange d&apos;un avis positif. Il peut uniquement publier une réponse publique, clairement identifiée comme venant de l&apos;établissement — jamais se substituer à l&apos;avis du citoyen. La note moyenne affichée est calculée automatiquement à partir des avis réels, sans intervention manuelle possible, y compris par Yelen. Toute tentative de contournement constitue une violation de nos{" "}
+              <Link href="/cgu#acces-compte" style={{ color: "#F5A623", fontWeight: 700, textDecoration: "underline" }}>Conditions Générales d&apos;Utilisation</Link>{" "}
+              et peut entraîner la suspension du compte.</>,
+          },
+          {
+            icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>,
+            titre: "Le contenu d&apos;un avis reste sous votre responsabilité",
+            texte: <>Vous restez seul responsable de ce que vous publiez. Un avis frauduleux, diffamatoire ou sans rapport avec les faits peut être signalé puis retiré par Yelen, conformément à l&apos;article{" "}
+              <Link href="/cgu#obligations" style={{ color: "#F5A623", fontWeight: 700, textDecoration: "underline" }}>5.3 de nos Conditions Générales d&apos;Utilisation</Link>.</>,
+          },
+        ];
+        return (
+          <div ref={avisPolitiqueThumb.ref} onScroll={e => { setAvisPolitiqueScrolled(e.currentTarget.scrollTop > 4); avisPolitiqueThumb.onScroll(); }} style={{ position: "fixed", inset: 0, zIndex: 500, backgroundColor: C.pageBg, overflowY: "auto" }}>
+            <ScrollThumbBar thumb={avisPolitiqueThumb} isDark={isDark}/>
+            <header style={{ position: "sticky", top: 0, zIndex: 10, background: C.pageBg, borderBottom: avisPolitiqueScrolled ? `1px solid ${C.borderCard}` : "1px solid transparent", transition: "border-color 0.2s ease", padding: "env(safe-area-inset-top) 16px 0" }}>
+              <div style={{ height: "52px", display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center" }}>
+                <button onClick={() => { setAvisPolitiqueOpen(false); setAvisPolitiqueScrolled(false); }} className="tap" aria-label="Retour" style={{ justifySelf: "start", background: "none", border: "none", padding: 0, display: "flex", color: C.text, cursor: "pointer" }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <div style={{ color: C.text, fontSize: "14px", fontWeight: "800" }}>Politique des avis</div>
+                <div/>
+              </div>
+            </header>
+
+            <div style={{ padding: "16px 20px 40px", maxWidth: "560px", margin: "0 auto" }}>
+              <h1 style={{ color: C.text, fontSize: "19px", fontWeight: "900", lineHeight: 1.3, margin: "0 0 6px" }}>Politique des avis</h1>
+              <p style={{ color: C.textSubtle, fontSize: "13px", lineHeight: 1.6, margin: "0 0 24px" }}>La règle qui garantit que chaque avis reflète une expérience réelle.</p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+                {bullets.map(b => (
+                  <div key={b.titre} style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
+                    <span style={{ display: "flex", flexShrink: 0, marginTop: "2px", color: C.text }}>{b.icon}</span>
+                    <div>
+                      <div style={{ color: C.text, fontSize: "14.5px", fontWeight: "800", marginBottom: "4px" }}>{b.titre}</div>
+                      <p style={{ color: C.textMuted, fontSize: "13.5px", lineHeight: 1.7, margin: 0 }}>{b.texte}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ══════════════════════════════════════════════════════
           COMMENTAIRES ANNONCE — plein écran (même logique que l'overlay
@@ -3030,6 +3235,14 @@ function InstitutionProfilePageInner() {
                       Réponse de l&apos;établissement{q.reponse_le ? ` · ${new Date(q.reponse_le).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}` : ""}
                     </div>
                     <p style={{ color: C.textMuted, fontSize: "13px", margin: 0, lineHeight: 1.6 }}>{q.reponse}</p>
+                    {q.citoyen_id === citoyenId && (
+                      <ReponseUtileFeedback
+                        voted={mesReponseQuestionUtile.get(q.id) ?? null}
+                        onVote={(utile) => voterReponseQuestionUtile(q.id, utile)}
+                        disabled={reponseVoteEnCours.has(q.id)}
+                        textColor={C.text} mutedColor={C.textSubtle} borderColor={C.borderCard}
+                      />
+                    )}
                   </div>
                 </div>
               ))}

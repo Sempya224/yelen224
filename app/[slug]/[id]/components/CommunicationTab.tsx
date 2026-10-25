@@ -26,12 +26,18 @@
 // conservées telles quelles, hors périmètre de ce chantier).
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/components/ThemeProvider";
 import { YelenLoader } from "@/components/YelenLoader";
 import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "./FormField";
+import { TeamTabs } from "./equipe/TeamTabs";
+import { CommunicationHeader } from "./communication/CommunicationHeader";
+import { AnnouncementStats } from "./communication/AnnouncementStats";
+import { AnnouncementToolbar } from "./communication/AnnouncementToolbar";
+import { AnnouncementCard } from "./communication/AnnouncementCard";
 
 // Statistiques V2 (17/09/2026, brief CEO) — réponse de
 // /api/institution/annonces/stats. "Clics"/"Ouvertures"/"Sources de
@@ -86,7 +92,7 @@ const TYPES = (C: ThemeTokens) => [
 // liseré de carte) : ce sont des usages de catégorisation, pas des cadres
 // de statut passifs.
 function typeBadgeStyle(typeId: string, C: ThemeTokens): { bg: string; border: string; color: string } {
-  if (typeId === "urgent") return { bg: C.gold, border: C.gold, color: "#080812" };
+  if (typeId === "urgent") return { bg: `${C.red}14`, border: `${C.red}40`, color: C.red };
   return { bg: C.bg3, border: C.border2, color: C.t2 };
 }
 
@@ -128,9 +134,9 @@ const TEMPLATES: Record<string, { titre: string; contenu: string }[]> = {
 // l'attention (ex. le bandeau d'expiration plus bas). Aucun de ces 5
 // statuts n'est un état d'erreur — rien ici ne justifie une couleur dédiée.
 const STATUT_CFG = (C: ThemeTokens): Record<string, { label: string; color: string; bg: string }> => ({
-  publiee:   { label: "Active",     color: C.t2, bg: C.bg3 },
-  brouillon: { label: "Brouillon",  color: C.t2, bg: C.bg3 },
-  planifiee: { label: "Programmée", color: C.t2, bg: C.bg3 },
+  publiee:   { label: "Active",     color: C.green,  bg: `${C.green}1a` },
+  brouillon: { label: "Brouillon",  color: C.orange, bg: `${C.orange}1a` },
+  planifiee: { label: "Programmée", color: C.blue,   bg: `${C.blue}1a` },
   terminee:  { label: "Terminée",   color: C.t3, bg: C.bg3 },
   archivee:  { label: "Archivée",   color: C.t3, bg: C.bg3 },
 });
@@ -172,8 +178,8 @@ const inputStyle = (C: ThemeTokens): React.CSSProperties => ({
   borderRadius: "10px", padding: "11px 14px", color: C.t1, fontSize: "14px", fontFamily: "inherit",
 });
 const labelStyle = (C: ThemeTokens): React.CSSProperties => ({
-  color: C.t3, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em",
-  display: "block", marginBottom: "7px", fontWeight: "600",
+  color: C.t1, fontSize: "13px",
+  display: "block", marginBottom: "6px", fontWeight: "500",
 });
 
 const PAGE_SIZE = 8;
@@ -202,27 +208,6 @@ function IconFormat({ format, color }: { format: string; color: string }) {
   if (format === "pdf") return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
   if (format === "carrousel") return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="6" width="14" height="14" rx="2"/><path d="M20 4v14"/></svg>;
   return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>;
-}
-
-function Thumbnail({ a, C }: { a: Annonce; C: ThemeTokens }) {
-  const videoSrc = a.format === "video" ? a.media_urls?.[0] : null;
-  return (
-    <div style={{ width: "132px", height: "96px", borderRadius: "14px", overflow: "hidden", flexShrink: 0, backgroundColor: C.bg3, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      {a.image_url ? (
-        <Image src={a.image_url} fill sizes="132px" style={{ objectFit: "cover" }} alt=""/>
-      ) : videoSrc ? (
-        <video src={videoSrc} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted playsInline/>
-      ) : (
-        <IconFormat format={a.format} color={C.t3}/>
-      )}
-      {a.epingle && (
-        <div style={{ position: "absolute", top: "6px", left: "6px", backgroundColor: C.gold, borderRadius: "6px", padding: "2px 6px", fontSize: "9px", fontWeight: "800", color: "#000" }}>ÉPINGLÉE</div>
-      )}
-      {a.format === "carrousel" && (a.media_urls?.length ?? 0) > 1 && (
-        <div style={{ position: "absolute", top: "6px", right: "6px", backgroundColor: "rgba(0,0,0,0.6)", borderRadius: "6px", padding: "2px 6px", fontSize: "9px", fontWeight: "800", color: "#fff" }}>×{a.media_urls!.length}</div>
-      )}
-    </div>
-  );
 }
 
 function AnnonceImageCarousel({ images, height, dotActiveColor, dotInactiveColor = "rgba(255,255,255,0.45)" }:
@@ -267,8 +252,8 @@ function AnnonceImageCarousel({ images, height, dotActiveColor, dotInactiveColor
 // qui laisserait croire à une stagnation mesurée.
 function StatsKpiTile({ C, label, value, deltaPct, sub }: { C: ThemeTokens; label: string; value: string; deltaPct?: number | null; sub?: string }) {
   return (
-    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "16px" }}>
-      <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 8px" }}>{label}</p>
+    <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "16px" }}>
+      <p style={{ color: C.t3, fontSize: "13px", fontWeight: "500", margin: "0 0 8px" }}>{label}</p>
       <p style={{ color: C.t1, fontSize: "24px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{value}</p>
       {deltaPct !== undefined && (
         deltaPct === null ? (
@@ -323,7 +308,19 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
   const [institution, setInstitution] = useState<{ name: string; category: string; logo: string | null } | null>(null);
   const [annonces, setAnnonces] = useState<Annonce[]>([]);
   const [loading, setLoading] = useState(true);
-  const [innerTab, setInnerTab] = useState<"liste" | "creer" | "stats">("liste");
+  // Onglet actif représenté dans l'URL (?subtab=annonces|statistiques|creer)
+  // — même convention que Équipe, Analyse et Clock In Shift. setInnerTab
+  // garde sa signature : ses appels internes sont inchangés.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const rawSubtab = searchParams.get("subtab");
+  const innerTab: "liste" | "creer" | "stats" = rawSubtab === "statistiques" ? "stats" : rawSubtab === "creer" && canPublish ? "creer" : "liste";
+  const setInnerTab = useCallback((next: "liste" | "creer" | "stats") => {
+    const qp = new URLSearchParams(searchParams.toString());
+    qp.set("subtab", next === "stats" ? "statistiques" : next === "creer" ? "creer" : "annonces");
+    router.push(`${pathname}?${qp.toString()}`);
+  }, [searchParams, pathname, router]);
   const [saving, setSaving] = useState(false);
   const [notif, setNotif] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [statutFiltre, setStatutFiltre] = useState("tous");
@@ -718,7 +715,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                     <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", margin: 0 }}>{institution?.name || "Votre institution"}</p>
                     <p style={{ color: C.t3, fontSize: "10.5px", margin: "1px 0 0" }}>{fmt(previewAnnonce.created_at)}</p>
                   </div>
-                  <span style={{ backgroundColor: typeBadgeStyle(previewAnnonce.type, C).bg, color: typeBadgeStyle(previewAnnonce.type, C).color, fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{getType(previewAnnonce.type).label.toUpperCase()}</span>
+                  <span style={{ backgroundColor: typeBadgeStyle(previewAnnonce.type, C).bg, color: typeBadgeStyle(previewAnnonce.type, C).color, fontSize: "12px", fontWeight: "600", padding: "2px 9px", borderRadius: "12px" }}>{getType(previewAnnonce.type).label}</span>
                 </div>
                 <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 8px", lineHeight: 1.35 }}>{previewAnnonce.titre}</h3>
                 <p style={{ color: C.t2, fontSize: "12.5px", margin: 0, lineHeight: 1.65 }}>{previewAnnonce.contenu}</p>
@@ -750,7 +747,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               ].map(s => (
                 <div key={s.label} style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "12px 10px", textAlign: "center" }}>
                   <p style={{ color: s.color, fontSize: "18px", fontWeight: "800", margin: "0 0 4px" }}>{s.value}</p>
-                  <p style={{ color: C.t3, fontSize: "9px", fontWeight: "700", textTransform: "uppercase", margin: 0 }}>{s.label}</p>
+                  <p style={{ color: C.t3, fontSize: "12px", fontWeight: "500", margin: 0 }}>{s.label}</p>
                 </div>
               ))}
             </div>
@@ -764,47 +761,27 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px", flexWrap: "wrap", gap: "10px" }}>
-        <div style={{ display: "flex", gap: "0" }}>
-          {[
-            { id: "liste", label: `Annonces (${annonces.length})` },
-            { id: "stats", label: "Statistiques" },
-            ...(canPublish ? [{ id: "creer", label: editAnnonce ? "Modifier" : "Créer" }] : []),
-          ].map(t => (
-            <button key={t.id} onClick={() => { if (t.id !== "creer") resetForm(); setInnerTab(t.id as "liste" | "creer" | "stats"); }} className="tap" style={{ backgroundColor: innerTab === t.id ? C.gold : "transparent", border: "none", borderRadius: innerTab === t.id ? "10px" : 0, color: innerTab === t.id ? "#080812" : C.t3, fontSize: "12.5px", fontWeight: innerTab === t.id ? "700" : "500", padding: "10px 16px", cursor: "pointer" }}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        {innerTab !== "creer" && canPublish && (
-          <div style={{ position: "relative", display: "flex" }}>
-            <button onClick={() => { resetForm(); setInnerTab("creer"); }} className="tap" style={{ height: "32px", backgroundColor: C.gold, color: "#000", border: "none", borderTopLeftRadius: "10px", borderBottomLeftRadius: "10px", padding: "0 16px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
-              + Créer une annonce
-            </button>
-            <button onClick={() => setCreateMenuOpen(o => !o)} className="tap" style={{ height: "32px", backgroundColor: C.gold, color: "#000", border: "none", borderLeft: "1px solid rgba(0,0,0,0.15)", borderTopRightRadius: "10px", borderBottomRightRadius: "10px", padding: "0 10px", cursor: "pointer", display: "flex", alignItems: "center" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            {createMenuOpen && (
-              <>
-                <div onClick={() => setCreateMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 500 }}/>
-                <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", minWidth: "200px", overflow: "hidden" }}>
-                  <button onClick={() => { resetForm(); setInnerTab("creer"); setCreateMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Nouvelle annonce</button>
-                  <div style={{ height: "1px", backgroundColor: C.border }}/>
-                  <button onClick={() => ouvrirCreationRapide("information", TEMPLATES.information[0])} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Fermeture / horaire exceptionnel</button>
-                  <button onClick={() => ouvrirCreationRapide("offre", TEMPLATES.offre[0])} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Nouvelle promotion</button>
-                  <div style={{ height: "1px", backgroundColor: C.border }}/>
-                  <button onClick={() => { setPickerMode("dupliquer"); setCreateMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Dupliquer une annonce</button>
-                  <div style={{ height: "1px", backgroundColor: C.border }}/>
-                  <button onClick={() => { setPickerMode("brouillon"); setCreateMenuOpen(false); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "11px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Reprendre un brouillon</button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <CommunicationHeader
+        C={C} canPublish={canPublish && innerTab !== "creer"} menuOpen={createMenuOpen}
+        onToggleMenu={() => setCreateMenuOpen(o => !o)} onCloseMenu={() => setCreateMenuOpen(false)}
+        onNouvelle={() => { resetForm(); setInnerTab("creer"); setCreateMenuOpen(false); }}
+        onFermeture={() => ouvrirCreationRapide("information", TEMPLATES.information[0])}
+        onPromotion={() => ouvrirCreationRapide("offre", TEMPLATES.offre[0])}
+        onDupliquer={() => { setPickerMode("dupliquer"); setCreateMenuOpen(false); }}
+        onBrouillon={() => { setPickerMode("brouillon"); setCreateMenuOpen(false); }}
+      />
+      <TeamTabs
+        C={C} idPrefix="communication" ariaLabel="Sections de Communication" active={innerTab}
+        onChange={k => { if (k !== "creer") resetForm(); setInnerTab(k); }}
+        tabs={[
+          { key: "liste" as const, label: "Annonces", count: annonces.length },
+          { key: "stats" as const, label: "Statistiques" },
+          ...(canPublish ? [{ key: "creer" as const, label: editAnnonce ? "Modifier" : "Créer" }] : []),
+        ]}
+      />
 
       {innerTab === "liste" && (
-        <div>
+        <div role="tabpanel" id="communication-panel-liste" aria-labelledby="communication-tab-liste">
           {annoncesRecemmentExpirees.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
               {annoncesRecemmentExpirees.map(a => (
@@ -824,140 +801,62 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
             </div>
           )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", marginBottom: "22px" }}>
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
-              </div>
-              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Annonces actives</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{kpi.actives}</p>
-              <p style={{ color: C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>{kpi.actives > 0 ? "Visibles actuellement sur votre fiche" : "Aucune annonce publiée"}</p>
-            </div>
+          <AnnouncementStats C={C} items={[
+            { label: "Annonces actives", value: String(kpi.actives), sous: kpi.actives > 0 ? "Visibles actuellement sur votre fiche" : "Aucune annonce publiée",
+              icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg> },
+            { label: "Citoyens atteints", value: fmtCompact(kpi.portee), sous: "Toutes annonces confondues",
+              icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+            { label: "Vues", value: fmtCompact(kpi.vues), sous: "Consultations de vos annonces",
+              icon: <IconVoir color="currentColor"/> },
+            { label: "Interactions", value: fmtCompact(interactions), sous: `${kpi.likes} likes · ${kpi.commentaires} comm. · ${kpi.partages} partages · ${kpi.clics} clics`,
+              tooltip: `${kpi.likes} likes, ${kpi.commentaires} commentaires, ${kpi.partages} partages, ${kpi.clics} clics`,
+              icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> },
+          ]}/>
 
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              </div>
-              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Citoyens atteints</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(kpi.portee)}</p>
-              <p style={{ color: C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>Toutes annonces confondues</p>
-            </div>
-
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <IconVoir color={C.t2}/>
-              </div>
-              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Vues</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(kpi.vues)}</p>
-              <p style={{ color: C.t3, fontSize: "11px", fontWeight: "700", margin: 0 }}>Consultations de vos annonces</p>
-            </div>
-
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "20px", boxShadow: C.shadow }}>
-              <div style={{ width: "34px", height: "34px", borderRadius: "10px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-              </div>
-              <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", margin: "0 0 6px" }}>Interactions</p>
-              <p style={{ color: C.t1, fontSize: "26px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1 }}>{fmtCompact(interactions)}</p>
-              <p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>{kpi.likes} likes · {kpi.commentaires} comm. · {kpi.partages} partages · {kpi.clics} clics</p>
-            </div>
-          </div>
-
-          <div style={{ position: "relative", marginBottom: "14px" }}>
-            <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Rechercher une annonce…" style={{ ...inputStyle(C), paddingLeft: "36px" }}/>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round" style={{ position: "absolute", left: "13px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </div>
-
-          <div style={{ display: "flex", gap: "7px", marginBottom: "8px", overflowX: "auto" }}>
-            {STATUT_FILTRES.map(s => {
-              const active = statutFiltre === s.key;
-              const count = s.key === "tous" ? annonces.length : annonces.filter(a => realStatut(a) === s.key).length;
-              return (
-                <button key={s.key} onClick={() => setStatutFiltre(s.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? C.gold : C.bgCard, border: `1px solid ${active ? C.gold : C.border}`, borderRadius: "20px", padding: "7px 13px", color: active ? "#080812" : C.t2, fontSize: "11.5px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
-                  {s.label} <span style={{ marginLeft: "4px", fontSize: "9.5px", opacity: 0.8 }}>{count}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div style={{ display: "flex", gap: "7px", marginBottom: "18px", overflowX: "auto" }}>
-            {FORMAT_FILTRES.map(f => {
-              const active = formatFiltre === f.key;
-              return (
-                <button key={f.key} onClick={() => setFormatFiltre(f.key)} className="tap" style={{ flexShrink: 0, backgroundColor: active ? C.gold : C.bgCard, border: `1px solid ${active ? C.gold : C.border}`, borderRadius: "20px", padding: "6px 12px", color: active ? "#080812" : C.t3, fontSize: "11px", fontWeight: active ? 800 : 600, cursor: "pointer" }}>
-                  {f.label}
-                </button>
-              );
-            })}
-          </div>
+          <AnnouncementToolbar
+            C={C} search={searchQ} onSearch={setSearchQ}
+            statuts={STATUT_FILTRES.map(sf => ({ key: sf.key, label: sf.label, count: sf.key === "tous" ? annonces.length : annonces.filter(a => realStatut(a) === sf.key).length }))}
+            statut={statutFiltre} onStatut={setStatutFiltre}
+            formats={FORMAT_FILTRES} format={formatFiltre} onFormat={setFormatFiltre}
+            total={filtered.length}
+            resetVisible={statutFiltre !== "tous" || formatFiltre !== "tous" || searchQ !== ""}
+            onReset={() => { setStatutFiltre("tous"); setFormatFiltre("tous"); setSearchQ(""); }}
+          />
 
           {filtered.length === 0 ? (
-            <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "16px", padding: "48px 20px", textAlign: "center" }}>
-              <p style={{ color: C.t1, fontSize: "15px", fontWeight: "700", margin: "0 0 8px" }}>Aucune annonce trouvée</p>
-              <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 20px" }}>Commencez à communiquer avec vos clients.</p>
-              {canPublish && <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 22px" }} onClick={() => { resetForm(); setInnerTab("creer"); }}>Créer une annonce</Button>}
+            <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "12px", padding: "48px 20px", textAlign: "center" }}>
+              {annonces.length === 0 ? (
+                <>
+                  <p style={{ color: C.t1, fontSize: "16px", fontWeight: 600, margin: "0 0 4px" }}>Aucune annonce</p>
+                  <p style={{ color: C.t3, fontSize: "13px", margin: "0 0 16px" }}>Commencez à communiquer avec vos clients.</p>
+                  {canPublish && <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" onClick={() => { resetForm(); setInnerTab("creer"); }}>Créer une annonce</Button>}
+                </>
+              ) : (
+                <>
+                  <p style={{ color: C.t1, fontSize: "16px", fontWeight: 600, margin: "0 0 4px" }}>Aucun résultat</p>
+                  <p style={{ color: C.t3, fontSize: "13px", margin: "0 0 16px" }}>Aucune annonce ne correspond à ces critères.</p>
+                  <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => { setStatutFiltre("tous"); setFormatFiltre("tous"); setSearchQ(""); }}>Réinitialiser les filtres</Button>
+                </>
+              )}
             </div>
           ) : (
             <>
-              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                {paged.map(annonce => {
-                  const t = getType(annonce.type);
-                  const statCfg = STATUT_CFG(C)[realStatut(annonce)] || STATUT_CFG(C).publiee;
-                  const menuOpen = menuOpenId === annonce.id;
-                  return (
-                    <div key={annonce.id} style={{ backgroundColor: C.bgCard, border: `1px solid ${annonce.epingle ? C.gold + "40" : C.border}`, borderLeft: `4px solid ${annonce.epingle ? C.gold : t.color}`, borderRadius: "18px", padding: "18px 20px", display: "flex", gap: "18px", flexWrap: "wrap", opacity: realStatut(annonce) === "terminee" || realStatut(annonce) === "archivee" ? 0.7 : 1, animation: "fadeUp 0.2s ease", boxShadow: C.shadow }}>
-                      <Thumbnail a={annonce} C={C}/>
-
-                      <div style={{ flex: 1, minWidth: "220px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px", flexWrap: "wrap" }}>
-                          <span style={{ backgroundColor: typeBadgeStyle(annonce.type, C).bg, border: `1px solid ${typeBadgeStyle(annonce.type, C).border}`, color: typeBadgeStyle(annonce.type, C).color, fontSize: "9.5px", fontWeight: "800", padding: "3px 9px", borderRadius: "20px" }}>{t.label.toUpperCase()}</span>
-                          <span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "9.5px", fontWeight: "700", padding: "3px 9px", borderRadius: "20px" }}>{statCfg.label}</span>
-                          {annonce.regions_cibles && annonce.regions_cibles.length > 0 && <span style={{ backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t3, fontSize: "9.5px", fontWeight: "600", padding: "3px 9px", borderRadius: "20px" }}>{annonce.regions_cibles.length} région{annonce.regions_cibles.length > 1 ? "s" : ""}</span>}
-                        </div>
-                        <h3 style={{ color: C.t1, fontSize: "15px", fontWeight: "800", margin: "0 0 6px", lineHeight: 1.4 }}>{annonce.titre}</h3>
-                        <p style={{ color: C.t2, fontSize: "12.5px", margin: "0 0 8px", lineHeight: 1.65, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{annonce.contenu}</p>
-                        <p style={{ color: C.t3, fontSize: "10.5px", margin: "0 0 12px" }}>
-                          {FORMAT_LABELS[annonce.format] || annonce.format}
-                          {annonce.date_publication ? ` · Publié le ${fmt(annonce.date_publication)}` : ` · Créé le ${fmt(annonce.created_at)}`}
-                          {annonce.date_publication && ` · ${new Date(annonce.date_publication).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`}
-                          {annonce.date_expiration && ` · Expire le ${fmt(annonce.date_expiration)}`}
-                        </p>
-                        {annonce.format === "pdf" && annonce.media_urls?.[0] && (
-                          <a href={annonce.media_urls[0]} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: C.red, fontSize: "11.5px", fontWeight: "700", textDecoration: "none", marginBottom: "12px" }}>
-                            <IconFormat format="pdf" color={C.red}/> Ouvrir le PDF
-                          </a>
-                        )}
-                        <div style={{ display: "flex", gap: "18px", flexWrap: "wrap" }}>
-                          <div><span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{fmtCompact(annonce.portee)}</span><span style={{ color: C.t3, fontSize: "10px", marginLeft: "4px" }}>Portée</span></div>
-                          <div><span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{fmtCompact(annonce.nb_vues)}</span><span style={{ color: C.t3, fontSize: "10px", marginLeft: "4px" }}>Vues</span></div>
-                          <div><span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{fmtCompact(annonce.nb_likes + annonce.nb_commentaires + annonce.nb_partages)}</span><span style={{ color: C.t3, fontSize: "10px", marginLeft: "4px" }}>Interactions</span></div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", position: "relative" }}>
-                        <button onClick={() => setPreviewAnnonce(annonce)} className="tap" title="Voir" style={{ width: "34px", height: "34px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconVoir color={C.t2}/></button>
-                        <button onClick={() => setStatsAnnonce(annonce)} className="tap" title="Statistiques" style={{ width: "34px", height: "34px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconStats color={C.t2}/></button>
-                        {canPublish && <button onClick={() => setMenuOpenId(menuOpen ? null : annonce.id)} className="tap" title="Menu" style={{ width: "34px", height: "34px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconMenu color={C.t2}/></button>}
-                        {canPublish && menuOpen && (
-                          <>
-                            <div onClick={() => setMenuOpenId(null)} style={{ position: "fixed", inset: 0, zIndex: 500 }}/>
-                            <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 501, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "12px", boxShadow: "0 12px 32px rgba(0,0,0,0.25)", minWidth: "170px", overflow: "hidden" }}>
-                              <button onClick={() => { loadEditForm(annonce); setMenuOpenId(null); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Modifier</button>
-                              <div style={{ height: "1px", backgroundColor: C.border }}/>
-                              <button onClick={() => { handleDuplicate(annonce); setMenuOpenId(null); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Dupliquer</button>
-                              <div style={{ height: "1px", backgroundColor: C.border }}/>
-                              <button onClick={() => { loadEditForm(annonce); setMenuOpenId(null); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Programmer</button>
-                              <div style={{ height: "1px", backgroundColor: C.border }}/>
-                              <button onClick={() => { handleArchive(annonce); setMenuOpenId(null); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "none", border: "none", color: C.t1, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Archiver</button>
-                              <div style={{ height: "1px", backgroundColor: C.border }}/>
-                              <button onClick={() => { setDeleteId(annonce.id); setMenuOpenId(null); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "none", border: "none", color: C.red, fontSize: "12.5px", fontWeight: 700, cursor: "pointer" }}>Supprimer</button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {paged.map(annonce => (
+                  <AnnouncementCard
+                    key={annonce.id} C={C} annonce={annonce} typeLabel={getType(annonce.type).label} statut={realStatut(annonce)}
+                    canPublish={canPublish} menuOpen={menuOpenId === annonce.id}
+                    onToggleMenu={() => setMenuOpenId(menuOpenId === annonce.id ? null : annonce.id)} onCloseMenu={() => setMenuOpenId(null)}
+                    onVoir={() => setPreviewAnnonce(annonce)} onStats={() => setStatsAnnonce(annonce)}
+                    onModifier={() => { loadEditForm(annonce); setMenuOpenId(null); }}
+                    onDupliquer={() => { handleDuplicate(annonce); setMenuOpenId(null); }}
+                    onArchiver={() => { handleArchive(annonce); setMenuOpenId(null); }}
+                    onSupprimer={() => { setDeleteId(annonce.id); setMenuOpenId(null); }}
+                  />
+                ))}
               </div>
 
+              {totalPages <= 1 && <div style={{ marginTop: "12px", color: C.t3, fontSize: "12px" }}>1–{filtered.length} sur {filtered.length}</div>}
               {totalPages > 1 && (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginTop: "18px" }}>
                   <span style={{ color: C.t3, fontSize: "11.5px" }}>Affichage {(pageSafe - 1) * PAGE_SIZE + 1} à {Math.min(pageSafe * PAGE_SIZE, filtered.length)} sur {filtered.length}</span>
@@ -976,9 +875,9 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
       )}
 
       {innerTab === "stats" && (
-        <div style={{ animation: "fadeUp 0.2s ease" }}>
+        <div role="tabpanel" id="communication-panel-stats" aria-labelledby="communication-tab-stats" style={{ animation: "fadeUp 0.2s ease" }}>
           {annonces.length === 0 ? (
-            <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "16px", padding: "48px 20px", textAlign: "center" }}>
+            <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "12px", padding: "48px 20px", textAlign: "center" }}>
               <p style={{ color: C.t1, fontSize: "15px", fontWeight: "700", margin: "0 0 8px" }}>Commencez à mesurer votre présence</p>
               <p style={{ color: C.t2, fontSize: "13px", margin: "0 0 20px" }}>Créez votre première annonce pour informer vos clients et commencer à mesurer sa portée.</p>
               {canPublish && <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" style={{ padding: "0 22px" }} onClick={() => { resetForm(); setInnerTab("creer"); }}>+ Créer une annonce</Button>}
@@ -986,7 +885,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
           ) : statsLoading ? (
             <div style={{ display: "flex", justifyContent: "center", padding: "50px" }}><YelenLoader size={32}/></div>
           ) : statsErreur || !statsData ? (
-            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "36px 20px", textAlign: "center" }}>
+            <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "36px 20px", textAlign: "center" }}>
               <p style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 6px" }}>Impossible de charger les statistiques.</p>
               <p style={{ color: C.t2, fontSize: "12.5px", margin: "0 0 18px" }}>Vérifiez votre connexion puis réessayez.</p>
               <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => setStatsRecharge(k => k + 1)}>Réessayer</Button>
@@ -1019,7 +918,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               </div>
 
               {/* Évolution */}
-              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px", marginBottom: "18px" }}>
+              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "18px", marginBottom: "18px" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
                   <div>
                     <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 2px" }}>Évolution de vos performances</h3>
@@ -1035,7 +934,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               </div>
 
               {/* Engagement */}
-              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "16px", padding: "18px", marginBottom: "18px" }}>
+              <div style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "18px", marginBottom: "18px" }}>
                 <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 4px" }}>Comment les citoyens réagissent</h3>
                 <p style={{ color: C.t2, fontSize: "11.5px", margin: "0 0 16px" }}>Distingue ce qui est simplement vu de ce qui suscite une vraie réaction.</p>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "14px" }}>
@@ -1094,7 +993,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                       { titre: "Meilleur taux d'interaction", tri: (a: StatsAnnonceDetail, b: StatsAnnonceDetail) => (b.taux_interaction ?? 0) - (a.taux_interaction ?? 0), valeur: (a: StatsAnnonceDetail) => a.taux_interaction !== null ? `${a.taux_interaction.toFixed(1)} %` : "—" },
                     ]).map(col => (
                       <div key={col.titre} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "14px", padding: "16px" }}>
-                        <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", margin: "0 0 10px" }}>{col.titre}</p>
+                        <p style={{ color: C.t3, fontSize: "14px", fontWeight: 600, margin: "0 0 10px" }}>{col.titre}</p>
                         {[...statsData.annonces].filter(a => a.vues > 0).sort(col.tri).slice(0, 3).map((a, i) => (
                           <div key={a.id} onClick={() => setStatsDrawerId(a.id)} className="tap" style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 0", cursor: "pointer" }}>
                             <span style={{ color: C.t3, fontSize: "10px", fontWeight: 800, width: "14px", flexShrink: 0 }}>{i + 1}</span>
@@ -1118,7 +1017,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                     <thead>
                       <tr>
                         {["Annonce", "Type", "Vues", "Citoyens touchés", "Interactions", "Taux d'interaction", "Statut"].map(h => (
-                          <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                          <th key={h} style={{ padding: "9px 14px", textAlign: "left", color: C.t3, fontSize: "12px", fontWeight: "500", borderBottom: `1px solid ${C.border}` }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1129,12 +1028,12 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                         return (
                           <tr key={a.id} onClick={() => setStatsDrawerId(a.id)} className="tap" style={{ borderBottom: i < statsData.annonces.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
                             <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.titre}</td>
-                            <td style={{ padding: "11px 14px" }}><span style={{ backgroundColor: typeBadgeStyle(a.type, C).bg, color: typeBadgeStyle(a.type, C).color, fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>{t.label}</span></td>
+                            <td style={{ padding: "11px 14px" }}><span style={{ backgroundColor: typeBadgeStyle(a.type, C).bg, color: typeBadgeStyle(a.type, C).color, fontSize: "12px", fontWeight: "600", padding: "2px 9px", borderRadius: "12px" }}>{t.label}</span></td>
                             <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.vues}</td>
                             <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.citoyens_touches}</td>
                             <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.interactions}</td>
                             <td style={{ padding: "11px 14px", color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{a.taux_interaction !== null ? `${a.taux_interaction.toFixed(1)} %` : "—"}</td>
-                            <td style={{ padding: "11px 14px" }}><span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "10px", fontWeight: "700", padding: "2px 8px", borderRadius: "20px" }}>{statCfg.label}</span></td>
+                            <td style={{ padding: "11px 14px" }}><span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "12px", fontWeight: "600", padding: "2px 9px", borderRadius: "12px" }}>{statCfg.label}</span></td>
                           </tr>
                         );
                       })}
@@ -1160,7 +1059,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
               <div onClick={() => setStatsDrawerId(null)} style={{ position: "fixed", inset: 0, zIndex: 700, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", justifyContent: "flex-end" }}>
                 <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: "420px", height: "100%", backgroundColor: C.bgCard, borderLeft: `1px solid ${C.border2}`, overflowY: "auto", padding: "22px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-                    <span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "10.5px", fontWeight: "700", padding: "3px 9px", borderRadius: "20px" }}>{statCfg.label}</span>
+                    <span style={{ backgroundColor: statCfg.bg, color: statCfg.color, fontSize: "12px", fontWeight: "600", padding: "3px 10px", borderRadius: "12px" }}>{statCfg.label}</span>
                     <button onClick={() => setStatsDrawerId(null)} aria-label="Fermer" className="tap" style={{ width: "28px", height: "28px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", cursor: "pointer", color: C.t2 }}>×</button>
                   </div>
                   <h3 style={{ color: C.t1, fontSize: "16px", fontWeight: "800", margin: "0 0 12px" }}>{full.titre}</h3>
@@ -1172,7 +1071,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                     {full.date_expiration && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Visible jusqu&apos;au</span><span style={{ color: C.t1 }}>{fmt(full.date_expiration)}</span></div>}
                   </div>
 
-                  <p style={{ color: C.t3, fontSize: "10.5px", fontWeight: "800", textTransform: "uppercase", margin: "0 0 10px" }}>Performance sur la période sélectionnée</p>
+                  <p style={{ color: C.t1, fontSize: "16px", fontWeight: "600", margin: "0 0 10px" }}>Performance sur la période sélectionnée</p>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "10px", marginBottom: "20px" }}>
                     <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}><p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 2px" }}>{detail.vues}</p><p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>Vues</p></div>
                     <div style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px", textAlign: "center" }}><p style={{ color: C.t1, fontSize: "16px", fontWeight: 800, margin: "0 0 2px" }}>{detail.citoyens_touches}</p><p style={{ color: C.t3, fontSize: "10px", margin: 0 }}>Citoyens touchés</p></div>
@@ -1189,7 +1088,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
       )}
 
       {innerTab === "creer" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "24px", alignItems: "flex-start", animation: "fadeUp 0.2s ease" }}>
+        <div role="tabpanel" id="communication-panel-creer" aria-labelledby="communication-tab-creer" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "24px", alignItems: "flex-start", animation: "fadeUp 0.2s ease" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <div>
               <h2 style={{ color: C.t1, fontSize: "17px", fontWeight: "800", margin: "0 0 4px" }}>{editAnnonce ? "Modifier l'annonce" : "Nouvelle annonce"}</h2>
@@ -1424,7 +1323,7 @@ function AnnoncesSection({ instId, canPublish }: { instId: string; canPublish: b
                       <p style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", margin: 0 }}>{institution?.name || "Votre institution"}</p>
                       <p style={{ color: C.t3, fontSize: "10.5px", margin: "1px 0 0" }}>{institution?.category} — Maintenant</p>
                     </div>
-                    <span style={{ backgroundColor: typeBadgeStyle(form.type, C).bg, color: typeBadgeStyle(form.type, C).color, fontSize: "9.5px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>{getType(form.type).label.toUpperCase()}</span>
+                    <span style={{ backgroundColor: typeBadgeStyle(form.type, C).bg, color: typeBadgeStyle(form.type, C).color, fontSize: "12px", fontWeight: "600", padding: "2px 9px", borderRadius: "12px" }}>{getType(form.type).label}</span>
                   </div>
                   {form.titre && <h3 style={{ color: C.t1, fontSize: "14px", fontWeight: "800", margin: "0 0 8px", lineHeight: 1.35 }}>{form.titre}</h3>}
                   {form.contenu && <p style={{ color: C.t2, fontSize: "12.5px", margin: "0 0 12px", lineHeight: 1.65 }}>{form.contenu.slice(0, 220)}{form.contenu.length > 220 ? "…" : ""}</p>}
@@ -1454,10 +1353,7 @@ export function CommunicationTab({ instId, canPublishAnnonce = true }: { instId:
   const C = T[theme] as ThemeTokens;
 
   return (
-    <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
-      <h1 className="yelen-h2" style={{ color: C.t1, marginBottom: "6px" }}>Communication</h1>
-      <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Tenez vos clients informés des actualités et informations importantes de votre établissement.</p>
-
+    <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "24px clamp(24px, 2.5vw, 32px)", paddingBottom: "100px", animation: "fadeUp 0.2s ease" }}>
       <AnnoncesSection instId={instId} canPublish={canPublishAnnonce}/>
     </div>
   );

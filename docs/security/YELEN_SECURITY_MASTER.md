@@ -2845,3 +2845,39 @@ payant) testés en conditions réelles et confirmés fonctionnels**.
 confirmation de Bryan en conditions réelles,
 `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md` sections "GAP-08-04"/
 "GAP-09-02". **Date** : 15/09/2026.
+
+### DEC-2026-10-16-01 — LOT 7 : reprise d'audit après un mois d'inactivité du chantier
+
+**Description** : Bryan redémarre le chantier sécurité, demande un audit
+complet (docs + état réel du code) et un rapport. Détail complet dans
+`docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section "LOT 7".
+**Constats principaux** :
+1. Bonne nouvelle confirmée : tout ce qui était "code prêt, non commité"
+   jusqu'au 18/09 (rate limiting persistant, révocation de session,
+   Mission Hardening Admin, Trusted Device, RBAC `select("*")`/IDOR) est
+   bien passé en production (PR #12/#13/#16 mergées, vérifié par
+   `git merge-base` + grep ciblé). GAP-10-01 et GAP-04-04 passent de
+   "non déployé" à **en production**.
+2. **Nouveau — Critical** : `next@16.3.5` de nouveau vulnérable (RCE
+   `next/og ImageResponse`, `GHSA-vcvr-r3jv-pc5j`) + 3 autres `high`.
+   Correctif trivial (`npm audit fix`, sans `--force` — la plage caret
+   `^16.3.5` autorise déjà `16.4.2`). Non exécuté (changement de
+   dépendance = hors périmètre d'un audit en lecture seule).
+3. Dependabot (34 alertes, GAP-14-01) toujours non réconcilié avec
+   `npm audit` — inchangé, accès GitHub non disponible ici.
+4. **Nouvel asset non inventorié** : `mobile/` (app Expo/React Native,
+   biométrie + caméra déjà en dépendances), entièrement non suivi par
+   git, jamais mentionné dans CLAUDE.md. Déclenche la section 29 du
+   master plan ("Mobile Security — lorsque Yelen native commencera")
+   jusqu'ici classée non applicable.
+5. GAP-05-05 (second passage RBAC institution) et GAP-17-01
+   (`acquisition_events` non throttlé) : inchangés, toujours
+   🔴 NOT STARTED.
+**Décision** : aucune correction appliquée dans ce lot (audit en lecture
+seule, comme les lots précédents de ce type). Action immédiate
+recommandée à Bryan : `npm audit fix` (sans `--force`) pour le point 2,
+puis `tsc`/`build`.
+**Statut** : rapport présenté, en attente de priorisation par Bryan
+(point 2 = urgent, le reste = reprise normale du chantier).
+**Preuve** : `docs/security/YELEN_SECURITY_GAP_ANALYSIS.md`, section
+"LOT 7". **Date** : 16/10/2026.

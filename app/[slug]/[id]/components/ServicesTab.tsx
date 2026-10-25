@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { DEVISE_LABEL } from "@/lib/devise";
 import { FormField } from "./FormField";
+import { heureAmPm } from "@/lib/heure";
 
 // Lot C (refonte wizard RDV citoyen, 16/07/2026) : champs demandés au
 // citoyen à la réservation, configurés par l'institution — jamais imposés
@@ -196,7 +197,7 @@ function Toast({ msg, color, onDismiss }: { msg: string; color: string; onDismis
 }
 
 function KpiIcon({ name, color }: { name: "wallet" | "calendar" | "check" | "trending"; color: string }) {
-  const p = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none" as const, stroke: color, strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const p = { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none" as const, stroke: color, strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (name) {
     case "wallet":   return <svg {...p}><path d="M20 12V8H6a2 2 0 0 1 0-4h12v4"/><path d="M4 6v12a2 2 0 0 0 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>;
     case "calendar": return <svg {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
@@ -209,20 +210,20 @@ function KpiCard({ label, value, color, bg, icon, delta }: { label: string; valu
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   return (
-    <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow, display: "flex", alignItems: "flex-start", gap: "14px" }}>
-      <div style={{ width: "52px", height: "52px", borderRadius: "50%", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <KpiIcon name={icon} color={color}/>
+    <Card tokens={toCardTokens(C)} padding="16px" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <KpiIcon name={icon} color={color}/>
+        </div>
+        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
       </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ color: C.t1, fontSize: "26px", fontWeight: 800, letterSpacing: "-0.6px", lineHeight: 1.1 }}>{value}</div>
-        <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px", marginTop: "6px" }}>{label}</div>
-        {delta && (
-          <div style={{ color: C.green, fontSize: "11px", fontWeight: 700, marginTop: "6px", display: "flex", alignItems: "center", gap: "3px" }}>
-            {delta}
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-          </div>
-        )}
-      </div>
+      <div style={{ color: C.t1, fontSize: "20px", fontWeight: 800, lineHeight: 1, letterSpacing: "-0.3px" }}>{value}</div>
+      {delta && (
+        <div style={{ color: C.green, fontSize: "11px", fontWeight: 700, display: "flex", alignItems: "center", gap: "3px" }}>
+          {delta}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+        </div>
+      )}
     </Card>
   );
 }
@@ -584,7 +585,7 @@ function ServiceCardMobile({ service, bookings, resaDelta, menuOpen, onMenuToggl
                 <div style={{ width: "38px", height: "38px", borderRadius: "11px", background: `${C.gold}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "800", color: C.gold, flexShrink: 0, border: `1px solid ${C.border}` }}>{(b.citoyen_nom || "C").slice(0, 2).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.citoyen_nom || "Citoyen"}</div>
-                  <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{formatDate(b.date_rdv)} · {b.heure_rdv}</div>
+                  <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px" }}>{formatDate(b.date_rdv)} · {heureAmPm(b.heure_rdv) || b.heure_rdv}</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
                   <span style={{ backgroundColor: si.bg, color: si.c, fontSize: "9px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px", textTransform: "uppercase" }}>{si.l}</span>
@@ -1103,13 +1104,6 @@ export function ServicesTab({ instId }: { instId: string }) {
 
       {offreOpen && <OffreGeneraleSheet instId={instId} onClose={() => setOffreOpen(false)}/>}
 
-      <div style={{ backgroundColor: C.orangeL, border: `1px solid ${C.orange}30`, borderRadius: "14px", padding: "12px 16px", marginBottom: "16px", display: "flex", gap: "10px" }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "2px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <div style={{ color: C.t1, fontSize: "12px", lineHeight: 1.6 }}>
-          <strong>Fonctionnalité par abonnement.</strong> Les rendez-vous payants (réservation en ligne + code de confirmation Yelen) seront activés selon le plan de votre institution au lancement. Vous pouvez dès maintenant préparer votre catalogue ci-dessous — les citoyens ne pourront pas encore réserver tant que cette fonctionnalité n&apos;est pas activée pour votre compte.
-        </div>
-      </div>
-
       <div className="svc-kpi-grid" style={{ marginBottom: "16px" }}>
         {kpis.map(k => <KpiCard key={k.label} {...k}/>)}
       </div>
@@ -1271,7 +1265,7 @@ export function ServicesTab({ instId }: { instId: string }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.citoyen_nom || "Citoyen"}</div>
                     <div style={{ color: C.t3, fontSize: "11px", marginTop: "1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{svc?.nom ?? "Service"}{svc ? ` · ${formatPrix(svc.prix)}` : ""}</div>
-                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {b.heure_rdv} · {timeAgo(b.created_at)}</div>
+                    <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(b.date_rdv)} · {heureAmPm(b.heure_rdv) || b.heure_rdv} · {timeAgo(b.created_at)}</div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "5px", flexShrink: 0 }}>
                     <span style={{ backgroundColor: si.bg, color: si.c, fontSize: "9px", fontWeight: "800", padding: "3px 8px", borderRadius: "20px", textTransform: "uppercase" }}>{si.l}</span>

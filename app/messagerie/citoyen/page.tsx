@@ -865,7 +865,7 @@ function MessagerieInner() {
         }
       `}</style>
 
-      <header style={{ position: "sticky", top: 0, zIndex: 200, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, paddingTop: "env(safe-area-inset-top)", paddingRight: "16px", paddingBottom: 0, paddingLeft: "16px", flexShrink: 0 }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 200, background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${brd}`, paddingTop: "env(safe-area-inset-top)", paddingRight: "16px", paddingBottom: 0, paddingLeft: "16px", flexShrink: 0 }}>
         <div style={{ height: 52, display: "flex", alignItems: "center", gap: 10 }}>
           <button
             onClick={() => {
@@ -900,7 +900,7 @@ function MessagerieInner() {
             <button onClick={() => switchTab("yelen")} aria-label="Support Yelen" className="tap" style={{ position: "relative", background: "none", border: "none", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", color: t1, cursor: "pointer", flexShrink: 0 }}>
               <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
               {ticketsUnread > 0 && (
-                <span style={{ position: "absolute", top: 2, right: 2, width: 8, height: 8, borderRadius: "50%", background: "#EF4444", border: `1.5px solid ${isDark ? "#0A0A0F" : "#F8F8FC"}` }}/>
+                <span style={{ position: "absolute", top: 2, right: 2, width: 8, height: 8, borderRadius: "50%", background: "#EF4444", border: `1.5px solid ${isDark ? "#0A0A0F" : "#F2F2F7"}` }}/>
               )}
             </button>
           )}
@@ -1173,7 +1173,7 @@ function MessagerieInner() {
                 </div>
 
                 {ticketDetail.statut === "cloture" ? (
-                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0, textAlign: "center" }}>
+                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0, textAlign: "center" }}>
                     <div style={{ color: t3, fontSize: 11.5, fontWeight: 600, marginBottom: 8 }}>Cette conversation est terminée. Vous pouvez nous écrire à tout moment si vous avez besoin d&apos;aide.</div>
                     <button onClick={ouvrirNouvelleDemande} className="tap" style={{ background: gold, color: "#080812", border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
                       Parler au support
@@ -1184,7 +1184,7 @@ function MessagerieInner() {
                   // (par le citoyen ou l'agent) ne se réouvre plus en y
                   // répondant — même traitement que "cloture", pour
                   // continuer il faut démarrer une nouvelle conversation.
-                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0, textAlign: "center" }}>
+                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0, textAlign: "center" }}>
                     <div style={{ color: t3, fontSize: 11.5, fontWeight: 600, marginBottom: 8 }}>Cette conversation est terminée. Démarrez une nouvelle conversation si vous avez encore besoin d&apos;aide.</div>
                     <button onClick={ouvrirNouvelleDemande} className="tap" style={{ background: gold, color: "#080812", border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>
                       Parler au support
@@ -1193,11 +1193,11 @@ function MessagerieInner() {
                 ) : ticketDetail.statut === "attente_agent" ? (
                   // Retour Bryan 04/09/2026 : plus d'envoi possible tant
                   // qu'aucun agent n'a pris la conversation en charge.
-                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0, textAlign: "center" }}>
+                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0, textAlign: "center" }}>
                     <div style={{ color: t3, fontSize: 11.5, fontWeight: 600 }}>Un agent doit prendre en charge la conversation avant que vous puissiez continuer à échanger.</div>
                   </div>
                 ) : (
-                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", padding: "8px 16px calc(14px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
+                  <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", padding: "8px 16px calc(14px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, background: card2, borderRadius: 24, padding: "4px 6px 4px 16px" }}>
                       <input
                         value={messageText}
@@ -1311,12 +1311,12 @@ function MessagerieInner() {
               )}
 
               {fermee ? (
-                <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
+                <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
                   {Ic.Lock()}
                   <div style={{ color: t3, fontSize: 11.5 }}>Ce rendez-vous est terminé — la conversation est fermée.</div>
                 </div>
               ) : suspendue ? (
-                <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
+                <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
                   {Ic.Lock()}
                   <div style={{ color: t2, fontSize: 11.5, lineHeight: 1.55 }}>
                     {messageInstitutionSuspendue(selected?.institution_nom || "Cet établissement")}{" "}
@@ -1324,7 +1324,7 @@ function MessagerieInner() {
                   </div>
                 </div>
               ) : (
-                <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(248,248,252,0.97)", backdropFilter: "blur(20px)", padding: "8px 16px calc(14px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
+                <div className="msg-bottom-bar" style={{ background: isDark ? "rgba(10,10,15,0.97)" : "rgba(242,242,247,0.97)", backdropFilter: "blur(20px)", padding: "8px 16px calc(14px + env(safe-area-inset-bottom))", flexShrink: 0 }}>
                   {pendingImagePreview && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                       <div style={{ position: "relative", width: 46, height: 46, borderRadius: 10, overflow: "hidden", border: `1px solid ${brd}` }}>

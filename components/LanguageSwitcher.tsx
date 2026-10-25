@@ -14,14 +14,6 @@ const Ic = {
   Clock: () => <svg style={P} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
 };
 
-// Drapeau affiché dans l'avatar de chaque ligne — retour Bryan 24/08/2026,
-// exception assumée à la convention "zéro emoji" (le drapeau porte un sens
-// que l'icône ne remplace pas ici). Arabe : aucun pays unique associé à la
-// langue, drapeau saoudien retenu par convention (choix le plus courant
-// dans les sélecteurs de langue) — à ajuster si Bryan préfère un autre
-// drapeau.
-const FLAG: Record<string, string> = { fr: "🇫🇷", en: "🇬🇧", ar: "🇸🇦" };
-
 // N'affiche fr/en comme réellement sélectionnables (brief CEO §19 —
 // l'arabe n'est pas exposé tant qu'il n'est pas réellement traduit, voir
 // i18n/locale.ts). L'arabe est ajouté ci-dessous en ligne purement
@@ -50,6 +42,8 @@ export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }
   }
 
   const badgeNeutral = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const radioBorder = isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.16)";
+  const otherLocales = SUPPORTED_LOCALES.filter((locale) => locale !== selected);
 
   return (
     <div style={{ padding: "16px" }}>
@@ -59,52 +53,52 @@ export function LanguageSwitcher({ currentLocale }: { currentLocale: AppLocale }
       </div>
 
       <div style={{ color: C.textSubtle, fontSize: "12px", fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>
+        {t("selected")}
+      </div>
+
+      <div style={{
+        display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px",
+        backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "14px",
+      }}>
+        <div style={{ flex: 1, minWidth: 0, color: "#F5A623", fontSize: "14px", fontWeight: 700 }}>
+          {t(`options.${selected}`)}
+        </div>
+        <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Ic.Check/>
+        </div>
+      </div>
+
+      <div style={{ height: "14px", background: C.sectionAlt, margin: "16px -16px" }}/>
+
+      <div style={{ color: C.textSubtle, fontSize: "12px", fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>
         {t("available")}
       </div>
 
       <div style={{ backgroundColor: C.cardBg, border: `1px solid ${C.borderCard}`, borderRadius: "16px", overflow: "hidden" }}>
-        {SUPPORTED_LOCALES.map((locale, i) => {
-          const actif = selected === locale;
-          return (
-            <button
-              key={locale}
-              onClick={() => choisir(locale)}
-              disabled={pending}
-              className="tap"
-              style={{
-                width: "100%", display: "flex", alignItems: "center", gap: "14px",
-                padding: "15px 16px", border: "none", borderTop: i === 0 ? "none" : `1px solid ${C.borderCard}`,
-                background: actif ? "rgba(245,166,35,0.08)" : "transparent",
-                cursor: pending ? "not-allowed" : "pointer", textAlign: "left",
-              }}
-            >
-              <div style={{
-                width: "38px", height: "38px", borderRadius: "50%", flexShrink: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: badgeNeutral, fontSize: "19px", lineHeight: 1,
-                boxShadow: actif ? "0 0 0 2px #F5A623" : "none",
-              }}>
-                <span aria-hidden="true">{FLAG[locale]}</span>
-              </div>
-              <div style={{ flex: 1, minWidth: 0, color: actif ? "#F5A623" : C.text, fontSize: "15px", fontWeight: 700 }}>
-                {t(`options.${locale}`)}
-              </div>
-              {actif && (
-                <div style={{ width: "22px", height: "22px", borderRadius: "50%", background: "#F5A623", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Ic.Check/>
-                </div>
-              )}
-            </button>
-          );
-        })}
+        {otherLocales.map((locale, i) => (
+          <button
+            key={locale}
+            onClick={() => choisir(locale)}
+            disabled={pending}
+            className="tap"
+            style={{
+              width: "100%", display: "flex", alignItems: "center", gap: "14px",
+              padding: "15px 16px", border: "none", borderTop: i === 0 ? "none" : `1px solid ${C.borderCard}`,
+              background: "transparent",
+              cursor: pending ? "not-allowed" : "pointer", textAlign: "left",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0, color: C.text, fontSize: "15px", fontWeight: 700 }}>
+              {t(`options.${locale}`)}
+            </div>
+            <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: `1.5px solid ${radioBorder}`, flexShrink: 0 }}/>
+          </button>
+        ))}
 
         <div aria-disabled="true" style={{
           display: "flex", alignItems: "center", gap: "14px", padding: "15px 16px",
-          borderTop: `1px solid ${C.borderCard}`, opacity: 0.55, cursor: "not-allowed",
+          borderTop: otherLocales.length === 0 ? "none" : `1px solid ${C.borderCard}`, opacity: 0.55, cursor: "not-allowed",
         }}>
-          <div style={{ width: "38px", height: "38px", borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: badgeNeutral, fontSize: "19px", lineHeight: 1 }}>
-            <span aria-hidden="true">{FLAG.ar}</span>
-          </div>
           <div style={{ flex: 1, minWidth: 0, color: C.text, fontSize: "15px", fontWeight: 700 }} lang="ar" dir="rtl">
             {t("options.ar")}
           </div>

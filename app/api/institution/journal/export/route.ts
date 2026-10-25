@@ -1,268 +1,249 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createHash } from "crypto";
 import ExcelJS from "exceljs";
-// pdfkit — nouvelle dépendance (Lot G, export enrichi). Bryan doit exécuter
-// `npm install pdfkit @types/pdfkit` avant de tester cette route (même
-// pattern que l'ajout d'exceljs pour app/api/institution/rapports/route.ts).
-import PDFDocument from "pdfkit";
+import QRCode from "qrcode";
+import { baseUrlApplication, urlVerificationExport, urlVerificationExportAvecEmpreinte } from "@/lib/export/empreinteUrl";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
-import { can } from "@/lib/institutionPermissions";
-import { lireFiltresJournal, requeteJournalFiltree, type FiltresJournal } from "@/lib/journalRequete";
-import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
+import { can, ROLE_LABELS } from "@/lib/institutionPermissions";
+import { lireFiltresJournal, masquerDonneesTechniques, rechercheRessembleAUneIp, requeteJournalFiltree } from "@/lib/journalRequete";
+import { getMembreNomPourJournal } from "@/lib/journalActivite";
+import { enregistrerExport, type ExportEnregistre } from "@/lib/export/enregistrer";
+import {
+  MAX_LIGNES_JOURNAL, MENTION_PDF, VERSION_GABARIT_JOURNAL,
+  construireFiltresSignes, construireLignesExport, genererCsvJournal, genererJsonJournal, lignesInformations, resumerFiltresLisibles,
+  type EntreeExportJournal, type InfosDocument, type ModeleExport,
+} from "@/lib/export/journalLignes";
+import { PDF_MAX_LIGNES } from "@/lib/export/pdf/config";
+import { genererPdfGabarit, type ColonnePdf, type ResultatPdf } from "@/lib/export/pdf/gabarit";
+import { ajouterFeuilleChampValeur, ajouterFeuilleTable } from "@/lib/export/rendus";
+import { lireParLots } from "@/lib/export/lectureParLots";
 
-// Export enrichi du Journal d'activité (Lot G, 2026) — contrairement à
-// l'ancien exporterCsv() 100% client de JournalTab.tsx, cette route exporte
-// TOUTES les lignes correspondant aux filtres actifs (jusqu'à MAX_LIGNES),
-// pas seulement la page actuellement affichée (LIMIT=50 côté client).
+// Export du Journal d'activité, branché sur le module lib/export (24/10/2026).
+// Ordre : droits → filtres → requête (5000 max) → masquage IP selon le rôle →
+// lignes du modèle UNIQUE → enregistrerExport (BLOQUANT : sans enregistrement ni
+// clé de signature, aucun fichier n'est livré) → rendu du format choisi. Les
+// lignes écrites dans les fichiers sont exactement celles qui ont été signées.
+//
+// ⚠️ Le PDF (gabarit commun lib/export/pdf) est un rendu partiel du jeu de données
+// certifié : 7 colonnes, son texte ne permet pas de recalculer l'empreinte. Aucune
+// valeur probante n'est promise.
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-const MAX_LIGNES = 5000;
 const COLONNES = "id,audit_id,membre_id,membre_nom,action,categorie,niveau,cible_table,cible_id,details,ancienne_valeur,nouvelle_valeur,ip,user_agent,navigateur,os,plateforme,created_at";
 
-type EntreeJournal = {
-  id: string;
-  audit_id: string;
-  membre_id: string | null;
-  membre_nom: string;
-  action: string;
-  categorie: string;
-  niveau: string;
-  cible_table: string;
-  cible_id: string | null;
-  details: Record<string, unknown>;
-  ancienne_valeur: Record<string, unknown> | null;
-  nouvelle_valeur: Record<string, unknown> | null;
-  ip: string | null;
-  user_agent: string | null;
-  navigateur: string | null;
-  os: string | null;
-  plateforme: string;
-  created_at: string;
-};
+type EntreeJournal = EntreeExportJournal & { id: string; user_agent: string | null };
 
-const FORMATS = ["csv", "xlsx", "json", "pdf", "signe"] as const;
+// Taille d'un lot de lecture (le plafond de l'API peut être plus bas : sans importance,
+// on avance de la taille réellement reçue).
+const TAILLE_LOT_JOURNAL = 1000;
+
+const FORMATS = ["csv", "xlsx", "json", "pdf", "certifie"] as const;
 type Format = (typeof FORMATS)[number];
-function isFormat(v: string | null): v is Format {
-  return !!v && (FORMATS as readonly string[]).includes(v);
+// « signe » : ancien nom du rapport certifié, accepté comme alias.
+function lireFormat(v: string | null): Format | null {
+  if (v === "signe") return "certifie";
+  return v && (FORMATS as readonly string[]).includes(v) ? (v as Format) : null;
 }
 
-function resumerFiltres(filtres: FiltresJournal): string {
-  const parts: string[] = [];
-  if (filtres.dateFrom || filtres.dateTo) parts.push(`Période : ${filtres.dateFrom ?? "…"} → ${filtres.dateTo ?? "…"}`);
-  if (filtres.categorie) parts.push(`Catégorie : ${filtres.categorie}`);
-  if (filtres.niveau) parts.push(`Niveau : ${filtres.niveau}`);
-  if (filtres.plateforme) parts.push(`Plateforme : ${filtres.plateforme}`);
-  if (filtres.role) parts.push(`Rôle : ${filtres.role}`);
-  if (filtres.membreId) parts.push(`Membre : ${filtres.membreId}`);
-  if (filtres.q) parts.push(`Recherche : "${filtres.q}"`);
-  return parts.length ? parts.join(" — ") : "Aucun filtre (toutes les entrées)";
-}
+// Colonnes du PDF Journal : 7 sur les 12 à 16 du modèle (illisibles en A4). Détails,
+// valeurs avant/après et adresse IP figurent dans les formats tableur.
+const COLONNES_PDF: ColonnePdf[] = [
+  { cle: "date", entete: "Date (heure de Conakry)", fraction: 0.17 },
+  { cle: "membre", entete: "Membre", fraction: 0.15 },
+  { cle: "action_libelle", entete: "Action", fraction: 0.26 },
+  { cle: "categorie", entete: "Catégorie", fraction: 0.11 },
+  { cle: "niveau", entete: "Niveau", fraction: 0.08 },
+  { cle: "cible", entete: "Cible", fraction: 0.10 },
+  { cle: "reference", entete: "Référence", fraction: 0.13 },
+];
+const MENTION_PDF_COLONNES = "Les détails, les valeurs avant/après et, selon vos droits, l'adresse IP figurent dans les formats tableur (CSV, Excel, JSON).";
 
-// Empreinte de vérification — sérialisation canonique (tri stable par id,
-// ordre de champs fixe) pour que l'empreinte soit recalculable
-// indépendamment à partir des mêmes données brutes, sans dépendre de
-// l'ordre de retour de la requête Supabase.
-function calculerEmpreinte(entrees: EntreeJournal[]): string {
-  const canon = [...entrees]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map((e) => ({
-      id: e.id, audit_id: e.audit_id, membre_id: e.membre_id, membre_nom: e.membre_nom,
-      action: e.action, categorie: e.categorie, niveau: e.niveau, cible_table: e.cible_table,
-      cible_id: e.cible_id, details: e.details, ancienne_valeur: e.ancienne_valeur,
-      nouvelle_valeur: e.nouvelle_valeur, ip: e.ip, user_agent: e.user_agent,
-      navigateur: e.navigateur, os: e.os, plateforme: e.plateforme, created_at: e.created_at,
-    }));
-  return createHash("sha256").update(JSON.stringify(canon)).digest("hex");
-}
-
-function genererCsv(entrees: EntreeJournal[]): string {
-  const header = ["Référence", "Date", "Membre", "Action", "Catégorie", "Niveau", "Cible", "Détails", "Ancienne valeur", "Nouvelle valeur", "IP", "Navigateur", "OS", "Plateforme"];
-  const rows = entrees.map((e) => [
-    e.audit_id,
-    new Date(e.created_at).toLocaleString("fr-FR"),
-    e.membre_nom,
-    e.action,
-    e.categorie,
-    e.niveau,
-    e.cible_table,
-    JSON.stringify(e.details || {}),
-    e.ancienne_valeur ? JSON.stringify(e.ancienne_valeur) : "",
-    e.nouvelle_valeur ? JSON.stringify(e.nouvelle_valeur) : "",
-    e.ip ?? "",
-    e.navigateur ?? "",
-    e.os ?? "",
-    e.plateforme,
-  ]);
-  return [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-}
-
-function ajouterFeuilleDetail(workbook: ExcelJS.Workbook, entrees: EntreeJournal[]) {
-  const feuille = workbook.addWorksheet("Détail");
-  feuille.columns = [
-    { header: "Référence", key: "ref", width: 20 },
-    { header: "Date", key: "date", width: 20 },
-    { header: "Membre", key: "membre", width: 20 },
-    { header: "Action", key: "action", width: 22 },
-    { header: "Catégorie", key: "categorie", width: 16 },
-    { header: "Niveau", key: "niveau", width: 12 },
-    { header: "Cible", key: "cible", width: 18 },
-    { header: "Détails", key: "details", width: 40 },
-    { header: "IP", key: "ip", width: 16 },
-    { header: "Navigateur", key: "navigateur", width: 14 },
-    { header: "OS", key: "os", width: 12 },
-    { header: "Plateforme", key: "plateforme", width: 12 },
-  ];
-  feuille.getRow(1).font = { bold: true };
-  entrees.forEach((e) => feuille.addRow({
-    ref: e.audit_id,
-    date: new Date(e.created_at).toLocaleString("fr-FR"),
-    membre: e.membre_nom,
-    action: e.action,
-    categorie: e.categorie,
-    niveau: e.niveau,
-    cible: e.cible_table,
-    details: JSON.stringify(e.details || {}),
-    ip: e.ip ?? "",
-    navigateur: e.navigateur ?? "",
-    os: e.os ?? "",
-    plateforme: e.plateforme,
-  }));
-}
-
-async function genererPdf(entrees: EntreeJournal[], institutionNom: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: "A4" });
-    const chunks: Buffer[] = [];
-    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-
-    doc.fontSize(16).fillColor("#111").text(`Journal d'activité — ${institutionNom}`);
-    doc.moveDown(0.3);
-    doc.fontSize(9).fillColor("#666").text(`Généré le ${new Date().toLocaleString("fr-FR")} — ${entrees.length} entrée(s)`);
-    doc.moveDown(0.8);
-
-    entrees.forEach((e) => {
-      if (doc.y > 760) doc.addPage();
-      doc.fontSize(8).fillColor("#111").text(
-        `${new Date(e.created_at).toLocaleString("fr-FR")}  ·  ${e.membre_nom}  ·  ${e.action}  ·  ${e.categorie}/${e.niveau}  ·  ${e.audit_id}`
-      );
-    });
-
-    doc.end();
+// Le PDF n'imprime que les PDF_MAX_LIGNES lignes les plus récentes (le jeu certifié et
+// les formats tableur contiennent tout). `mentionLimite` : affichée en en-tête et au pied.
+async function genererPdf(
+  modele: ModeleExport, infos: InfosDocument, qr: { image: Buffer; urlCourte: string }, mentionLimite: string | undefined,
+): Promise<ResultatPdf> {
+  return genererPdfGabarit({
+    orientation: "paysage",
+    titre: "Journal d'activité",
+    etablissement: infos.etablissement,
+    reference: infos.reference,
+    creeLe: infos.creeLe,
+    hash: infos.hash,
+    auteur: infos.auteur,
+    role: infos.role,
+    informations: lignesInformations(infos).filter(l => l.champ !== "Empreinte SHA-256").map(l => ({ champ: l.champ, valeur: l.valeur })),
+    mentionsEntete: [MENTION_PDF, MENTION_PDF_COLONNES],
+    mentionLimite,
+    colonnes: COLONNES_PDF,
+    lignes: modele.lignes.slice(0, PDF_MAX_LIGNES),
+    qr,
+    motsCles: ["journal d'activité"],
   });
 }
 
+const LARGEURS: Record<string, number> = {
+  reference: 22, date: 30, horodatage_utc: 26, membre: 22, action: 24, action_libelle: 36, categorie: 16, niveau: 14,
+  cible: 22, details: 44, avant: 30, apres: 30, ip: 18, navigateur: 14, os: 12, plateforme: 12,
+};
+
+async function genererXlsx(modele: ModeleExport, infos: InfosDocument, certifie: boolean): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Yelen224";
+  wb.created = new Date(infos.creeLe);
+  wb.title = certifie ? "Rapport certifié - Journal d'activité" : "Journal d'activité";
+  wb.subject = `Référence ${infos.reference}`;
+  wb.keywords = infos.reference;
+
+  if (certifie) {
+    ajouterFeuilleChampValeur(wb, "Certificat", [
+      { champ: "Document", valeur: "Rapport certifié - Journal d'activité" },
+      { champ: "Référence", valeur: infos.reference },
+      { champ: "Empreinte SHA-256", valeur: infos.hash },
+      { champ: "Contenu couvert", valeur: "L'empreinte est calculée sur le contenu de la feuille « Détail », cellule par cellule, avec les filtres et le périmètre de la feuille « Informations »." },
+      { champ: "Vérification", valeur: "Aucun service de vérification en ligne n'est encore disponible. La procédure de recalcul sera fournie avec l'annexe de données certifiées (à venir)." },
+    ]);
+  }
+  ajouterFeuilleChampValeur(wb, "Informations", [...lignesInformations(infos), { champ: "Version du gabarit", valeur: infos.versionGabarit }]);
+  ajouterFeuilleTable(wb, "Détail", modele.colonnes, modele.lignes, { largeurs: LARGEURS });
+
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
 export async function GET(req: NextRequest) {
+  const t0 = performance.now();
   const membre = await getAuthenticatedMembre(req);
   if (!membre) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   if (!can(membre.role, "journal.export")) return NextResponse.json({ error: "Accès réservé aux administrateurs" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
-  const format = searchParams.get("format");
-  if (!isFormat(format)) return NextResponse.json({ error: "Format invalide (csv, xlsx, json, pdf ou signe)" }, { status: 400 });
+  const format = lireFormat(searchParams.get("format"));
+  if (!format) return NextResponse.json({ error: "Format invalide (csv, xlsx, json, pdf ou certifie)" }, { status: 400 });
 
   const filtres = lireFiltresJournal(searchParams);
-  const { query } = await requeteJournalFiltree(sb, membre.institutionId, filtres, COLONNES);
-  const { data, error } = await query.order("created_at", { ascending: false }).range(0, MAX_LIGNES - 1);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  // Le client Supabase n'est pas typé avec le schéma généré (createClient
-  // sans generic Database, même pattern que journal/route.ts) — .select()
-  // avec une chaîne de colonnes brute retourne un type générique que
-  // TypeScript ne peut pas faire correspondre structurellement à
-  // EntreeJournal sans ce cast.
-  const entrees = (data ?? []) as unknown as EntreeJournal[];
-  // Signalé plutôt que masqué : un export tronqué sans le dire serait
-  // trompeur, en particulier pour le "Rapport signé" qui prétend faire foi.
-  const tronque = entrees.length >= MAX_LIGNES;
+  // IP et user-agent bruts réservés à admin/superviseur ; recherche par
+  // fragment d'IP refusée sinon (recherche_texte indexe l'IP).
+  const voirIp = can(membre.role, "journal.voir_ip");
+  if (!voirIp && rechercheRessembleAUneIp(filtres.q)) {
+    return NextResponse.json({ error: "La recherche par adresse IP est réservée à l'administration." }, { status: 400 });
+  }
+  // Lecture PAR LOTS : une requête unique de 5000 lignes serait plafonnée en silence par
+  // la limite « Max rows » de l'API (1000 par défaut), et l'export, signé comme complet,
+  // serait tronqué. Ordre stable (created_at desc, id desc) et borne haute fixée au
+  // début de l'export : les entrées créées pendant la lecture ne décalent pas les lots.
+  const borneHaute = new Date().toISOString();
+  const chargerLot = async (offset: number, taille: number): Promise<EntreeJournal[]> => {
+    const { query } = await requeteJournalFiltree(sb, membre.institutionId, filtres, COLONNES);
+    const { data, error } = await query
+      .lte("created_at", borneHaute)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(offset, offset + taille - 1);
+    if (error) throw new Error(`lecture journal: ${error.code ?? "erreur"}`);
+    // Client Supabase non typé avec le schéma : cast structurel nécessaire.
+    return (data ?? []) as unknown as EntreeJournal[];
+  };
+  let lecture: Awaited<ReturnType<typeof lireParLots<EntreeJournal>>>;
+  try {
+    lecture = await lireParLots<EntreeJournal>({ chargerLot, max: MAX_LIGNES_JOURNAL, tailleLot: TAILLE_LOT_JOURNAL, cle: e => e.id });
+  } catch (err) {
+    console.error("[JournalExport] lecture impossible:", err instanceof Error ? err.message : "erreur inconnue");
+    return NextResponse.json({ error: "Export indisponible" }, { status: 500 });
+  }
+  const entrees = voirIp ? lecture.lignes : masquerDonneesTechniques(lecture.lignes);
+  // Vrai seulement s'il existe réellement plus de lignes que le plafond : signalé, jamais masqué.
+  const tronque = lecture.tronque;
 
+  // Une seule lecture du nom (colonne `name`, pas `nom`) ; repli sans bloquer l'export.
+  const { data: inst } = await sb.from("institutions").select("name").eq("id", membre.institutionId).maybeSingle();
+  const etablissement = inst?.name ?? "Établissement";
   const membreNom = await getMembreNomPourJournal(membre.membreId);
-  const dateStr = new Date().toISOString().slice(0, 10);
-  const headersCommuns: Record<string, string> = { "X-Export-Tronque": tronque ? "true" : "false" };
+
+  const tRequete = performance.now();
+  const modele = construireLignesExport(entrees, { voirIp });
+  // Plafond du PDF : signé avec les filtres du seul export PDF (les autres formats et
+  // le hash de leurs lignes sont inchangés).
+  const tronquePdf = format === "pdf" && modele.lignes.length > PDF_MAX_LIGNES;
+  const filtresSignes = format === "pdf"
+    ? { ...construireFiltresSignes(filtres, tronque), limite_lignes_pdf: PDF_MAX_LIGNES, tronque_pdf: tronquePdf }
+    : construireFiltresSignes(filtres, tronque);
+  const mentionLimite = tronquePdf
+    ? `PDF limité aux ${PDF_MAX_LIGNES} lignes les plus récentes sur ${modele.lignes.length}. Les formats tableur contiennent l'ensemble (jusqu'à ${MAX_LIGNES_JOURNAL}).`
+    : undefined;
+
+  let enregistre: ExportEnregistre;
+  try {
+    enregistre = await enregistrerExport({
+      institutionId: membre.institutionId, auteurId: membre.membreId, auteurNom: membreNom, role: membre.role,
+      type: "journal", format, ecran: "journal", filtres: filtresSignes, versionGabarit: VERSION_GABARIT_JOURNAL,
+      lignes: modele.lignes, actionJournal: "export_journal", req,
+    });
+  } catch (err) {
+    // Aucune valeur sensible dans ces erreurs (clé absente : nom de la variable seulement).
+    console.error("[JournalExport] export non livré:", err instanceof Error ? err.message : "erreur inconnue");
+    return NextResponse.json({ error: "Export indisponible" }, { status: 500 });
+  }
+
+  const tEnregistre = performance.now();
+  let diagnosticPdf: ResultatPdf["diagnostic"] | null = null;
+  let nbPagesPdf: number | null = null;
+  const infos: InfosDocument = {
+    reference: enregistre.reference, etablissement, creeLe: enregistre.creeLe, auteur: membreNom,
+    role: ROLE_LABELS[membre.role], filtresLisibles: resumerFiltresLisibles(filtres), nbLignes: enregistre.nbLignes,
+    tronque, hash: enregistre.hash, versionGabarit: VERSION_GABARIT_JOURNAL, filtresSignes,
+  };
 
   let body: string | Buffer;
   let contentType: string;
   let filename: string;
+  const ref = enregistre.reference;
 
   if (format === "csv") {
-    body = "﻿" + genererCsv(entrees);
+    body = genererCsvJournal(modele, infos);
     contentType = "text/csv;charset=utf-8;";
-    filename = `journal_activite_${dateStr}.csv`;
+    filename = `journal_activite_${ref}.csv`;
   } else if (format === "json") {
-    body = JSON.stringify(entrees, null, 2);
+    body = genererJsonJournal(modele, infos);
     contentType = "application/json;charset=utf-8;";
-    filename = `journal_activite_${dateStr}.json`;
+    filename = `journal_activite_${ref}.json`;
   } else if (format === "pdf") {
-    const { data: inst } = await sb.from("institutions").select("nom").eq("id", membre.institutionId).maybeSingle();
-    body = await genererPdf(entrees, inst?.nom ?? "Institution");
+    // Lien du QR : NEXT_PUBLIC_APP_URL, à défaut l'origine de la requête (en
+    // préversion, le QR pointerait alors vers l'URL de la préversion).
+    const { base, viaEnv } = baseUrlApplication(new URL(req.url).origin);
+    if (!viaEnv) console.warn("[JournalExport] NEXT_PUBLIC_APP_URL absente : le QR du PDF utilise l'origine de la requête.");
+    const image = await QRCode.toBuffer(urlVerificationExportAvecEmpreinte(base, ref, enregistre.hash), { width: 360, margin: 1, errorCorrectionLevel: "M" });
+    const rendu = await genererPdf(modele, infos, { image, urlCourte: urlVerificationExport(base, ref) }, mentionLimite);
+    body = rendu.buffer;
+    diagnosticPdf = rendu.diagnostic;
+    nbPagesPdf = rendu.nbPages;
     contentType = "application/pdf";
-    filename = `journal_activite_${dateStr}.pdf`;
-  } else if (format === "xlsx") {
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Yelen224";
-    workbook.created = new Date();
-    ajouterFeuilleDetail(workbook, entrees);
-    body = Buffer.from(await workbook.xlsx.writeBuffer());
-    contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    filename = `journal_activite_${dateStr}.xlsx`;
+    filename = `journal_activite_${ref}.pdf`;
   } else {
-    // "signe" — Rapport signé : feuille Certificat (cachet + empreinte
-    // SHA-256) + feuille Détail identique au format xlsx.
-    const { data: inst } = await sb.from("institutions").select("nom").eq("id", membre.institutionId).maybeSingle();
-    const empreinte = calculerEmpreinte(entrees);
-    const periode = filtres.dateFrom || filtres.dateTo
-      ? `${filtres.dateFrom ?? "…"} → ${filtres.dateTo ?? "…"}`
-      : "Toutes dates";
-
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Yelen224";
-    workbook.created = new Date();
-
-    const certificat = workbook.addWorksheet("Certificat");
-    certificat.columns = [{ header: "Champ", key: "champ", width: 26 }, { header: "Valeur", key: "valeur", width: 70 }];
-    certificat.getRow(1).font = { bold: true };
-    [
-      ["Institution", inst?.nom ?? "—"],
-      ["Rapport", "Journal d'activité — extrait signé"],
-      ["Généré le", new Date().toLocaleString("fr-FR")],
-      ["Généré par", `${membreNom} (${membre.role})`],
-      ["Période couverte", periode],
-      ["Nombre d'entrées", String(entrees.length) + (tronque ? " (tronqué)" : "")],
-      ["Filtres appliqués", resumerFiltres(filtres)],
-      ["Empreinte de vérification (SHA-256)", empreinte],
-      ["Note", "Cette empreinte est calculée sur les données de la feuille \"Détail\". Toute modification d'une seule entrée change intégralement l'empreinte — recalculez-la pour vérifier l'intégrité du rapport."],
-      ...(tronque ? [["Note importante", `Ce rapport est limité aux ${MAX_LIGNES} entrées les plus récentes correspondant aux filtres — le nombre réel d'entrées peut être supérieur. Affinez les filtres (période plus courte) pour un extrait exhaustif.`]] : []),
-    ].forEach(([champ, valeur]) => certificat.addRow({ champ, valeur }));
-
-    ajouterFeuilleDetail(workbook, entrees);
-
-    body = Buffer.from(await workbook.xlsx.writeBuffer());
+    body = await genererXlsx(modele, infos, format === "certifie");
     contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    filename = `rapport_signe_journal_${dateStr}.xlsx`;
-    headersCommuns["X-Empreinte-Sha256"] = empreinte;
+    filename = format === "certifie" ? `rapport_certifie_journal_${ref}.xlsx` : `journal_activite_${ref}.xlsx`;
   }
 
-  await enregistrerAction({
-    institutionId: membre.institutionId,
-    membreId: membre.membreId,
-    membreNom,
-    action: "export_journal",
-    cibleTable: "journal_activite",
-    details: { format, nb_lignes: entrees.length, filtres: resumerFiltres(filtres) },
-    req,
-  });
+  // Durées côté serveur, pour mesurer la génération en production (aucune donnée
+  // personnelle : ni nom, ni filtre, ni contenu — seulement des compteurs).
+  console.info(JSON.stringify({
+    export: "journal", format, reference: ref, nb_lignes: modele.lignes.length,
+    nb_lignes_pdf: format === "pdf" ? Math.min(modele.lignes.length, PDF_MAX_LIGNES) : undefined,
+    nb_pages: nbPagesPdf ?? undefined, cellules_mesurees: diagnosticPdf?.nbCellulesMesurees, cellules_rapides: diagnosticPdf?.nbCellulesRapides,
+    taille_ko: Math.round((typeof body === "string" ? Buffer.byteLength(body) : body.length) / 1024),
+    ms_requete: Math.round(tRequete - t0), ms_enregistrement: Math.round(tEnregistre - tRequete),
+    ms_rendu: Math.round(performance.now() - tEnregistre), ms_total: Math.round(performance.now() - t0),
+  }));
 
-  // Buffer est accepté à l'exécution par NextResponse (même pattern que
-  // app/api/institution/rapports/route.ts, où un Buffer nu passé en ligne
-  // typecheck sans cast) — le cast n'est nécessaire ici que parce que
-  // `body` transite par une variable `string | Buffer`, pas parce que
-  // Buffer serait réellement incompatible à l'exécution.
+  // Buffer accepté à l'exécution par NextResponse ; le cast ne sert qu'à
+  // l'union `string | Buffer` (même pattern que rapports/route.ts).
   return new NextResponse(body as unknown as BodyInit, {
     headers: {
       "Content-Type": contentType,
       "Content-Disposition": `attachment; filename="${filename}"`,
-      ...headersCommuns,
+      "X-Export-Tronque": tronque ? "true" : "false",
+      "X-Export-Reference": ref,
+      "X-Empreinte-Sha256": enregistre.hash,
     },
   });
 }

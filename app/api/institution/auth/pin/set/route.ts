@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import bcrypt from 'bcryptjs'
-import { getAuthenticatedInstitutionId, getInstitutionSessionSid, revoquerAutresSessionsInstitution } from '@/lib/institutionAuth'
+import { getAuthenticatedInstitutionId, getAuthenticatedMembre, getInstitutionSessionSid, revoquerAutresSessionsInstitution } from '@/lib/institutionAuth'
+import { enregistrerAction, getMembreNomPourJournal } from '@/lib/journalActivite'
+import { can } from '@/lib/institutionPermissions'
 import { isWeakPin, PIN_TROP_SIMPLE_MESSAGE } from '@/lib/pinSecurity'
 
 const supabaseAdmin = createClient(
@@ -17,6 +19,13 @@ export async function POST(request: NextRequest) {
     const institutionId = await getAuthenticatedInstitutionId(request)
     if (!institutionId) {
       return NextResponse.json({ error: 'Non authentifié', code: 'NO_SESSION' }, { status: 401 })
+    }
+    // Même palier que l'écran « Sécurité du compte » (admin seul). Session sans
+    // membreId (signée avant la fondation multi-comptes) : comportement
+    // inchangé, comme remember/revoke-all.
+    const membre = await getAuthenticatedMembre(request)
+    if (membre && !can(membre.role, 'securite_institution.write', membre.accesRestreints)) {
+      return NextResponse.json({ error: 'Accès réservé aux administrateurs', code: 'FORBIDDEN' }, { status: 403 })
     }
 
     const body = await request.json()
@@ -54,6 +63,16 @@ export async function POST(request: NextRequest) {
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'Votre compte est introuvable. Reconnectez-vous et réessayez.', code: 'NOT_FOUND' }, { status: 404 })
     }
+
+    // Journal non bloquant ; le PIN n'est jamais inclus (couvre pose et
+    // modification). Session sans membreId : membre_id reste null.
+    await enregistrerAction({
+      institutionId, membreId: membre?.membreId ?? null,
+      membreNom: membre ? await getMembreNomPourJournal(membre.membreId) : 'Compte principal',
+      action: 'pin_defini', cibleTable: 'institutions', cibleId: institutionId,
+      details: membre ? { role: membre.role } : {},
+      req: request,
+    })
 
     // institution_sessions — invalide les autres sessions actives (pas
     // celle-ci, voir lib/institutionAuth.ts::revoquerAutresSessionsInstitution :

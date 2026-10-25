@@ -211,6 +211,12 @@ jamais l'un sans l'autre.
   à reproduire ailleurs)
 - 2 fichiers/pages maximum modifiés à la fois — jamais plus
 - npx tsc --noEmit → 0 erreur avant de considérer une tâche terminée
+- ⚠️ **Règle explicite (23/10/2026) : eslint n'est PAS lancé à chaque
+  modification.** `tsc --noEmit` (avec `NODE_OPTIONS=--max-old-space-size=6144`)
+  suffit pour une retouche ou un lot courant ; `eslint` seulement en fin de
+  chantier (ciblé sur les fichiers modifiés), ou si le changement le rend
+  réellement nécessaire (nouveau hook, nouvelle règle de lint en jeu). Jamais
+  `tsc` + `eslint` systématiques après une modification d'une ligne.
 
 ### Audit préalable obligatoire — AVANT TOUT CODE
 - Avant modification de table → SELECT colonnes réelles

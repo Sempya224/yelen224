@@ -38,6 +38,10 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const employeeId = url.searchParams.get("employeeId");
   const feed = url.searchParams.get("feed");
+  // Lu ici (pas seulement plus bas dans la vue "journée") : réutilisé par
+  // la vue "événements d'un employé pour un jour donné" ci-dessous, qui a
+  // besoin d'employeeId ET date ensemble.
+  const date = url.searchParams.get("date");
 
   // Vue "flux d'activité" (Timeline Live, refonte 05/08/2026) : derniers
   // pointages bruts (attendance_logs), pas daily_attendance — reflète les
@@ -137,6 +141,29 @@ export async function GET(req: NextRequest) {
     .eq("actif", true)
     .maybeSingle<ZoneTravail>();
 
+  // Vue "événements d'un employé pour un jour donné" (fiche détail mobile,
+  // Zone E du plan Clock In Shift expo, 12/10/2026) : pointages BRUTS
+  // (attendance_logs), pas le résumé daily_attendance — l'app mobile n'a
+  // jamais accès à une liste d'événements, seulement premiere_entree/
+  // derniere_sortie. Bornes UTC simples sur `date` (même hypothèse Guinée
+  // UTC+0 que partout ailleurs dans ce module) — contrairement au job
+  // nocturne, aucune fenêtre élargie "horaire de nuit" ici : cette vue
+  // montre exactement ce qui s'est produit ce jour calendaire, rien de
+  // déduit ou recalculé.
+  if (employeeId && date) {
+    if (!DATE_REGEX.test(date)) return NextResponse.json({ error: "Date invalide" }, { status: 400 });
+    const { data: evenements, error: erreurEvenements } = await sb
+      .from("attendance_logs")
+      .select("id,type_action,horodatage,methode")
+      .eq("institution_id", membre.institutionId)
+      .eq("employee_id", employeeId)
+      .gte("horodatage", `${date}T00:00:00.000Z`)
+      .lte("horodatage", `${date}T23:59:59.999Z`)
+      .order("horodatage", { ascending: true });
+    if (erreurEvenements) return NextResponse.json({ error: erreurEvenements.message }, { status: 500 });
+    return NextResponse.json({ evenements: evenements ?? [] });
+  }
+
   // Vue "historique d'un employé" : pas de KPI, juste les 60 derniers jours
   // calculés, du plus récent au plus ancien.
   if (employeeId) {
@@ -176,12 +203,11 @@ export async function GET(req: NextRequest) {
   // Vue "journée" : tous les employés pour une date donnée (défaut
   // aujourd'hui), avec compteurs par statut pour les cartes KPI du
   // dashboard.
-  const date = url.searchParams.get("date");
   const dateJour = date && DATE_REGEX.test(date) ? date : new Date().toISOString().slice(0, 10);
 
   const { data, error } = await sb
     .from("daily_attendance")
-    .select("id,employee_id,statut,heures_travaillees_minutes,heures_supplementaires_minutes,retard_minutes,depart_anticipe_minutes,premiere_entree,derniere_sortie,nombre_pointages,override_manuel,employees(nom,prenom,matricule,department_id,poste)")
+    .select("id,employee_id,statut,heures_travaillees_minutes,heures_supplementaires_minutes,retard_minutes,depart_anticipe_minutes,premiere_entree,derniere_sortie,nombre_pointages,override_manuel,calcule_le,employees(nom,prenom,matricule,department_id,poste)")
     .eq("institution_id", membre.institutionId)
     .eq("date_jour", dateJour)
     .order("statut", { ascending: true });

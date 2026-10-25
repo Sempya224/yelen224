@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import bcrypt from 'bcryptjs'
 import { extraireIpClient } from '@/lib/edgeSecurity'
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative,
-  enregistrerTentative, messageSecurite,
+  enregistrerTentative, messageSecurite, destinationInstitution, destinationInstitutionPhone,
 } from '@/lib/security/authSecurity'
 
 const supabaseAdmin = createClient(
@@ -14,19 +15,6 @@ const supabaseAdmin = createClient(
 )
 
 const PHONE_REGEX = /^\+224\d{8,9}$/
-
-// Cooldown d'envoi (anti-spam SMS, distinct du throttling anti-abus) —
-// conservé tel quel, ce n'est pas une tentative d'authentification mais
-// une protection contre le renvoi répété d'un même code.
-const cooldown = new Map<string, number>()
-
-function checkCooldown(identifier: string): boolean {
-  const now = Date.now()
-  const nextAllowed = cooldown.get(identifier)
-  if (nextAllowed && nextAllowed > now) return false
-  cooldown.set(identifier, now + 60 * 1000)
-  return true
-}
 
 export async function POST(request: NextRequest) {
   // Auth Security (chantier 28/08/2026) — voir lib/security/authSecurity.ts.
@@ -41,14 +29,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip })
-    if (porte.state === 'blocked' || porte.state === 'support_only') {
-      return finaliser(
-        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
-        423
-      )
-    }
-
+    // Format validé AVANT la porte anti-abus (réordonné, Priorités 3/4,
+    // 18/10/2026) — simple parsing/regex, pas une requête Supabase.
     const body = await request.json()
     const { institutionId, phone: rawPhone } = body
 
@@ -66,10 +48,20 @@ export async function POST(request: NextRequest) {
       return finaliser({ error: 'Format de téléphone invalide', code: 'INVALID_FORMAT' }, 400)
     }
 
-    const identifier: string = hasInstitutionId ? institutionId : rawPhone
+    // Destination (Priorités 3/4) — remplace l'ancien cooldown en mémoire
+    // locale (Map, non partagée entre instances serverless, Priorité 2) :
+    // 2 envois pour la même destination en 15 min déclenche désormais un
+    // warning, le 3e un blocage (seuils SEUILS_DESTINATION_PAR_CATEGORIE),
+    // complémentaire au device/IP, jamais autonome (exemption appareil de
+    // confiance pour institutionId déjà connu — voir authSecurity.ts).
+    const destination = hasInstitutionId ? destinationInstitution(institutionId) : destinationInstitutionPhone(rawPhone)
 
-    if (!checkCooldown(identifier)) {
-      return finaliser({ error: 'Un code a déjà été envoyé récemment. Patientez avant de réessayer.', code: 'COOLDOWN' }, 429)
+    const porte = await evaluerTentative(supabaseAdmin, { deviceId, ip, destination }, undefined, request)
+    if (porte.state === 'blocked' || porte.state === 'support_only') {
+      return finaliser(
+        { error: messageSecurite(porte.state), code: porte.state === 'blocked' ? 'AUTH_SECURITY_BLOCKED' : 'AUTH_SECURITY_SUPPORT_ONLY', security: porte },
+        423
+      )
     }
 
     let phone: string
@@ -83,7 +75,7 @@ export async function POST(request: NextRequest) {
 
       if (dbError || !institution) {
         const etat = await enregistrerTentative(supabaseAdmin, {
-          endpointCategory, deviceId, ip, identifiant: institutionId, outcome: 'not_found', userAgent,
+          endpointCategory, deviceId, ip, identifiant: institutionId, outcome: 'not_found', userAgent, destination,
         })
         return finaliser({ error: 'Institution introuvable', code: 'NOT_FOUND', security: etat }, 404)
       }
@@ -108,13 +100,18 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
       if (existing) {
         const etat = await enregistrerTentative(supabaseAdmin, {
-          endpointCategory, deviceId, ip, identifiant: phone, outcome: 'deja_enregistre', userAgent,
+          endpointCategory, deviceId, ip, identifiant: phone, outcome: 'deja_enregistre', userAgent, destination,
         })
         return finaliser({ error: 'Ce numéro est déjà enregistré. Connectez-vous à la place.', code: 'ALREADY_REGISTERED', security: etat }, 409)
       }
     }
 
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    // TTL durci à 5 min (chantier Limites d'authentification, Priorité 1
+    // validée CEO 18/10/2026) — alignée sur lib/auth/otp.ts côté citoyen,
+    // au lieu des 10 min d'origine : fenêtre d'exposition plus courte pour
+    // un code désormais haché (voir ci-dessous) mais toujours à faible
+    // entropie (6 chiffres).
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
 
     // Durcissement Lot 1.1 (13/08/2026, remédiation GAP-04-01) — même
     // architecture que lib/auth/otp.ts côté citoyen : plus aucune valeur en
@@ -139,14 +136,28 @@ export async function POST(request: NextRequest) {
       code = fallback
     }
 
+    // Stockage haché (Priorité 1, 18/10/2026) — même algorithme que
+    // lib/auth/otp.ts côté citoyen (bcrypt, coût 10) : un hash rapide
+    // laisserait une table fuitée se faire casser par force brute offline
+    // en quelques secondes vu la faible entropie d'un code à 6 chiffres.
+    const codeHash = await bcrypt.hash(code, 10)
+
+    // Invalidation des codes précédents (Priorité 1) — tout code antérieur
+    // non expiré pour ce numéro est supprimé AVANT l'insertion du nouveau,
+    // pour qu'il n'y ait jamais plus d'un code actif par numéro en régime
+    // normal. Ne supprime jamais la ligne qu'on va créer : aucun risque de
+    // conflit avec le comportement volontaire de verify-otp qui, en flux
+    // inscription, relit cette même ligne sans la consommer.
+    await supabaseAdmin.from('institution_otp').delete().eq('phone', phone).gt('expires_at', new Date().toISOString())
+
     await supabaseAdmin.from('institution_otp').insert({
       phone,
-      code,
+      code_hash: codeHash,
       expires_at: expiresAt,
     })
 
     const etat = await enregistrerTentative(supabaseAdmin, {
-      endpointCategory, deviceId, ip, identifiant: hasInstitutionId ? institutionId : rawPhone, outcome: 'code_envoye', userAgent,
+      endpointCategory, deviceId, ip, identifiant: hasInstitutionId ? institutionId : rawPhone, outcome: 'code_envoye', userAgent, destination,
     })
 
     return finaliser({ success: true, security: etat }, 200)

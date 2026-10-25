@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthSessionWatcher } from "@/components/AuthSessionWatcher";
+import { SuspensionInactiviteCitoyenGate } from "@/components/SuspensionInactiviteCitoyenGate";
 import { ConnexionWatcher } from "@/components/ConnexionWatcher";
 import { SplashScreen } from "@/components/SplashScreen";
 
@@ -52,6 +53,7 @@ export default function RootLayout({
         <SplashScreen/>
         <ThemeProvider>
           <AuthSessionWatcher/>
+          <SuspensionInactiviteCitoyenGate/>
           <ConnexionWatcher/>
           {children}
         </ThemeProvider>

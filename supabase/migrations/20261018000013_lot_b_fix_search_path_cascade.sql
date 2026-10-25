@@ -1,0 +1,17 @@
+-- Lot B — correctif trouvé en test réel (18/10/2026). citoyen_supprimer_compte
+-- (20261018000011) a SET search_path = '' par prudence (copié du pattern du
+-- trigger de blocage) — mais ce réglage s'applique aussi aux cascades FK
+-- déclenchées PAR le DELETE (les UPDATE ... SET citoyen_id = NULL sur
+-- avis/rdv/conversations/messages_yelen_citoyen/points_transactions/etc.)
+-- et donc à tout trigger que ces cascades déclenchent à leur tour. Au
+-- moins un trigger existant (écrit avant cette convention de durcissement)
+-- référence `institutions` sans préfixe de schéma — résolvable normalement
+-- via le search_path par défaut, plus du tout avec un search_path vide.
+-- Confirmé par test réel : "relation institutions does not exist" lors
+-- d'une suppression de compte avec une conversation.
+--
+-- Le corps de citoyen_supprimer_compte qualifie déjà tout explicitement
+-- (public.users) — retirer SET search_path ne réduit donc aucune
+-- protection réelle pour cette fonction, ça évite seulement de polluer le
+-- contexte des triggers en cascade qui n'ont pas la même discipline.
+ALTER FUNCTION public.citoyen_supprimer_compte(uuid) RESET search_path;

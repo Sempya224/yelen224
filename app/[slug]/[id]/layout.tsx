@@ -29,78 +29,111 @@ import React, { Suspense, useEffect, useLayoutEffect, useState, useCallback, use
 import { createPortal } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
-import { Html5Qrcode } from "html5-qrcode";
+import type { Html5Qrcode } from "html5-qrcode";
 import { YelenLogo } from "@/components/YelenLogo";
 import { YelenLoader } from "@/components/YelenLoader";
-import { EmptyState } from "@/components/EmptyState";
 import { CONDITIONS_PRESTATAIRE } from "@/lib/conditionsPrestataire";
 import { useTheme } from "@/components/ThemeProvider";
 import { creneauEstOuvert, rdvEstEnRetard, rdvNonTraite, rdvEnFenetreDeGrace } from "@/lib/rdvGating";
 import { CheckInUnavailableDialog } from "./components/CheckInUnavailableDialog";
+import { PreparationVisiteModal } from "./components/PreparationVisiteModal";
+import { RdvDetailModal } from "./components/RdvDetailModal";
+import { RdvDetailContenu, useRdvHistorique } from "./components/RdvDetailSections";
+import { peutVoirDemande, separerUrgent } from "@/lib/rdvFiche";
+import { MOTIF_ABSENT_MIN_CARACTERES } from "@/lib/rdvDecision";
+import { heureAmPm as formaterHeureAmPm, heureDepuisHorodatage } from "@/lib/heure";
 import { salutation } from "@/lib/salutation";
 import { can, isMembreRole, isTabKey, ROLE_LABELS, tabAllowed, tabReadOnly, type MembreRole } from "@/lib/institutionPermissions";
 import { T, type ThemeTokens, toUiTokens, toCardTokens } from "./theme";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { DEVISE_LABEL } from "@/lib/devise";
-import { parseLocalDate, SectionHeader, timeAgo } from "./dashboardShared";
+import { parseLocalDate, timeAgo } from "./dashboardShared";
+import { AppointmentsTable, RdvKpiBand, correspondFiltreRdv, variationJour, type RdvKpi } from "./components/rdv/AppointmentsUi";
+import { AppointmentsToolbar } from "./components/rdv/AppointmentsToolbar";
+import { parseAppointmentLabel } from "./components/rdv/parseAppointmentLabel";
+import { ClockStyles, ComboField } from "./components/ClockInShiftUi";
+import { HeaderStyles, Breadcrumbs, KbdChip } from "./components/HeaderUi";
+import { NotificationsPopoverContent } from "./components/NotificationsPopoverContent";
+import { RdvEntrantsPopoverContent } from "./components/RdvEntrantsPopoverContent";
+import type { NotificationInstitution } from "@/lib/notificationsPresentation";
+import { PopoverStyles, popoverItem, PopoverSection, PopoverChevron, PopoverEmpty, PopoverFooter, IcoVideQuestion } from "./components/PopoverUi";
+import { ApercuStyles, ApercuCard, VoirLien, EtatVideCarte, ApercuHeader, KpiBand, SyntheseBand, LigneATraiter, EtoilesAmbre, LigneDistribution, LigneObjectif, CarteAcces, nomPropre as nomAffiche, motsEnCasse, tempsRelatif, heureAmPm } from "./components/ApercuUi";
 import { CompteSuspenduScreen } from "./components/CompteSuspenduScreen";
 import { SecurityActivationGate } from "./components/SecurityActivationGate";
-import { DisponibilitesTab } from "./components/DisponibilitesTab";
-import { ServicesTab } from "./components/ServicesTab";
-import { ServicesHotelTab } from "./components/ServicesHotelTab";
-import { CommunicationTab } from "./components/CommunicationTab";
-import { CommunauteProTab } from "./components/CommunauteProTab";
-import { SignalementsTab } from "./components/SignalementsTab";
-import { CodeQrTab } from "./components/CodeQrTab";
-import { ValiderRdvTab } from "./components/ValiderRdvTab";
-import { ProfilEntrepriseTab } from "./components/ProfilEntrepriseTab";
-import { ConditionsInformationsTab } from "./components/ConditionsInformationsTab";
-import { ConfigurationHotelTab } from "./components/ConfigurationHotelTab";
-import { ProfilResponsableTab } from "./components/ProfilResponsableTab";
-import { DocumentsTab } from "./components/DocumentsTab";
-import { CentreConfigurationTab } from "./components/CentreConfigurationTab";
-import { MesClientsTab } from "./components/MesClientsTab";
-import { AvisReputationTab } from "./components/AvisReputationTab";
-import { MessagerieTab } from "./components/MessagerieTab";
-import { CollaborationTab } from "./components/CollaborationTab";
-import { SupportYelenTab } from "./components/SupportYelenTab";
-import { QuestionsClientsTab } from "./components/QuestionsClientsTab";
-import { EquipeTab } from "./components/EquipeTab";
-import { JournalTab } from "./components/JournalTab";
-import { EspaceTravailTab } from "./components/EspaceTravailTab";
-import { MaSemaineTab } from "./components/MaSemaineTab";
-import { RdvPasseTab } from "./components/RdvPasseTab";
-import { ParametresDangerZone } from "./components/ParametresTab";
-import { SecuriteCompteTab } from "./components/SecuriteCompteTab";
-import { NotificationsTab } from "./components/NotificationsTab";
-import { LegalTab } from "./components/LegalTab";
-import { ProfilTab } from "./components/ProfilTab";
-import { FinanceAccueilTab } from "./components/FinanceAccueilTab";
-import { PaiementsTab } from "./components/PaiementsTab";
-import { TransactionsTab } from "./components/TransactionsTab";
-import { HistoriqueFinancierTab } from "./components/HistoriqueFinancierTab";
-import { FacturationTab } from "./components/FacturationTab";
-import { RapportsTab } from "./components/RapportsTab";
-import { CentreAnalyseTab } from "./components/CentreAnalyseTab";
-import { DocumentsFinanciersTab } from "./components/DocumentsFinanciersTab";
-import { DocumentsClientsTab } from "./components/DocumentsClientsTab";
-import { PartenariatTab } from "./components/PartenariatTab";
-import { MesOffresTab } from "./components/MesOffresTab";
-import { ClockInShiftTab } from "./components/ClockInShiftTab";
-import { YelenCompteTab } from "./components/YelenCompteTab";
-import { YelenContratTab } from "./components/YelenContratTab";
-import { YelenForfaitTab } from "./components/YelenForfaitTab";
-import { YelenPaiementsTab } from "./components/YelenPaiementsTab";
-import { YelenTransactionsTab } from "./components/YelenTransactionsTab";
-import { YelenReconciliationTab } from "./components/YelenReconciliationTab";
-import { YelenFraisTab } from "./components/YelenFraisTab";
-import { YelenFacturationTab } from "./components/YelenFacturationTab";
-import { YelenDocumentsTab } from "./components/YelenDocumentsTab";
 import { LogoutFlow, INSTITUTION_LOGOUT_COPY } from "./components/LogoutFlow";
+
+// Onglets chargés à la demande (next/dynamic) : webpack ne compile plus tout
+// le dashboard à la première ouverture, seulement l'onglet affiché. ssr:false
+// car le layout n'affiche les onglets qu'après le chargement client de l'institution.
+function OngletChargement() {
+  return (
+    <div role="status" aria-label="Chargement" style={{ display: "flex", justifyContent: "center", padding: "64px 0" }}>
+      <div style={{ width: 28, height: 28, borderRadius: "50%", border: "3px solid rgba(128,128,128,0.25)", borderTopColor: "#F5A623", animation: "yelenOngletSpin 0.8s linear infinite" }}/>
+      <style>{"@keyframes yelenOngletSpin{to{transform:rotate(360deg)}}"}</style>
+    </div>
+  );
+}
+
+const NotificationsPage = dynamic(() => import("./components/NotificationsPage").then(m => m.NotificationsPage), { ssr: false, loading: () => <OngletChargement/> });
+const DisponibilitesTab = dynamic(() => import("./components/DisponibilitesTab").then(m => m.DisponibilitesTab), { ssr: false, loading: () => <OngletChargement/> });
+const ServicesTab = dynamic(() => import("./components/ServicesTab").then(m => m.ServicesTab), { ssr: false, loading: () => <OngletChargement/> });
+const ServicesHotelTab = dynamic(() => import("./components/ServicesHotelTab").then(m => m.ServicesHotelTab), { ssr: false, loading: () => <OngletChargement/> });
+const CommunicationTab = dynamic(() => import("./components/CommunicationTab").then(m => m.CommunicationTab), { ssr: false, loading: () => <OngletChargement/> });
+const CommunauteProTab = dynamic(() => import("./components/CommunauteProTab").then(m => m.CommunauteProTab), { ssr: false, loading: () => <OngletChargement/> });
+const SignalementsTab = dynamic(() => import("./components/SignalementsTab").then(m => m.SignalementsTab), { ssr: false, loading: () => <OngletChargement/> });
+const ScansTab = dynamic(() => import("./components/ScannerHistoriqueTab").then(m => m.ScansTab), { ssr: false, loading: () => <OngletChargement/> });
+const CodeQrTab = dynamic(() => import("./components/CodeQrTab").then(m => m.CodeQrTab), { ssr: false, loading: () => <OngletChargement/> });
+const ValiderRdvTab = dynamic(() => import("./components/ValiderRdvTab").then(m => m.ValiderRdvTab), { ssr: false, loading: () => <OngletChargement/> });
+const ProfilEntrepriseTab = dynamic(() => import("./components/ProfilEntrepriseTab").then(m => m.ProfilEntrepriseTab), { ssr: false, loading: () => <OngletChargement/> });
+const ConditionsInformationsTab = dynamic(() => import("./components/ConditionsInformationsTab").then(m => m.ConditionsInformationsTab), { ssr: false, loading: () => <OngletChargement/> });
+const ConfigurationHotelTab = dynamic(() => import("./components/ConfigurationHotelTab").then(m => m.ConfigurationHotelTab), { ssr: false, loading: () => <OngletChargement/> });
+const ProfilResponsableTab = dynamic(() => import("./components/ProfilResponsableTab").then(m => m.ProfilResponsableTab), { ssr: false, loading: () => <OngletChargement/> });
+const DocumentsTab = dynamic(() => import("./components/DocumentsTab").then(m => m.DocumentsTab), { ssr: false, loading: () => <OngletChargement/> });
+const CentreConfigurationTab = dynamic(() => import("./components/CentreConfigurationTab").then(m => m.CentreConfigurationTab), { ssr: false, loading: () => <OngletChargement/> });
+const MesClientsTab = dynamic(() => import("./components/MesClientsTab").then(m => m.MesClientsTab), { ssr: false, loading: () => <OngletChargement/> });
+const AvisReputationTab = dynamic(() => import("./components/AvisReputationTab").then(m => m.AvisReputationTab), { ssr: false, loading: () => <OngletChargement/> });
+const HelpCenterGuide = dynamic(() => import("./components/HelpCenterGuide").then(m => m.HelpCenterGuide), { ssr: false, loading: () => <OngletChargement/> });
+const MessagerieTab = dynamic(() => import("./components/MessagerieTab").then(m => m.MessagerieTab), { ssr: false, loading: () => <OngletChargement/> });
+const CollaborationTab = dynamic(() => import("./components/CollaborationTab").then(m => m.CollaborationTab), { ssr: false, loading: () => <OngletChargement/> });
+const SupportYelenTab = dynamic(() => import("./components/SupportYelenTab").then(m => m.SupportYelenTab), { ssr: false, loading: () => <OngletChargement/> });
+const RecommandationsTab = dynamic(() => import("./components/RecommandationsTab").then(m => m.RecommandationsTab), { ssr: false, loading: () => <OngletChargement/> });
+const QuestionsClientsTab = dynamic(() => import("./components/QuestionsClientsTab").then(m => m.QuestionsClientsTab), { ssr: false, loading: () => <OngletChargement/> });
+const EquipeTab = dynamic(() => import("./components/EquipeTab").then(m => m.EquipeTab), { ssr: false, loading: () => <OngletChargement/> });
+const JournalTab = dynamic(() => import("./components/JournalTab").then(m => m.JournalTab), { ssr: false, loading: () => <OngletChargement/> });
+const EspaceTravailTab = dynamic(() => import("./components/EspaceTravailTab").then(m => m.EspaceTravailTab), { ssr: false, loading: () => <OngletChargement/> });
+const MaSemaineTab = dynamic(() => import("./components/MaSemaineTab").then(m => m.MaSemaineTab), { ssr: false, loading: () => <OngletChargement/> });
+const RdvPasseTab = dynamic(() => import("./components/RdvPasseTab").then(m => m.RdvPasseTab), { ssr: false, loading: () => <OngletChargement/> });
+const ParametresDangerZone = dynamic(() => import("./components/ParametresTab").then(m => m.ParametresDangerZone), { ssr: false, loading: () => <OngletChargement/> });
+const ParametresAccueil = dynamic(() => import("./components/ParametresAccueil").then(m => m.ParametresAccueil), { ssr: false, loading: () => <OngletChargement/> });
+const SecuriteCompteTab = dynamic(() => import("./components/SecuriteCompteTab").then(m => m.SecuriteCompteTab), { ssr: false, loading: () => <OngletChargement/> });
+const NotificationsTab = dynamic(() => import("./components/NotificationsTab").then(m => m.NotificationsTab), { ssr: false, loading: () => <OngletChargement/> });
+const LegalTab = dynamic(() => import("./components/LegalTab").then(m => m.LegalTab), { ssr: false, loading: () => <OngletChargement/> });
+const ProfilTab = dynamic(() => import("./components/ProfilTab").then(m => m.ProfilTab), { ssr: false, loading: () => <OngletChargement/> });
+const FinanceAccueilTab = dynamic(() => import("./components/FinanceAccueilTab").then(m => m.FinanceAccueilTab), { ssr: false, loading: () => <OngletChargement/> });
+const PaiementsTab = dynamic(() => import("./components/PaiementsTab").then(m => m.PaiementsTab), { ssr: false, loading: () => <OngletChargement/> });
+const TransactionsTab = dynamic(() => import("./components/TransactionsTab").then(m => m.TransactionsTab), { ssr: false, loading: () => <OngletChargement/> });
+const HistoriqueFinancierTab = dynamic(() => import("./components/HistoriqueFinancierTab").then(m => m.HistoriqueFinancierTab), { ssr: false, loading: () => <OngletChargement/> });
+const FacturationTab = dynamic(() => import("./components/FacturationTab").then(m => m.FacturationTab), { ssr: false, loading: () => <OngletChargement/> });
+const RapportsTab = dynamic(() => import("./components/RapportsTab").then(m => m.RapportsTab), { ssr: false, loading: () => <OngletChargement/> });
+const CentreAnalyseTab = dynamic(() => import("./components/CentreAnalyseTab").then(m => m.CentreAnalyseTab), { ssr: false, loading: () => <OngletChargement/> });
+const DocumentsFinanciersTab = dynamic(() => import("./components/DocumentsFinanciersTab").then(m => m.DocumentsFinanciersTab), { ssr: false, loading: () => <OngletChargement/> });
+const DocumentsClientsTab = dynamic(() => import("./components/DocumentsClientsTab").then(m => m.DocumentsClientsTab), { ssr: false, loading: () => <OngletChargement/> });
+const PartenariatTab = dynamic(() => import("./components/PartenariatTab").then(m => m.PartenariatTab), { ssr: false, loading: () => <OngletChargement/> });
+const MesOffresTab = dynamic(() => import("./components/MesOffresTab").then(m => m.MesOffresTab), { ssr: false, loading: () => <OngletChargement/> });
+const ClockInShiftTab = dynamic(() => import("./components/ClockInShiftTab").then(m => m.ClockInShiftTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenCompteTab = dynamic(() => import("./components/YelenCompteTab").then(m => m.YelenCompteTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenContratTab = dynamic(() => import("./components/YelenContratTab").then(m => m.YelenContratTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenForfaitTab = dynamic(() => import("./components/YelenForfaitTab").then(m => m.YelenForfaitTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenPaiementsTab = dynamic(() => import("./components/YelenPaiementsTab").then(m => m.YelenPaiementsTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenTransactionsTab = dynamic(() => import("./components/YelenTransactionsTab").then(m => m.YelenTransactionsTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenReconciliationTab = dynamic(() => import("./components/YelenReconciliationTab").then(m => m.YelenReconciliationTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenFraisTab = dynamic(() => import("./components/YelenFraisTab").then(m => m.YelenFraisTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenFacturationTab = dynamic(() => import("./components/YelenFacturationTab").then(m => m.YelenFacturationTab), { ssr: false, loading: () => <OngletChargement/> });
+const YelenDocumentsTab = dynamic(() => import("./components/YelenDocumentsTab").then(m => m.YelenDocumentsTab), { ssr: false, loading: () => <OngletChargement/> });
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -121,18 +154,27 @@ export type RDV = {
   service_payant_nom?: string | null;
   service_payant_prix?: number | null;
   booking_payant_id?: string | null;
+  reference?: string;
+  accepte_le?: string | null;
+  date_depart?: string | null;
+  pays_depart?: string | null;
+  ville_depart?: string | null;
   notes?: string;
   presence?: boolean;
   presence_status?: string;
   presence_confirmed_at?: string;
   conversation_terminee?: boolean;
   motif_annulation?: string;
+  annule_par?: string | null;
   created_at?: string;
   termine_at?: string;
   guichet?: string;
+  instructions_accueil?: string | null;
+  preparation_confirmee_le?: string | null;
   motif_report?: string;
   duree_minutes?: number | null;
   description_besoin?: string | null;
+  champs_complementaires_reponses?: Record<string, string> | null;
 };
 
 type AvisItem = {
@@ -157,7 +199,7 @@ export type Client = {
   est_nouveau: boolean;
 };
 
-type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "collaboration" | "support" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift" | "parametres-securite" | "parametres-notifications" | "parametres-legal" | "yelen-compte" | "yelen-contrat" | "yelen-forfait" | "yelen-paiements" | "yelen-transactions" | "yelen-reconciliation" | "yelen-frais-commissions" | "yelen-facturation" | "yelen-documents" | "yelen-support" | "ma-semaine";
+type DashboardTab = "accueil" | "rdv" | "disponibilites" | "services" | "communication" | "communaute-pro" | "signalements" | "scanner" | "codeqr" | "valider-rdv" | "analyse" | "recommandations" | "parametres" | "profil-entreprise" | "conditions-informations" | "configuration-hotel" | "profil-responsable" | "documents" | "mes-clients" | "avis-reputation" | "rdv-historique" | "equipe" | "journal" | "espace-travail" | "messagerie" | "collaboration" | "support" | "questions-clients" | "paiements" | "transactions" | "historique-financier" | "facturation" | "rapports" | "documents-financiers" | "documents-clients" | "profil" | "partenariat" | "mes-offres" | "clock-in-shift" | "parametres-securite" | "parametres-notifications" | "parametres-legal" | "yelen-compte" | "yelen-contrat" | "yelen-forfait" | "yelen-paiements" | "yelen-transactions" | "yelen-reconciliation" | "yelen-frais-commissions" | "yelen-facturation" | "yelen-documents" | "yelen-support" | "ma-semaine" | "notifications";
 // Onglets encore navigables quand institutions.statut === "suspendue"
 // (décision CEO 17/08/2026, écran dédié "Espace suspendu") — interprétation
 // de "Communication/Support" + "Paramètres/Compte", ajustable ici seul.
@@ -181,9 +223,9 @@ const ALLOWED_TABS_SUSPENDU: ReadonlySet<DashboardTab> = new Set([
 // nouvelles. Constante de module : statique, ne dépend d'aucun state/prop.
 const FINANCE_GROUPS: { key: "operations" | "suivi"; label: string; icon: React.ReactNode; tabs: DashboardTab[] }[] = [
   { key: "operations", label: "Opérations", tabs: ["paiements", "transactions", "facturation"],
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg> },
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg> },
   { key: "suivi", label: "Suivi & documents", tabs: ["historique-financier", "rapports", "documents-financiers", "documents-clients"],
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
 ];
 // Même principe que FINANCE_GROUPS, appliqué au groupe "Équipe & travail" du
 // panneau "Compte" (pas la sidebar principale) : 4 écrans → 2 sous-sections
@@ -241,10 +283,6 @@ const YELEN_BUSINESS_SECTIONS: { section: string; items: { key: DashboardTab; la
   ]},
 ];
 const YELEN_BUSINESS_TABS: { key: DashboardTab; label: string; icon: React.ReactNode }[] = YELEN_BUSINESS_SECTIONS.flatMap(s => s.items);
-// Item de la liste "Paramètres" — soit un lien externe (href), soit une
-// bascule d'onglet interne au dashboard (onTab), jamais les deux.
-type SettingsItem = { label: string; href: string | null; onTab?: DashboardTab; color: string };
-type SettingsSection = { titre: string; items: SettingsItem[] };
 
 // Workspace persistant (Lot 04-B) — remplace le rendu conditionnel
 // {tab === "x" && <XTab/>} (démonte/remonte intégralement à chaque bascule,
@@ -271,6 +309,30 @@ function KeepMounted({ tabKey, current, visited, onBack, C, children }: {
       {children}
     </div>
   );
+}
+
+// Garde de rendu des écrans Paramètres (Sécurité, Notifications, Légal) :
+// les onglets ont une URL propre, donc un membre sans accès peut les ouvrir
+// directement. Même source de vérité que navAllowed (tabAllowed), aucune règle
+// nouvelle. Cosmétique : la vraie barrière reste dans chaque route API.
+// `role === null` = rôle pas encore chargé (ou chargement échoué) — on
+// n'affiche ni l'écran ni un refus tant que le rôle n'est pas connu.
+function ParametresGarde({ role, autorise, onRetour, C, children }: {
+  role: MembreRole | null; autorise: boolean; onRetour: () => void; C: ThemeTokens; children: React.ReactNode;
+}) {
+  if (role === null) {
+    return <div role="status" aria-live="polite" style={{ padding: "48px 16px", textAlign: "center", color: C.t3, fontSize: "13px" }}>Vérification de vos droits d&apos;accès…</div>;
+  }
+  if (!autorise) {
+    return (
+      <div style={{ padding: "48px 16px", textAlign: "center" }}>
+        <p style={{ color: C.t1, fontSize: "15px", fontWeight: 800, marginBottom: "6px" }}>Accès réservé aux administrateurs</p>
+        <p style={{ color: C.t3, fontSize: "13px", marginBottom: "16px" }}>Votre rôle ne permet pas d&apos;ouvrir cet écran.</p>
+        <button type="button" onClick={onRetour} className="tap yelen-focus-ring" style={{ background: "none", border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "8px 14px", color: C.t1, fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>Retour</button>
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 // État vide générique des 7 écrans "Yelen Business" (17/09/2026, voir
@@ -432,7 +494,9 @@ function RdvEmptyState({ C, illustration, titre, texte, cta }: {
 function ReadOnlyNotice({ C }: { C: ThemeTokens }) {
   return (
     <div style={{ backgroundColor: `${C.orange}12`, border: `1px solid ${C.orange}30`, borderRadius: "12px", padding: "12px 14px", margin: "16px 16px 0", display: "flex", gap: "10px", alignItems: "flex-start" }}>
-      <span style={{ fontSize: "16px", flexShrink: 0 }}>🔒</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: "2px" }} aria-hidden="true">
+        <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
       <p style={{ color: C.t2, fontSize: "12px", lineHeight: 1.6, margin: 0 }}>
         <strong style={{ color: C.orange }}>Lecture seule.</strong> Vous n&apos;avez pas les droits pour effectuer des actions sur cet écran. Si vous pensez qu&apos;il s&apos;agit d&apos;une erreur, contactez votre employeur.
       </p>
@@ -507,15 +571,30 @@ export type Stats = {
   kpi_variations: { nouveau: KpiVariation; pending: KpiVariation; confirmed: KpiVariation; done: KpiVariation; cancelled: KpiVariation; total: KpiVariation; non_traites: KpiVariation };
 };
 
-export type KpiVariation = { value: number; has: boolean };
+// aujourdhui / hier : nombre de RDV prévus ces deux jours (jours de Conakry) dans la
+// catégorie, affichés tels quels sur l'écran Rendez-vous. value / has : ancien
+// pourcentage, conservé tant que la bande KPI de l'accueil (ApercuUi.KpiBand) n'a
+// pas migré vers le même affichage.
+export type KpiVariation = { value: number; has: boolean; aujourdhui: number; hier: number };
+const VARIATION_NULLE: KpiVariation = { value: 0, has: false, aujourdhui: 0, hier: 0 };
 
 // ─── Design Tokens ────────────────────────────────────────────────────
 // ─── CSS Global ────────────────────────────────────────────────────────
 const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
   html,body{background:${C.bg};overflow-x:hidden;overscroll-behavior:none}
-  ::-webkit-scrollbar{display:none}
-  *{scrollbar-width:none}
+  /* Barre de défilement TOUJOURS visible partout dans le dashboard (retour
+     Bryan 24/10/2026), neutre comme celle de .rdv-detail-scroll : gris clair
+     en sombre (un thumb noir y serait invisible), noirâtre en clair. Remplace
+     le masquage global de globals.css, qui ne vaut plus ici. Les classes plus
+     spécifiques (.msgv2-*, .rdv-detail-scroll, .header-popover-body) gardent
+     leurs règles propres. scrollbar-width/color est la spec standard ; les
+     ::-webkit-scrollbar ci-dessous couvrent les Safari/Chrome plus anciens. */
+  *{scrollbar-width:thin;scrollbar-color:${theme === "dark" ? "rgba(255,255,255,0.28)" : "rgba(10,10,18,0.30)"} transparent}
+  ::-webkit-scrollbar{display:block;width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:${theme === "dark" ? "rgba(255,255,255,0.28)" : "rgba(10,10,18,0.30)"};border-radius:6px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:${theme === "dark" ? "rgba(255,255,255,0.45)" : "rgba(10,10,18,0.50)"};background-clip:content-box}
   /* ── Barre de scroll centrale institution — façon Supabase (retour
       Bryan 01/09/2026) : contrairement au reste du produit (masquée
       partout par défaut ci-dessus), la sidebar, le contenu principal et
@@ -531,32 +610,100 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
       ::-webkit-scrollbar width JAMAIS togglés (toujours réservés) : les
       toggler faisait apparaître/disparaître la gouttière elle-même et
       décalait le contenu vers la droite (retour Bryan) — seule la
-      couleur du thumb change, jamais l'espace réservé. ── */
-  .yelen-sidebar nav, .yelen-main, .yelen-account-panel, .msgv2-list-pane, .msgv2-thread-scroll {
+      couleur du thumb change, jamais l'espace réservé. Appliqué le
+      13/10/2026 à .rdv-detail-scroll (fiche RDV) puis repassé le
+      19/10/2026 en barre TOUJOURS visible (retour Bryan : la barre
+      disparaissait après quelques secondes sur cette pop-up précise,
+      gênant — voir bloc .rdv-detail-scroll dédié ci-dessous, même
+      traitement que .header-popover-body). ── */
+  .msgv2-list-pane, .msgv2-thread-scroll {
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
   }
-  .yelen-sidebar nav.scrollbar-active, .yelen-main.scrollbar-active, .yelen-account-panel.scrollbar-active, .msgv2-list-pane.scrollbar-active, .msgv2-thread-scroll.scrollbar-active {
+  .msgv2-list-pane.scrollbar-active, .msgv2-thread-scroll.scrollbar-active {
     scrollbar-color: ${theme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(10,10,18,0.35)"} transparent;
   }
-  .yelen-sidebar nav::-webkit-scrollbar, .yelen-main::-webkit-scrollbar, .yelen-account-panel::-webkit-scrollbar, .msgv2-list-pane::-webkit-scrollbar, .msgv2-thread-scroll::-webkit-scrollbar {
+  .msgv2-list-pane::-webkit-scrollbar, .msgv2-thread-scroll::-webkit-scrollbar {
     display: block;
     width: 10px;
     height: 10px;
   }
-  .yelen-sidebar nav::-webkit-scrollbar-track, .yelen-main::-webkit-scrollbar-track, .yelen-account-panel::-webkit-scrollbar-track, .msgv2-list-pane::-webkit-scrollbar-track, .msgv2-thread-scroll::-webkit-scrollbar-track {
+  .msgv2-list-pane::-webkit-scrollbar-track, .msgv2-thread-scroll::-webkit-scrollbar-track {
     background: transparent;
   }
-  .yelen-sidebar nav::-webkit-scrollbar-thumb, .yelen-main::-webkit-scrollbar-thumb, .yelen-account-panel::-webkit-scrollbar-thumb, .msgv2-list-pane::-webkit-scrollbar-thumb, .msgv2-thread-scroll::-webkit-scrollbar-thumb {
+  .msgv2-list-pane::-webkit-scrollbar-thumb, .msgv2-thread-scroll::-webkit-scrollbar-thumb {
     background: transparent;
     border-radius: 8px;
     transition: background-color 0.25s ease;
   }
-  .yelen-sidebar nav.scrollbar-active::-webkit-scrollbar-thumb, .yelen-main.scrollbar-active::-webkit-scrollbar-thumb, .yelen-account-panel.scrollbar-active::-webkit-scrollbar-thumb, .msgv2-list-pane.scrollbar-active::-webkit-scrollbar-thumb, .msgv2-thread-scroll.scrollbar-active::-webkit-scrollbar-thumb {
+  .msgv2-list-pane.scrollbar-active::-webkit-scrollbar-thumb, .msgv2-thread-scroll.scrollbar-active::-webkit-scrollbar-thumb {
     background: ${theme === "dark" ? "rgba(255,255,255,0.35)" : "rgba(10,10,18,0.35)"};
   }
-  .yelen-sidebar nav.scrollbar-active::-webkit-scrollbar-thumb:hover, .yelen-main.scrollbar-active::-webkit-scrollbar-thumb:hover, .yelen-account-panel.scrollbar-active::-webkit-scrollbar-thumb:hover, .msgv2-list-pane.scrollbar-active::-webkit-scrollbar-thumb:hover, .msgv2-thread-scroll.scrollbar-active::-webkit-scrollbar-thumb:hover {
+  .msgv2-list-pane.scrollbar-active::-webkit-scrollbar-thumb:hover, .msgv2-thread-scroll.scrollbar-active::-webkit-scrollbar-thumb:hover {
     background: ${theme === "dark" ? "rgba(255,255,255,0.55)" : "rgba(10,10,18,0.55)"};
+  }
+  .rdv-detail-scroll {
+    scrollbar-width: auto;
+    scrollbar-color: ${C.border2} transparent;
+  }
+  .rdv-detail-scroll::-webkit-scrollbar {
+    display: block;
+    width: 10px;
+  }
+  .rdv-detail-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .rdv-detail-scroll::-webkit-scrollbar-thumb {
+    background: ${C.border2};
+    border-radius: 8px;
+    border: 2px solid ${C.bgCard};
+  }
+  .rdv-detail-scroll::-webkit-scrollbar-thumb:hover {
+    background: ${C.t3};
+  }
+  /* ── Contenu principal (.yelen-main, tous les onglets dont Vue
+      d'ensemble) + Sidebar + panneau Compte — barre toujours visible
+      façon YouTube/Supabase (retour Bryan 13/10/2026). Gris translucide
+      neutre dans les deux thèmes (même logique que .msgv2-*/.rdv-detail-
+      scroll ci-dessus) : un essai doré en thème sombre (13/10/2026) puis
+      un essai couleur texte C.t2/C.t3 (trop proche du noir pur en thème
+      clair, surtout au survol) ont tous les deux été annulés le
+      18/10/2026. ── */
+  .yelen-main, .yelen-account-panel {
+    scrollbar-width: auto;
+    scrollbar-color: ${theme === "dark" ? "rgba(255,255,255,0.18)" : "rgba(10,10,18,0.16)"} transparent;
+  }
+  .yelen-sidebar nav {
+    scrollbar-width: thin;
+    scrollbar-color: ${theme === "dark" ? "rgba(255,255,255,0.18)" : "rgba(10,10,18,0.16)"} transparent;
+  }
+  .yelen-main::-webkit-scrollbar, .yelen-account-panel::-webkit-scrollbar {
+    display: block;
+    width: 8px;
+  }
+  .yelen-sidebar nav::-webkit-scrollbar {
+    display: block;
+    width: 5px;
+  }
+  .yelen-main::-webkit-scrollbar-track, .yelen-sidebar nav::-webkit-scrollbar-track, .yelen-account-panel::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .yelen-main::-webkit-scrollbar-thumb {
+    background: ${theme === "dark" ? "rgba(255,255,255,0.18)" : "rgba(10,10,18,0.16)"};
+    border-radius: 8px;
+  }
+  .yelen-sidebar nav::-webkit-scrollbar-thumb {
+    background: ${theme === "dark" ? "rgba(255,255,255,0.18)" : "rgba(10,10,18,0.16)"};
+    border-radius: 8px;
+    border: 2px solid ${C.bgCard};
+  }
+  .yelen-account-panel::-webkit-scrollbar-thumb {
+    background: ${theme === "dark" ? "rgba(255,255,255,0.18)" : "rgba(10,10,18,0.16)"};
+    border-radius: 8px;
+    border: 2px solid ${C.bgCard2};
+  }
+  .yelen-main::-webkit-scrollbar-thumb:hover, .yelen-sidebar nav::-webkit-scrollbar-thumb:hover, .yelen-account-panel::-webkit-scrollbar-thumb:hover {
+    background: ${theme === "dark" ? "rgba(255,255,255,0.32)" : "rgba(10,10,18,0.28)"};
   }
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
@@ -569,6 +716,7 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   @keyframes bannerAlive{0%,100%{box-shadow:inset 0 0 0 rgba(0,0,0,0)}50%{box-shadow:inset 0 0 24px rgba(0,0,0,0.18)}}
   @keyframes slideInRight{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
+  .yelen-shell{--header-h:56px}
   .tap{transition:opacity .12s,transform .12s;cursor:pointer;touch-action:manipulation;user-select:none}
   .tap:active{opacity:0.65;transform:scale(0.97)}
   /* ── Tiroir "Yelen Business" (17/09/2026) — flottant, ancré à droite,
@@ -584,6 +732,17 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
     animation:slideInRight 0.2s ease;
     padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
   }
+  /* Sélection de texte + cases/radios aux couleurs de la marque (C.gold, source
+     unique theme.ts). Texte sombre sur or : le blanc sur #F5A623 n'atteint pas
+     le contraste AA ; l'or reste identique en clair et en sombre. */
+  :root{--selection-bg:${C.gold};--selection-fg:#1A1A1A;accent-color:${C.gold}}
+  /* Filet de sécurité focus clavier : boutons/liens sans règle propre n'héritent
+     plus de l'anneau bleu du navigateur. :where() = spécificité 0, donc toutes les
+     règles .xxx:focus-visible des composants gardent la priorité. Inputs exclus
+     (leur bordure de focus est gérée composant par composant). */
+  :where(button,a,[role="button"],[tabindex]):focus-visible{outline:2px solid ${C.gold};outline-offset:2px}
+  ::selection,input::selection,textarea::selection{background:var(--selection-bg);color:var(--selection-fg)}
+  ::-moz-selection,input::-moz-selection,textarea::-moz-selection{background:var(--selection-bg);color:var(--selection-fg)}
   input::placeholder{color:${C.t3}}
   textarea::placeholder{color:${C.t3}}
   input,textarea{color:${C.t1};background:transparent;border:none;outline:none;font-family:inherit}
@@ -602,7 +761,7 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
       background:${C.bgCard};border-right:1px solid rgba(255,255,255,0.07);
       display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:400
     }
-    .yelen-main{margin-left:224px;flex:1;overflow-y:auto;height:100svh;display:flex;flex-direction:column}
+    .yelen-main{margin-left:224px;flex:1;overflow-y:scroll;height:100svh;display:flex;flex-direction:column}
     .yelen-bottom-nav{display:none!important}
     .yelen-content{flex:1;overflow-y:auto}
     .yelen-header-inner{padding:0 32px!important}
@@ -633,11 +792,24 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
       dropdown ancré à partir de 1024px ── */
   .header-popover-panel{
     position:fixed;left:10px;right:10px;bottom:10px;z-index:500;
-    max-height:76svh;overflow-y:auto;padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+    max-height:76svh;display:flex;flex-direction:column;overflow:hidden;
+    padding:14px 14px calc(14px + env(safe-area-inset-bottom));
     background:${C.bgCard};border:1px solid ${C.border2};border-radius:22px;
     box-shadow:0 -16px 48px rgba(0,0,0,0.5);animation:slideUp 0.22s ease;
   }
-  .header-popover-grip{display:block}
+  /* ── Corps scrollable du panneau — tête (grip + titre) reste fixe pendant
+      le défilement du contenu (retour Bryan 13/10/2026). min-height:0
+      nécessaire : sans ça un enfant flex ne rétrécit jamais sous sa taille
+      de contenu et ignore le overflow du parent. ── */
+  .header-popover-body{padding-top:12px;overflow-y:auto;flex:1 1 auto;min-height:0;scrollbar-width:auto;scrollbar-color:${C.border2} transparent;padding-right:4px}
+  /* ── Barre de défilement personnalisée façon YouTube/Supabase — épaisse
+      et toujours visible (pas l'overlay fin qui apparaît seulement au
+      survol), retour Bryan 13/10/2026. ── */
+  .header-popover-body::-webkit-scrollbar{width:10px}
+  .header-popover-body::-webkit-scrollbar-track{background:transparent}
+  .header-popover-body::-webkit-scrollbar-thumb{background:${C.border2};border-radius:8px;border:2px solid ${C.bgCard}}
+  .header-popover-body::-webkit-scrollbar-thumb:hover{background:${C.t3}}
+  .header-popover-grip{display:block;flex-shrink:0}
   .header-popover-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:499;animation:fadeIn 0.2s ease}
   .header-search-desktop{display:none}
   /* ── Header mobile : consolidation façon Shopify admin (retour Bryan
@@ -654,14 +826,13 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
   @media(min-width:1024px){
     .header-popover-panel{
       position:absolute;left:auto;right:0;bottom:auto;top:calc(100% + 8px);
-      width:340px;max-height:440px;border-radius:16px;padding:14px;
-      box-shadow:0 20px 60px rgba(0,0,0,0.35);animation:fadeUp 0.16s ease;
+      width:360px;max-height:calc(100vh - 56px - 24px);border-radius:12px;padding:0;
+      box-shadow:0 8px 24px rgba(0,0,0,0.12);animation:fadeUp 0.16s ease;
     }
-    /* Refonte "Aide Yelen" (retour Bryan 06/09/2026, Help Center launcher
-       façon Intercom/Zendesk) : ce panneau précis a plus de contenu que les
-       autres popovers (recherche, 2 cartes, ressources, légal) — override
-       scopé par data-popover, les autres popovers gardent 340×440. */
-    .header-popover-panel[data-popover="help"]{width:460px;max-height:600px;border-radius:20px}
+    .header-popover-panel .header-popover-body{padding:12px 16px 16px}
+    /* Largeur unique 360 px pour tous les popovers (Aide : 400 px max). */
+    .header-popover-panel[data-popover="help"]{width:400px}
+    .header-popover-panel[data-popover="notifications"],.header-popover-panel[data-popover="rdv"]{width:420px;max-width:calc(100vw - 24px)}
     .header-popover-grip{display:none}
     .header-popover-overlay{display:none}
     .header-search-desktop{display:flex}
@@ -703,7 +874,18 @@ const cssFor = (C: ThemeTokens, theme: "light" | "dark") => `
       nouveau RDV, retard) restent dans <header>, donc pleine largeur
       volontairement, comme les alertes système chez Stripe. ── */
   @media(min-width:1024px){
-    .yelen-page{max-width:1280px;margin:0 auto;width:100%}
+    .yelen-page{max-width:1600px;margin:0 auto;width:100%}
+    /* Vue d'ensemble : pleine largeur, aucun vide latéral (retour Bryan 23/10/2026). */
+    .yelen-page.yelen-page--fluide{max-width:none}
+    /* Les onglets posent leur propre max-width (1100-1600px) + margin auto sur
+       leur racine : sans cet override, ils restent centrés avec du vide à
+       gauche/droite même quand .yelen-page est fluide (retour Bryan 24/10/2026).
+       !important nécessaire : ces max-width sont des styles inline. */
+    .yelen-page.yelen-page--fluide > *{max-width:none !important}
+    /* Marges latérales internes (24-32px posées en inline par chaque onglet)
+       réduites à 4px : contenu quasi collé à la sidebar et à la scrollbar. */
+    .yelen-page.yelen-page--fluide > *,
+    .yelen-page.yelen-page--fluide .ya-pad{padding-left:4px !important;padding-right:4px !important}
   }
   /* container-type ici (pas sur .cc-layout lui-même, qui ne peut pas se
      mesurer contre son propre contexte de confinement) : permet à
@@ -750,29 +932,6 @@ function extraireService(objet: string | undefined): string {
   return m[1];
 }
 
-// Regroupe une liste par jour (Aujourd'hui/Hier/date) — même convention que
-// NotifPanel côté citoyen (app/page.tsx), demandé par Bryan le 20/07/2026
-// pour le panneau Notifications institution.
-function libelleJourNotif(iso: string): string {
-  const d = new Date(iso);
-  const auj = new Date(); auj.setHours(0, 0, 0, 0);
-  const hier = new Date(auj); hier.setDate(hier.getDate() - 1);
-  const dJour = new Date(d); dJour.setHours(0, 0, 0, 0);
-  if (dJour.getTime() === auj.getTime()) return "Aujourd'hui";
-  if (dJour.getTime() === hier.getTime()) return "Hier";
-  return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-}
-function grouperParJour<T extends { created_at: string }>(items: T[]): { jour: string; items: T[] }[] {
-  const groupes: { jour: string; items: T[] }[] = [];
-  for (const n of items) {
-    const jour = libelleJourNotif(n.created_at);
-    const dernier = groupes[groupes.length - 1];
-    if (dernier && dernier.jour === jour) dernier.items.push(n);
-    else groupes.push({ jour, items: [n] });
-  }
-  return groupes;
-}
-
 // Un date_rdv "brut" ("2026-07-20", sans heure) donné à `new Date(...)` est
 // interprété comme minuit UTC par le moteur JS, puis reconverti dans le
 // fuseau LOCAL du navigateur pour l'affichage — décale la date d'un jour
@@ -782,9 +941,10 @@ function grouperParJour<T extends { created_at: string }>(items: T[]): { jour: s
 // "lundi 20"). Ne pas utiliser new Date(date_rdv) directement pour de
 // l'affichage — toujours passer par cette fonction, qui construit la date
 // heure_rdv vient de Postgres au format "HH:MM:SS" (colonne `time`) — jamais
-// utile d'afficher les secondes à l'utilisateur.
+// utile d'afficher les secondes à l'utilisateur. Rendu en 12 h AM/PM via le
+// formateur partagé (lib/heure.ts) : règle Yelen, jamais d'heure en 24 h.
 function formatHeure(h?: string | null): string {
-  return (h || "").slice(0, 5);
+  return formaterHeureAmPm(h);
 }
 
 function formatDate(iso: string, opts?: Intl.DateTimeFormatOptions) {
@@ -985,7 +1145,7 @@ function ProfilProgressionBandeau({ inst, tab, membreRole, configComplete, confi
         </div>
         <span style={{ color: sc.color, fontSize: "11px", fontWeight: "800", flex: 1 }}>{sc.label}</span>
         {inst.statut === "validee" && (
-          <span style={{ backgroundColor: C.green, color: "#fff", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>✓ VÉRIFIÉ</span>
+          <span style={{ backgroundColor: C.green, color: "#fff", fontSize: "10px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px" }}>✓ VÉRIFIÉ</span>
         )}
         {inst.statut === "refusee" && (
           <a href="mailto:support@yelen224.com" style={{ color: C.red, fontSize: "10px", fontWeight: "800", textDecoration: "none" }}>Contacter →</a>
@@ -1022,20 +1182,6 @@ function ProfilProgressionBandeau({ inst, tab, membreRole, configComplete, confi
 }
 
 // ─── Composants utilitaires ───────────────────────────────────────────
-function Stars({ note, size = 12 }: { note: number; size?: number }) {
-  const { theme } = useTheme();
-  const C = T[theme] as ThemeTokens;
-  return (
-    <div style={{ display: "flex", gap: "2px" }}>
-      {[1,2,3,4,5].map(i => (
-        <svg key={i} width={size} height={size} viewBox="0 0 20 20" fill={i <= Math.round(note) ? C.gold : "rgba(255,255,255,0.1)"}>
-          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 0 0 .95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 0 0-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.539 1.118l-2.8-2.034a1 1 0 0 0-1.176 0l-2.8 2.034c-.783.57-1.838-.196-1.539-1.118l1.07-3.292a1 1 0 0 0-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 0 0 .95-.69l1.07-3.292Z"/>
-        </svg>
-      ))}
-    </div>
-  );
-}
-
 // Compteur animé — anime de 0 (ou de l'ancienne valeur) vers `value` sur
 // ~700ms (ease-out) à chaque changement, façon Stripe/Linear. Purement
 // visuel, aucun état persistant.
@@ -1107,7 +1253,7 @@ function NotifEmptyIllustration({ color }: { color: string }) {
 // réelles du bouton (getBoundingClientRect) et on les impose en inline
 // style uniquement ≥1024px ; sous ce seuil, retourne null pour laisser la
 // CSS mobile inchangée piloter entièrement le panneau.
-function useDesktopAnchor(triggerRef: React.RefObject<HTMLElement | null>, active: boolean) {
+function useDesktopAnchor(triggerRef: React.RefObject<HTMLElement | null>, active: boolean, width = 360, fallbackRef?: React.RefObject<HTMLElement | null>) {
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
   useLayoutEffect(() => {
@@ -1118,8 +1264,12 @@ function useDesktopAnchor(triggerRef: React.RefObject<HTMLElement | null>, activ
     if (!active) { queueMicrotask(() => setPos(null)); return; }
     const compute = () => {
       if (window.innerWidth < 1024 || !triggerRef.current) { setPos(null); return; }
-      const rect = triggerRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+      let rect = triggerRef.current.getBoundingClientRect();
+      // Déclencheur masqué (replié dans « Plus ») : on s'ancre sur le bouton « Plus ».
+      if (rect.width === 0 && fallbackRef?.current) rect = fallbackRef.current.getBoundingClientRect();
+      // Aligné à droite du bouton, jamais hors viewport (marge 8 px).
+      const right = Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - width - 8));
+      setPos({ top: rect.bottom + 8, right });
     };
     compute();
     window.addEventListener("resize", compute);
@@ -1128,9 +1278,21 @@ function useDesktopAnchor(triggerRef: React.RefObject<HTMLElement | null>, activ
       window.removeEventListener("resize", compute);
       window.removeEventListener("scroll", compute, true);
     };
-  }, [active, triggerRef]);
+  }, [active, triggerRef, width, fallbackRef]);
 
   return pos;
+}
+
+// Onglet « Système » des notifications (popover et écran dédié) : contenu
+// volontairement inchangé, « Bientôt disponible ».
+function NotifSystemeBientot({ C }: { C: ThemeTokens }) {
+  return (
+    <div style={{ padding: "20px 8px 8px", textAlign: "center" }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}><NotifEmptyIllustration color={C.gold}/></div>
+      <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>Bientôt disponible</div>
+      <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6 }}>Les alertes système et informations de la plateforme Yelen apparaîtront ici.</div>
+    </div>
+  );
 }
 
 // ─── HeaderPopover — primitive partagée par les 5 icônes du header
@@ -1149,16 +1311,17 @@ function useDesktopAnchor(triggerRef: React.RefObject<HTMLElement | null>, activ
 // DOM du wrapper une fois portalé, donc le clic extérieur doit vérifier
 // les deux. Positionnement desktop ancré via useDesktopAnchor ci-dessus
 // (retour Bryan 01/08/2026, le portail avait cassé l'ancrage ≥1024px). ───
-function HeaderPopover({ id, active, onOpen, onClose, trigger, badge, glow, panelTitle, children, wrapperClassName, badgeClassName }: {
+function HeaderPopover({ id, active, onOpen, onClose, trigger, badge, glow, panelTitle, children, wrapperClassName, badgeClassName, badgeLabel, fallbackAnchorRef }: {
   id: string; active: boolean; onOpen: () => void; onClose: () => void;
   trigger: React.ReactNode; badge?: number; glow?: boolean; panelTitle: string; children: React.ReactNode;
-  wrapperClassName?: string; badgeClassName?: string;
+  wrapperClassName?: string; badgeClassName?: string; badgeLabel?: string; fallbackAnchorRef?: React.RefObject<HTMLElement | null>;
 }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const desktopPos = useDesktopAnchor(ref, active);
+  const desktopPos = useDesktopAnchor(ref, active, id === "help" ? 400 : id === "notifications" || id === "rdv" ? 420 : 360, fallbackAnchorRef);
 
   useEffect(() => {
     if (!active) return;
@@ -1168,30 +1331,36 @@ function HeaderPopover({ id, active, onOpen, onClose, trigger, badge, glow, pane
       const insidePanel = panelRef.current && panelRef.current.contains(target);
       if (!insideTrigger && !insidePanel) onClose();
     };
+    // Échap ferme et rend le focus au déclencheur.
+    const key = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") { onClose(); btnRef.current?.focus(); } };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("keydown", key); };
   }, [active, onClose]);
 
+  const nbBadge = badge && badge > 0 ? badge : 0;
   return (
     <div ref={ref} className={wrapperClassName} style={{ position: "relative" }}>
-      <button onClick={() => (active ? onClose() : onOpen())} className="tap" title={panelTitle} style={{ position: "relative", background: active ? `${C.gold}15` : C.bgCard2, border: `1px solid ${active ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, animation: glow && !!badge && badge > 0 ? "glow 1.6s ease-in-out infinite" : "none" }}>
+      <button ref={btnRef} onClick={() => (active ? onClose() : onOpen())} className="hdr-ico tap" title={nbBadge > 0 ? `${panelTitle} — ${badgeLabel ?? `${nbBadge} en attente`}` : panelTitle} aria-label={nbBadge > 0 ? `${panelTitle} — ${badgeLabel ?? `${nbBadge} en attente`}` : panelTitle} aria-haspopup="dialog" aria-expanded={active}
+        style={{ position: "relative", background: active ? C.bg3 : "transparent", border: "none", borderRadius: "8px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, animation: glow && nbBadge > 0 ? "glow 1.6s ease-in-out infinite" : "none" }}>
         {trigger}
-        {!!badge && badge > 0 && (
-          <span className={badgeClassName} style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "9px", fontWeight: "800", minWidth: "17px", height: "17px", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${C.bgCard}`, padding: "0 3px" }}>
-            {badge > 9 ? "9+" : badge}
+        {nbBadge > 0 && (
+          <span aria-hidden="true" className={badgeClassName} style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "10px", fontWeight: "800", minWidth: "17px", height: "17px", borderRadius: "9px", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${C.bgCard}`, padding: "0 3px" }}>
+            {nbBadge > 9 ? "9+" : nbBadge}
           </span>
         )}
       </button>
       {active && typeof document !== "undefined" && createPortal(
-        <div ref={panelRef} className="header-popover-panel" data-popover={id} style={desktopPos ? { position: "fixed", top: desktopPos.top, right: desktopPos.right, left: "auto", bottom: "auto" } : undefined}>
-          <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 10px", opacity: 0.5 }} className="header-popover-grip"/>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 4px 12px", borderBottom: `1px solid ${C.border}`, marginBottom: "12px" }}>
-            <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{panelTitle}</span>
-            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.t3, padding: "4px" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <div ref={panelRef} role="dialog" aria-label={panelTitle} className="header-popover-panel" data-popover={id} style={desktopPos ? { position: "fixed", top: desktopPos.top, right: desktopPos.right, left: "auto", bottom: "auto" } : undefined}>
+          <PopoverStyles C={C}/>
+          <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 10px", opacity: 0.5, flexShrink: 0 }} className="header-popover-grip"/>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: "48px", padding: "0 8px 0 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+            <span style={{ color: C.t1, fontSize: "14px", fontWeight: 600 }}>{panelTitle}</span>
+            <button onClick={onClose} aria-label="Fermer" className="hp-close tap" style={{ width: "32px", height: "32px", borderRadius: "8px", background: "none", border: "none", cursor: "pointer", color: C.t2, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-          {children}
+          <div className="header-popover-body">{children}</div>
         </div>,
         document.body
       )}
@@ -1257,7 +1426,7 @@ function RdvDetailFullscreen({ rdv, onClose, onAccept, onRefuse, loading }: {
             </div>
           </div>
 
-          <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", marginBottom: "6px" }}>Motif du refus</div>
+          <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Motif du refus</div>
           <div style={{ color: C.t3, fontSize: "11px", marginBottom: "16px" }}>Sélectionnez un motif pour <strong style={{ color: C.t2 }}>{rdv.citoyen_nom}</strong></div>
 
           {/* Motifs */}
@@ -1325,7 +1494,7 @@ function RdvDetailFullscreen({ rdv, onClose, onAccept, onRefuse, loading }: {
             {rdv.citoyen_photo ? <Image src={rdv.citoyen_photo} alt="" fill sizes="52px" style={{ objectFit: "cover" }}/> : rdv.citoyen_nom.slice(0, 2).toUpperCase()}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800" }}>{rdv.citoyen_nom}</div>
+            <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800" }}>{rdv.citoyen_nom}</div>
             {rdv.citoyen_phone && <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px" }}>{rdv.citoyen_phone}</div>}
           </div>
           {rdv.citoyen_phone && (
@@ -1446,7 +1615,7 @@ function GuideScalingModal({ onClose }: { onClose: () => void }) {
             {pages.map((_, i) => (<div key={i} onClick={() => setPage(i)} style={{ flex: i === page ? 3 : 1, height: "3px", borderRadius: "2px", backgroundColor: i === page ? C.gold : "rgba(255,255,255,0.15)", transition: "all 0.3s ease", cursor: "pointer" }}/>))}
           </div>
           <div style={{ color: C.gold, fontSize: "10px", fontWeight: "800", letterSpacing: "1.5px", marginBottom: "8px", textTransform: "uppercase" }}>Guide {page + 1}/{pages.length}</div>
-          <h2 style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-0.8px", lineHeight: 1.2, marginBottom: "6px" }}>{currentPage.titre}</h2>
+          <h2 style={{ color: C.t1, fontSize: "28px", fontWeight: "800", letterSpacing: "-0.8px", lineHeight: 1.2, marginBottom: "6px" }}>{currentPage.titre}</h2>
           <p style={{ color: C.t2, fontSize: "13px", marginBottom: "28px" }}>{currentPage.sous_titre}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "32px" }}>
             {currentPage.contenu.map((item, i) => (
@@ -1499,8 +1668,8 @@ function ScoreSante({ score, stats, actionsPrioritaires, onVoirActions }: { scor
             <circle cx="50" cy="50" r="42" fill="none" stroke={color} strokeWidth="7" strokeDasharray={`${(score/100) * 2 * Math.PI * 42} ${2 * Math.PI * 42}`} strokeLinecap="round" style={{ transition: "stroke-dasharray 0.8s cubic-bezier(0.16,1,0.3,1)" }}/>
           </svg>
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ color, fontSize: "30px", fontWeight: "800", lineHeight: 1 }}><AnimatedNumber value={score}/></span>
-            <span style={{ color: C.t3, fontSize: "9px", fontWeight: "700" }}>/100</span>
+            <span style={{ color, fontSize: "28px", fontWeight: "800", lineHeight: 1 }}><AnimatedNumber value={score}/></span>
+            <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700" }}>/100</span>
           </div>
         </div>
         <div style={{ flex: 1 }}>
@@ -1561,46 +1730,23 @@ function ObjectifsHebdo({ stats }: { stats: Stats }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
   const objectifs = [
-    { label: "RDV cette semaine", actuel: stats.week, cible: Math.max(stats.week + 3, 10), color: C.blue, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-    { label: "Taux de confirmation", actuel: stats.taux_confirmation, cible: 80, color: C.green, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></svg>, unite: "%" },
-    { label: "Score satisfaction", actuel: stats.taux_satisfaction, cible: 85, color: C.gold, icon: <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 0 0 .95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 0 0-.364 1.118l1.07 3.292c.3.922-.755 1.688-1.539 1.118l-2.8-2.034a1 1 0 0 0-1.176 0l-2.8 2.034c-.783.57-1.838-.196-1.539-1.118l1.07-3.292a1 1 0 0 0-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 0 0 .95-.69l1.07-3.292Z"/></svg>, unite: "%" },
+    { label: "RDV cette semaine", actuel: stats.week, cible: Math.max(stats.week + 3, 10), unite: "" },
+    { label: "Taux de confirmation", actuel: stats.taux_confirmation, cible: 80, unite: "%" },
+    { label: "Score satisfaction", actuel: stats.taux_satisfaction, cible: 85, unite: "%" },
   ];
   return (
-    <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "20px", boxShadow: C.shadow }}>
-      <SectionHeader label="Objectifs de la semaine" accent={C.blue}/>
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {objectifs.map((obj, i) => {
+    <ApercuCard C={C} titre="Objectifs de la semaine" titreId="apc-objectifs" className="apc-objectifs">
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {objectifs.map(obj => {
+          // Même calcul qu'avant : proportion valeur / cible, plafonnée à 100 %.
           const pct = Math.min((obj.actuel / obj.cible) * 100, 100);
-          const atteint = pct >= 100;
-          return (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <div style={{ width: "28px", height: "28px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", color: atteint ? C.green : obj.color, flexShrink: 0 }}>
-                {atteint ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> : obj.icon}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ color: atteint ? C.green : C.t2, fontSize: "11px", fontWeight: atteint ? "800" : "600" }}>{obj.label}</span>
-                  <span style={{ color: obj.color, fontSize: "11px", fontWeight: "800" }}>{obj.actuel}{obj.unite || ""} / {obj.cible}{obj.unite || ""}</span>
-                </div>
-                <div style={{ height: "4px", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: "2px", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, backgroundColor: atteint ? C.green : obj.color, borderRadius: "2px" }}/>
-                </div>
-              </div>
-            </div>
-          );
+          const texte = obj.unite ? `${obj.actuel} % · objectif ${obj.cible} %` : `${obj.actuel} / ${obj.cible}`;
+          return <LigneObjectif key={obj.label} C={C} label={obj.label} texte={texte} pct={pct}/>;
         })}
       </div>
-    </Card>
+    </ApercuCard>
   );
 }
-
-
-
-
-
-
-
-
 
 // ═══════════════════════════════════════════════════════════════════════
 // SCANNER QR
@@ -1613,7 +1759,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
   // de Html5QrcodeScanner par un écran Yelen (français, doré), demandé par
   // Bryan le 20/07/2026. Html5Qrcode (classe bas niveau) ne génère aucune
   // UI propre — on construit nous-mêmes l'écran "avant autorisation".
-  const [camPhase, setCamPhase] = useState<"avant" | "demarrage" | "actif" | "refuse">("avant");
+  const [camPhase, setCamPhase] = useState<"avant" | "demarrage" | "actif" | "refuse" | "pas_de_camera">("avant");
   const [scanResult, setScanResult] = useState<{ rdv: { id: string; citoyen_nom?: string; objet?: string; date_rdv?: string } } | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   // Titre dynamique (01/09/2026) — jusqu'ici toujours "QR invalide" quelle
@@ -1645,10 +1791,29 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
     try { html5QrCode.stop().catch(() => {}); } catch {}
   }
 
-  async function demarrerCamera() {
+  // Beaucoup de PC de bureau en institution n'ont tout simplement aucune
+  // caméra (contrairement à un téléphone/une tablette) — ce que
+  // html5-qrcode renvoie alors ("NotFoundError"/erreur générique selon le
+  // navigateur) était jusqu'ici confondu avec un refus de permission
+  // ("Autorisez la caméra... puis réessayez", un message qui n'aide à rien
+  // si l'ordinateur n'a physiquement pas de caméra). enumerateDevices()
+  // liste les périphériques sans exiger la permission caméra au préalable
+  // (seuls les labels détaillés sont masqués sans permission, pas le type
+  // "videoinput" lui-même) — détection faite AVANT de déclencher le prompt
+  // navigateur, pour distinguer les deux cas et orienter vers Yelen
+  // Business Mobile (caméra native, déjà le vrai cas d'usage produit, voir
+  // docs/chantiers/YELEN-BUSINESS-MOBILE.md §14.3) quand aucune caméra
+  // n'existe sur ce poste. `force` permet de passer outre si la détection
+  // se trompe (certains navigateurs/pilotes webcam exotiques).
+  async function demarrerCamera(force = false) {
     setCamPhase("demarrage");
     try {
-      const html5QrCode = new Html5Qrcode("qr-reader-modal");
+      if (!force && navigator.mediaDevices?.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (!devices.some(d => d.kind === "videoinput")) { setCamPhase("pas_de_camera"); return; }
+      }
+      const { Html5Qrcode: Html5QrcodeLib } = await import("html5-qrcode");
+      const html5QrCode = new Html5QrcodeLib("qr-reader-modal");
       html5QrRef.current = html5QrCode;
       await html5QrCode.start(
         { facingMode: "environment" },
@@ -1684,12 +1849,11 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.88)", backdropFilter: "blur(16px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
-      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "480px", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.3s ease" }}>
-        <div style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 900, backgroundColor: "rgba(0,0,0,0.88)", backdropFilter: "blur(16px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}>
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "22px", padding: "24px 20px", width: "100%", maxWidth: "440px", border: `1px solid ${C.border2}`, animation: "fadeUp 0.2s ease" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
           <div>
-            <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800" }}>Scanner le Client</div>
+            <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800" }}>Scanner le Client</div>
             <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px" }}>QR Code du citoyen</div>
           </div>
           <button onClick={onClose} style={{ width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1713,9 +1877,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
             </div>
             {camPhase === "avant" && (
               <div style={{ textAlign: "center", padding: "28px 12px" }}>
-                <div style={{ width: "64px", height: "64px", borderRadius: "18px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, border: `1px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                </div>
+                <Image src="/illustrations/checkin-scan-client-icon.png" alt="" width={200} height={200} style={{ width: "72px", height: "72px", margin: "0 auto 16px", display: "block" }}/>
                 <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Scanner le QR code Yelen du citoyen</div>
                 <div style={{ color: C.t3, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>Yelen a besoin d&apos;accéder à votre caméra pour lire le code présenté par le citoyen à son arrivée.</div>
                 <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={demarrerCamera}>
@@ -1730,8 +1892,25 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
                 </div>
                 <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Accès à la caméra impossible</div>
                 <div style={{ color: C.t3, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>Autorisez la caméra pour Yelen224 dans les réglages de votre navigateur, puis réessayez.</div>
-                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={demarrerCamera}>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => demarrerCamera()}>
                   Réessayer
+                </Button>
+              </div>
+            )}
+            {camPhase === "pas_de_camera" && (
+              <div style={{ textAlign: "center", padding: "28px 12px" }}>
+                <div style={{ width: "64px", height: "64px", borderRadius: "18px", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                </div>
+                <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "6px" }}>Aucune caméra détectée sur cet ordinateur</div>
+                <div style={{ color: C.t3, fontSize: "12.5px", lineHeight: 1.6, marginBottom: "20px" }}>
+                  Scannez plutôt depuis votre téléphone, avec l&apos;application <strong style={{ color: C.t1 }}>Yelen Business</strong> — même compte, caméra native, plus rapide au guichet.
+                </div>
+                <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => demarrerCamera(true)} style={{ marginBottom: "8px" }}>
+                  Essayer quand même sur cet ordinateur
+                </Button>
+                <Button tokens={toUiTokens(C)} className="tap" variant="ghost" size="md" fullWidth onClick={onClose}>
+                  Fermer
                 </Button>
               </div>
             )}
@@ -1748,7 +1927,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
                 {(scanResult.rdv.citoyen_nom || "C")[0].toUpperCase()}
               </div>
               <div>
-                <div style={{ color: C.t1, fontSize: "16px", fontWeight: "800" }}>{scanResult.rdv.citoyen_nom}</div>
+                <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800" }}>{scanResult.rdv.citoyen_nom}</div>
                 <div style={{ color: C.t3, fontSize: "11px" }}>{scanResult.rdv.objet || "RDV général"} · {formatDate(scanResult.rdv.date_rdv ?? "", { day: "numeric", month: "short" })}</div>
               </div>
             </div>
@@ -1766,7 +1945,7 @@ function ScannerModal({ institutionId, onClose }: { institutionId: string; onClo
             <div style={{ width: "60px", height: "60px", borderRadius: "50%", backgroundColor: C.greenL, border: `2px solid ${C.green}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <div style={{ color: C.green, fontSize: "16px", fontWeight: "800", marginBottom: "4px" }}>Présence confirmée</div>
+            <div style={{ color: C.green, fontSize: "20px", fontWeight: "800", marginBottom: "4px" }}>Présence confirmée</div>
             <div style={{ color: C.t3, fontSize: "11px", marginBottom: "20px" }}>Le RDV reste &quot;Confirmé&quot; pendant la prestation — revenez à la liste RDV pour le marquer terminé une fois achevé.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               <div style={{ display: "flex", gap: "10px" }}>
@@ -1845,7 +2024,7 @@ function InstitutionDashboardInner() {
     evolution_week: 0, evolution_month: 0, evolution_week_has: false, evolution_month_has: false, peak_hour: "—", peak_day: "—",
     rdv_par_jour: [], rdv_par_heure: [], notes_distribution: [], recent_activity: [],
     ratio_refus: 0, compte_restreint: false, score_sante: 0,
-    kpi_variations: { nouveau: { value: 0, has: false }, pending: { value: 0, has: false }, confirmed: { value: 0, has: false }, done: { value: 0, has: false }, cancelled: { value: 0, has: false }, total: { value: 0, has: false }, non_traites: { value: 0, has: false } },
+    kpi_variations: { nouveau: VARIATION_NULLE, pending: VARIATION_NULLE, confirmed: VARIATION_NULLE, done: VARIATION_NULLE, cancelled: VARIATION_NULLE, total: VARIATION_NULLE, non_traites: VARIATION_NULLE },
   });
 
   // Nouvelle structure de menu (chantier réorganisation dashboard) : "demandes"
@@ -2030,8 +2209,7 @@ function InstitutionDashboardInner() {
   const [mesClientsInitialId, setMesClientsInitialId] = useState<string | null>(null);
   const [mesClientsInitialFiltre, setMesClientsInitialFiltre] = useState<"fideles" | "nouveaux" | "occasionnels" | "a_reactiver" | null>(null);
   const [mesClientsInitialSearch, setMesClientsInitialSearch] = useState<string | null>(null);
-  const [rdvHistorique, setRdvHistorique]   = useState<{ id: string; action: string; membre_nom: string; created_at: string }[]>([]);
-  const [rdvEvents, setRdvEvents]           = useState<{ id: string; auteur_type: string; action: string; motif: string | null; created_at: string }[]>([]);
+  const rdvHisto = useRdvHistorique(selectedRDV?.id ?? null, tabAllowed(membreRole, "journal"));
   const [actionLoading, setActionLoading]   = useState<string | null>(null);
   // Confirmation "Marquer absent" (retour Bryan 17/08/2026 : "tu cliques,
   // le processus commence sans aucun message d'action") — niveau 2 (motif
@@ -2042,6 +2220,8 @@ function InstitutionDashboardInner() {
   const [confirmAbsent, setConfirmAbsent]   = useState<{ id: string; nom: string } | null>(null);
   const [confirmAbsentMotif, setConfirmAbsentMotif] = useState("");
   const [confirmAbsentError, setConfirmAbsentError] = useState<string | null>(null);
+  const [confirmRefuse, setConfirmRefuse]   = useState<{ id: string; nom: string } | null>(null);
+  const [confirmRefuseMotif, setConfirmRefuseMotif] = useState("");
   const [toast, setToast]                   = useState<{ msg: string; color: string } | null>(null);
   const [logoutOpen, setLogoutOpen]         = useState(false);
   const [rdvFilter, setRdvFilter]           = useState("tous");
@@ -2052,9 +2232,7 @@ function InstitutionDashboardInner() {
   const [rdvPage, setRdvPage]               = useState(1);
   const [rdvPageSize, setRdvPageSize]       = useState(10);
   const [rdvFiltersOpen, setRdvFiltersOpen] = useState(false);
-  const [rdvMenuOpenId, setRdvMenuOpenId]   = useState<string | null>(null);
-  const [guichetDraft, setGuichetDraft]     = useState("");
-  const [savingGuichet, setSavingGuichet]   = useState(false);
+  const [prepModalRdv, setPrepModalRdv]     = useState<RDV | null>(null);
   const [bannerRdv, setBannerRdv]           = useState<RDV | null>(null);
   const [showBannerDetail, setShowBannerDetail] = useState(false);
   const [dismissRetard, setDismissRetard]   = useState(false);
@@ -2066,8 +2244,19 @@ function InstitutionDashboardInner() {
   const [evolutionRange, setEvolutionRange] = useState<7 | 30 | 90>(7);
 
   // ── Header : popovers (recherche, "...", feedback, aide, RDV entrant) ──
-  const [activePopover, setActivePopover]   = useState<"search" | "system" | "feedback" | "help" | "rdv" | "notifications" | "questions" | "avatar" | null>(null);
-  const [institutionNotifs, setInstitutionNotifs] = useState<{ id: string; titre: string; message: string; lu: boolean; rdv_id: string | null; created_at: string }[]>([]);
+  const [activePopover, setActivePopover]   = useState<"search" | "system" | "feedback" | "help" | "rdv" | "notifications" | "questions" | "avatar" | "plus" | null>(null);
+  const [institutionNotifs, setInstitutionNotifs] = useState<NotificationInstitution[]>([]);
+  // Affichage seulement : ids non lus au moment de l'ouverture du popover
+  // (le marquage lu, lui, reste fait à l'ouverture par ouvrirNotifications).
+  const [notifsNonLuesAffichees, setNotifsNonLuesAffichees] = useState<ReadonlySet<string>>(new Set());
+  const [notifsChargement, setNotifsChargement] = useState(false);
+  const [notifsErreur, setNotifsErreur] = useState(false);
+  // Changements sensibles de profil (nom, adresse, localisation, activité) en
+  // cours d'examen par l'équipe Yelen — pastille rouge sur l'avatar du header
+  // et sur l'entrée "Entreprise" des menus, pour que rien ne soit silencieux
+  // (voir docs/product/YELEN_REVERIFICATION_POLICY.md). Disparaît dès que
+  // l'équipe a répondu (la réponse arrive aussi par notification).
+  const [changementsProfilEnCours, setChangementsProfilEnCours] = useState(0);
   const [ongletNotif, setOngletNotif] = useState<"utilisateur" | "systeme">("utilisateur");
   const [realtimeStatus, setRealtimeStatus] = useState<"connecte" | "reconnexion" | "hors_ligne">("reconnexion");
   const [searchQuery, setSearchQuery]       = useState("");
@@ -2075,8 +2264,23 @@ function InstitutionDashboardInner() {
   const [feedbackMsg, setFeedbackMsg]       = useState("");
   const [feedbackSending, setFeedbackSending] = useState(false);
   const searchRef                           = useRef<HTMLDivElement>(null);
+  const searchInputRef                      = useRef<HTMLInputElement>(null);
+  const plusWrapRef                         = useRef<HTMLDivElement>(null);
+  const isMac = React.useSyncExternalStore(() => () => {}, () => /Mac/i.test(navigator.platform), () => false);
   const searchPanelRef                      = useRef<HTMLDivElement>(null);
   const searchDesktopPos = useDesktopAnchor(searchRef, activePopover === "search");
+  // Raccourci Ctrl/⌘ K : ouvre la recherche (même popover qu'au clic).
+  useEffect(() => {
+    const h = (e: globalThis.KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setActivePopover("search");
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   useEffect(() => {
     if (activePopover !== "search") return;
@@ -2224,7 +2428,7 @@ function InstitutionDashboardInner() {
       r.created_at ? new Date(r.created_at).toLocaleDateString("fr-FR") : "",
     ]);
     const csv = [header, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `rdv_${inst?.name || instId}_${new Date().toISOString().slice(0,10)}.csv`;
@@ -2313,6 +2517,7 @@ function InstitutionDashboardInner() {
 
   async function ouvrirNotifications() {
     setActivePopover("notifications");
+    setNotifsNonLuesAffichees(new Set(institutionNotifs.filter(n => !n.lu).map(n => n.id)));
     if (institutionNotifs.some(n => !n.lu)) {
       setInstitutionNotifs(prev => prev.map(n => ({ ...n, lu: true })));
       await fetch("/api/institution/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
@@ -2324,21 +2529,42 @@ function InstitutionDashboardInner() {
     setActivePopover(null);
   }
 
-  async function handleSaveGuichet() {
-    if (!selectedRDV) return;
-    setSavingGuichet(true);
+  // Arrivée directe sur l'écran Notifications (lien, URL, menu) : même capture
+  // d'affichage et même marquage lu que l'ouverture du popover. Si le popover
+  // vient de le faire, plus aucune non lue n'existe ici — la capture déjà
+  // faite est conservée, jamais doublée.
+  useEffect(() => {
+    if (tab !== "notifications" || !tabAllowed(membreRole, "notifications")) return;
+    const nonLues = institutionNotifs.filter(n => !n.lu);
+    if (nonLues.length === 0) return;
+    setNotifsNonLuesAffichees(new Set(nonLues.map(n => n.id)));
+    setInstitutionNotifs(prev => prev.map(n => ({ ...n, lu: true })));
+    void fetch("/api/institution/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+  }, [tab, membreRole, institutionNotifs]);
+
+  // Rechargement ciblé des notifications (bouton « Réessayer ») : distingue
+  // une vraie erreur d'une liste vide. Les non lues affichées sont recapturées
+  // puis marquées lues, comme à l'ouverture.
+  async function rechargerNotifications() {
+    setNotifsChargement(true);
+    setNotifsErreur(false);
     try {
-      const res = await fetch("/api/institution/rdv/guichet", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rdv_id: selectedRDV.id, guichet: guichetDraft }),
-      });
-      if (!res.ok) { showToast("Erreur", C.red); return; }
-      const guichetFinal = guichetDraft.trim() || undefined;
-      setRdvs(prev => prev.map(r => r.id === selectedRDV.id ? { ...r, guichet: guichetFinal } : r));
-      setSelectedRDV(prev => prev ? { ...prev, guichet: guichetFinal } : prev);
-      showToast("Guichet enregistré", C.purple);
-    } finally { setSavingGuichet(false); }
+      const res = await fetch("/api/institution/notifications");
+      const json = res.ok ? await res.json().catch(() => null) : null;
+      if (!json || !Array.isArray(json.notifications)) { setNotifsErreur(true); return; }
+      const liste = json.notifications as NotificationInstitution[];
+      setInstitutionNotifs(liste.map(n => ({ ...n, lu: true })));
+      setNotifsNonLuesAffichees(new Set(liste.filter(n => !n.lu).map(n => n.id)));
+      if (liste.some(n => !n.lu)) {
+        await fetch("/api/institution/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      }
+    } catch { setNotifsErreur(true); } finally { setNotifsChargement(false); }
+  }
+
+  function handlePreparationSaved(rdvId: string, patch: { guichet: string; instructions_accueil: string | null; preparation_confirmee_le: string | null }) {
+    setRdvs(prev => prev.map(r => r.id === rdvId ? { ...r, ...patch } : r));
+    setSelectedRDV(prev => prev && prev.id === rdvId ? { ...prev, ...patch } : prev);
+    showToast(patch.preparation_confirmee_le ? "Client informé" : "Préparation enregistrée", C.gold);
   }
 
   // ── Chargement données ──
@@ -2402,6 +2628,7 @@ function InstitutionDashboardInner() {
 
       const notifRes = await fetch(`/api/institution/notifications`);
       const notifJson = notifRes.ok ? await notifRes.json().catch(() => null) : null;
+      setNotifsErreur(!notifJson || !Array.isArray(notifJson.notifications));
       setInstitutionNotifs(notifJson?.notifications ?? []);
 
       const rdvRes = await fetch(`/api/institution/rdv`);
@@ -2479,7 +2706,6 @@ function InstitutionDashboardInner() {
       const monthAgo  = new Date(now); monthAgo.setMonth(now.getMonth() - 1);
       const prevWkAgo = new Date(now); prevWkAgo.setDate(now.getDate() - 14);
       const prevMoAgo = new Date(now); prevMoAgo.setMonth(now.getMonth() - 2);
-      const dayAgo    = new Date(now); dayAgo.setDate(now.getDate() - 1);
 
       const todayN    = rdvList.filter(r => r.date_rdv === today).length;
       const weekN     = rdvList.filter(r => new Date(r.date_rdv) >= weekAgo).length;
@@ -2490,38 +2716,33 @@ function InstitutionDashboardInner() {
       // un RDV en retard n'apparaît plus que dans le compteur/filtre dédié,
       // jamais aussi dans "Nouveaux"/"En attente" (retour Bryan 08/09/2026 :
       // ces 3 catégories doivent être mutuellement exclusives).
-      const pending   = rdvList.filter(r => r.statut === "en_attente" && r.presence_status !== "absent" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)).length;
-      const confirmed = rdvList.filter(r => r.statut === "confirme").length;
-      const done      = rdvList.filter(r => ["effectue", "termine", "honore"].includes(r.statut)).length;
-      const cancelled = rdvList.filter(r => r.statut === "annule").length;
-      const nouveau   = rdvList.filter(r => r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)).length;
-      const absents   = rdvList.filter(r => r.presence_status === "absent").length;
-      const nonTraites = rdvList.filter(r => rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)).length;
+      // Tous les compteurs passent par correspondFiltreRdv (AppointmentsUi.tsx),
+      // la même fonction que le filtre de la liste : un compteur et la liste qu'il
+      // ouvre ne peuvent plus diverger.
+      const compter = (filtre: string) => rdvList.filter(r => correspondFiltreRdv(r, filtre, now)).length;
+      const pending   = compter("en_attente");
+      const confirmed = compter("confirme");
+      const done      = compter("effectue");
+      const cancelled = compter("annule");
+      const nouveau   = compter("nouveau");
+      const absents   = compter("absent");
+      const nonTraites = compter("en_retard");
       const total     = rdvList.length;
 
-      // Variations "vs hier" par catégorie pour les KPI de Vue d'ensemble —
-      // basé sur date_rdv (même convention que todayN ci-dessus), pas de
-      // colonne de timestamp par changement de statut pour toutes les
-      // catégories donc c'est le proxy le plus honnête avec les données
-      // réelles disponibles : compte du jour vs compte de la veille, sur
-      // le statut actuel de chaque RDV programmé ce jour-là.
-      const hierStr = dayAgo.toISOString().slice(0, 10);
-      // V3 (17/09/2026) — `has: false` quand hier n'a aucune ligne pour cette
-      // catégorie : ni 0% (faux "stable") ni +100% (faux doublement), voir
-      // définition de KpiVariation ci-dessus.
-      const variationVsHier = (filtre: (r: typeof rdvList[number]) => boolean): KpiVariation => {
-        const auj = rdvList.filter(r => r.date_rdv === today && filtre(r)).length;
-        const hierN = rdvList.filter(r => r.date_rdv === hierStr && filtre(r)).length;
-        return hierN > 0 ? { value: Math.round(((auj - hierN) / hierN) * 100), has: true } : { value: 0, has: false };
+      // Variations « aujourd'hui / hier » par catégorie : nombre de RDV PRÉVUS
+      // (date_rdv) ces deux jours, au statut actuel, jours de Conakry (lib/heure.ts).
+      // Écran Rendez-vous : affichés tels quels, sans pourcentage. value / has
+      // (ancien pourcentage) ne servent plus qu'à la bande KPI de l'accueil.
+      const variation = (filtre: string): KpiVariation => {
+        const v = variationJour(rdvList, filtre, now);
+        return {
+          aujourdhui: v.aujourdhui, hier: v.hier,
+          value: v.hier > 0 ? Math.round(((v.aujourdhui - v.hier) / v.hier) * 100) : 0, has: v.hier > 0,
+        };
       };
       const kpiVariations = {
-        nouveau:   variationVsHier(r => r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)),
-        pending:   variationVsHier(r => r.statut === "en_attente" && r.presence_status !== "absent" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)),
-        confirmed: variationVsHier(r => r.statut === "confirme"),
-        done:      variationVsHier(r => ["effectue", "termine", "honore"].includes(r.statut)),
-        cancelled: variationVsHier(r => r.statut === "annule"),
-        total:     variationVsHier(() => true),
-        non_traites: variationVsHier(r => rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)),
+        nouveau: variation("nouveau"), pending: variation("en_attente"), confirmed: variation("confirme"),
+        done: variation("effectue"), cancelled: variation("annule"), total: variation("tous"), non_traites: variation("en_retard"),
       };
 
       const last10  = rdvList.filter(r => ["confirme", "annule", "effectue", "termine"].includes(r.statut)).slice(0, 10);
@@ -2594,12 +2815,14 @@ function InstitutionDashboardInner() {
       // correctif du 18/07/2026 (voir CLAUDE.md /chantier-journal-activite).
       try {
         const [msgRes, yelenRes] = await Promise.all([
-          fetch("/api/institution/messages"),
+          // Même source que l'écran Messagerie (conversations non lues) : badge,
+          // en-tête et chip « Non lues » disent la même chose (22/10/2026).
+          fetch("/api/institution/conversations"),
           fetch("/api/institution/messagerie-yelen?compte=1"),
         ]);
         const msgJson = msgRes.ok ? await msgRes.json().catch(() => null) : null;
         const yelenJson = yelenRes.ok ? await yelenRes.json().catch(() => null) : null;
-        setMessagerieUnread(msgJson?.total_non_lus ?? 0);
+        setMessagerieUnread(msgJson?.counts?.non_lues ?? 0);
         // Badge "Support" (trigger header "Aide & ressources") — strictement
         // séparé depuis que le canal Yelen a quitté la Messagerie citoyenne
         // (chantier "Séparation Messagerie/Support" 06/09/2026).
@@ -2658,31 +2881,31 @@ function InstitutionDashboardInner() {
     const interval = setInterval(() => loadData(), 30000);
     return () => clearInterval(interval);
   }, [loadData]);
-  // Historique d'heures d'action (accepté/refusé/terminé/absent) pour le RDV
-  // ouvert — journal_activite est déjà alimenté par chaque action (route
-  // /api/institution/rdv/statut), simplement jamais affiché jusqu'ici.
-  // Réservé aux rôles ayant accès au Journal (admin/superviseur/dirigeant) —
-  // la route /api/institution/journal l'exige déjà côté serveur.
-  useEffect(() => {
-    if (!selectedRDV || !tabAllowed(membreRole, "journal")) { setRdvHistorique([]); return; }
-    (async () => {
-      const res = await fetch(`/api/institution/journal?cible_ids=${selectedRDV.id}&limit=10`);
+
+  // Nombre de changements de profil en cours d'examen (?resume=1 : requête
+  // légère). Réservé aux rôles qui voient l'onglet Entreprise — la route
+  // refuse les autres (403), inutile de la solliciter. Recompté à chaque
+  // nouvelle notification reçue (la réponse de l'équipe Yelen en crée une) et
+  // toutes les 30 s, comme le reste du tableau de bord.
+  const rafraichirChangementsProfil = useCallback(async () => {
+    if (!instId) return;
+    try {
+      const res = await fetch("/api/institution/changements-profil?resume=1");
+      if (!res.ok) { setChangementsProfilEnCours(0); return; }
       const j = await res.json().catch(() => null);
-      setRdvHistorique(res.ok ? (j?.entrees ?? []) : []);
-    })();
-  }, [selectedRDV?.id, membreRole]);
-  // Actions du citoyen (report/annulation/confirmation) — rdv_events,
-  // distinct de journal_activite (actions du personnel). Accessible à tout
-  // membre authentifié, pas seulement admin (cf. route events/route.ts).
+      setChangementsProfilEnCours(typeof j?.en_cours === "number" ? j.en_cours : 0);
+    } catch {
+      // Information complémentaire : on garde la dernière valeur connue.
+    }
+  }, [instId]);
+  const nbNotifs = institutionNotifs.length;
   useEffect(() => {
-    if (!selectedRDV) { setRdvEvents([]); return; }
-    (async () => {
-      const res = await fetch(`/api/institution/rdv/events?rdv_id=${selectedRDV.id}`);
-      const j = await res.json().catch(() => null);
-      setRdvEvents(res.ok ? (j?.entrees ?? []) : []);
-    })();
-  }, [selectedRDV?.id]);
-  useEffect(() => { setGuichetDraft(selectedRDV?.guichet || ""); }, [selectedRDV?.id]);
+    if (!membreRole || !can(membreRole, "profil_entreprise.write")) return;
+    rafraichirChangementsProfil();
+    const interval = setInterval(rafraichirChangementsProfil, 30000);
+    return () => clearInterval(interval);
+  }, [membreRole, rafraichirChangementsProfil, nbNotifs]);
+  // Historique du RDV ouvert (rdv_events + journal_activite) : voir useRdvHistorique.
   useEffect(() => { setSidebarCollapsed(localStorage.getItem("yelen224_sidebar_collapsed") === "1"); }, []);
   const toggleSidebarCollapsed = () => {
     setSidebarCollapsed(prev => {
@@ -2703,7 +2926,7 @@ function InstitutionDashboardInner() {
     const timers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
     const onScroll = (e: Event) => {
       const el = e.target as HTMLElement;
-      if (!el.matches?.(".yelen-main, .yelen-sidebar nav, .yelen-account-panel, .msgv2-list-pane, .msgv2-thread-scroll")) return;
+      if (!el.matches?.(".msgv2-list-pane, .msgv2-thread-scroll")) return;
       el.classList.add("scrollbar-active");
       const prev = timers.get(el);
       if (prev) clearTimeout(prev);
@@ -2804,14 +3027,8 @@ function InstitutionDashboardInner() {
   // "Nouveaux"/"En attente" excluent désormais les RDV non traités (déjà en
   // retard) — mutuellement exclusif avec le filtre "Non traités" (retour
   // Bryan 08/09/2026), même règle que les compteurs stats.pending/nouveau.
-  const correspondFiltreRdv = (r: RDV, filtre: string): boolean => {
-    if (filtre === "tous") return true;
-    if (filtre === "absent") return r.presence_status === "absent";
-    if (filtre === "en_retard") return rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv);
-    if (filtre === "en_attente") return r.statut === "en_attente" && r.presence_status !== "absent" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv);
-    if (filtre === "nouveau") return r.statut === "nouveau" && !rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv);
-    return r.statut === filtre;
-  };
+  // Définition unique des catégories : correspondFiltreRdv (AppointmentsUi.tsx),
+  // partagée avec les compteurs de loadData.
   const filteredRdvs = rdvs
     .filter(r => correspondFiltreRdv(r, rdvFilter))
     .filter(r => !rdvSearch || r.citoyen_nom.toLowerCase().includes(rdvSearch.toLowerCase()) || (r.objet || "").toLowerCase().includes(rdvSearch.toLowerCase()))
@@ -2838,6 +3055,11 @@ function InstitutionDashboardInner() {
     const set = new Set(rdvs.map(r => extraireService(r.objet)));
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [rdvs]);
+
+  // Chip « nom du citoyen » des notifications : RDV déjà en mémoire, aucune requête.
+  const nomCitoyenParRdv = useMemo(() => new Map(rdvs.map(r => [r.id, r.citoyen_nom] as const)), [rdvs]);
+  // Même source pour l'écran Notifications (nom, référence, statut brut du RDV).
+  const infoRdvParId = useMemo(() => new Map(rdvs.map(r => [r.id, { nom: r.citoyen_nom, reference: r.reference, statut: r.statut }] as const)), [rdvs]);
 
   const rdvCountByCitoyen = useMemo(() => {
     const m = new Map<string, number>();
@@ -2876,40 +3098,40 @@ function InstitutionDashboardInner() {
   // Relation citoyenne / Pilotage / Compte), pattern dashboards pro. ──
   const navSectionsRaw: { label: string; items: { key: typeof tab; label: string; icon: React.ReactNode; onClick?: () => void }[] }[] = [
     { label: "Principal", items: [
-      { key: "accueil",    label: "Vue d'ensemble",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
+      { key: "accueil",    label: "Vue d'ensemble",  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
     ]},
     { label: "Activité", items: [
-      { key: "messagerie", label: "Messagerie",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
-      { key: "rdv",        label: "Rendez-vous",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
-      { key: "disponibilites", label: "Disponibilités", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
-      { key: "services",   label: "Services",        icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
-      { key: "valider-rdv", label: "Valider un RDV", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg> },
+      { key: "messagerie", label: "Messagerie",     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+      { key: "rdv",        label: "Rendez-vous",     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> },
+      { key: "disponibilites", label: "Disponibilités", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
+      { key: "services",   label: "Services",        icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
+      { key: "valider-rdv", label: "Valider un RDV", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg> },
     ]},
     { label: "Relation citoyenne", items: [
-      { key: "communication", label: "Communication", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
-      { key: "communaute-pro", label: "Yelen Community", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/><circle cx="18" cy="8" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-2.5-3.36"/></svg> },
-      { key: "signalements", label: "Signalements",   icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-      { key: "scanner",    label: "Scanner QR",      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg> },
-      { key: "codeqr",     label: "Mon code QR",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="21"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="17.5" y2="17.5"/></svg> },
+      { key: "communication", label: "Communication", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+      { key: "communaute-pro", label: "Yelen Community", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/><circle cx="18" cy="8" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-2.5-3.36"/></svg> },
+      { key: "signalements", label: "Signalements",   icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+      { key: "scanner",    label: "Scanner QR",      icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg> },
+      { key: "codeqr",     label: "Mon code QR",     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="21"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="17.5" y2="17.5"/></svg> },
     ]},
     { label: "Pilotage", items: [
-      { key: "analyse",    label: "Centre d'analyse", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+      { key: "analyse",    label: "Centre d'analyse", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
     ]},
     { label: "Finance", items: [
-      { key: "paiements",  label: "Paiements",       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> },
-      { key: "transactions", label: "Transactions",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
-      { key: "historique-financier", label: "Historique financier", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
-      { key: "facturation", label: "Facturation",    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg> },
-      { key: "rapports",   label: "Rapports",        icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 21H4a1 1 0 0 1-1-1V4"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="4" width="3" height="13"/></svg> },
-      { key: "documents-financiers", label: "Documents financiers", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
-      { key: "documents-clients", label: "Documents clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg> },
+      { key: "paiements",  label: "Paiements",       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> },
+      { key: "transactions", label: "Transactions",  icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+      { key: "historique-financier", label: "Historique financier", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg> },
+      { key: "facturation", label: "Facturation",    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg> },
+      { key: "rapports",   label: "Rapports",        icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M21 21H4a1 1 0 0 1-1-1V4"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="4" width="3" height="13"/></svg> },
+      { key: "documents-financiers", label: "Documents financiers", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
+      { key: "documents-clients", label: "Documents clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg> },
     ]},
     { label: "Partenariat", items: [
-      { key: "partenariat", label: "Partenaires",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg> },
+      { key: "partenariat", label: "Partenaires",     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg> },
       // "Mes offres" n'apparaît qu'une fois le partenariat approuvé — filtre
       // additionnel appliqué juste après (inst?.partenaire_statut), pas
       // seulement le RBAC générique tabAllowed().
-      { key: "mes-offres", label: "Mes offres",       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
+      { key: "mes-offres", label: "Mes offres",       icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg> },
     ]},
   ];
   const navSections = navSectionsRaw
@@ -2931,7 +3153,7 @@ function InstitutionDashboardInner() {
     { group: "Établissement", key: "documents", label: "Documents", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> },
     { group: "Établissement", key: "conditions-informations", label: "Conditions et informations", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg> },
     { group: "Relation client", key: "mes-clients", label: "Mes clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
-    { group: "Relation client", key: "avis-reputation", label: "Avis et réputation", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> },
+    { group: "Relation client", key: "avis-reputation", label: "Santé du compte", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> },
     { group: "Relation client", key: "questions-clients", label: "Questions des clients", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg> },
     { group: "Équipe & travail", key: "equipe", label: "Équipe", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
     // Collaboration (déplacé du menu principal vers Compte > Équipe & travail,
@@ -2987,15 +3209,15 @@ function InstitutionDashboardInner() {
     // enfant replié sous un groupe Finance — seul `indent` change).
     const renderNavItem = (item: (typeof navSections)[number]["items"][number], indent = false) => {
       const active = tab === item.key;
-      const badge = item.key === "rdv" ? rdvsPending.length : item.key === "messagerie" ? messagerieUnread : 0;
-      const badgeColor = item.key === "messagerie" || item.key === "rdv" ? C.red : C.gold;
-      const badgeTextColor = item.key === "messagerie" || item.key === "rdv" ? "#fff" : "#000";
+      const badge = item.key === "rdv" ? rdvsPending.length : item.key === "messagerie" ? messagerieUnread : item.key === "profil-entreprise" ? changementsProfilEnCours : 0;
+      const badgeColor = item.key === "messagerie" || item.key === "rdv" || item.key === "profil-entreprise" ? C.red : C.gold;
+      const badgeTextColor = item.key === "messagerie" || item.key === "rdv" || item.key === "profil-entreprise" ? "#fff" : "#000";
       return (
-        <button key={item.key} onClick={() => { if (item.onClick) { item.onClick(); } else { setTab(item.key); } if (accountMenuOpen) closeAccountMenu(); }} onMouseEnter={collapsed ? showNavTooltip(item.label) : undefined} onMouseLeave={collapsed ? hideNavTooltip : undefined} className={`tap yelen-nav-item ${active ? "yelen-nav-item-active" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: "10px", padding: collapsed ? "10px" : indent ? "8px 12px 8px 34px" : "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "13px", cursor: "pointer", textAlign: "left", position: "relative", width: "100%" }}>
+        <button key={item.key} onClick={() => { if (item.onClick) { item.onClick(); } else { setTab(item.key); } if (accountMenuOpen) closeAccountMenu(); }} onMouseEnter={collapsed ? showNavTooltip(item.label) : undefined} onMouseLeave={collapsed ? hideNavTooltip : undefined} className={`tap yelen-nav-item ${active ? "yelen-nav-item-active" : ""}`} style={{ display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start", gap: "10px", padding: collapsed ? "10px" : indent ? "8px 12px 8px 34px" : "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: active ? C.gold : C.t2, fontWeight: active ? "700" : "500", fontSize: "13.5px", cursor: "pointer", textAlign: "left", position: "relative", width: "100%" }}>
           <span style={{ color: active ? C.gold : C.t3, flexShrink: 0 }}>{item.icon}</span>
           {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
           {badge > 0 && (
-            <span style={{ backgroundColor: badgeColor, color: badgeTextColor, fontSize: "9px", fontWeight: "800", borderRadius: "10px", minWidth: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", position: collapsed ? "absolute" : "static", top: collapsed ? "2px" : undefined, right: collapsed ? "2px" : undefined, animation: item.key === "rdv" ? "glow 1.6s ease-in-out infinite" : "none" }}>{badge}</span>
+            <span style={{ backgroundColor: badgeColor, color: badgeTextColor, fontSize: "10px", fontWeight: "800", borderRadius: "10px", minWidth: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", position: collapsed ? "absolute" : "static", top: collapsed ? "2px" : undefined, right: collapsed ? "2px" : undefined, animation: item.key === "rdv" ? "glow 1.6s ease-in-out infinite" : "none" }}>{badge}</span>
           )}
         </button>
       );
@@ -3023,7 +3245,7 @@ function InstitutionDashboardInner() {
               const open = financeGroupsOpen[group.key] || groupItems.some(i => i.key === tab);
               return (
                 <div key={group.key}>
-                  <button onClick={() => setFinanceGroupsOpen(v => ({ ...v, [group.key]: !v[group.key] }))} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: open ? C.gold : C.t2, fontWeight: "500", fontSize: "13px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                  <button onClick={() => setFinanceGroupsOpen(v => ({ ...v, [group.key]: !v[group.key] }))} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "12px", background: "transparent", border: "1px solid transparent", color: open ? C.gold : C.t2, fontWeight: "500", fontSize: "13.5px", cursor: "pointer", textAlign: "left", width: "100%" }}>
                     <span style={{ color: open ? C.gold : C.t3, flexShrink: 0 }}>{group.icon}</span>
                     <span style={{ flex: 1 }}>{group.label}</span>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}><polyline points="9 18 15 12 9 6"/></svg>
@@ -3050,27 +3272,42 @@ function InstitutionDashboardInner() {
 
       {/* ── SIDEBAR PC (≥1024px) ── */}
       <aside className="yelen-sidebar" style={{ width: sidebarCollapsed ? "68px" : "224px", minWidth: sidebarCollapsed ? "68px" : "224px", transition: "width 0.18s ease" }}>
-        {/* Bouton réduire/étendre le menu, façon Supabase */}
-        <button
-          onClick={toggleSidebarCollapsed}
-          className="tap"
-          title={sidebarCollapsed ? "Étendre le menu" : "Réduire le menu"}
-          style={{ position: "absolute", right: "-12px", top: "72px", width: "24px", height: "24px", borderRadius: "50%", backgroundColor: "transparent", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", zIndex: 401, color: C.t2 }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="3"/><path d="M9 3v18"/></svg>
-        </button>
-        {/* Logo + titre */}
+        {/* Logo + titre + bouton réduire/étendre le menu, alignés sur la
+            même ligne (façon Supabase) — repliée : bouton centré sous le
+            logo faute de place pour les deux côte à côte en 68px. */}
         <div style={{ padding: sidebarCollapsed ? "20px 10px 12px" : "20px 16px 12px", borderBottom: `1px solid ${C.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "flex-start", gap: "10px", marginBottom: sidebarCollapsed ? 0 : "12px" }}>
-            <div style={{ position: "relative", width: "36px", height: "36px", borderRadius: "10px", overflow: "hidden", flexShrink: 0 }}>
-              <Image src="/icon-512.png" alt="Yelen224" fill sizes="36px" style={{ objectFit: "cover" }}/>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "space-between", gap: "10px", marginBottom: sidebarCollapsed ? 0 : "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ position: "relative", width: "36px", height: "36px", borderRadius: "10px", overflow: "hidden", flexShrink: 0 }}>
+                <Image src="/icon-512.png" alt="Yelen224" fill sizes="36px" style={{ objectFit: "cover" }}/>
+              </div>
+              {!sidebarCollapsed && (
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: "800", letterSpacing: "0.5px" }}><span style={{ color: C.gold }}>YELEN</span><span style={{ color: theme === "dark" ? "#fff" : "#000" }}>224</span></div>
+                </div>
+              )}
             </div>
             {!sidebarCollapsed && (
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: "800", letterSpacing: "0.5px" }}><span style={{ color: C.gold }}>YELEN</span><span style={{ color: theme === "dark" ? "#fff" : "#000" }}>224</span></div>
-              </div>
+              <button
+                onClick={toggleSidebarCollapsed}
+                className="tap"
+                title="Réduire le menu"
+                style={{ width: "24px", height: "24px", borderRadius: "50%", backgroundColor: "transparent", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: C.t2 }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="3"/><path d="M9 3v18"/></svg>
+              </button>
             )}
           </div>
+          {sidebarCollapsed && (
+            <button
+              onClick={toggleSidebarCollapsed}
+              className="tap"
+              title="Étendre le menu"
+              style={{ marginTop: "10px", width: "24px", height: "24px", borderRadius: "50%", backgroundColor: "transparent", border: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.t2 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="3"/><path d="M9 3v18"/></svg>
+            </button>
+          )}
         </div>
         {/* Navigation principale — overflowY:auto scope le scroll à ce bloc
             seul (l'aside parent reste overflow:visible pour ne pas clipper
@@ -3128,7 +3365,7 @@ function InstitutionDashboardInner() {
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
               Retour
             </button>
-            <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", letterSpacing: "-0.3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Organisation</div>
+            <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", letterSpacing: "-0.3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Organisation</div>
             <div style={{ color: C.t3, fontSize: "11px", marginTop: "2px" }}>Paramètres</div>
           </div>
           {membreRole !== null && membreRole !== "admin" && (
@@ -3157,7 +3394,7 @@ function InstitutionDashboardInner() {
                 const open = etablissementOpen || group.items.some(i => i.key === tab);
                 return (
                   <div key={group.label} style={{ marginTop: gi > 0 ? "14px" : "2px" }}>
-                    <button onClick={() => setEtablissementOpen(v => !v)} className="tap" style={{ display: "flex", alignItems: "center", gap: "4px", padding: "0 8px 4px", background: "transparent", border: "none", color: C.t3, fontSize: "9.5px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase", cursor: "pointer", width: "100%", textAlign: "left" }}>
+                    <button onClick={() => setEtablissementOpen(v => !v)} className="tap" style={{ display: "flex", alignItems: "center", gap: "4px", padding: "0 8px 4px", background: "transparent", border: "none", color: C.t3, fontSize: "10px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase", cursor: "pointer", width: "100%", textAlign: "left" }}>
                       <span style={{ flex: 1 }}>{group.label}</span>
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
@@ -3171,7 +3408,7 @@ function InstitutionDashboardInner() {
               }
               return (
                 <div key={group.label} style={{ marginTop: gi > 0 ? "14px" : "2px" }}>
-                  <div style={{ padding: "0 8px 4px", color: C.t3, fontSize: "9.5px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase" }}>{group.label}</div>
+                  <div style={{ padding: "0 8px 4px", color: C.t3, fontSize: "10px", fontWeight: "700", letterSpacing: "0.7px", textTransform: "uppercase" }}>{group.label}</div>
                   <div style={{ display: "flex", flexDirection: "column" }}>
                     {/* "Équipe & travail" (4 écrans) : 2 sous-sections repliables
                         (Équipe / Travail), même principe que FINANCE_GROUPS dans
@@ -3232,14 +3469,14 @@ function InstitutionDashboardInner() {
           <div className="yelen-business-drawer">
             <div style={{ padding: "20px 20px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
               <div>
-                <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", letterSpacing: "-0.3px" }}>Yelen Business</div>
+                <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", letterSpacing: "-0.3px" }}>Yelen Business</div>
                 <div style={{ color: C.gold, fontSize: "11px", fontWeight: "700", marginTop: "2px" }}>Votre relation avec Yelen</div>
               </div>
               <button onClick={() => setBusinessMenuOpen(false)} className="tap" style={{ background: "none", border: "none", cursor: "pointer", color: C.t3, padding: "4px", flexShrink: 0 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
-            <div style={{ padding: "10px 12px 16px", display: "flex", flexDirection: "column", flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div className="header-popover-body" style={{ padding: "10px 12px 16px", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
               {YELEN_BUSINESS_SECTIONS.map(({ section, items }) => {
                 const visibleItems = items.filter(item => navAllowed(item.key));
                 if (visibleItems.length === 0) return null;
@@ -3279,7 +3516,7 @@ function InstitutionDashboardInner() {
           au-dessus du menu du bas sur les appareils/navigateurs sans
           encoche (retour Bryan 29/07/2026, capture à l'appui). ≥1024px
           continue de forcer 0 via la règle existante, inchangé. ── */}
-      <div className="yelen-main" style={{ paddingBottom: "calc(48px + env(safe-area-inset-bottom))", marginLeft: `${(sidebarCollapsed ? 68 : 224) + (accountMenuOpen ? 216 : 0)}px`, transition: "margin-left 0.18s ease" } as React.CSSProperties}>
+      <div className="yelen-main client-fiche-scroll" style={{ paddingBottom: "calc(48px + env(safe-area-inset-bottom))", marginLeft: `${(sidebarCollapsed ? 68 : 224) + (accountMenuOpen ? 216 : 0)}px`, transition: "margin-left 0.18s ease" } as React.CSSProperties}>
 
       {/* ── MODALS ── */}
       {showGuide && <GuideScalingModal onClose={() => setShowGuide(false)}/>}
@@ -3305,14 +3542,14 @@ function InstitutionDashboardInner() {
         return (
           <div onClick={() => setTermineDialog(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px", animation: "fadeIn 0.2s ease" }}>
             <div onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "22px", border: `1px solid ${C.border2}`, maxWidth: "440px", width: "100%", padding: "26px 24px", maxHeight: "88svh", overflowY: "auto" }}>
-              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800", marginBottom: "16px", textAlign: "center" }}>Terminer ce rendez-vous ?</div>
+              <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", marginBottom: "16px", textAlign: "center" }}>Terminer ce rendez-vous ?</div>
 
               <div style={{ backgroundColor: C.bg3, borderRadius: "14px", padding: "14px 16px", marginBottom: "16px" }}>
                 {[
                   { label: "Service", value: service },
                   { label: "Citoyen", value: termineDialog.citoyen_nom },
                   { label: "Heure prévue", value: termineDialog.heure_rdv ? formatHeure(termineDialog.heure_rdv) : "—" },
-                  { label: "Confirmation", value: confirmedAt ? confirmedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—" },
+                  { label: "Confirmation", value: confirmedAt ? heureDepuisHorodatage(confirmedAt) : "—" },
                   { label: "Temps écoulé", value: elapsedMin !== null ? `${elapsedMin} minutes` : "—" },
                 ].map((row, i, arr) => (
                   <div key={row.label} style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "7px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
@@ -3343,6 +3580,32 @@ function InstitutionDashboardInner() {
         );
       })()}
 
+      <PreparationVisiteModal
+        rdv={prepModalRdv ? {
+          id: prepModalRdv.id,
+          citoyen_nom: prepModalRdv.citoyen_nom,
+          date_rdv: prepModalRdv.date_rdv,
+          heure_rdv: prepModalRdv.heure_rdv,
+          prestationNom: prepModalRdv.est_payant ? (prepModalRdv.service_payant_nom || "Service payant") : (separerUrgent(prepModalRdv.objet).objet ? extraireService(separerUrgent(prepModalRdv.objet).objet) : "RDV général"),
+          duree_minutes: prepModalRdv.duree_minutes,
+          guichet: prepModalRdv.guichet,
+          instructions_accueil: prepModalRdv.instructions_accueil,
+          preparation_confirmee_le: prepModalRdv.preparation_confirmee_le,
+          est_payant: prepModalRdv.est_payant,
+          booking_payant_id: prepModalRdv.booking_payant_id,
+          pour_autre: prepModalRdv.pour_autre,
+          nom_autre: prepModalRdv.nom_autre,
+          description_besoin: prepModalRdv.description_besoin,
+          champs_complementaires_reponses: prepModalRdv.champs_complementaires_reponses,
+          date_depart: prepModalRdv.date_depart,
+        } : null}
+        masquerDemande={!peutVoirDemande(membreRole)}
+        institutionNom={inst?.name || "votre établissement"}
+        C={C}
+        onClose={() => setPrepModalRdv(null)}
+        onSaved={(patch) => { if (prepModalRdv) handlePreparationSaved(prepModalRdv.id, patch); }}
+      />
+
       {showBannerDetail && bannerRdv && (
         <RdvDetailFullscreen
           rdv={bannerRdv}
@@ -3354,222 +3617,63 @@ function InstitutionDashboardInner() {
       )}
 
       {selectedRDV && (() => {
-        const presenceConfirmee = selectedRDV.presence_status === "present";
-        const isRetard = rdvEstEnRetard(selectedRDV.date_rdv, selectedRDV.heure_rdv);
-        // Pastille de statut — rendue "RDV passé" (orange) dès que le créneau
-        // est dépassé sans confirmation de présence, plutôt que de laisser
-        // "En attente"/"Nouveau" (statut brut) qui ne signale pas l'urgence.
-        const badgeStatut = selectedRDV.presence_status === "absent"
-          ? "absent"
-          : rdvNonTraite(selectedRDV.statut, selectedRDV.presence_status, selectedRDV.date_rdv, selectedRDV.heure_rdv)
-          ? "en_retard"
-          : selectedRDV.statut;
-
-        // Conseil contextuel — dépend de l'état réel (statut + présence),
-        // remplace/complète le bandeau "QR confirmé" qui n'existait qu'au
-        // statut "confirme".
-        const guide = (() => {
-          if (selectedRDV.statut === "nouveau" && isRetard) {
-            return { c: C.red, t: "Cette demande a dépassé l'heure prévue sans réponse — acceptez-la, refusez-la, ou marquez le client absent s'il ne s'est jamais présenté." };
-          }
-          if (selectedRDV.statut === "nouveau") return { c: C.gold, t: "Ce citoyen attend votre réponse — acceptez ou refusez sa demande." };
-          if (selectedRDV.presence_status === "absent") return { c: C.red, t: "Ce client a été marqué absent — il ne s'est pas présenté à son rendez-vous." };
-          if (selectedRDV.statut === "termine") return { c: C.purple, t: "Ce RDV est terminé." };
-          if (selectedRDV.statut === "annule") return { c: C.red, t: "Ce RDV a été annulé." };
-          if (selectedRDV.statut === "en_attente" && isRetard && !presenceConfirmee) {
-            return { c: C.orange, t: "Ce RDV a dépassé l'heure prévue sans confirmation de présence — marquez-le absent, ou scannez le QR code si le citoyen est arrivé en retard." };
-          }
-          if ((selectedRDV.statut === "en_attente" || selectedRDV.statut === "confirme") && !presenceConfirmee) {
-            return { c: C.blue, t: "RDV accepté, en attente du jour J. Scannez le QR code du citoyen à son arrivée pour confirmer sa présence." };
-          }
-          if ((selectedRDV.statut === "en_attente" || selectedRDV.statut === "confirme") && presenceConfirmee) {
-            return { c: C.green, t: "Présence confirmée par scan QR — vous pouvez marquer ce RDV comme terminé." };
-          }
-          return null;
-        })();
-
-        // Historique d'heures — colonnes du RDV (toujours visibles) +
-        // journal_activite (qui a fait quoi, réservé admin, cf. useEffect
-        // rdvHistorique). Fusionnés et triés du plus récent au plus ancien.
-        const ACTION_LABEL_RDV: Record<string, string> = {
-          rdv_accepte: "RDV accepté", rdv_refuse: "RDV refusé",
-          rdv_termine: "RDV marqué terminé", rdv_absent: "Client marqué absent",
-        };
-        const ACTION_LABEL_EVENT: Record<string, string> = {
-          creation: "RDV créé", confirmation: "RDV confirmé", annulation: "RDV annulé",
-          report: "RDV reporté", termine: "RDV terminé", absent: "Client marqué absent",
-          message: "Message envoyé", depasse: "Alerte dépassement",
-        };
-        const AUTEUR_LABEL: Record<string, string> = { citoyen: "Par le citoyen", institution: "Par l'institution", system: "Système" };
-        const historiqueItems = [
-          selectedRDV.created_at ? { label: "RDV créé", who: null as string | null, at: selectedRDV.created_at } : null,
-          selectedRDV.presence_confirmed_at ? { label: selectedRDV.presence_status === "absent" ? "Marqué absent" : "Présence confirmée (scan QR)", who: null, at: selectedRDV.presence_confirmed_at } : null,
-          selectedRDV.termine_at ? { label: "RDV terminé", who: null, at: selectedRDV.termine_at } : null,
-          ...rdvHistorique.map(h => ({ label: ACTION_LABEL_RDV[h.action] ?? h.action, who: h.membre_nom, at: h.created_at })),
-          ...rdvEvents.map(e => ({ label: (ACTION_LABEL_EVENT[e.action] ?? e.action) + (e.motif ? ` — ${e.motif}` : ""), who: AUTEUR_LABEL[e.auteur_type] ?? e.auteur_type, at: e.created_at })),
-        ].filter((x): x is { label: string; who: string | null; at: string } => !!x)
-          .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+        // Prestation — nom unique affiché (service payant si présent, sinon
+        // l'objet du RDV gratuit), passé par extraireService() : avant ce
+        // correctif, l'objet brut ("[Ouverture de compte]", tag posé par
+        // app/rdv/[id]/page.tsx) s'affichait crochets inclus. La balise
+        // [URGENT] est retirée avant, sinon extraireService() la prendrait
+        // pour le nom du service.
+        const { urgent, objet: objetSansUrgent } = separerUrgent(selectedRDV.objet);
+        const prestationNom = selectedRDV.est_payant
+          ? (selectedRDV.service_payant_nom || "Service payant")
+          : (objetSansUrgent ? extraireService(objetSansUrgent) : "RDV général");
+        // Réponses aux champs complémentaires configurés par l'institution
+        // (clés = libellé du champ en texte brut, voir paid_services.champs_complementaires).
+        const champs = Object.entries(selectedRDV.champs_complementaires_reponses || {})
+          .filter((entree): entree is [string, string] => typeof entree[1] === "string" && entree[1].trim().length > 0);
+        // « Préparer la venue » n'a de sens que pour un RDV accepté (en_attente)
+        // dont la présence n'est pas encore confirmée (retour Bryan 13/10/2026).
+        const prepPertinente = selectedRDV.statut === "en_attente" && selectedRDV.presence_status !== "present";
 
         return (
-        <div className="rdv-detail-overlay" onClick={() => setSelectedRDV(null)} style={{ position: "fixed", inset: 0, zIndex: 800, backgroundColor: "rgba(0,0,0,0.82)", backdropFilter: "blur(12px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }}>
-          <style>{`
-            /* ── Détail RDV — bottom sheet mobile, dialogue centré 2 colonnes
-                ≥1024px (même convention que la fiche client / popovers header) ── */
-            @media(min-width:1024px){
-              .rdv-detail-overlay{align-items:center!important}
-              .rdv-detail-panel{max-width:820px!important;border-radius:20px!important;max-height:86svh!important}
-              .rdv-detail-grip{display:none!important}
-              .rdv-detail-close-x{display:flex!important}
-              .rdv-detail-title-row{padding-right:44px}
-              .rdv-detail-body{display:grid!important;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
-            }
-          `}</style>
-          <div onClick={e => e.stopPropagation()} className="rdv-detail-panel" style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: "480px", maxHeight: "88svh", overflowY: "auto", border: `1px solid ${C.border2}`, borderBottom: "none", animation: "slideUp 0.28s ease" }}>
-            <div className="rdv-detail-grip" style={{ width: "36px", height: "4px", borderRadius: "2px", backgroundColor: C.t3, margin: "0 auto 20px" }}/>
-            <button onClick={() => setSelectedRDV(null)} className="rdv-detail-close-x tap" style={{ display: "none", position: "absolute", top: "16px", right: "16px", width: "32px", height: "32px", borderRadius: "50%", backgroundColor: C.bg3, border: "none", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-            <div className="rdv-detail-title-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
-              <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800" }}>Détails du RDV</div>
-              <span style={{ color: stInfo(badgeStatut, C).c, fontSize: "10px", fontWeight: "800", padding: "4px 10px", borderRadius: "20px", textTransform: "uppercase" }}>{stInfo(badgeStatut, C).l}</span>
-            </div>
-
-            <div className="rdv-detail-body">
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px" }}>
-                  <div style={{ width: "52px", height: "52px", position: "relative", borderRadius: "14px", overflow: "hidden", border: `1px solid ${stInfo(badgeStatut, C).c}30`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", fontWeight: "800", color: stInfo(badgeStatut, C).c, flexShrink: 0 }}>
-                    {selectedRDV.citoyen_photo ? <Image src={selectedRDV.citoyen_photo} alt="" fill sizes="52px" style={{ objectFit: "cover" }}/> : selectedRDV.citoyen_nom.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    {selectedRDV.pour_autre && <div style={{ color: C.t3, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "1px" }}>Réservé par</div>}
-                    <div style={{ color: C.t1, fontSize: "17px", fontWeight: "800" }}>{selectedRDV.citoyen_nom}</div>
-                    {selectedRDV.citoyen_phone && <div style={{ color: C.t3, fontSize: "12px" }}>{selectedRDV.citoyen_phone}</div>}
-                  </div>
-                </div>
-                {selectedRDV.est_payant && (
-                  <div style={{ border: `1px solid ${C.gold}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div>
-                      <div style={{ color: C.gold, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Service payant</div>
-                      <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{selectedRDV.service_payant_nom}</div>
-                    </div>
-                    <div style={{ color: C.gold, fontSize: "15px", fontWeight: "800" }}>{(selectedRDV.service_payant_prix ?? 0).toLocaleString("fr-FR")} {DEVISE_LABEL}</div>
-                  </div>
-                )}
-                {selectedRDV.pour_autre && (
-                  <div style={{ border: `1px solid ${C.orange}30`, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
-                    <div style={{ color: C.orange, fontSize: "9.5px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Bénéficiaire du RDV (pour un tiers)</div>
-                    <div style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{selectedRDV.nom_autre || "—"}</div>
-                    {selectedRDV.phone_autre && <div style={{ color: C.t2, fontSize: "12px", marginTop: "1px" }}>{selectedRDV.phone_autre}</div>}
-                  </div>
-                )}
-                <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
-                  {[
-                    { label: "Objet", value: selectedRDV.objet || "RDV général" },
-                    { label: "Date", value: formatDate(selectedRDV.date_rdv, { weekday: "long", day: "numeric", month: "long" }) },
-                    { label: "Heure", value: selectedRDV.heure_rdv ? formatHeure(selectedRDV.heure_rdv) : "—" },
-                    ...(selectedRDV.duree_minutes ? [{ label: "Durée prévue", value: `${selectedRDV.duree_minutes} min` }] : []),
-                    ...(selectedRDV.presence_status ? [{ label: "Présence", value: selectedRDV.presence_status === "present" ? "Confirmée (QR)" : selectedRDV.presence_status === "absent" ? "Absent" : selectedRDV.presence_status }] : []),
-                    ...(selectedRDV.motif_annulation ? [{ label: "Motif annulation", value: selectedRDV.motif_annulation }] : []),
-                    ...(selectedRDV.motif_report ? [{ label: "Reporté", value: selectedRDV.motif_report }] : []),
-                  ].map((item, i, arr) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "12px", padding: "7px 0", borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                      <span style={{ color: C.t3, fontSize: "11px", fontWeight: "600" }}>{item.label}</span>
-                      <span style={{ color: C.t1, fontSize: "12px", fontWeight: "700", textAlign: "right", flex: 1 }}>{item.value}</span>
-                    </div>
-                  ))}
-                </div>
-                {selectedRDV.description_besoin && (
-                  <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px", marginBottom: "14px" }}>
-                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.6px" }}>Description du besoin</div>
-                    <div style={{ color: C.t1, fontSize: "12.5px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{selectedRDV.description_besoin}</div>
-                  </div>
-                )}
-                <div style={{ marginBottom: "14px" }}>
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.6px" }}>Guichet</div>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <input
-                      value={guichetDraft}
-                      onChange={e => setGuichetDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && !savingGuichet) handleSaveGuichet(); }}
-                      placeholder="Ex: Guichet 3, Bureau A…"
-                      style={{ flex: 1, backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "9px 12px", fontSize: "12px", color: C.t1, outline: "none" }}
-                    />
-                    <button onClick={handleSaveGuichet} disabled={savingGuichet || guichetDraft === (selectedRDV.guichet || "")} className="tap" style={{ height: "32px", backgroundColor: C.purple, color: "#fff", border: "none", borderRadius: "10px", padding: "0 14px", fontSize: "12px", fontWeight: "700", cursor: "pointer", opacity: savingGuichet || guichetDraft === (selectedRDV.guichet || "") ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {savingGuichet ? <YelenLoader size={12} color="#fff"/> : "OK"}
-                    </button>
-                  </div>
-                </div>
-                {guide && (
-                  <div style={{ border: `1px solid ${guide.c}20`, borderRadius: "12px", padding: "10px 14px", marginBottom: "14px", display: "flex", gap: "8px", alignItems: "flex-start" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={guide.c} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    <div style={{ color: C.t3, fontSize: "10px", lineHeight: 1.5 }}>{guide.t}</div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <div style={{ marginBottom: "16px" }}>
-                  <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.6px" }}>Historique</div>
-                  {historiqueItems.length === 0 ? (
-                    <div style={{ color: C.t3, fontSize: "11.5px", padding: "8px 0" }}>Aucun événement pour l&apos;instant.</div>
-                  ) : (
-                    <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "4px 12px" }}>
-                      {historiqueItems.map((h, i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "10px", padding: "9px 0", borderBottom: i < historiqueItems.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                          <div>
-                            <div style={{ color: C.t1, fontSize: "12px", fontWeight: "700" }}>{h.label}</div>
-                            {h.who && <div style={{ color: C.t3, fontSize: "10px", marginTop: "1px" }}>{h.who}</div>}
-                          </div>
-                          <div style={{ color: C.t3, fontSize: "10px", whiteSpace: "nowrap", textAlign: "right" }}>
-                            {formatDate(h.at, { day: "numeric", month: "short" })} · {new Date(h.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {selectedRDV.statut === "nouveau" ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="md" fullWidth disabled={!!actionLoading} onClick={() => handleRefuse(selectedRDV.id)}>
-                      {actionLoading === selectedRDV.id ? "..." : "Refuser"}
-                    </Button>
-                    <button onClick={() => handleAccept(selectedRDV.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: "none", cursor: "pointer" }}>
-                      {actionLoading === selectedRDV.id ? "..." : "Accepter"}
-                    </button>
-                  </div>
-                ) : (selectedRDV.statut === "en_attente" || selectedRDV.statut === "confirme") ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <button onClick={() => presenceConfirmee && handleTermine(selectedRDV.id)} disabled={!!actionLoading || !presenceConfirmee} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", backgroundColor: presenceConfirmee ? C.purple : undefined, color: presenceConfirmee ? "#fff" : C.t3, fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: presenceConfirmee ? "none" : `1px solid ${C.border}`, cursor: presenceConfirmee ? "pointer" : "not-allowed" }}>
-                      {actionLoading === selectedRDV.id ? "..." : "Marquer terminé"}
-                    </button>
-                    {!presenceConfirmee && (
-                      <div style={{ color: C.t3, fontSize: "11px", textAlign: "center", marginTop: "-4px" }}>
-                        Scannez le QR code du citoyen pour confirmer sa présence avant de marquer ce RDV terminé.
-                      </div>
-                    )}
-                    {selectedRDV.statut === "en_attente" && isRetard && selectedRDV.presence_status !== "absent" && (
-                      <button onClick={() => setConfirmAbsent({ id: selectedRDV.id, nom: selectedRDV.citoyen_nom })} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "40px", padding: "0 16px", color: C.orange, fontWeight: "700", fontSize: "13px", borderRadius: "12px", border: `1px solid ${C.orange}25`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px" }}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        {actionLoading === selectedRDV.id ? "..." : "Client absent"}
-                      </button>
-                    )}
-                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setSelectedRDV(null)}>Fermer</Button>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {tabAllowed(membreRole, "mes-clients", accesRestreints) && (
-                      <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={() => { setMesClientsInitialId(selectedRDV.citoyen_id); setSelectedRDV(null); setTab("mes-clients"); }}>
-                        Voir ce client
-                      </Button>
-                    )}
-                    <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={() => setSelectedRDV(null)}>Fermer</Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+          <RdvDetailModal
+            key={selectedRDV.id}
+            C={C}
+            rdv={selectedRDV}
+            events={rdvHisto.events}
+            can={(permission) => membreRole !== null && can(membreRole, permission, accesRestreints)}
+            suspendu={suspendu}
+            actionLoading={actionLoading}
+            bloqueClavier={!!confirmAbsent || !!confirmRefuse || !!prepModalRdv || !!horsCreneauDialog || !!termineDialog}
+            onClose={() => setSelectedRDV(null)}
+            onAction={(id) => {
+              if (id === "accepter") handleAccept(selectedRDV.id);
+              else if (id === "refuser") setConfirmRefuse({ id: selectedRDV.id, nom: selectedRDV.citoyen_nom });
+              else if (id === "terminer") handleTermine(selectedRDV.id);
+              else if (id === "absent") setConfirmAbsent({ id: selectedRDV.id, nom: selectedRDV.citoyen_nom });
+              else if (id === "preparer") setPrepModalRdv(selectedRDV);
+              else if (id === "confirmer_presence") { const cible = selectedRDV; setSelectedRDV(null); handlePrendreEnCharge(cible); }
+            }}
+          >
+            <RdvDetailContenu
+              C={C}
+              rdv={selectedRDV}
+              rdvs={rdvs}
+              colonnes={selectedRDV}
+              events={rdvHisto.events}
+              journal={rdvHisto.journal}
+              etatHistorique={rdvHisto.etat}
+              onReessayer={rdvHisto.reessayer}
+              prestationNom={prestationNom}
+              urgent={urgent}
+              masquerDemande={!peutVoirDemande(membreRole)}
+              champs={champs}
+              prepPertinente={prepPertinente}
+              onVoirProfil={selectedRDV.citoyen_id && tabAllowed(membreRole, "mes-clients", accesRestreints)
+                ? () => { setMesClientsInitialId(selectedRDV.citoyen_id); setSelectedRDV(null); setTab("mes-clients"); }
+                : undefined}
+            />
+          </RdvDetailModal>
         );
       })()}
 
@@ -3588,6 +3692,11 @@ function InstitutionDashboardInner() {
         onClose={() => { setConfirmAbsent(null); setConfirmAbsentMotif(""); setConfirmAbsentError(null); }}
         onConfirm={async () => {
           if (!confirmAbsent) return;
+          // Même seuil que le serveur (rdv/statut/route.ts) — évite un aller-retour réseau pour un motif trop court.
+          if (confirmAbsentMotif.trim().length < MOTIF_ABSENT_MIN_CARACTERES) {
+            setConfirmAbsentError(`Le motif doit contenir au moins ${MOTIF_ABSENT_MIN_CARACTERES} caractères.`);
+            return;
+          }
           setConfirmAbsentError(null);
           const res = await handleAbsent(confirmAbsent.id, confirmAbsentMotif);
           if (res.ok) { setConfirmAbsent(null); setConfirmAbsentMotif(""); }
@@ -3604,6 +3713,28 @@ function InstitutionDashboardInner() {
         errorMessage={confirmAbsentError ?? undefined}
       />
 
+      <ConfirmModal
+        open={!!confirmRefuse}
+        onClose={() => { setConfirmRefuse(null); setConfirmRefuseMotif(""); }}
+        onConfirm={async () => {
+          if (!confirmRefuse) return;
+          const { id } = confirmRefuse;
+          setConfirmRefuse(null);
+          const motif = confirmRefuseMotif.trim();
+          setConfirmRefuseMotif("");
+          await handleRefuse(id, motif || undefined);
+        }}
+        tokens={toUiTokens(C)}
+        level={2}
+        motifValue={confirmRefuseMotif}
+        onMotifChange={setConfirmRefuseMotif}
+        motifPlaceholder="Ex : créneau complet, service indisponible ce jour-là"
+        danger
+        title={confirmRefuse ? `Refuser le rendez-vous de ${confirmRefuse.nom} ?` : "Refuser ce rendez-vous ?"}
+        description="Le citoyen sera prévenu que son rendez-vous est refusé et pourra réserver un autre créneau."
+        confirmLabel="Refuser"
+      />
+
       {/* ═══════ HEADER ═══════ */}
       {/* ── paddingTop: env(safe-area-inset-top) — manquait ici (seul header
           du projet à ne pas l'avoir, cf. dashboard-client.tsx côté citoyen)
@@ -3613,8 +3744,30 @@ function InstitutionDashboardInner() {
           l'appui). env() vaut 0 sans encoche/PWA, donc PC inchangé. ── */}
       <header style={{ position: "sticky", top: 0, zIndex: 200, backgroundColor: `${C.bgCard}F5`, backdropFilter: "blur(28px) saturate(200%)", borderBottom: `1px solid ${C.border}`, paddingTop: "env(safe-area-inset-top)" }}>
         <div className="yelen-header-inner" style={{ padding: "0 16px" }}>
-          <div style={{ height: "56px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}>
+          <div style={{ height: "var(--header-h)", display: "flex", alignItems: "center", gap: "4px" }}>
+            <HeaderStyles C={C}/>
+            {/* Fil d'Ariane construit à partir des tableaux de navigation existants
+                (≥1024 px) ; le bloc logo + salutation reste pour le mobile. */}
+            {(() => {
+              let crumbs: string[] = [];
+              const ns = navSections.find(sec => sec.items.some(i => i.key === tab));
+              if (ns) {
+                const fg = ns.label === "Finance" ? FINANCE_GROUPS.find(g => g.tabs.includes(tab as DashboardTab)) : undefined;
+                crumbs = [ns.label, ...(fg ? [fg.label] : []), ns.items.find(i => i.key === tab)?.label ?? ""];
+              } else {
+                const ag = accountGroups.find(g => g.items.some(i => i.key === tab));
+                if (ag) {
+                  const sg = ag.label === "Équipe & travail" ? EQUIPE_TRAVAIL_GROUPS.find(g => g.tabs.includes(tab as DashboardTab)) : undefined;
+                  crumbs = ["Organisation", sg ? sg.label : ag.label, ag.items.find(i => i.key === tab)?.label ?? ""];
+                } else {
+                  const av = avatarMenuItems.find(i => i.key === tab);
+                  if (av) crumbs = ["Compte", av.label];
+                  else if (tab === "parametres") crumbs = ["Organisation", "Paramètres"];
+                }
+              }
+              return <Breadcrumbs C={C} crumbs={crumbs.filter(Boolean)}/>;
+            })()}
+            <div className="hdr-mobile-id" style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}>
               {inst?.logo ? (
                 <div style={{ width: "34px", height: "34px", position: "relative", borderRadius: "10px", overflow: "hidden", border: `1px solid ${C.border2}`, flexShrink: 0 }}>
                   <Image src={inst.logo} alt="" fill sizes="34px" style={{ objectFit: "cover" }}/>
@@ -3651,13 +3804,14 @@ function InstitutionDashboardInner() {
             {tabAllowed(membreRole, "partenariat") && (
               <button
                 onClick={() => setTab("partenariat")}
-                title="Partenaires"
-                className="tap yelen-header-more-item"
-                style={{ position: "relative", background: tab === "partenariat" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${tab === "partenariat" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: tab === "partenariat" ? C.gold : C.t2 }}
+                title={inst?.partenaire_statut === "approuve" ? "Partenaires — Partenariat approuvé" : "Partenaires"}
+                aria-label={inst?.partenaire_statut === "approuve" ? "Partenaires — Partenariat approuvé" : "Partenaires"}
+                className="hdr-ico tap yelen-header-more-item"
+                style={{ position: "relative", background: tab === "partenariat" ? C.bg3 : "transparent", border: "none", borderRadius: "8px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: tab === "partenariat" ? C.gold : C.t2 }}
               >
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 12l3 3 8-8"/><path d="M2 12l4-4 4 2 4-2 4 4"/></svg>
                 {inst?.partenaire_statut === "approuve" && (
-                  <span style={{ position: "absolute", top: "5px", right: "5px", width: "6px", height: "6px", borderRadius: "50%", background: C.gold }}/>
+                  <span aria-hidden="true" style={{ position: "absolute", top: "7px", right: "7px", width: "7px", height: "7px", borderRadius: "50%", background: C.gold, border: `1.5px solid ${C.bgCard}` }}/>
                 )}
               </button>
             )}
@@ -3667,15 +3821,18 @@ function InstitutionDashboardInner() {
                 la fermeture au clic extérieur et l'ancrage absolu (desktop)
                 fonctionnent correctement ── */}
             <div ref={searchRef} style={{ position: "relative", flexShrink: 0 }}>
-              <div className="header-search-desktop" style={{ alignItems: "center", gap: "8px", height: "32px", backgroundColor: C.bg3, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "0 10px", width: "220px", boxSizing: "border-box" }}>
+              <div className="header-search-desktop hdr-search-field" style={{ alignItems: "center", gap: "8px", height: "36px", backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "8px", padding: "0 10px", boxSizing: "border-box" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input
+                  ref={searchInputRef}
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   onFocus={() => setActivePopover("search")}
                   placeholder="Rechercher…"
-                  style={{ flex: 1, padding: "0", fontSize: "12px" }}
+                  aria-label="Rechercher (Ctrl K)"
+                  style={{ flex: 1, minWidth: 0, padding: "0", fontSize: "13px" }}
                 />
+                <KbdChip C={C} mac={isMac}/>
               </div>
               {/* ── Recherche mobile — icône qui ouvre le même popover ── */}
               <button onClick={() => setActivePopover(activePopover === "search" ? null : "search")} className="tap header-search-icon-mobile yelen-header-more-item" style={{ background: activePopover === "search" ? `${C.gold}15` : C.bgCard2, border: `1px solid ${activePopover === "search" ? C.gold + "40" : C.border}`, borderRadius: "10px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -3690,14 +3847,15 @@ function InstitutionDashboardInner() {
                   le portail a cassé l'ancrage CSS position:absolute (retour
                   Bryan 01/08/2026). ── */}
               {activePopover === "search" && typeof document !== "undefined" && createPortal(
-                <div ref={searchPanelRef} className="header-popover-panel" style={searchDesktopPos ? { position: "fixed", top: searchDesktopPos.top, right: searchDesktopPos.right, left: "auto", bottom: "auto" } : undefined}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-                    <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>Recherche</span>
-                    <button onClick={() => setActivePopover(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.t3, padding: "4px" }}>
+                <div ref={searchPanelRef} role="dialog" aria-label="Recherche" className="header-popover-panel" style={searchDesktopPos ? { position: "fixed", top: searchDesktopPos.top, right: searchDesktopPos.right, left: "auto", bottom: "auto" } : undefined}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: "48px", padding: "0 8px 0 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+                    <span style={{ color: C.t1, fontSize: "14px", fontWeight: 600 }}>Recherche</span>
+                    <button onClick={() => setActivePopover(null)} aria-label="Fermer" style={{ background: "none", border: "none", cursor: "pointer", color: C.t2, padding: "8px" }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                   </div>
-                  <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Rechercher un onglet ou un client…" autoFocus style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "13px", marginBottom: "12px" }}/>
+                  <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Rechercher un onglet ou un client…" aria-label="Rechercher un onglet ou un client" autoFocus style={{ width: "calc(100% - 32px)", margin: "12px 16px 0", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "13px", marginBottom: "12px", flexShrink: 0 }}/>
+                  <div className="header-popover-body">
                   {(() => {
                     const q = searchQuery.trim().toLowerCase();
                     const navResults = [...navSections.flatMap(s => s.items), ...accountItems].filter(i => !q || i.label.toLowerCase().includes(q));
@@ -3706,7 +3864,7 @@ function InstitutionDashboardInner() {
                       <>
                         {navResults.length > 0 && (
                           <div style={{ marginBottom: "10px" }}>
-                            <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "4px" }}>Navigation</div>
+                            <div style={{ color: C.t3, fontSize: "12px", fontWeight: 500, marginBottom: "4px" }}>Navigation</div>
                             {navResults.slice(0, 8).map(i => (
                               <button key={i.key} onClick={() => { if (i.onClick) { i.onClick(); } else { setTab(i.key as typeof tab); } setActivePopover(null); setSearchQuery(""); }} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "9px 8px", background: "none", border: "none", color: C.t1, fontSize: "13px", fontWeight: "600", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
                                 <span style={{ color: C.t3, display: "flex" }}>{i.icon}</span>{i.label}
@@ -3716,7 +3874,7 @@ function InstitutionDashboardInner() {
                         )}
                         {clientResults.length > 0 && (
                           <div>
-                            <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "4px" }}>Clients</div>
+                            <div style={{ color: C.t3, fontSize: "12px", fontWeight: 500, marginBottom: "4px" }}>Clients</div>
                             {clientResults.map(c => (
                               <button key={c.id} onClick={() => { setTab("mes-clients"); setActivePopover(null); setSearchQuery(""); }} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "9px 8px", background: "none", border: "none", color: C.t1, fontSize: "13px", fontWeight: "600", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
                                 {c.nom}<span style={{ color: C.t3, fontWeight: "400", fontSize: "11px" }}>{c.phone}</span>
@@ -3730,6 +3888,7 @@ function InstitutionDashboardInner() {
                       </>
                     );
                   })()}
+                  </div>
                 </div>,
                 document.body
               )}
@@ -3743,25 +3902,10 @@ function InstitutionDashboardInner() {
             <HeaderPopover id="rdv" active={activePopover === "rdv"} onOpen={() => setActivePopover("rdv")} onClose={() => setActivePopover(null)} badge={rdvsPending.length} glow panelTitle="RDV entrants" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
             >
-              {rdvsPending.length === 0 ? (
-                <div style={{ padding: "24px 8px", textAlign: "center", color: C.t3, fontSize: "12px" }}>Aucun RDV entrant pour l&apos;instant.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {rdvsPending.slice(0, 8).map(r => (
-                    <div key={r.id} style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "10px 12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "4px" }}>
-                        <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.citoyen_nom}</span>
-                        <span style={{ color: C.t3, fontSize: "10px", flexShrink: 0 }}>{formatHeure(r.heure_rdv)}</span>
-                      </div>
-                      <div style={{ color: C.t2, fontSize: "11px", marginBottom: "8px" }}>{r.objet || "RDV général"}</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                        <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" fullWidth disabled={!!actionLoading} onClick={() => handleRefuse(r.id)}>Refuser</Button>
-                        <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "32px", backgroundColor: C.greenL, color: C.green, fontSize: "12px", fontWeight: "700", borderRadius: "10px", border: "none", cursor: "pointer" }}>Accepter</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <RdvEntrantsPopoverContent C={C} rdvs={rdvsPending} actionLoading={actionLoading}
+                onOuvrir={r => { setActivePopover(null); setSelectedRDV(r); }}
+                onAccepter={id => { void handleAccept(id); }} onRefuser={(id, motif) => { void handleRefuse(id, motif); }}
+                onVoirTous={() => { setActivePopover(null); setTab("rdv"); }}/>
             </HeaderPopover>
             )}
 
@@ -3772,57 +3916,13 @@ function InstitutionDashboardInner() {
             <HeaderPopover id="notifications" active={activePopover === "notifications"} onOpen={ouvrirNotifications} onClose={() => setActivePopover(null)} badge={institutionNotifs.filter(n => !n.lu).length} panelTitle="Notifications" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
             >
-              {/* ── Onglets Utilisateur / Système — "Système" n'existe pas
-                  encore (mention "à venir"), demandé par Bryan le 20/07/2026 ── */}
-              <div style={{ display: "flex", gap: "6px", marginBottom: "12px" }}>
-                {([{ key: "utilisateur", label: "Mes notifications" }, { key: "systeme", label: "Système" }] as const).map(o => (
-                  <button key={o.key} onClick={() => setOngletNotif(o.key)} style={{ flex: 1, background: ongletNotif === o.key ? `${C.gold}18` : C.bg3, border: `1px solid ${ongletNotif === o.key ? C.gold + "45" : C.border}`, borderRadius: "10px", padding: "8px 10px", color: ongletNotif === o.key ? C.gold : C.t3, fontSize: "12px", fontWeight: "800", cursor: "pointer" }}>
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-              {ongletNotif === "systeme" ? (
-                <div style={{ padding: "20px 8px 8px", textAlign: "center" }}>
-                  <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}><NotifEmptyIllustration color={C.gold}/></div>
-                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>Bientôt disponible</div>
-                  <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6 }}>Les alertes système et informations de la plateforme Yelen apparaîtront ici.</div>
-                </div>
-              ) : institutionNotifs.length === 0 ? (
-                <div style={{ padding: "20px 8px 8px", textAlign: "center" }}>
-                  <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px" }}><NotifEmptyIllustration color={C.gold}/></div>
-                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>Vous êtes à jour</div>
-                  <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6 }}>Aucune notification pour l&apos;instant — vous serez averti dès qu&apos;un événement nécessite votre attention.</div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  {grouperParJour(institutionNotifs.slice(0, 15)).map(g => (
-                    <div key={g.jour}>
-                      <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", padding: "4px 2px 6px" }}>{g.jour}</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
-                        {g.items.map(n => (
-                          <div key={n.id} onClick={() => handleClickNotif(n)} className={n.rdv_id ? "tap" : ""} style={{ backgroundColor: n.lu ? "transparent" : `${C.gold}0d`, border: `1px solid ${n.lu ? C.border : C.gold + "25"}`, borderRadius: "12px", padding: "10px 12px", cursor: n.rdv_id ? "pointer" : "default", display: "flex", gap: "10px" }}>
-                            <div style={{ width: "32px", height: "32px", borderRadius: "10px", background: `linear-gradient(135deg, ${C.gold}25, ${C.gold}10)`, border: `1px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: C.gold }}>
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <div style={{ color: C.t1, fontSize: "12.5px", fontWeight: n.lu ? "600" : "800", flex: 1 }}>{n.titre}</div>
-                                {!n.lu && <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: C.gold, flexShrink: 0 }}/>}
-                              </div>
-                              <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.5, marginTop: "1px" }}>{n.message}</div>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
-                                <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700" }}>{new Date(n.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
-                                <span style={{ color: C.t3, fontSize: "10px" }}>·</span>
-                                <span style={{ color: C.t3, fontSize: "10px", fontWeight: "600" }}>il y a {timeAgo(n.created_at)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <NotificationsPopoverContent C={C}
+                notifs={institutionNotifs} nonLuesIds={notifsNonLuesAffichees}
+                chargement={notifsChargement} erreur={notifsErreur} onReessayer={rechargerNotifications}
+                nomPourRdv={id => nomCitoyenParRdv.get(id)} onOuvrir={handleClickNotif}
+                onVoirToutes={() => { setActivePopover(null); setTab("notifications"); }}
+                onglet={ongletNotif} onChangerOnglet={setOngletNotif}
+                contenuSysteme={<NotifSystemeBientot C={C}/>}/>
             </HeaderPopover>
             )}
 
@@ -3837,23 +3937,19 @@ function InstitutionDashboardInner() {
             <HeaderPopover id="questions" active={activePopover === "questions"} onOpen={() => setActivePopover("questions")} onClose={() => setActivePopover(null)} badge={questionsNonRepondues} panelTitle="Questions clients" wrapperClassName="yelen-header-more-item"
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg>}
             >
-              <div style={{ padding: "8px 4px", textAlign: "center" }}>
-                {questionsNonRepondues === 0 ? (
-                  <p style={{ color: C.t3, fontSize: "12px", margin: "12px 0" }}>Aucune nouvelle question pour l&apos;instant.</p>
-                ) : (
-                  <p style={{ color: C.t2, fontSize: "12.5px", margin: "12px 0", lineHeight: 1.6 }}>
-                    {questionsNonRepondues} question{questionsNonRepondues > 1 ? "s" : ""} en attente de réponse, posée{questionsNonRepondues > 1 ? "s" : ""} publiquement par des citoyens avant leur RDV.
-                  </p>
-                )}
-                <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" fullWidth onClick={() => { setActivePopover(null); setTab("questions-clients"); }}>
-                  Voir toutes les questions
-                </Button>
-              </div>
+              {questionsNonRepondues === 0 ? (
+                <PopoverEmpty C={C} icone={IcoVideQuestion} titre="Aucune nouvelle question" aide="Les questions des citoyens apparaîtront ici."/>
+              ) : (
+                <p style={{ color: C.t2, fontSize: "14px", margin: "4px 0 0", lineHeight: 1.6 }}>
+                  {questionsNonRepondues} question{questionsNonRepondues > 1 ? "s" : ""} en attente de réponse, posée{questionsNonRepondues > 1 ? "s" : ""} publiquement par des citoyens avant leur RDV.
+                </p>
+              )}
+              <PopoverFooter C={C} label="Voir toutes les questions" onClick={() => { setActivePopover(null); setTab("questions-clients"); }}/>
             </HeaderPopover>
             )}
 
             {/* ── Feedback ── */}
-            <HeaderPopover id="feedback" active={activePopover === "feedback"} onOpen={() => setActivePopover("feedback")} onClose={() => setActivePopover(null)} panelTitle="Envoyer un feedback" wrapperClassName="yelen-header-more-item"
+            <HeaderPopover id="feedback" active={activePopover === "feedback"} onOpen={() => setActivePopover("feedback")} onClose={() => setActivePopover(null)} panelTitle="Envoyer un feedback" wrapperClassName="yelen-header-more-item hdr-collapsible" fallbackAnchorRef={plusWrapRef}
               trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>}
             >
               <div style={{ display: "flex", gap: "6px", marginBottom: "10px", flexWrap: "wrap" }}>
@@ -3866,6 +3962,20 @@ function InstitutionDashboardInner() {
                 Envoyer
               </Button>
             </HeaderPopover>
+
+            {/* ── Recommandations (système de recommandation institutionnel,
+                Phase 4, architecture validée CEO 13/10/2026) — lien direct
+                (pas un HeaderPopover, aucun contenu à prévisualiser ici),
+                ouvre l'écran dédié dans un NOUVEL ONGLET NAVIGATEUR, même
+                patron que Support Yelen (URL propre /{slug}/{id}/..., gérée
+                par le catch-all app/[slug]/[id]/[screen]/page.tsx). Masqué
+                pour agent/comptable (TAB_MATRIX["recommandations"] = "none"
+                pour ces 2 rôles, décision CEO explicite). ── */}
+            {tabAllowed(membreRole, "recommandations") && (
+              <a href={`/${urlSlug}/${instId}/recommandations`} target="_blank" rel="noopener noreferrer" title="Recommandations" aria-label="Recommandations (nouvel onglet)" className="hdr-ico tap yelen-header-more-item hdr-collapsible" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", borderRadius: "8px", width: "36px", height: "36px", cursor: "pointer", flexShrink: 0, color: C.t2, textDecoration: "none" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>
+              </a>
+            )}
 
             {/* ── Aide — liens déjà existants ailleurs (Guide, FAQ, CGU,
                 confidentialité) + Support Yelen (chantier "Séparation
@@ -3883,61 +3993,95 @@ function InstitutionDashboardInner() {
             >
               {(() => {
                 const dispo = supportEstDisponible(new Date());
+                const couleurSupport = dispo ? C.green : C.orange;
+                const item = popoverItem(C);
                 return (
                   <div style={{ display: "flex", flexDirection: "column" }}>
-                    <div style={{ color: C.t3, fontSize: "12px", fontWeight: 600, margin: "-8px 0 12px" }}>Comment pouvons-nous vous aider ?</div>
+                    <p style={{ margin: "0 0 12px 10px", color: C.t2, fontSize: "13px" }}>Comment pouvons-nous vous aider ?</p>
 
-                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Besoin d&apos;aide ?</div>
-                    <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" onClick={() => setActivePopover(null)} className="tap" style={{ position: "relative", display: "flex", flexDirection: "column", gap: 5, padding: "12px 10px", borderRadius: "12px", border: `1px solid ${C.border}`, background: C.bgCard2, textDecoration: "none", marginBottom: 16 }}>
-                      <span style={{ color: C.gold, display: "flex" }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
-                      <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: 800 }}>Support Yelen</span>
-                      <span style={{ color: C.t3, fontSize: "10.5px", lineHeight: 1.4 }}>Contacter notre équipe</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: dispo ? C.green : C.orange, flexShrink: 0 }}/>
-                        <span style={{ color: dispo ? C.green : C.orange, fontSize: "9.5px", fontWeight: 700 }}>{dispo ? "Disponible" : "Fermé pour le moment"}</span>
-                      </span>
-                      {supportUnread > 0 && (
-                        <span style={{ position: "absolute", top: 8, right: 8, background: C.red, color: "#fff", fontSize: 9.5, fontWeight: 800, minWidth: 16, height: 16, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{supportUnread > 9 ? "9+" : supportUnread}</span>
-                      )}
-                    </a>
+                    <PopoverSection C={C} titre="Besoin d'aide ?">
+                      <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" onClick={() => setActivePopover(null)} className="hp-item tap" style={{ position: "relative", display: "flex", alignItems: "center", gap: "12px", padding: "12px", borderRadius: "10px", border: `1px solid ${C.border}`, background: C.bgCard, textDecoration: "none" }}>
+                        <span style={{ color: C.t2, display: "flex", flexShrink: 0 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg></span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: "block", color: C.t1, fontSize: "14px", fontWeight: 500 }}>Support Yelen</span>
+                          <span style={{ display: "block", color: C.t2, fontSize: "13px" }}>Contacter notre équipe</span>
+                        </span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "22px", padding: "0 8px", borderRadius: "6px", backgroundColor: `${couleurSupport}1c`, color: couleurSupport, fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
+                          <span aria-hidden="true" style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: couleurSupport }}/>{dispo ? "Disponible" : "Fermé pour le moment"}
+                        </span>
+                        {supportUnread > 0 && (
+                          <span role="status" aria-label={`${supportUnread} message${supportUnread > 1 ? "s" : ""} non lu${supportUnread > 1 ? "s" : ""}`} style={{ position: "absolute", top: -6, right: -6, background: C.red, color: "#fff", fontSize: 10, fontWeight: 800, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", border: `2px solid ${C.bgCard}` }}>{supportUnread > 9 ? "9+" : supportUnread}</span>
+                        )}
+                      </a>
+                    </PopoverSection>
 
-                    <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 8px" }}>Ressources</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: 12 }}>
-                      <button onClick={() => { setShowGuide(true); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
-                        <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+                    <PopoverSection C={C} titre="Ressources">
+                      <button onClick={() => { setShowGuide(true); setActivePopover(null); }} className="hp-item tap" style={item}>
+                        <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
                         <span style={{ flex: 1 }}>Aide & astuces</span>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        <PopoverChevron C={C}/>
                       </button>
-                      <button onClick={() => { setTab("parametres"); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 8px", color: C.t1, fontSize: "12.5px", fontWeight: 600, background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
-                        <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4Z"/></svg></span>
+                      <button onClick={() => { setTab("parametres"); setActivePopover(null); }} className="hp-item tap" style={item}>
+                        <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4Z"/></svg></span>
                         <span style={{ flex: 1 }}>Sécurité du compte</span>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        <PopoverChevron C={C}/>
                       </button>
-                    </div>
+                    </PopoverSection>
 
-                    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-                      <div style={{ color: C.t3, fontSize: "9px", fontWeight: 800, letterSpacing: "0.6px", textTransform: "uppercase", margin: "0 2px 4px" }}>Informations légales</div>
-                      <Link href="/cgu" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Conditions d&apos;utilisation</Link>
-                      <Link href="/confidentialite" onClick={() => setActivePopover(null)} className="tap" style={{ display: "block", padding: "5px 8px", color: C.t3, fontSize: "11.5px", fontWeight: 600, textDecoration: "none", borderRadius: "6px" }}>Politique de confidentialité</Link>
+                    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+                      <PopoverSection C={C} titre="Informations légales">
+                        <Link href="/cgu" onClick={() => setActivePopover(null)} className="hp-item tap" style={{ ...item, color: C.t2 }}><span style={{ flex: 1 }}>Conditions d&apos;utilisation</span><PopoverChevron C={C}/></Link>
+                        <Link href="/confidentialite" onClick={() => setActivePopover(null)} className="hp-item tap" style={{ ...item, color: C.t2 }}><span style={{ flex: 1 }}>Politique de confidentialité</span><PopoverChevron C={C}/></Link>
+                      </PopoverSection>
                     </div>
                   </div>
                 );
               })()}
             </HeaderPopover>
 
+            <span className="yelen-header-scanner" style={{ display: "contents" }}>
             <Button
               tokens={toUiTokens(C)} className="tap"
-              variant="primary"
+              variant="secondary"
               size="sm"
-              style={{ flexShrink: 0 }}
-              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>}
+              aria-label="Scanner un QR code"
+              title="Scanner"
+              style={{ flexShrink: 0, margin: "0 4px" }}
+              icon={<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>}
               onClick={() => setShowScanner(true)}
             >
-              Scanner
+              <span className="hdr-scan-lbl">Scanner</span>
             </Button>
+            </span>
+
+            {/* ── « Plus » (1024–1279 px) : Feedback, Recommandations et Actualiser
+                quand la largeur manque. Aucun contrôle à badge ici. ── */}
+            <div ref={plusWrapRef} className="hdr-plus">
+              <HeaderPopover id="plus" active={activePopover === "plus"} onOpen={() => setActivePopover("plus")} onClose={() => setActivePopover(null)} panelTitle="Plus d'actions"
+                trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>}
+              >
+                <div role="menu" style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                  <button role="menuitem" onClick={() => setActivePopover("feedback")} className="hp-item tap" style={popoverItem(C)}>
+                    <span style={{ color: C.t3, display: "flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></span>
+                    <span style={{ flex: 1 }}>Envoyer un feedback</span>
+                  </button>
+                  {tabAllowed(membreRole, "recommandations") && (
+                    <button role="menuitem" onClick={() => { window.open(`/${urlSlug}/${instId}/recommandations`, "_blank", "noopener,noreferrer"); setActivePopover(null); }} className="hp-item tap" style={popoverItem(C)}>
+                      <span style={{ color: C.t3, display: "flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg></span>
+                      <span style={{ flex: 1 }}>Recommandations</span>
+                    </button>
+                  )}
+                  <button role="menuitem" onClick={() => { loadData(); setActivePopover(null); }} disabled={refreshing} className="hp-item tap" style={popoverItem(C)}>
+                    <span style={{ color: C.t3, display: "flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                    <span style={{ flex: 1 }}>Actualiser les données</span>
+                  </button>
+                </div>
+              </HeaderPopover>
+            </div>
+
 
             {/* ── Actualiser — sorti du menu "...", auto-refresh toutes les 30s (cf. useEffect) ── */}
-            <button onClick={() => loadData()} disabled={refreshing} className="tap yelen-header-more-item" title="Actualiser les données" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: C.bgCard2, border: `1px solid ${C.border}`, borderRadius: "10px", width: "32px", height: "32px", cursor: refreshing ? "default" : "pointer", flexShrink: 0 }}>
+            <button onClick={() => loadData()} disabled={refreshing} className="hdr-ico tap yelen-header-more-item hdr-collapsible" title="Actualiser les données" aria-label="Actualiser les données" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", borderRadius: "8px", width: "36px", height: "36px", cursor: refreshing ? "default" : "pointer", flexShrink: 0 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none" }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             </button>
 
@@ -3952,7 +4096,13 @@ function InstitutionDashboardInner() {
                 individuelles masquées. ── */}
             <HeaderPopover id="system" active={activePopover === "system"} onOpen={() => setActivePopover("system")} onClose={() => setActivePopover(null)} panelTitle="État du système"
               badge={membreRole === "comptable" ? 0 : rdvsPending.length + institutionNotifs.filter(n => !n.lu).length + questionsNonRepondues} badgeClassName="yelen-header-more-badge"
-              trigger={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>}
+              trigger={<>
+                <svg className="hdr-sys-m" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+                <span className="hdr-sys-d" style={{ position: "relative", alignItems: "center", justifyContent: "center" }}>
+                  <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                  <span role="status" aria-label={realtimeStatus === "connecte" ? "Temps réel connecté" : realtimeStatus === "reconnexion" ? "Reconnexion en cours" : "Hors ligne"} style={{ position: "absolute", top: "-4px", right: "-5px", width: "9px", height: "9px", borderRadius: "50%", border: `2px solid ${C.bgCard}`, backgroundColor: realtimeStatus === "connecte" ? C.green : realtimeStatus === "reconnexion" ? C.orange : C.red, boxSizing: "content-box" }}/>
+                </span>
+              </>}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px", marginBottom: "10px" }}>
                 <div style={{ position: "relative", width: "8px", height: "8px", flexShrink: 0 }}>
@@ -3980,7 +4130,7 @@ function InstitutionDashboardInner() {
                   // header (yelen-header-more-item masqué <1024px, voir plus
                   // haut) : repris ici pour garder le même accès qu'avant,
                   // seul le chemin desktop change dans cette 1ère étape.
-                  ...avatarMenuItems.map(item => ({ key: item.key, label: item.label, badge: 0, dot: false,
+                  ...avatarMenuItems.map(item => ({ key: item.key, label: item.label, badge: item.key === "profil-entreprise" ? changementsProfilEnCours : 0, dot: false,
                     icon: item.icon,
                     onClick: () => { setTab(item.key); setActivePopover(null); } })),
                   // "Yelen Business" (17/09/2026) — même raison que
@@ -4005,6 +4155,9 @@ function InstitutionDashboardInner() {
                   ...(membreRole !== "comptable" ? [{ key: "questions", label: "Questions clients", badge: questionsNonRepondues, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.3.9-1.3 1.7"/></svg>,
                     onClick: () => setActivePopover("questions") }] : []),
+                  ...(tabAllowed(membreRole, "recommandations") ? [{ key: "recommandations", label: "Recommandations", badge: 0, dot: false,
+                    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>,
+                    onClick: () => { window.open(`/${urlSlug}/${instId}/recommandations`, "_blank"); setActivePopover(null); } }] : []),
                   { key: "feedback", label: "Envoyer un feedback", badge: 0, dot: false,
                     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="1.8" strokeLinecap="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>,
                     onClick: () => setActivePopover("feedback") },
@@ -4064,62 +4217,51 @@ function InstitutionDashboardInner() {
                 comme RDV/Notifications/Questions/Feedback/Aide) — le
                 drill-down mobile "Compte" garde son propre chemin d'accès,
                 pas touché ici. ── */}
-            <HeaderPopover id="avatar" active={activePopover === "avatar"} onOpen={() => setActivePopover("avatar")} onClose={() => setActivePopover(null)} panelTitle="Management" wrapperClassName="yelen-header-more-item"
+            <span className="yelen-header-more-item" aria-hidden="true" style={{ width: "1px", height: "20px", background: C.border2, margin: "0 8px" }}/>
+            <HeaderPopover id="avatar" active={activePopover === "avatar"} onOpen={() => setActivePopover("avatar")} onClose={() => setActivePopover(null)} badge={changementsProfilEnCours} badgeLabel={`${changementsProfilEnCours} modification${changementsProfilEnCours > 1 ? "s" : ""} de profil en cours`} panelTitle="Management" wrapperClassName="yelen-header-more-item"
               trigger={
-                <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#000"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5Zm0 2c-3.33 0-10 1.67-10 5v3h20v-3c0-3.33-6.67-5-10-5Z"/></svg>
+                <div style={{ width: "30px", height: "30px", borderRadius: "50%", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5Zm0 2c-3.33 0-10 1.67-10 5v3h20v-3c0-3.33-6.67-5-10-5Z"/></svg>
                 </div>
               }
             >
+              {/* En-tête utilisateur : prénom + rôle en casse normale (reprend
+                  l'ancienne carte profil de pied de menu). */}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "0 10px 12px", marginBottom: "8px", borderBottom: `1px solid ${C.border}` }}>
+                <div aria-hidden="true" style={{ width: "32px", height: "32px", borderRadius: "50%", background: C.bg3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "13px", fontWeight: 600, color: C.t2 }}>
+                  {(membrePrenom || "Y").charAt(0).toUpperCase()}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{membrePrenom || "Yelen224 Pro"}</div>
+                  <div style={{ color: C.t2, fontSize: "13px" }}>{membreRole ? ROLE_LABELS[membreRole].charAt(0) + ROLE_LABELS[membreRole].slice(1).toLowerCase() : "Yelen224 Pro"}</div>
+                </div>
+              </div>
+
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 {avatarMenuItems.map(item => {
                   const active = tab === item.key;
                   return (
-                    <button key={item.key} onClick={() => { setTab(item.key); setActivePopover(null); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: active ? C.gold : C.t1, fontSize: "13px", fontWeight: active ? "700" : "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
-                      <span style={{ color: active ? C.gold : C.t3, display: "flex", flexShrink: 0 }}>{item.icon}</span>
+                    <button key={item.key} onClick={() => { setTab(item.key); setActivePopover(null); }} className="hp-item tap" aria-current={active ? "page" : undefined} style={{ ...popoverItem(C), fontWeight: active ? 600 : 400 }}>
+                      <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}>{item.icon}</span>
                       <span style={{ flex: 1 }}>{item.label}</span>
+                      {item.key === "profil-entreprise" && changementsProfilEnCours > 0 && (
+                        <span role="status" title={`${changementsProfilEnCours} modification${changementsProfilEnCours > 1 ? "s" : ""} de profil en cours`} aria-label={`${changementsProfilEnCours} changement${changementsProfilEnCours > 1 ? "s" : ""} en cours d'examen`} style={{ backgroundColor: C.red, color: "#fff", fontSize: "10px", fontWeight: "800", borderRadius: "9px", minWidth: "17px", height: "17px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", flexShrink: 0 }}>{changementsProfilEnCours > 9 ? "9+" : changementsProfilEnCours}</span>
+                      )}
                     </button>
                   );
                 })}
               </div>
 
-              {/* ── "Yelen Business" (17/09/2026) — retour Bryan : trop chargé
-                  dans le menu principal gauche, mieux ici dans le popover
-                  "Management" du compte, ouvre un tiroir séparé à droite
-                  (voir .yelen-business-drawer), indépendant de la navigation
-                  interne à gauche. Séparateur au-dessus pour le distinguer
-                  des onglets Profil ci-dessus (ce n'est pas un onglet). ── */}
+              {/* « Yelen Business » : ouvre un tiroir séparé (.yelen-business-drawer). */}
               {YELEN_BUSINESS_TABS.some(t => navAllowed(t.key)) && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginTop: "6px", paddingTop: "6px", borderTop: `1px solid ${C.border}` }}>
-                  <button onClick={() => { setActivePopover(null); setBusinessMenuOpen(true); }} className="tap" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", color: C.t1, fontSize: "13px", fontWeight: "600", background: "none", border: "none", textAlign: "left", cursor: "pointer", borderRadius: "8px" }}>
+                <div style={{ marginTop: "6px", paddingTop: "6px", borderTop: `1px solid ${C.border}` }}>
+                  <button onClick={() => { setActivePopover(null); setBusinessMenuOpen(true); }} className="hp-item tap" style={popoverItem(C)}>
                     <span style={{ color: C.t3, display: "flex", flexShrink: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>
                     <span style={{ flex: 1 }}>Yelen Business</span>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    <PopoverChevron C={C}/>
                   </button>
                 </div>
               )}
-
-              {/* ── Carte profil en pied de menu (retour Bryan 17/09/2026) —
-                  reprend le nom + rôle retirés de la salutation du header
-                  (redondants avec le nom déjà visible là-bas), présentés ici
-                  façon compte connecté (avatar initiale + nom + badge rôle),
-                  jamais du texte brut. Ici toujours le prénom du membre
-                  connecté lui-même (y compris rôle admin) — distinct de la
-                  salutation du header qui, elle, garde le nom de
-                  l'établissement pour ce rôle (décision inchangée). ── */}
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 8px", marginTop: "8px", borderTop: `1px solid ${C.border}` }}>
-                <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: C.gold, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "13px", fontWeight: "800", color: "#000" }}>
-                  {(membrePrenom || "Y").charAt(0).toUpperCase()}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {membrePrenom || "Yelen224 Pro"}
-                  </div>
-                  <div style={{ color: C.t3, fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                    {membreRole ? ROLE_LABELS[membreRole] : "Yelen224 Pro"}
-                  </div>
-                </div>
-              </div>
             </HeaderPopover>
           </div>
         </div>
@@ -4174,7 +4316,7 @@ function InstitutionDashboardInner() {
         )}
       </header>
 
-      <div className="yelen-page">
+      <div className={tab === "messagerie" || tab === "parametres" ? "yelen-page" : "yelen-page yelen-page--fluide"}>
       {/* ═══════════════════════════════════════════════════════════
           TAB : ACCUEIL — Espace suspendu (décision CEO 17/08/2026).
           Priorité absolue sur les 3 branches accueil ci-dessous, quel que
@@ -4260,233 +4402,126 @@ function InstitutionDashboardInner() {
         const rappels = rappelsBruts.filter((r): r is Rappel => !!r);
 
         return (
-        <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
-          <style>{`
-            .vd-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-            .vd-band{display:flex;flex-direction:column;gap:14px;margin-bottom:14px}
-            .vd-band-half{flex:1;min-width:0}
-            .vd-band-divider{display:none}
-            .vd-analytics{display:flex;flex-direction:column;gap:16px}
-            .vd-ops{display:flex;flex-direction:column;gap:16px}
-            .vd-header{display:flex;flex-direction:column}
-            .vd-header-actions{display:none}
-            .vd-header-right{display:flex;flex-direction:column;align-items:flex-end}
-            .vd-date-inline{display:block}
-            .vd-date-modern{display:none}
-            .vd-title{font-size:26px;font-weight:900;letter-spacing:-0.5px}
-            .vd-greeting{display:none}
-            .vd-greeting-main{transform-origin:58% 88%;animation:handWave 5s ease-in-out infinite}
-            @keyframes handWave{
-              0%,78%,100%{transform:rotate(0deg)}
-              85%{transform:rotate(-9deg)}
-              91%{transform:rotate(7deg)}
-              97%{transform:rotate(-3deg)}
-            }
-            @media(min-width:1024px){
-              .vd-kpis{grid-template-columns:repeat(7,1fr)}
-              .vd-kpis.vd-kpis-2{grid-template-columns:repeat(2,1fr)}
-              .vd-kpis.vd-kpis-3{grid-template-columns:repeat(3,1fr)}
-              .vd-band{flex-direction:row;align-items:stretch;gap:24px;margin-bottom:20px}
-              .vd-band-divider{display:block;width:1px;flex-shrink:0;border-radius:2px}
-              .vd-analytics{display:grid;grid-template-columns:2fr 2fr 1.5fr;align-items:start}
-              .vd-ops{display:grid;grid-template-columns:repeat(3,1fr);align-items:start}
-              .vd-header{flex-direction:row;align-items:flex-end;justify-content:space-between;gap:20px}
-              .vd-header-actions{display:flex;gap:10px;flex-shrink:0}
-              .vd-date-inline{display:none}
-              .vd-date-modern{display:flex;align-items:center;gap:6px;margin-bottom:12px}
-              .vd-title{font-size:34px}
-              .vd-greeting{display:block;flex-shrink:0}
-            }
-          `}</style>
+        <div className="apc-wrap" style={{ animation: "fadeUp 0.2s ease" }}>
+          <ApercuStyles C={C}/>
 
-          {/* ── SECTION 1 : Header — actions rapides (vd-header-actions) +
-              date modernisée (vd-date-modern) visibles uniquement ≥1024px,
-              comblent l'espace vide à droite du titre sur PC ; mobile reste
-              identique (date au-dessus du titre, boutons masqués). Réutilise
-              setTab/setRdvFilter/rdvsPending déjà présents dans ce scope,
-              aucune nouvelle donnée. ── */}
-          <div className="vd-header" style={{ marginBottom: "20px" }}>
-            <div>
-              <div className="vd-date-inline" style={{ color: C.t3, fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "6px" }}>
-                {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-              </div>
-              <h1 className="vd-title" style={{ color: C.t1, marginBottom: "6px" }}>Aperçu général</h1>
-              <p style={{ color: C.t2, fontSize: "13px" }}>Suivez la performance de votre entreprise en temps réel.</p>
-            </div>
+          <ApercuHeader C={C} date={new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            salutation={membreRole === "admin" ? (inst?.name ? getSalutation(inst.name) : undefined) : (membrePrenom ? getSalutation(membrePrenom) : inst?.name ? getSalutation(inst.name) : undefined)}
+            demandes={rdvsPending.length}
+            onDemandes={() => { setTab("rdv"); setRdvFilter("nouveau"); }}
+            onValider={() => setTab("valider-rdv")}
+            onDispo={() => setTab("disponibilites")}/>
 
-            <div className="vd-greeting" style={{ position: "relative", width: "110px", aspectRatio: "1250 / 1024", flexShrink: 0 }}>
-              <Image src="/illustrations/agente-salutation.png" alt="L'équipe Yelen vous souhaite la bienvenue" fill sizes="110px" style={{ objectFit: "contain" }}/>
-              <Image src="/illustrations/agente-salutation-main.png" alt="" width={380} height={380} className="vd-greeting-main" style={{ position: "absolute", left: "8.8%", top: "31.25%", width: "30.4%", height: "37.1%" }}/>
-            </div>
-
-            <div className="vd-header-right">
-              <Card tokens={toCardTokens(C)} padding="7px 14px 7px 10px" className="vd-date-modern" style={{ boxShadow: C.shadow }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <span style={{ color: C.t1, fontSize: "12px", fontWeight: "700" }}>
-                  {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-                </span>
-              </Card>
-
-              <div className="vd-header-actions">
-              <Button
-                tokens={toUiTokens(C)} className="tap"
-                variant="secondary"
-                size="md"
-                style={{ boxShadow: C.shadow, whiteSpace: "nowrap" }}
-                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>}
-                onClick={() => { setTab("rdv"); setRdvFilter("nouveau"); }}
-              >
-                Nouvelles demandes
-                {rdvsPending.length > 0 && (
-                  <span style={{ backgroundColor: C.gold, color: "#000", fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", minWidth: "16px", textAlign: "center", lineHeight: 1.4, marginLeft: "6px" }}>{rdvsPending.length}</span>
-                )}
-              </Button>
-              <Button
-                tokens={toUiTokens(C)} className="tap"
-                variant="secondary"
-                size="md"
-                style={{ boxShadow: C.shadow, whiteSpace: "nowrap" }}
-                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg>}
-                onClick={() => setTab("valider-rdv")}
-              >
-                Valider un RDV
-              </Button>
-              <Button
-                tokens={toUiTokens(C)} className="tap"
-                variant="secondary"
-                size="md"
-                style={{ boxShadow: C.shadow, whiteSpace: "nowrap" }}
-                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>}
-                onClick={() => setTab("disponibilites")}
-              >
-                Disponibilités
-              </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* ── SECTION 2 : 7 cartes KPI — V3 (17/09/2026), composition
-              affinée le 17/09/2026 (retour Bryan) : Activité + À traiter
-              fusionnées en une seule bande horizontale (50/50, séparateur
-              vertical doré) pour récupérer de la hauteur — Résultat garde
-              sa propre rangée en dessous. Mêmes 7 cartes, mêmes clics
-              setTab("rdv")+setRdvFilter, même variation "Pas encore de
-              comparaison" (voir variationVsHier), aucune donnée/logique
-              changée : uniquement la composition. ── */}
+          {/* Bande KPI unique — mêmes 7 indicateurs, mêmes clics
+              setTab("rdv")+setRdvFilter, mêmes variations (kpi_variations). */}
           {(() => {
-            type KpiCarte = { label: string; value: number; color: string; variation: KpiVariation; filter: string; icon: React.ReactNode };
-            const groupeActivite: KpiCarte[] = [
-              { label: "Nouveaux RDV", value: stats.nouveau,   color: C.gold,   variation: stats.kpi_variations.nouveau, filter: "nouveau", icon: <><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></> },
-              { label: "Total RDV",    value: stats.rdv_total, color: C.purple, variation: stats.kpi_variations.total,   filter: "tous",    icon: <><line x1="7" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="20" y2="12"/><line x1="7" y1="17" x2="20" y2="17"/><line x1="4" y1="7" x2="4.01" y2="7"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="17" x2="4.01" y2="17"/></> },
-            ];
-            const groupeATraiter: KpiCarte[] = [
-              { label: "En attente",  value: stats.pending,     color: C.orange, variation: stats.kpi_variations.pending,     filter: "en_attente", icon: <><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></> },
-              { label: "Non traités", value: stats.non_traites, color: C.orange, variation: stats.kpi_variations.non_traites, filter: "en_retard",  icon: <><circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></> },
-            ];
-            const groupeResultat: KpiCarte[] = [
-              { label: "Confirmés", value: stats.confirmed, color: C.blue,  variation: stats.kpi_variations.confirmed, filter: "confirme", icon: <><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></> },
-              { label: "Terminés",  value: stats.done,      color: C.green, variation: stats.kpi_variations.done,      filter: "effectue", icon: <><rect x="4" y="4" width="16" height="16" rx="4"/><polyline points="8 12 11 15 16 9"/></> },
-              { label: "Annulés",   value: stats.cancelled, color: C.red,   variation: stats.kpi_variations.cancelled, filter: "annule",   icon: <><circle cx="12" cy="12" r="9"/><line x1="14.5" y1="9.5" x2="9.5" y2="14.5"/><line x1="9.5" y1="9.5" x2="14.5" y2="14.5"/></> },
-            ];
-            const renderCartes = (items: KpiCarte[]) => (
-              <div className={`vd-kpis vd-kpis-${items.length}`}>
-                {items.map(k => (
-                  <Card key={k.label} tokens={toCardTokens(C)} padding="12px" onClick={() => { setTab("rdv"); setRdvFilter(k.filter); }} className="tap yelen-card-hover" style={{ boxShadow: C.shadow }}>
-                    <div style={{ width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "6px" }}>
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={k.color} strokeWidth="2" strokeLinecap="round">{k.icon}</svg>
-                    </div>
-                    <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-0.5px", lineHeight: 1 }}><AnimatedNumber value={k.value}/></div>
-                    <div style={{ color: C.t2, fontSize: "11px", fontWeight: "700", marginTop: "3px" }}>{k.label}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "3px", marginTop: "3px" }}>
-                      {k.variation.has ? (
-                        <>
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={k.variation.value >= 0 ? C.green : C.red} strokeWidth="3" strokeLinecap="round" style={{ transform: k.variation.value < 0 ? "rotate(180deg)" : "none" }}><polyline points="18 15 12 9 6 15"/></svg>
-                          <span style={{ color: k.variation.value >= 0 ? C.green : C.red, fontSize: "10px", fontWeight: "800" }}>{k.variation.value >= 0 ? "+" : ""}{k.variation.value}%</span>
-                          <span style={{ color: C.t3, fontSize: "10px" }}>vs hier</span>
-                        </>
-                      ) : (
-                        <span style={{ color: C.t3, fontSize: "9.5px", fontStyle: "italic" }}>Pas encore de comparaison</span>
-                      )}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            );
-            const labelStyle: React.CSSProperties = { color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.7px", marginBottom: "8px" };
+            const pt = (label: string, value: number, dot: string, variation: KpiVariation, filter: string) => ({
+              key: filter, label, valeur: <AnimatedNumber value={value}/>, valeurTexte: value, dot, variation,
+              onClick: () => { setTab("rdv"); setRdvFilter(filter); },
+            });
             return (
-              <>
-                <div className="vd-band">
-                  <div className="vd-band-half">
-                    <div style={labelStyle}>Activité</div>
-                    {renderCartes(groupeActivite)}
-                  </div>
-                  <div className="vd-band-divider" style={{ background: `linear-gradient(to bottom, transparent, ${C.gold}55, transparent)` }}/>
-                  <div className="vd-band-half">
-                    <div style={labelStyle}>À traiter</div>
-                    {renderCartes(groupeATraiter)}
-                  </div>
-                </div>
-                <div style={{ marginBottom: "14px" }}>
-                  <div style={labelStyle}>Résultat</div>
-                  {renderCartes(groupeResultat)}
-                </div>
-              </>
+              <KpiBand C={C} groupes={[
+                { label: "Activité", poids: 2, items: [
+                  pt("Nouveaux RDV", stats.nouveau, C.gold, stats.kpi_variations.nouveau, "nouveau"),
+                  pt("Total RDV", stats.rdv_total, C.t3, stats.kpi_variations.total, "tous"),
+                ] },
+                { label: "À traiter", poids: 2, items: [
+                  pt("En attente", stats.pending, C.orange, stats.kpi_variations.pending, "en_attente"),
+                  pt("Non traités", stats.non_traites, stats.non_traites > 0 ? C.red : C.t3, stats.kpi_variations.non_traites, "en_retard"),
+                ] },
+                { label: "Résultat", poids: 3, items: [
+                  pt("Confirmés", stats.confirmed, C.blue, stats.kpi_variations.confirmed, "confirme"),
+                  pt("Terminés", stats.done, C.green, stats.kpi_variations.done, "effectue"),
+                  pt("Annulés", stats.cancelled, C.red, stats.kpi_variations.cancelled, "annule"),
+                ] },
+              ]}/>
             );
           })()}
 
-          {/* ── Aujourd'hui + Semaine/Mois — V3 : Aujourd'hui montre en plus
-              l'heure du prochain RDV du jour (donnée déjà calculée dans
-              `prochains` ci-dessus, pas de nouvelle requête) ; Semaine/Mois
-              affichent "Historique insuffisant pour établir une tendance" au
-              lieu d'un "+0% vs préc." fabriqué quand la période précédente
-              n'a aucun RDV réel à comparer (evolution_*_has). ── */}
-          <div style={{ display: "flex", gap: "10px", marginBottom: "24px", flexWrap: "wrap" }}>
-            <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: "1 1 200px", boxShadow: C.shadow }}>
-              <div style={{ color: C.t2, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Aujourd&apos;hui</div>
-              {stats.confirmed === 0 ? (
-                <div>
-                  <Image src="/illustrations/rdv-confirme-jour-vide.png" alt="Aucun rendez-vous confirmé aujourd'hui" width={1250} height={590} style={{ width: "100%", maxWidth: "200px", height: "auto", display: "block", marginBottom: "8px" }}/>
-                  <div style={{ color: C.t3, fontSize: "11px", lineHeight: 1.4 }}>Aucun RDV confirmé aujourd&apos;hui.</div>
-                </div>
+          {/* Aujourd'hui / Semaine / Mois — mêmes valeurs et mêmes textes
+              (tendance, « Historique insuffisant… »), illustrations retirées. */}
+          <SyntheseBand C={C} items={[
+            stats.confirmed === 0
+              ? { key: "auj", label: "Aujourd'hui", valeur: null, lignes: [], vide: "Aucun RDV confirmé aujourd'hui.", illustration: <Image src="/illustrations/rdv-confirme-jour-vide.png" alt="" width={1250} height={590} style={{ width: "96px", height: "auto" }}/> }
+              : { key: "auj", label: "Aujourd'hui", valeur: <AnimatedNumber value={stats.today}/>, lignes: [
+                  `${stats.confirmed} confirmés`,
+                  ...(() => { const pa = prochains.find(r => r.date_rdv === todayStr); return pa ? [`Prochain à ${heureAmPm(pa.heure_rdv)} — ${nomAffiche(pa.citoyen_nom)}`] : []; })(),
+                ] },
+            { key: "sem", label: "Semaine", illustration: <Image src="/illustrations/rdv-semaine.png" alt="" width={880} height={560} style={{ width: "72px", height: "auto" }}/>, valeur: <AnimatedNumber value={stats.week}/>, lignes: [stats.evolution_week_has ? `${stats.evolution_week > 0 ? "+" : ""}${stats.evolution_week}% vs préc.` : "Historique insuffisant pour établir une tendance"] },
+            { key: "mois", label: "Mois", illustration: <Image src="/illustrations/rdv-mois.png" alt="" width={1150} height={650} style={{ width: "72px", height: "auto" }}/>, valeur: <AnimatedNumber value={stats.month}/>, lignes: [stats.evolution_month_has ? `${stats.evolution_month > 0 ? "+" : ""}${stats.evolution_month}% vs préc.` : "Historique insuffisant pour établir une tendance"] },
+          ]}/>
+
+          {/* Ligne principale — grille 12 colonnes, cartes de même hauteur. */}
+          <div className="apc-main">
+            <ApercuCard C={C} className="apc-c5 apc-o1" titre="Prochains rendez-vous" titreId="apc-prochains" action={<VoirLien C={C} label="Voir tout" onClick={() => setTab("rdv")}/>}>
+              {prochains.length === 0 ? (
+                <EtatVideCarte C={C} titre="Aucun rendez-vous à venir" aide="Les prochains rendez-vous apparaîtront ici."
+                  icone={<Image src="/illustrations/prochains-rdv-vide.png" alt="" width={1536} height={1024} style={{ width: "96px", height: "auto" }}/>}/>
               ) : (
-                <div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
-                    <div style={{ color: C.t1, fontSize: "34px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.today}/></div>
-                    <div style={{ color: C.t3, fontSize: "11px" }}>{stats.confirmed} confirmés</div>
-                  </div>
-                  {(() => {
-                    const prochainAuj = prochains.find(r => r.date_rdv === todayStr);
-                    return prochainAuj ? (
-                      <div style={{ color: C.t2, fontSize: "10.5px", marginTop: "6px" }}>Prochain à {formatHeure(prochainAuj.heure_rdv)} — {prochainAuj.citoyen_nom}</div>
-                    ) : null;
-                  })()}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {prochains.map((r, i) => {
+                    const presenceConfirmee = r.presence_status === "present";
+                    const st = stInfo(
+                      r.presence_status === "absent" ? "absent"
+                        : rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv) ? "en_retard" : r.statut,
+                      C
+                    );
+                    return (
+                      <div key={r.id} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+                          <div style={{ width: "64px", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                            <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600 }}>{heureAmPm(r.heure_rdv)}</div>
+                            {r.date_rdv === todayStr && <div style={{ color: C.t3, fontSize: "12px" }}>Aujourd&apos;hui</div>}
+                          </div>
+                          <div onClick={() => setSelectedRDV(r)} className="tap" style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <span style={{ color: C.t1, fontSize: "14px", fontWeight: 500 }}>{nomAffiche(r.citoyen_nom)}</span>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "22px", padding: "0 8px", borderRadius: "6px", backgroundColor: `${st.c}1c`, color: st.c, fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap" }}>
+                                <span aria-hidden="true" style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: st.c }}/>{st.l}
+                              </span>
+                              {r.id === imminentRdvId && <span style={{ display: "inline-flex", alignItems: "center", height: "22px", padding: "0 8px", borderRadius: "6px", backgroundColor: `${C.orange}1c`, color: C.orange, fontSize: "12px", fontWeight: 600 }}>Imminent</span>}
+                            </div>
+                            <div style={{ color: C.t2, fontSize: "13px", display: "flex", alignItems: "center", gap: "6px", overflow: "hidden" }}>
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.objet || "RDV général"}</span>
+                              {r.guichet && <span style={{ color: C.t3, flexShrink: 0 }}>· {r.guichet}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        {r.statut === "nouveau" ? (
+                          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth disabled={!!actionLoading} onClick={() => handleAccept(r.id)}>{actionLoading === r.id ? "…" : "Confirmer"}</Button>
+                        ) : (r.statut === "en_attente" || r.statut === "confirme") && presenceConfirmee ? (
+                          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth disabled={!!actionLoading} onClick={() => handleTermine(r.id)}>{actionLoading === r.id ? "…" : "Marquer terminé"}</Button>
+                        ) : (
+                          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setSelectedRDV(r)}>Voir le détail</Button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </Card>
-            <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: "1 1 140px", boxShadow: C.shadow }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: C.t2, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Semaine</div>
-                  <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.week}/></div>
-                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px", fontStyle: stats.evolution_week_has ? "normal" : "italic" }}>
-                    {stats.evolution_week_has ? `${stats.evolution_week > 0 ? "+" : ""}${stats.evolution_week}% vs préc.` : "Historique insuffisant pour établir une tendance"}
-                  </div>
+            </ApercuCard>
+
+            <ApercuCard C={C} className="apc-c3 apc-o2" titre="À traiter maintenant" titreId="apc-atraiter">
+              {rappels.length === 0 ? (
+                <EtatVideCarte C={C} titre="Tout est à jour" aide="Aucun rendez-vous en retard ni demande en attente."
+                  icone={<span style={{ display: "flex", gap: "8px" }}><Image src="/illustrations/rdv-retard-vide.png" alt="" width={887} height={887} style={{ width: "72px", height: "auto" }}/><Image src="/illustrations/annulations-vide.png" alt="" width={887} height={887} style={{ width: "72px", height: "auto" }}/></span>}/>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {rappels.map((r, i) => <LigneATraiter key={i} C={C} couleur={r.color} titre={r.titre} desc={r.desc} onClick={r.action}/>)}
                 </div>
-                <Image src="/illustrations/rdv-semaine.png" alt="" width={880} height={560} style={{ width: "90px", height: "auto", flexShrink: 0, display: "block" }}/>
-              </div>
-            </Card>
-            <Card tokens={toCardTokens(C)} padding="16px" style={{ flex: "1 1 140px", boxShadow: C.shadow }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: C.t2, fontSize: "10px", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "8px" }}>Mois</div>
-                  <div style={{ color: C.t1, fontSize: "26px", fontWeight: "800", letterSpacing: "-1px", lineHeight: 1 }}><AnimatedNumber value={stats.month}/></div>
-                  <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px", fontStyle: stats.evolution_month_has ? "normal" : "italic" }}>
-                    {stats.evolution_month_has ? `${stats.evolution_month > 0 ? "+" : ""}${stats.evolution_month}% vs préc.` : "Historique insuffisant pour établir une tendance"}
-                  </div>
+              )}
+            </ApercuCard>
+
+            <ApercuCard C={C} className="apc-c4 apc-o3" titre="Satisfaction clients" titreId="apc-satisfaction" action={<VoirLien C={C} label="Voir les avis" onClick={() => setTab("analyse")}/>}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
+                <span style={{ color: C.t1, fontSize: "32px", fontWeight: 600, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{stats.moyenne_avis > 0 ? stats.moyenne_avis.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "0,0"}</span>
+                <div>
+                  <EtoilesAmbre C={C} note={stats.moyenne_avis}/>
+                  <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px" }}>{stats.avis_count} avis</div>
                 </div>
-                <Image src="/illustrations/rdv-mois.png" alt="" width={1150} height={650} style={{ width: "90px", height: "auto", flexShrink: 0, display: "block" }}/>
               </div>
-            </Card>
+              {stats.notes_distribution.map(nd => <LigneDistribution key={nd.note} C={C} note={nd.note} pct={nd.pct} count={nd.count}/>)}
+            </ApercuCard>
           </div>
 
           {/* ── SECTION 3 : Analytics, 3 colonnes ── */}
@@ -4543,7 +4578,7 @@ function InstitutionDashboardInner() {
                 {evolutionRange === 7 && (
                   <div style={{ display: "flex", marginBottom: "14px" }}>
                     {evolutionSeries.map((d, i) => (
-                      <span key={i} style={{ flex: 1, textAlign: "center", color: C.t3, fontSize: "9px", fontWeight: "600" }}>{d.day}</span>
+                      <span key={i} style={{ flex: 1, textAlign: "center", color: C.t3, fontSize: "10px", fontWeight: "600" }}>{d.day}</span>
                     ))}
                   </div>
                 )}
@@ -4580,7 +4615,7 @@ function InstitutionDashboardInner() {
                   </svg>
                   <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ color: C.t1, fontSize: "24px", fontWeight: "800" }}>{stats.rdv_total}</span>
-                    <span style={{ color: C.t3, fontSize: "9px", fontWeight: "700" }}>Total</span>
+                    <span style={{ color: C.t3, fontSize: "10px", fontWeight: "700" }}>Total</span>
                   </div>
                 </div>
                 <div style={{ flex: 1, minWidth: "140px" }}>
@@ -4600,212 +4635,60 @@ function InstitutionDashboardInner() {
             </Card>
           </div>
 
-          {/* ── SECTION 4 : Zone opérationnelle, 3 colonnes ── */}
-          <div className="vd-ops" style={{ marginBottom: "24px" }}>
-            <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
-              <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Prochains rendez-vous</span>
-              {prochains.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
-                  <Image src="/illustrations/prochains-rdv-vide.png" alt="Aucun rendez-vous à venir" width={1536} height={1024} style={{ width: "180px", maxWidth: "100%", height: "auto", margin: "0 auto 10px", display: "block" }}/>
-                  <div style={{ color: C.t3, fontSize: "12px" }}>Aucun rendez-vous à venir.</div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column" }}>
-                  {prochains.map((r, i) => {
-                    const presenceConfirmee = r.presence_status === "present";
-                    const s = stInfo(
-                      r.presence_status === "absent"
-                        ? "absent"
-                        : rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)
-                        ? "en_retard"
-                        : r.statut,
-                      C
-                    );
-                    return (
-                      <div key={r.id} style={{ paddingTop: i > 0 ? "12px" : 0, marginTop: i > 0 ? "12px" : 0, borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-                          <div style={{ textAlign: "center", flexShrink: 0, width: "40px" }}>
-                            <div style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>{formatHeure(r.heure_rdv)}</div>
-                            {r.date_rdv === todayStr && <div style={{ color: C.gold, fontSize: "8px", fontWeight: "800" }}>AUJ.</div>}
-                          </div>
-                          <div onClick={() => setSelectedRDV(r)} className="tap" style={{ width: "34px", height: "34px", position: "relative", borderRadius: "50%", overflow: "hidden", backgroundColor: s.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: "800", color: s.c, flexShrink: 0, cursor: "pointer" }}>
-                            {r.citoyen_photo ? <Image src={r.citoyen_photo} alt="" fill sizes="34px" style={{ objectFit: "cover" }}/> : r.citoyen_nom.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div onClick={() => setSelectedRDV(r)} className="tap" style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span style={{ color: C.t1, fontSize: "12.5px", fontWeight: "700" }}>{r.citoyen_nom}</span>
-                              <span style={{ color: s.c, fontSize: "8px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", textTransform: "uppercase" }}>{s.l}</span>
-                              {r.id === imminentRdvId && (
-                                <span style={{ color: "#EC4899", fontSize: "8px", fontWeight: "800", padding: "1px 6px", borderRadius: "20px", textTransform: "uppercase" }}>Imminent</span>
-                              )}
-                            </div>
-                            <div style={{ color: C.t2, fontSize: "10.5px", display: "flex", alignItems: "center", gap: "4px", overflow: "hidden" }}>
-                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.objet || "RDV général"}</span>
-                              {r.guichet && (
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", flexShrink: 0 }}>
-                                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                                  {r.guichet}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {r.statut === "nouveau" ? (
-                          <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "32px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
-                            {actionLoading === r.id ? "…" : "Confirmer"}
-                          </button>
-                        ) : (r.statut === "en_attente" || r.statut === "confirme") && presenceConfirmee ? (
-                          <button onClick={() => handleTermine(r.id)} disabled={!!actionLoading} className="tap" style={{ width: "100%", height: "32px", backgroundColor: C.purple, color: "#fff", fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: "none", cursor: "pointer" }}>
-                            {actionLoading === r.id ? "…" : "Marquer terminé"}
-                          </button>
-                        ) : (
-                          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" fullWidth onClick={() => setSelectedRDV(r)}>Voir le détail</Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <button onClick={() => setTab("rdv")} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "14px 0 0", display: "flex", alignItems: "center", gap: "4px" }}>
-                Voir tous les prochains RDV <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="3" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-            </Card>
-
-            {/* ── V3 (17/09/2026) : "Rappels importants" renommée "À traiter
-                maintenant" (brief CEO) — même logique déjà exactement
-                conforme au spec (rappelsBruts ne construit un item que si
-                une vraie condition est vraie, jamais un rappel de façade),
-                pas de carte dupliquée. Empty state complété d'une phrase
-                explicite "Tout est à jour" en plus des illustrations déjà
-                réelles. ── */}
-            <Card tokens={toCardTokens(C)} padding="20px" style={{ boxShadow: C.shadow }}>
-              <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>À traiter maintenant</span>
-              {rappels.length === 0 ? (
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "10px" }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    <span style={{ color: C.green, fontSize: "12px", fontWeight: "800" }}>Tout est à jour</span>
-                  </div>
-                  <div style={{ display: "flex", gap: "10px" }}>
-                    <Image src="/illustrations/rdv-retard-vide.png" alt="Vous n'avez aucun RDV en retard, vous êtes à jour" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
-                    <Image src="/illustrations/annulations-vide.png" alt="Vous n'avez eu aucune annulation ces 30 derniers jours" width={887} height={887} style={{ width: "50%", height: "auto", display: "block" }}/>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {rappels.map((r, i) => (
-                    <div key={i} style={{ border: `1px solid ${r.color}25`, borderRadius: "14px", padding: "12px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={r.color} strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        <span style={{ color: r.color, fontSize: "12px", fontWeight: "800" }}>{r.titre}</span>
-                      </div>
-                      <div style={{ color: C.t2, fontSize: "11px", lineHeight: 1.5, marginBottom: "6px" }}>{r.desc}</div>
-                      <button onClick={r.action} className="tap" style={{ background: "none", border: "none", color: r.color, fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: "4px" }}>
-                        Voir maintenant <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={r.color} strokeWidth="3" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            <Card tokens={toCardTokens(C)} padding="20px" onClick={() => setTab("analyse")} className="tap yelen-card-hover" style={{ boxShadow: C.shadow }}>
-              <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800", marginBottom: "14px", display: "block" }}>Satisfaction clients</span>
-              <div style={{ textAlign: "center", marginBottom: "14px" }}>
-                <div style={{ fontSize: "36px", fontWeight: "800", letterSpacing: "-1.5px", color: stats.moyenne_avis >= 4 ? C.green : stats.moyenne_avis >= 3 ? C.gold : C.red, lineHeight: 1 }}>
-                  {stats.moyenne_avis > 0 ? stats.moyenne_avis.toFixed(1) : "0.0"} <span style={{ fontSize: "16px", color: C.t3, fontWeight: "700" }}>/5</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "center", marginTop: "6px" }}><Stars note={stats.moyenne_avis} size={16}/></div>
-                <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px" }}>{stats.avis_count} avis</div>
-              </div>
-              {stats.notes_distribution.map(nd => (
-                <div key={nd.note} style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "5px" }}>
-                  <span style={{ flexShrink: 0 }}><Stars note={nd.note} size={9}/></span>
-                  <div style={{ flex: 1, height: "5px", borderRadius: "3px", backgroundColor: C.bg3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${nd.pct}%`, background: nd.note >= 4 ? C.green : nd.note >= 3 ? C.gold : C.red, borderRadius: "3px" }}/>
-                  </div>
-                  <span style={{ color: C.t3, fontSize: "9px", width: "26px", textAlign: "right" }}>{Math.round(nd.pct)}%</span>
-                </div>
-              ))}
-              <div style={{ color: C.gold, fontSize: "11px", fontWeight: "700", marginTop: "10px", display: "flex", alignItems: "center", gap: "4px" }}>
-                Voir les avis clients <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="3" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-              </div>
-            </Card>
-          </div>
-
-          {/* ── Bonus conservé : objectifs hebdo, accès rapides, activité
-              récente — hors des 5 sections du spec mais fonctionnalité
-              réelle existante, gardée telle quelle ── */}
           <ObjectifsHebdo stats={stats}/>
 
-          <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "14px" }}>
-            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>Accès rapides</span>
-            </div>
-            {(() => {
-              const accesRapidesItems = ([
-                { label: "Annonces",    tab: "communication", href: undefined, icon: C.orange, svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.orange} strokeWidth="1.8" strokeLinecap="round"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg> },
-                { label: "Mes services",tab: "services",      href: undefined, icon: C.blue,   svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> },
-                { label: "Signalements",tab: "signalements",  href: undefined, icon: C.red,    svg: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
-              ] as { label: string; tab?: DashboardTab; href?: string; icon: string; svg: React.ReactNode }[])
-                .filter(item => !item.tab || tabAllowed(membreRole, item.tab, accesRestreints));
-              return (
-                <div style={{ display: "grid", gridTemplateColumns: `repeat(${accesRapidesItems.length}, 1fr)` }}>
-                  {accesRapidesItems.map((item, i) => {
-                    const content = (
-                      <>
-                        <div style={{ width: "38px", height: "38px", borderRadius: "11px", display: "flex", alignItems: "center", justifyContent: "center" }}>{item.svg}</div>
-                        <span style={{ color: C.t2, fontSize: "9px", fontWeight: "700" }}>{item.label}</span>
-                      </>
-                    );
-                    const isLast = i === accesRapidesItems.length - 1;
-                    const style: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "14px 8px", textDecoration: "none", borderRight: isLast ? "none" : `1px solid ${C.border}` };
-                    return item.tab ? (
-                      <button key={i} onClick={() => setTab(item.tab!)} className="tap" style={{ ...style, background: "transparent", border: "none", borderRight: isLast ? "none" : `1px solid ${C.border}`, cursor: "pointer" }}>{content}</button>
-                    ) : (
-                      <Link key={i} href={item.href!} style={style}>{content}</Link>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </Card>
+          <div className="apc-bottom">
+            <ApercuCard C={C} className="apc-b4" titre="Accès rapides" titreId="apc-acces">
+              {(() => {
+                const ic = (d: React.ReactNode) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>;
+                const items = ([
+                  { label: "Annonces", desc: "Publier une annonce", tab: "communication", svg: ic(<path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/>) },
+                  { label: "Mes services", desc: "Gérer vos offres", tab: "services", svg: ic(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>) },
+                  { label: "Signalements", desc: "Suivre les cas", tab: "signalements", svg: ic(<><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>) },
+                ] as { label: string; desc: string; tab: DashboardTab; svg: React.ReactNode }[])
+                  .filter(item => tabAllowed(membreRole, item.tab, accesRestreints));
+                return <div className="apc-acces">{items.map(item => <CarteAcces key={item.label} C={C} icone={item.svg} titre={item.label} desc={item.desc} onClick={() => setTab(item.tab)}/>)}</div>;
+              })()}
+            </ApercuCard>
 
-          {stats.recent_activity.length > 0 && (
-            <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "20px" }}>
-              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ color: C.t1, fontSize: "13px", fontWeight: "800" }}>Activité récente</span>
-              </div>
-              {stats.recent_activity.map((a, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px", borderBottom: i < stats.recent_activity.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: a.color, flexShrink: 0 }}/>
-                  <div style={{ flex: 1, color: C.t2, fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</div>
-                  <span style={{ color: C.t3, fontSize: "10px", flexShrink: 0 }}>{a.time}</span>
-                </div>
-              ))}
-            </Card>
-          )}
-
-          {/* ── Footer ── */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", padding: "6px 4px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green }}/>
-              <span style={{ color: C.t3, fontSize: "11px" }}>Dernière mise à jour : {lastUpdated ? timeAgo(lastUpdated.toISOString()) : "—"}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-              <Link href="/cgu" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>CGU</Link>
-              <Link href="/confidentialite" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>Confidentialité</Link>
-              {/* Guide Yelen — même modale que le panneau "Aide" du header (setShowGuide). */}
-              <button onClick={() => setShowGuide(true)} className="tap" style={{ color: C.t3, fontSize: "11px", fontWeight: "400", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>Guide</button>
-              {/* Support — ouvre SupportYelenTab (tab "support") dans un nouvel onglet navigateur. */}
-              <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" style={{ color: C.t3, fontSize: "11px", textDecoration: "none" }}>Support</a>
-              <span style={{ color: C.t3, fontSize: "11px", fontWeight: "700" }}>© 2026 Yelen224 by SemPya224</span>
-            </div>
-            <button onClick={() => loadData()} disabled={refreshing} className="tap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", cursor: refreshing ? "default" : "pointer" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2" strokeLinecap="round" style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none" }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              Actualiser les données
-            </button>
+            <ApercuCard C={C} className="apc-b8" titre="Activité récente" titreId="apc-activite">
+              {stats.recent_activity.length === 0 ? (
+                <EtatVideCarte C={C} titre="Aucune activité récente" aide="Les avis et rendez-vous récents apparaîtront ici."
+                  icone={<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>}/>
+              ) : (
+                <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  {stats.recent_activity.map((a, i) => (
+                    <li key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 0", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                      <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: a.type === "avis" ? C.orange : a.type === "message" ? C.blue : C.green, flexShrink: 0 }}/>
+                      <span style={{ flex: 1, minWidth: 0, color: C.t1, fontSize: "14px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{motsEnCasse(a.label)}</span>
+                      <span title={a.time} style={{ color: C.t3, fontSize: "13px", flexShrink: 0 }}>{tempsRelatif(a.time)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </ApercuCard>
           </div>
+
+          {/* ── Pied de page ── */}
+          <footer style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px 20px", padding: "4px 0 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green }}/>
+              <span aria-live="polite" style={{ color: C.t3, fontSize: "12px" }}>Dernière mise à jour : {lastUpdated ? timeAgo(lastUpdated.toISOString()) : "—"}</span>
+              <button type="button" onClick={() => loadData()} disabled={refreshing} className="apc-btn tap" aria-label="Actualiser les données" title="Actualiser les données"
+                style={{ width: "28px", height: "28px", borderRadius: "6px", background: "none", border: "none", color: C.t2, cursor: refreshing ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none" }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              </button>
+            </div>
+            <nav aria-label="Liens utiles" style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+              <Link href="/cgu" style={{ color: C.t3, fontSize: "12px", textDecoration: "none" }}>CGU</Link>
+              <Link href="/confidentialite" style={{ color: C.t3, fontSize: "12px", textDecoration: "none" }}>Confidentialité</Link>
+              {/* Guide Yelen — même modale que le panneau "Aide" du header (setShowGuide). */}
+              <button onClick={() => setShowGuide(true)} className="apc-btn tap" style={{ color: C.t3, fontSize: "12px", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>Guide</button>
+              {/* Support — ouvre SupportYelenTab (tab "support") dans un nouvel onglet navigateur. */}
+              <a href={`/${urlSlug}/${instId}/support`} target="_blank" rel="noopener noreferrer" style={{ color: C.t3, fontSize: "12px", textDecoration: "none" }}>Support</a>
+            </nav>
+            <span style={{ color: C.t3, fontSize: "12px" }}>© 2026 Yelen224 by SemPya224</span>
+          </footer>
         </div>
         );
       })()}
@@ -4826,134 +4709,71 @@ function InstitutionDashboardInner() {
               .rdv-kpis{grid-template-columns:repeat(7,1fr)}
             }
           `}</style>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-            <div>
-              <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px" }}>Rendez-vous</h1>
-              <p style={{ color: C.t2, fontSize: "12.5px", marginTop: "2px" }}>Gérez tous les rendez-vous de votre établissement.</p>
+          <ClockStyles C={C}/>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px 16px", flexWrap: "wrap", marginBottom: "16px" }}>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ margin: 0, color: C.t1, fontSize: "24px", fontWeight: 600, letterSpacing: "-0.3px" }}>Rendez-vous</h1>
+              <p style={{ margin: "4px 0 0", color: C.t2, fontSize: "13px" }}>Gérez tous les rendez-vous de votre établissement.</p>
             </div>
-            <Button
-              tokens={toUiTokens(C)}
-              className="tap"
-              variant="secondary"
-              size="sm"
-              style={{ flexShrink: 0 }}
-              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
-              onClick={exportCsv}
-            >
-              Export CSV
-            </Button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <HelpCenterGuide tab="rdv" />
+              <Button
+                tokens={toUiTokens(C)}
+                className="tap"
+                variant="secondary"
+                size="sm"
+                style={{ flexShrink: 0 }}
+                icon={<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
+                onClick={exportCsv}
+              >
+                Export CSV
+              </Button>
+            </div>
           </div>
 
-          {/* ── 6 cartes KPI — fond/bordure neutres (retour Bryan 15/08/2026 :
-              les fonds pastel par couleur donnaient un bandeau bariolé, pas
-              Enterprise), seuls le chiffre et l'icône gardent leur couleur ── */}
-          <div className="rdv-kpis">
-            {[
-              { label: "Nouveau",   value: stats.nouveau,   color: C.gold,   icon: <><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></> },
-              { label: "En attente",value: stats.pending,   color: C.orange, icon: <><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></> },
-              { label: "Non traités", value: stats.non_traites, color: C.orange, icon: <><circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></> },
-              { label: "Confirmés", value: stats.confirmed, color: C.blue,   icon: <><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></> },
-              { label: "Terminés",  value: stats.done,      color: C.green,  icon: <><rect x="4" y="4" width="16" height="16" rx="4"/><polyline points="8 12 11 15 16 9"/></> },
-              { label: "Annulés",   value: stats.cancelled, color: C.red,    icon: <><circle cx="12" cy="12" r="9"/><line x1="14.5" y1="9.5" x2="9.5" y2="14.5"/><line x1="9.5" y1="9.5" x2="14.5" y2="14.5"/></> },
-              { label: "Total",     value: stats.rdv_total, color: C.purple, icon: <><line x1="7" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="20" y2="12"/><line x1="7" y1="17" x2="20" y2="17"/><line x1="4" y1="7" x2="4.01" y2="7"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="17" x2="4.01" y2="17"/></> },
-            ].map(k => (
-              <Card key={k.label} tokens={toCardTokens(C)} padding="10px 14px" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-                <div>
-                  <div style={{ color: k.color, fontSize: "22px", fontWeight: "800" }}>{k.value}</div>
-                  <div style={{ color: C.t2, fontSize: "11px", fontWeight: "700" }}>{k.label}</div>
-                </div>
-                <div style={{ width: "34px", height: "34px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={k.color} strokeWidth="2" strokeLinecap="round">{k.icon}</svg>
-                </div>
-              </Card>
-            ))}
-          </div>
+          {/* Bande KPI compacte, cliquable : même setter que le segmenté (setRdvFilter),
+              mêmes compteurs que l'Aperçu général ; variation « Aujourd'hui : N · hier : M »
+              (nombre de RDV prévus, jours de Conakry), sans pourcentage. */}
+          {(() => {
+            const kv = stats.kpi_variations;
+            const it = (key: string, label: string, value: number, dot: string, variation: KpiVariation): RdvKpi => ({
+              key, label, valeur: <AnimatedNumber value={value}/>, valeurTexte: value, dot,
+              variation: { aujourdhui: variation.aujourdhui, hier: variation.hier },
+              active: rdvFilter === key, onClick: () => setRdvFilter(key),
+            });
+            return (
+              <RdvKpiBand C={C} items={[
+                it("nouveau", "Nouveaux", stats.nouveau, C.gold, kv.nouveau),
+                it("en_attente", "En attente", stats.pending, C.orange, kv.pending),
+                it("en_retard", "Non traités", stats.non_traites, stats.non_traites > 0 ? C.red : C.t3, kv.non_traites),
+                it("confirme", "Confirmés", stats.confirmed, C.blue, kv.confirmed),
+                it("effectue", "Effectués", stats.done, C.green, kv.done),
+                it("annule", "Annulés", stats.cancelled, C.red, kv.cancelled),
+                it("tous", "Total", stats.rdv_total, C.t3, kv.total),
+              ]}/>
+            );
+          })()}
 
-          {/* ── Recherche + Date + Service + Filtres ── */}
-          <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
-            <Card tokens={toCardTokens(C)} padding="0 14px" style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input value={rdvSearch} onChange={e => setRdvSearch(e.target.value)} placeholder="Rechercher un rendez-vous, un client, un service…" style={{ flex: 1, padding: "12px 0", fontSize: "13px" }}/>
-            </Card>
-            <button onClick={() => setRdvFiltersOpen(v => !v)} className="tap" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "6px", backgroundColor: rdvFiltersOpen ? `${C.gold}15` : C.bgCard, border: `1px solid ${rdvFiltersOpen ? C.gold + "40" : C.border}`, borderRadius: "16px", padding: "0 14px", color: rdvFiltersOpen ? C.gold : C.t2, fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
-              Filtres
-            </button>
-          </div>
-          <div className={`rdv-extra-filters${rdvFiltersOpen ? " open" : ""}`}>
-            <input type="date" value={rdvDateFilter} onChange={e => setRdvDateFilter(e.target.value)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "9px 12px", fontSize: "12px", color: C.t1, flex: 1 }}/>
-            <select value={rdvServiceFilter} onChange={e => setRdvServiceFilter(e.target.value)} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "9px 12px", fontSize: "12px", color: C.t1, flex: 1 }}>
-              <option value="">Tous les services</option>
-              {rdvServiceOptions.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-
-          {/* ── Badges statut ── */}
-          <div style={{ display: "flex", gap: "7px", marginBottom: "10px", overflowX: "auto" }}>
-            {[
-              { key: "nouveau",    label: "Nouveaux",    count: stats.nouveau },
-              { key: "en_attente", label: "En attente",  count: stats.pending },
-              { key: "confirme",   label: "Confirmés",   count: stats.confirmed },
-              { key: "effectue",   label: "Effectués",   count: stats.done },
-              { key: "annule",     label: "Annulés",     count: stats.cancelled },
-              { key: "absent",     label: "Absents",     count: stats.absents },
-              { key: "en_retard",  label: "Non traités",  count: stats.non_traites },
-              { key: "tous",       label: "Tous",        count: rdvs.length },
-            ].map(f => {
-              const active = rdvFilter === f.key;
-              const sc = f.key === "tous" ? { c: C.gold, bg: `${C.gold}20` } : stInfo(f.key, C);
-              const isNouveau = f.key === "nouveau";
-              // "Nouveau"/"En attente"/"Tous" partagent la même couleur dorée —
-              // une fois sélectionnés, ils doivent afficher le vrai doré plein
-              // (comme les boutons solides du dashboard). Les autres filtres
-              // (Confirmés/Effectués/Annulés/Absents) gardent leur propre
-              // couleur mais sans fond pastel, même sélectionnés — seuls la
-              // bordure et le texte portent la couleur (retour Bryan
-              // 03/09/2026, remplace la règle du 19/07/2026 qui gardait un
-              // fond léger sur ces filtres).
-              const isGoldFilter = isNouveau || f.key === "en_attente" || f.key === "tous";
-              return (
-                <button key={f.key} onClick={() => setRdvFilter(f.key)} className="tap" style={{
-                  flexShrink: 0,
-                  backgroundColor: active && isGoldFilter ? sc.c : C.bgCard,
-                  border: `1.5px solid ${isNouveau ? sc.c : (isGoldFilter && active ? sc.c + "40" : C.border)}`,
-                  borderRadius: isNouveau ? "22px" : "20px",
-                  padding: isNouveau ? "10px 18px" : "6px 12px",
-                  color: active ? (isGoldFilter ? "#000" : sc.c) : (isNouveau ? sc.c : C.t2),
-                  fontSize: isNouveau ? "13px" : "11px",
-                  fontWeight: isNouveau ? "900" : (active ? "800" : "600"),
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: isNouveau ? "7px" : "5px",
-                  boxShadow: "none",
-                }}>
-                  {isNouveau && (
-                    active ? (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    ) : (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={sc.c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-                        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                      </svg>
-                    )
-                  )}
-                  {f.label}
-                  <span style={{ color: isNouveau ? (active ? "#000" : sc.c) : (isGoldFilter && active ? sc.c : C.t3), fontSize: isNouveau ? "10.5px" : "9px", fontWeight: "800", padding: isNouveau ? "2px 7px" : "1px 5px", borderRadius: "10px" }}>{f.count}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* ── Trier par ── */}
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-            <span style={{ color: C.t3, fontSize: "11px", fontWeight: "600" }}>Trier par :</span>
-            <select value={rdvSort} onChange={e => setRdvSort(e.target.value as "prochain" | "recent" | "ancien")} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "6px 10px", fontSize: "12px", color: C.t1, fontWeight: "700" }}>
-              <option value="prochain">Prochain d&apos;abord</option>
-              <option value="recent">Plus récent</option>
-              <option value="ancien">Plus ancien</option>
-            </select>
-          </div>
+          {/* Barre d'outils unique : pastilles de statut fusionnées dans le segmenté,
+              mêmes états (rdvFilter, rdvSearch, rdvDateFilter, rdvServiceFilter, rdvSort). */}
+          <AppointmentsToolbar C={C}
+            segments={[
+              { key: "tous", label: "Tous", count: rdvs.length },
+              { key: "nouveau", label: "Nouveaux", count: stats.nouveau },
+              { key: "en_attente", label: "En attente", count: stats.pending },
+              { key: "confirme", label: "Confirmés", count: stats.confirmed },
+              { key: "effectue", label: "Effectués", count: stats.done },
+              { key: "annule", label: "Annulés", count: stats.cancelled },
+              { key: "absent", label: "Absents", count: stats.absents },
+              { key: "en_retard", label: "Non traités", count: stats.non_traites, alerte: true },
+            ]}
+            statut={rdvFilter} onStatut={setRdvFilter}
+            search={rdvSearch} onSearch={setRdvSearch}
+            date={rdvDateFilter} onDate={setRdvDateFilter}
+            service={rdvServiceFilter} onService={setRdvServiceFilter} serviceOptions={rdvServiceOptions}
+            filtersOpen={rdvFiltersOpen} onToggleFilters={() => setRdvFiltersOpen(v => !v)}
+            sort={rdvSort} onSort={setRdvSort} total={filteredRdvs.length}
+            onReset={() => { setRdvSearch(""); setRdvDateFilter(""); setRdvServiceFilter(""); setRdvFilter("tous"); }}/>
 
           {filteredRdvs.length === 0 ? (
             rdvFilter === "nouveau" ? (
@@ -5073,179 +4893,65 @@ function InstitutionDashboardInner() {
               return <RdvEmptyState C={C} illustration={etat.illustration} titre={etat.titre} texte={etat.texte} cta={etat.cta}/>;
             })()
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {pageRdvs.map(r => {
-                const presenceConfirmee = r.presence_status === "present";
-                const isRetard = rdvEstEnRetard(r.date_rdv, r.heure_rdv);
-                const badgeStatut = r.presence_status === "absent"
-                  ? "absent"
-                  : rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv)
-                  ? "en_retard"
-                  : r.statut;
-                const s = stInfo(badgeStatut, C);
-                const clientExistant = (rdvCountByCitoyen.get(r.citoyen_id) ?? 0) > 1;
-                const service = extraireService(r.objet);
-                const dateObj = parseLocalDate(r.date_rdv);
-                const jourAbrege = dateObj.toLocaleDateString("fr-FR", { weekday: "short" }).replace(".", "").toUpperCase();
-                const moisAbrege = dateObj.toLocaleDateString("fr-FR", { month: "short" }).replace(".", "").toUpperCase();
-                // Icônes SVG trait — jamais d'emoji (règle non négociable
-                // /regles-ux-ui de CLAUDE.md, corrigé le 15/08/2026 : ces
-                // badges utilisaient encore 💳⏱📞🏷📍👥, seul reliquat emoji
-                // du dashboard institution).
-                const quickBadges: { icon: React.ReactNode; label: string }[] = [];
-                if (r.est_payant) quickBadges.push({ icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>, label: `Payant · ${(r.service_payant_prix ?? 0).toLocaleString("fr-FR")} ${DEVISE_LABEL}` });
-                if (r.duree_minutes) quickBadges.push({ icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>, label: `${r.duree_minutes} min` });
-                if (r.citoyen_phone) quickBadges.push({ icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.54 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>, label: r.citoyen_phone });
-                quickBadges.push({ icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>, label: service });
-                if (r.guichet) quickBadges.push({ icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>, label: r.guichet });
-                if (r.pour_autre) quickBadges.push({ icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: `Pour ${r.nom_autre || "un tiers"}` });
-                const menuOpen = rdvMenuOpenId === r.id;
-                return (
-                  <div key={r.id} style={{ position: "relative", backgroundColor: C.bgCard, borderRadius: "0", border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", overflow: "visible" }}>
-                    <div className="rdv-card-inner">
-                      <div style={{ textAlign: "center", flexShrink: 0, display: "flex", flexDirection: "row", alignItems: "center", gap: "8px" }}>
-                        <div>
-                          <div style={{ color: C.t3, fontSize: "9px", fontWeight: "800" }}>{jourAbrege}</div>
-                          <div style={{ color: C.t1, fontSize: "18px", fontWeight: "800", lineHeight: 1.1 }}>{dateObj.getDate()}</div>
-                          <div style={{ color: C.t3, fontSize: "9px", fontWeight: "800" }}>{moisAbrege}</div>
-                        </div>
-                        <div>
-                          <div style={{ color: C.t2, fontSize: "10.5px", fontWeight: "700" }}>{r.heure_rdv ? formatHeure(r.heure_rdv) : "—"}</div>
-                          <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: s.c, margin: "4px auto 0" }}/>
-                        </div>
-                      </div>
+            <AppointmentsTable C={C}
+              rows={pageRdvs.map(r => ({
+                r,
+                badgeStatut: r.presence_status === "absent" ? "absent" : rdvNonTraite(r.statut, r.presence_status, r.date_rdv, r.heure_rdv) ? "en_retard" : r.statut,
+                isRetard: rdvEstEnRetard(r.date_rdv, r.heure_rdv),
+                clientExistant: (rdvCountByCitoyen.get(r.citoyen_id) ?? 0) > 1,
+                imminent: r.id === imminentRdvId,
+              }))}
+              actions={{
+                loading: actionLoading,
+                onOpen: setSelectedRDV,
+                onAccept: handleAccept,
+                onPrendre: handlePrendreEnCharge,
+                onAbsent: setConfirmAbsent,
+                onTermine: setTermineDialog,
+                onRefuse: id => { setConfirmRefuseMotif(""); setConfirmRefuse({ id, nom: rdvs.find(x => x.id === id)?.citoyen_nom ?? "ce citoyen" }); },
+              }}/>
+          )}
 
-                      <div onClick={() => setSelectedRDV(r)} className="tap" style={{ width: "56px", height: "56px", position: "relative", borderRadius: "50%", overflow: "hidden", backgroundColor: s.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "800", color: s.c, flexShrink: 0, cursor: "pointer" }}>
-                        {r.citoyen_photo ? <Image src={r.citoyen_photo} alt="" fill sizes="56px" style={{ objectFit: "cover" }}/> : r.citoyen_nom.slice(0, 2).toUpperCase()}
-                      </div>
 
-                      <div onClick={() => setSelectedRDV(r)} className="tap" style={{ minWidth: 0, cursor: "pointer" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                          <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>{r.citoyen_nom}</span>
-                          <span style={{ color: s.c, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>{s.l}</span>
-                          {clientExistant && (
-                            <span style={{ color: C.blue, fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>Client existant</span>
-                          )}
-                          {r.id === imminentRdvId && (
-                            <span style={{ color: "#EC4899", fontSize: "9px", fontWeight: "800", padding: "2px 8px", borderRadius: "20px", textTransform: "uppercase", flexShrink: 0 }}>Imminent</span>
-                          )}
-                        </div>
-                        <div style={{ color: C.t2, fontSize: "12px", fontWeight: "700", marginTop: "3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.objet || "RDV général"}</div>
-                        {r.motif_report && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "5px", color: C.orange, fontSize: "11px", fontWeight: "700", marginTop: "3px" }}>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-                            Reporté par le citoyen — {r.motif_report}
-                          </div>
-                        )}
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginTop: "7px" }}>
-                          {quickBadges.map((b, i) => (
-                            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: C.t2, fontSize: "10px", fontWeight: "600", padding: "3px 8px", borderRadius: "20px", whiteSpace: "nowrap" }}>{b.icon}{b.label}</span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-                        <button onClick={() => setSelectedRDV(r)} className="tap" title="Voir" style={{ width: "34px", height: "34px", borderRadius: "10px", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                        </button>
-                        <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" title="Plus" style={{ width: "34px", height: "34px", borderRadius: "10px", border: `1px solid ${menuOpen ? C.gold + "40" : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                        </button>
-                      </div>
-
-                      <div style={{ flexShrink: 0 }}>
-                        {r.statut === "nouveau" ? (
-                          <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => handleAccept(r.id)} disabled={!!actionLoading} className="tap" style={{ height: "32px", padding: "0 12px", backgroundColor: C.green, color: "#fff", fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
-                              {actionLoading === r.id ? "…" : "Accepter"}
-                            </button>
-                            {isRetard && r.presence_status !== "absent" && (
-                              <Button tokens={toUiTokens(C)} className="tap" variant="danger" size="sm" disabled={!!actionLoading} onClick={() => setConfirmAbsent({ id: r.id, nom: r.citoyen_nom })}>
-                                Absent
-                              </Button>
-                            )}
-                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-                            </button>
-                          </div>
-                        ) : (r.presence_status !== "absent" && r.statut === "en_attente") ? (
-                          <div style={{ display: "flex", gap: "6px" }}>
-                            <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" disabled={!!actionLoading} onClick={() => handlePrendreEnCharge(r)}>
-                              Prendre en charge
-                            </Button>
-                            {isRetard && (
-                              <button onClick={() => setConfirmAbsent({ id: r.id, nom: r.citoyen_nom })} disabled={!!actionLoading} className="tap" style={{ height: "32px", padding: "0 12px", color: C.orange, fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: `1px solid ${C.orange}25`, cursor: "pointer", whiteSpace: "nowrap" }}>
-                                {actionLoading === r.id ? "…" : "Absent"}
-                              </button>
-                            )}
-                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-                            </button>
-                          </div>
-                        ) : (r.presence_status !== "absent" && r.statut === "confirme") ? (
-                          <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => presenceConfirmee && setTermineDialog(r)} disabled={!!actionLoading || !presenceConfirmee} title={presenceConfirmee ? undefined : "Présence non confirmée"} className="tap" style={{ height: "32px", padding: "0 12px", backgroundColor: presenceConfirmee ? C.purple : undefined, color: presenceConfirmee ? "#fff" : C.t3, fontWeight: "700", fontSize: "12px", borderRadius: "10px", border: presenceConfirmee ? "none" : `1px solid ${C.border}`, cursor: presenceConfirmee ? "pointer" : "not-allowed", whiteSpace: "nowrap" }}>
-                              Marquer terminé
-                            </button>
-                            <button onClick={() => setRdvMenuOpenId(menuOpen ? null : r.id)} className="tap" style={{ width: "34px", border: `1px solid ${C.border}`, borderRadius: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.t2} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: s.c, fontWeight: "800", fontSize: "11px", padding: "9px 14px", borderRadius: "10px", whiteSpace: "nowrap" }}>{s.l}</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {menuOpen && (
-                      <div style={{ position: "absolute", right: "14px", top: "calc(100% + 4px)", zIndex: 20, backgroundColor: C.bgCard, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "4px", boxShadow: "0 8px 24px rgba(0,0,0,0.2)", minWidth: "160px" }}>
-                        {r.statut === "nouveau" && (
-                          <button onClick={() => { setRdvMenuOpenId(null); handleRefuse(r.id); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "9px 10px", background: "none", border: "none", color: C.red, fontSize: "12px", fontWeight: "700", cursor: "pointer", borderRadius: "6px" }}>Refuser</button>
-                        )}
-                        <button onClick={() => { setRdvMenuOpenId(null); setSelectedRDV(r); }} className="tap" style={{ width: "100%", textAlign: "left", padding: "9px 10px", background: "none", border: "none", color: C.t2, fontSize: "12px", fontWeight: "700", cursor: "pointer", borderRadius: "6px" }}>Voir détails</button>
-                      </div>
-                    )}
+          {/* ── Pagination : une ligne, mêmes états (rdvPage, rdvPageSize). ── */}
+          {filteredRdvs.length > 0 && (() => {
+            const debut = (rdvPageClamped - 1) * rdvPageSize + 1;
+            const fin = Math.min(rdvPageClamped * rdvPageSize, filteredRdvs.length);
+            const btn = (actif: boolean): React.CSSProperties => ({ minWidth: "32px", height: "32px", borderRadius: "8px", backgroundColor: actif ? C.bg3 : "transparent", border: `1px solid ${actif ? C.gold : C.border}`, color: actif ? C.t1 : C.t2, fontSize: "13px", fontWeight: actif ? 600 : 400, cursor: "pointer", fontVariantNumeric: "tabular-nums", display: "inline-flex", alignItems: "center", justifyContent: "center" });
+            return (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px 20px", marginTop: "16px" }}>
+                <span aria-live="polite" style={{ color: C.t2, fontSize: "13px", fontVariantNumeric: "tabular-nums" }}>{debut}–{fin} sur {filteredRdvs.length}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "20px", flexWrap: "wrap" }}>
+                  <nav aria-label="Pagination des rendez-vous" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <button onClick={() => setRdvPage(p => Math.max(1, p - 1))} disabled={rdvPageClamped === 1} aria-label="Page précédente" className="tap" style={{ ...btn(false), opacity: rdvPageClamped === 1 ? 0.4 : 1, cursor: rdvPageClamped === 1 ? "not-allowed" : "pointer" }}>
+                      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                    {(() => {
+                      const pages: (number | "…")[] = [];
+                      for (let p = 1; p <= rdvTotalPages; p++) {
+                        if (p === 1 || p === rdvTotalPages || Math.abs(p - rdvPageClamped) <= 1) pages.push(p);
+                        else if (pages[pages.length - 1] !== "…") pages.push("…");
+                      }
+                      return pages.map((p, i) => p === "…" ? (
+                        <span key={`e${i}`} aria-hidden="true" style={{ color: C.t3, fontSize: "13px", padding: "0 4px" }}>…</span>
+                      ) : (
+                        <button key={p} onClick={() => setRdvPage(p)} aria-label={`Page ${p}`} aria-current={p === rdvPageClamped ? "page" : undefined} className="tap" style={btn(p === rdvPageClamped)}>{p}</button>
+                      ));
+                    })()}
+                    <button onClick={() => setRdvPage(p => Math.min(rdvTotalPages, p + 1))} disabled={rdvPageClamped === rdvTotalPages} aria-label="Page suivante" className="tap" style={{ ...btn(false), opacity: rdvPageClamped === rdvTotalPages ? 0.4 : 1, cursor: rdvPageClamped === rdvTotalPages ? "not-allowed" : "pointer" }}>
+                      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                  </nav>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ color: C.t2, fontSize: "13px" }}>Lignes par page :</span>
+                    <div style={{ width: "84px" }}><ComboField C={C} id="apt-lignes" compact sansAucun valeur={String(rdvPageSize)} onChange={v => setRdvPageSize(Number(v))} options={[10, 20, 50].map(n => ({ value: String(n), label: String(n) }))}/></div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-
-          {rdvMenuOpenId && <div style={{ position: "fixed", inset: 0, zIndex: 15 }} onClick={() => setRdvMenuOpenId(null)}/>}
-
-          {/* ── Pagination ── */}
-          {filteredRdvs.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginTop: "18px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                <button onClick={() => setRdvPage(p => Math.max(1, p - 1))} disabled={rdvPageClamped === 1} className="tap" style={{ width: "30px", height: "30px", borderRadius: "8px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t2, cursor: rdvPageClamped === 1 ? "not-allowed" : "pointer", opacity: rdvPageClamped === 1 ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                {(() => {
-                  const pages: (number | "…")[] = [];
-                  for (let p = 1; p <= rdvTotalPages; p++) {
-                    if (p === 1 || p === rdvTotalPages || Math.abs(p - rdvPageClamped) <= 1) pages.push(p);
-                    else if (pages[pages.length - 1] !== "…") pages.push("…");
-                  }
-                  return pages.map((p, i) => p === "…" ? (
-                    <span key={`e${i}`} style={{ color: C.t3, fontSize: "12px", padding: "0 4px" }}>…</span>
-                  ) : (
-                    <button key={p} onClick={() => setRdvPage(p)} className="tap" style={{ minWidth: "30px", height: "30px", borderRadius: "8px", backgroundColor: p === rdvPageClamped ? `${C.gold}20` : C.bgCard, border: `1px solid ${p === rdvPageClamped ? C.gold + "40" : C.border}`, color: p === rdvPageClamped ? C.gold : C.t2, fontSize: "12px", fontWeight: p === rdvPageClamped ? "800" : "600", cursor: "pointer" }}>{p}</button>
-                  ));
-                })()}
-                <button onClick={() => setRdvPage(p => Math.min(rdvTotalPages, p + 1))} disabled={rdvPageClamped === rdvTotalPages} className="tap" style={{ width: "30px", height: "30px", borderRadius: "8px", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, color: C.t2, cursor: rdvPageClamped === rdvTotalPages ? "not-allowed" : "pointer", opacity: rdvPageClamped === rdvTotalPages ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ color: C.t3, fontSize: "11px", fontWeight: "600" }}>Lignes par page</span>
-                <select value={rdvPageSize} onChange={e => setRdvPageSize(Number(e.target.value))} style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "6px 10px", fontSize: "12px", color: C.t1, fontWeight: "700" }}>
-                  {[10, 20, 50].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {/* RDV Payants en attente de validation */}
+          {/* RDV payants en attente de validation — même logique, tokens alignés (cartes blanches, badges doux, un bouton primaire). */}
           {rdvFilter === "tous" && (() => {
             const payants = rdvs.filter(r =>
               (r.statut === "en_attente" || r.statut === "nouveau") &&
@@ -5253,28 +4959,27 @@ function InstitutionDashboardInner() {
             );
             if (!payants.length) return null;
             return (
-              <div style={{ marginTop: "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                  <div style={{ width: "3px", height: "16px", background: C.green, borderRadius: "2px" }}/>
-                  <span style={{ color: C.t1, fontSize: "14px", fontWeight: "800" }}>RDV Payants — validation en attente</span>
-                  <span style={{ backgroundColor: C.green, color: "#000", fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "20px" }}>{payants.length}</span>
+              <section aria-labelledby="rdv-payants-titre" style={{ marginTop: "24px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                  <h2 id="rdv-payants-titre" style={{ margin: 0, color: C.t1, fontSize: "16px", fontWeight: 600 }}>RDV payants — validation en attente</h2>
+                  <span style={{ display: "inline-flex", alignItems: "center", height: "20px", padding: "0 7px", borderRadius: "10px", backgroundColor: `${C.green}1c`, color: C.green, fontSize: "12px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{payants.length}</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {payants.map(r => (
-                    <div key={r.id} style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.green}25`, borderLeft: `3px solid ${C.green}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: "12px" }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700" }}>{r.citoyen_nom}</div>
-                        <div style={{ color: C.t2, fontSize: "11px" }}>{r.objet}</div>
-                        <div style={{ color: C.t3, fontSize: "10px", marginTop: "2px" }}>{formatDate(r.date_rdv, { day: "numeric", month: "short" })} · {formatHeure(r.heure_rdv)}</div>
+                  {payants.map(r => {
+                    const parsed = parseAppointmentLabel(r.objet);
+                    return (
+                      <div key={r.id} style={{ backgroundColor: C.bgCard, borderRadius: "12px", border: `1px solid ${C.border}`, padding: "12px 16px", display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                          <div style={{ color: C.t1, fontSize: "14px", fontWeight: 500 }}>{nomAffiche(r.citoyen_nom)}</div>
+                          <div style={{ color: C.t2, fontSize: "13px", overflowWrap: "anywhere" }}>{parsed.reconnu ? `${parsed.service ?? ""}${parsed.montant ? ` · ${parsed.montant}` : ""}` : r.objet}</div>
+                          <div style={{ color: C.t3, fontSize: "12px", marginTop: "2px", fontVariantNumeric: "tabular-nums" }}>{formatDate(r.date_rdv, { day: "numeric", month: "short" })} · {heureAmPm(r.heure_rdv)}</div>
+                        </div>
+                        <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setTab("valider-rdv")}>Valider paiement</Button>
                       </div>
-                      <button onClick={() => setTab("valider-rdv")} className="tap" style={{ height: "32px", backgroundColor: C.green, color: "#000", fontSize: "12px", fontWeight: "700", padding: "0 12px", borderRadius: "10px", border: "none", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: "5px" }}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        Valider paiement
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              </div>
+              </section>
             );
           })()}
         </div>
@@ -5338,57 +5043,14 @@ function InstitutionDashboardInner() {
           qr_valide/qr_scanne_le documentés dans CLAUDE.md, obsolètes).
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="scanner" current={tab} visited={visitedTabs}>
-      {(() => {
-        const scanned = rdvs
-          .filter(r => r.presence_status === "present")
-          .sort((a, b) => new Date(b.presence_confirmed_at || b.date_rdv).getTime() - new Date(a.presence_confirmed_at || a.date_rdv).getTime());
-        return (
-          <div style={{ padding: "16px" }}>
-            <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Scanner QR</h1>
-            <p style={{ color: C.t2, fontSize: "13px", marginBottom: "16px" }}>Historique des rendez-vous dont la présence a été confirmée par scan.</p>
-
-            {scanned.length === 0 ? (
-              <div style={{ backgroundColor: C.bgCard, border: `1px dashed ${C.border2}`, borderRadius: "16px", padding: "12px" }}>
-                <EmptyState
-                  variant="scanner"
-                  title="Vos premiers scans apparaîtront ici"
-                  message="Utilisez le bouton Scanner (en-tête ou menu) pour confirmer la présence d'un client à son arrivée — l'historique de ses passages se construira ici automatiquement."
-                  color={C.gold}
-                  titleColor={C.t1}
-                  textColor={C.t3}
-                />
-              </div>
-            ) : (
-              <Card tokens={toCardTokens(C)} noPadding>
-                {scanned.map((r, i) => (
-                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", borderBottom: i < scanned.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                    <div style={{ width: "36px", height: "36px", borderRadius: "10px", backgroundColor: C.greenL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ color: C.t1, fontSize: "13.5px", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.citoyen_nom}</div>
-                      <div style={{ color: C.t3, fontSize: "11.5px" }}>{r.objet || "RDV général"} · {formatDate(r.date_rdv, { day: "numeric", month: "short" })} {formatHeure(r.heure_rdv)}</div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <span style={{ backgroundColor: C.greenL, color: C.green, fontSize: "10.5px", fontWeight: "700", padding: "3px 9px", borderRadius: "20px" }}>Présence confirmée</span>
-                      {r.presence_confirmed_at && (
-                        <div style={{ color: C.t3, fontSize: "10px", marginTop: "4px" }}>{formatDate(r.presence_confirmed_at, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </Card>
-            )}
-          </div>
-        );
-      })()}
+      <ScansTab C={C} rdvs={rdvs} loading={loading} error={error ?? ""} active={tab === "scanner"} onScan={() => setShowScanner(true)} onRetry={loadData}/>
       </KeepMounted>
 
       {/* ═══════════════════════════════════════════════════════════
           TAB : MON CODE QR
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="codeqr" current={tab} visited={visitedTabs}>
-        {inst && <CodeQrTab instId={instId} instName={inst.name} instSlug={inst.slug}/>}
+        {inst && <CodeQrTab instId={instId} instName={inst.name} instSlug={inst.slug} onToast={showToast}/>}
       </KeepMounted>
 
       {/* ═══════════════════════════════════════════════════════════
@@ -5403,11 +5065,11 @@ function InstitutionDashboardInner() {
           via le petit menu "Compte" (sidebar), pas dans le menu principal.
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="profil-entreprise" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <ProfilEntrepriseTab instId={instId} onToast={showToast}/>
+        <ProfilEntrepriseTab instId={instId} onToast={showToast} onNavigate={(t) => setTab(t as DashboardTab)} onChangementsProfilMaj={rafraichirChangementsProfil}/>
       </KeepMounted>
 
       <KeepMounted tabKey="conditions-informations" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <ConditionsInformationsTab instId={instId} onToast={showToast}/>
+        <ConditionsInformationsTab instId={instId} onToast={showToast} hrefSupport={`/${urlSlug}/${instId}/support`}/>
       </KeepMounted>
 
       <KeepMounted tabKey="configuration-hotel" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
@@ -5439,7 +5101,7 @@ function InstitutionDashboardInner() {
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="documents" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
         {tabReadOnly(membreRole, "documents") && <ReadOnlyNotice C={C}/>}
-        <DocumentsTab instId={instId} onToast={showToast} access={tabReadOnly(membreRole, "documents") ? "read" : "full"}/>
+        <DocumentsTab instId={instId} onToast={showToast} access={tabReadOnly(membreRole, "documents") ? "read" : "full"} instName={inst?.name} instLogo={inst?.logo} badgeVerifie={!!inst?.badge_verifie} onNavigate={(t) => setTab(t as DashboardTab)}/>
       </KeepMounted>
 
       {/* ═══════════════════════════════════════════════════════════
@@ -5479,7 +5141,7 @@ function InstitutionDashboardInner() {
         <MessagerieTab onToast={showToast} initialCitoyenId={messagerieCitoyenInitial} suspendu={suspendu}
           onVoirProfilClient={tabAllowed(membreRole, "mes-clients", accesRestreints) ? (citoyenId) => { setMesClientsInitialId(citoyenId); setTab("mes-clients"); } : undefined}
           onVoirRdv={tabAllowed(membreRole, "rdv", accesRestreints) ? () => setTab("rdv") : undefined}
-          instName={inst?.name} instLogo={inst?.logo}
+          instName={inst?.name} instLogo={inst?.logo} onUnreadChange={setMessagerieUnread}
         />
       </KeepMounted>
       <KeepMounted tabKey="collaboration" current={tab} visited={visitedTabs}>
@@ -5539,6 +5201,19 @@ function InstitutionDashboardInner() {
           instName={inst?.name} instLogo={inst?.logo}
         />
       </KeepMounted>
+      {/* Recommandations (Phase 4, architecture validée CEO 13/10/2026) —
+          URL propre /{slug}/{id}/recommandations, ouverte dans un nouvel
+          onglet navigateur depuis l'icône header dédiée (jamais un lien de
+          sidebar), même patron que Support Yelen ci-dessus. */}
+      <KeepMounted tabKey="recommandations" current={tab} visited={visitedTabs}>
+        <RecommandationsTab
+          onClose={() => setTab("accueil")}
+          onNavigate={(t) => setTab(t as DashboardTab)}
+          onToast={showToast}
+          membreRole={membreRole}
+          instName={inst?.name}
+        />
+      </KeepMounted>
       <KeepMounted tabKey="questions-clients" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
         <QuestionsClientsTab readOnly={!(membreRole !== null && can(membreRole, "questions.repondre"))} onToast={showToast}/>
       </KeepMounted>
@@ -5574,6 +5249,17 @@ function InstitutionDashboardInner() {
         <MaSemaineTab onToast={showToast}/>
       </KeepMounted>
 
+      {/* Notifications : liste complète + détail. Mêmes données que le popover
+          (état partagé du layout), aucune requête propre. Masqué au comptable,
+          comme le popover. */}
+      <KeepMounted tabKey="notifications" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
+        {tabAllowed(membreRole, "notifications") && (
+          <NotificationsPage active={tab === "notifications"} notifs={institutionNotifs} nonLuesIds={notifsNonLuesAffichees}
+            chargement={notifsChargement} erreur={notifsErreur} onReessayer={rechargerNotifications}
+            rdvInfo={id => infoRdvParId.get(id)} onVoirRdv={handleClickNotif} contenuSysteme={<NotifSystemeBientot C={C}/>}/>
+        )}
+      </KeepMounted>
+
       {/* ═══════════════════════════════════════════════════════════
           TAB : RENDEZ-VOUS PASSÉS — historique global filtrable,
           suivi par RDV (rdv.notes) et rappel citoyen. Accès via menu Compte.
@@ -5601,128 +5287,11 @@ function InstitutionDashboardInner() {
           TAB : PARAMÈTRES
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="parametres" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
-          <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "16px" }}>Paramètres</h1>
-
-          {inst && (
-            <Card tokens={toCardTokens(C)} padding="16px" style={{ marginBottom: "14px", display: "flex", alignItems: "center", gap: "14px" }}>
-              {inst.logo ? (
-                <div style={{ position: "relative", width: "52px", height: "52px", borderRadius: "14px", overflow: "hidden", border: `1px solid ${C.gold}30`, flexShrink: 0 }}><Image src={inst.logo} alt="" fill sizes="52px" style={{ objectFit: "cover" }}/></div>
-              ) : (
-                <div style={{ width: "52px", height: "52px", borderRadius: "14px", background: `linear-gradient(135deg, ${C.gold}30, ${C.goldD}15)`, border: `1px solid ${C.gold}30`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <YelenLogo size={28} color={C.gold} />
-                </div>
-              )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: C.t1, fontSize: "15px", fontWeight: "800", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inst.name}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: "4px", color: C.t2, fontSize: "11px" }}>
-                  <span>{inst.category} ·</span>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                  <span>{inst.ville}</span>
-                </div>
-                <div style={{ display: "flex", gap: "5px", marginTop: "4px", flexWrap: "wrap" }}>
-                  {inst.statut === "validee" && (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: C.greenL, color: C.green, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "10px" }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      Compte validé
-                    </div>
-                  )}
-                  {inst.badge_verifie && (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", backgroundColor: C.greenL, color: C.green, fontSize: "9px", fontWeight: "800", padding: "2px 7px", borderRadius: "10px" }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      Vérifié
-                    </div>
-                  )}
-                </div>
-              </div>
-              <button onClick={() => setTab("profil-entreprise")} className="tap" style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: "700", flexShrink: 0, cursor: "pointer" }}>Modifier</button>
-            </Card>
-          )}
-
-          {/* Apparence — sélecteur Système / Clair / Sombre */}
-          <Card tokens={toCardTokens(C)} noPadding style={{ marginBottom: "14px" }}>
-            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.8px" }}>Apparence</span>
-            </div>
-            <div style={{ padding: "14px 16px" }}>
-              <div style={{ color: C.t1, fontSize: "13px", fontWeight: "700", marginBottom: "3px" }}>Thème de l&apos;interface</div>
-              <div style={{ color: C.t3, fontSize: "11px", marginBottom: "12px" }}>« Système » suit les réglages de votre appareil</div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                {([
-                  { key: "system" as const, label: "Système", icon: (c: string) => (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                    ) },
-                  { key: "light" as const, label: "Clair", icon: (c: string) => (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                    ) },
-                  { key: "dark" as const, label: "Sombre", icon: (c: string) => (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                    ) },
-                ]).map(opt => {
-                  const selected = mode === opt.key;
-                  return (
-                    <button
-                      key={opt.key}
-                      onClick={() => setMode(opt.key)}
-                      className="tap"
-                      style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", padding: "12px 8px", borderRadius: "14px", backgroundColor: selected ? (opt.key === "dark" ? "#000" : "transparent") : C.bg3, border: `1.5px solid ${selected ? C.gold + "50" : C.border2}`, cursor: "pointer" }}
-                    >
-                      {opt.icon(selected ? C.gold : C.t2)}
-                      <span style={{ color: selected ? C.gold : C.t2, fontSize: "12px", fontWeight: selected ? "700" : "500" }}>{opt.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </Card>
-
-          {([
-            {
-              titre: "Compte",
-              items: [
-                { label: "Sécurité du compte", href: null, onTab: "parametres-securite", color: C.gold },
-                { label: "Notifications",      href: null, onTab: "parametres-notifications", color: C.gold },
-              ],
-            },
-            {
-              titre: "Abonnement",
-              items: [
-                { label: "Abonnement et forfait", href: `/institution/abonnement`, color: C.purple },
-              ],
-            },
-            {
-              titre: "Légal & confidentialité",
-              items: [
-                { label: "Légal & confidentialité",   href: null, onTab: "parametres-legal",   color: C.t2 },
-              ],
-            },
-          ] as SettingsSection[]).map((section, si) => (
-            <div key={si} style={{ marginBottom: "14px" }}>
-              <div style={{ color: C.t3, fontSize: "10px", fontWeight: "800", letterSpacing: "0.8px", textTransform: "uppercase", marginBottom: "8px", paddingLeft: "4px" }}>{section.titre}</div>
-              <Card tokens={toCardTokens(C)} noPadding>
-                {section.items.map((item, ii) => {
-                  const itemContent = (
-                    <>
-                      <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: item.color, flexShrink: 0 }}/>
-                      <span style={{ flex: 1, color: C.t1, fontSize: "13px", fontWeight: "600" }}>{item.label}</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-                    </>
-                  );
-                  const itemStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "12px", padding: "13px 16px", borderBottom: ii < section.items.length - 1 ? `1px solid ${C.border}` : "none", textDecoration: "none", width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" };
-                  return "onTab" in item && item.onTab ? (
-                    <button key={ii} onClick={() => setTab(item.onTab!)} className="tap" style={itemStyle}>{itemContent}</button>
-                  ) : (
-                    <a key={ii} href={item.href ?? "#"} className="tap" style={itemStyle}>{itemContent}</a>
-                  );
-                })}
-              </Card>
-            </div>
-          ))}
-
+        <ParametresGarde role={membreRole} autorise={tabAllowed(membreRole, "parametres", accesRestreints)} onRetour={handleRetour} C={C}>
+        <ParametresAccueil C={C} active={tab === "parametres"} inst={inst} mode={mode} setMode={setMode} onOuvrir={setTab}>
           <ParametresDangerZone instId={instId} instName={inst?.name ?? ""} />
-
-          <div style={{ textAlign: "center", color: C.t3, fontSize: "10px" }}>Yelen224 Pro · Guinée · v5.1 · 2026</div>
-        </div>
+        </ParametresAccueil>
+        </ParametresGarde>
       </KeepMounted>
 
       {/* ═══════════════════════════════════════════════════════════
@@ -5732,15 +5301,21 @@ function InstitutionDashboardInner() {
           "parametres" (voir lib/institutionPermissions.ts).
       ═══════════════════════════════════════════════════════════ */}
       <KeepMounted tabKey="parametres-securite" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <SecuriteCompteTab instId={instId}/>
+        <ParametresGarde role={membreRole} autorise={tabAllowed(membreRole, "parametres-securite", accesRestreints)} onRetour={handleRetour} C={C}>
+          <SecuriteCompteTab instId={instId}/>
+        </ParametresGarde>
       </KeepMounted>
 
       <KeepMounted tabKey="parametres-notifications" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <NotificationsTab instId={instId}/>
+        <ParametresGarde role={membreRole} autorise={tabAllowed(membreRole, "parametres-notifications", accesRestreints)} onRetour={handleRetour} C={C}>
+          <NotificationsTab instId={instId}/>
+        </ParametresGarde>
       </KeepMounted>
 
       <KeepMounted tabKey="parametres-legal" current={tab} visited={visitedTabs} onBack={handleRetour} C={C}>
-        <LegalTab conditionsAccepteesLe={inst?.conditions_prestataire_acceptees_le ?? null} onGererCompte={() => setTab("parametres")}/>
+        <ParametresGarde role={membreRole} autorise={tabAllowed(membreRole, "parametres-legal", accesRestreints)} onRetour={handleRetour} C={C}>
+          <LegalTab conditionsAccepteesLe={inst?.conditions_prestataire_acceptees_le ?? null} onGererCompte={() => setTab("parametres")}/>
+        </ParametresGarde>
       </KeepMounted>
 
 
@@ -5776,12 +5351,12 @@ function InstitutionDashboardInner() {
               <span style={{ position: "relative", display: "inline-flex" }}>
                 {item.icon(active)}
                 {item.badge > 0 && (
-                  <span style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "8px", fontWeight: "800", borderRadius: "10px", minWidth: "14px", height: "14px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", border: `1.5px solid ${C.bg}` }}>
+                  <span style={{ position: "absolute", top: "-5px", right: "-5px", backgroundColor: C.red, color: "#fff", fontSize: "10px", fontWeight: "800", borderRadius: "10px", minWidth: "14px", height: "14px", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", border: `1.5px solid ${C.bg}` }}>
                     {item.badge > 99 ? "99+" : item.badge}
                   </span>
                 )}
               </span>
-              <span style={{ fontSize: "9px", fontWeight: active ? "800" : "600", color: active ? C.gold : C.t3, letterSpacing: "0.2px" }}>{item.label}</span>
+              <span style={{ fontSize: "10px", fontWeight: active ? "800" : "600", color: active ? C.gold : C.t3, letterSpacing: "0.2px" }}>{item.label}</span>
             </button>
           );
         })}

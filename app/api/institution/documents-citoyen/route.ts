@@ -5,6 +5,7 @@ import { can, canAccessTab } from "@/lib/institutionPermissions";
 import { accesUrgenceAdminDebloque } from "@/lib/comptableProtection";
 import { notifierDocumentDemande, notifierDocumentEnvoye } from "@/lib/notificationEngine";
 import { validateUpload } from "@/lib/uploadSecurity";
+import { enregistrerAction } from "@/lib/journalActivite";
 import { creerDemande, creerEnvoi, enregistrerConsultation, enregistrerTelechargement } from "@/lib/citoyenDocuments";
 
 // Lot A (chantier "Activités passées") — demande de document à un citoyen
@@ -160,6 +161,17 @@ export async function POST(req: NextRequest) {
   }
 
   if (!resultat.ok) return NextResponse.json({ error: resultat.error }, { status: 500 });
+
+  // Journal d'activité (non bloquant) : demande ou envoi de document à un
+  // client. Le suivi du cycle de vie (vérification, refus, archivage) reste
+  // dans document_events, sans doublon ici.
+  await enregistrerAction({
+    institutionId: membre.institutionId, membreId: membre.membreId, membreNom,
+    action: sens === "envoi" ? "document_citoyen_envoye" : "document_citoyen_demande",
+    cibleTable: "citoyen_documents", cibleId: resultat.id,
+    details: { type: typeVal, rdv_id: rdvId },
+    req,
+  });
 
   // Notification citoyen (plan rétention v2, item 1) — best-effort, ne
   // fait jamais échouer la création si la notification échoue.

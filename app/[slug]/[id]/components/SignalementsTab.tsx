@@ -22,9 +22,15 @@ import {
   SIGNALEMENT_STATUTS, SIGNALEMENT_STATUT_LABELS,
   SIGNALEMENT_PRIORITES, SIGNALEMENT_PRIORITE_LABELS,
   SIGNALEMENT_RESOLUTION_ACTION_LABELS,
-  SIGNALEMENT_MOTIFS_INSTITUTION,
+  SIGNALEMENT_MOTIFS_INSTITUTION, SIGNALEMENT_MOTIFS_CITOYEN,
   type SignalementStatut, type SignalementPriorite, type SignalementResolutionAction, type SignalementEscaladeNiveau,
 } from "@/lib/signalementsConstants";
+import { HelpCenterGuide } from "./HelpCenterGuide";
+import {
+  SigStyles, SigHeader, SigKpiStrip, SigToolbar, SigChips, SigTable, SigCards, SigSkeleton,
+  type SigKpiItem, type SigRowData,
+} from "./SignalementsUi";
+import { heureAmPm, heureDepuisHorodatage } from "@/lib/heure";
 
 // "Prochaine étape" par statut (Help Center Phase E, pattern P8 transposé
 // de CommunauteProTab.tsx::STATUT_INFO). Décrit où en est le dossier, ne
@@ -102,7 +108,15 @@ type RdvOption = { id: string; objet: string | null; date_rdv: string; heure_rdv
 // obligatoire, 15/08/2026) — le nom local MOTIFS_INSTITUTION est conservé
 // pour ne pas toucher aux ~15 usages existants dans ce fichier.
 const MOTIFS_INSTITUTION = SIGNALEMENT_MOTIFS_INSTITUTION;
-function motifLabel(m: string) { return MOTIFS_INSTITUTION.find(x => x.value === m)?.label || m; }
+// Affichage seulement : les signalements "contre vous" portent des motifs
+// citoyen (arnaque_fraude, rdv_non_honore…) absents de la liste institution,
+// qui s'affichaient bruts. Repli lisible si le motif est inconnu des deux.
+function motifLabel(m: string) {
+  const connu = MOTIFS_INSTITUTION.find(x => x.value === m) ?? SIGNALEMENT_MOTIFS_CITOYEN.find(x => x.value === m);
+  if (connu) return connu.label;
+  const brut = m.replace(/_/g, " ");
+  return brut.charAt(0).toUpperCase() + brut.slice(1);
+}
 function formatDateRdv(d: string) { return new Date(`${d}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }); }
 
 const SIG_STATUT_CFG = (C: ThemeTokens): Record<string, { label: string; color: string; bg: string }> =>
@@ -141,7 +155,7 @@ function formatDateSig(d: string) {
 }
 function formatDateHeureSig(d: string) {
   const dt = new Date(d);
-  return dt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) + " à " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return dt.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) + " à " + heureDepuisHorodatage(dt);
 }
 function ilYA(depuis: Date, maintenant: number): string {
   const s = Math.max(0, Math.floor((maintenant - depuis.getTime()) / 1000));
@@ -153,8 +167,6 @@ function ilYA(depuis: Date, maintenant: number): string {
 }
 
 // ── Petits composants locaux (répliqués de ClockInShiftTab.tsx) ────────
-function Ic_Chevron({ C }: { C: ThemeTokens }) { return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round"><path d="m9 18 6-6-6-6"/></svg>; }
-
 // Illustration sur mesure Yelen pour l'état vide (aucun signalement créé) —
 // même langage que ClockInShiftTab.tsx/MesOffresTab.tsx : trait, un seul
 // accent doré, jamais de fond noir. Un bouclier + coche : une liste vide
@@ -257,42 +269,6 @@ function SigEmptyState({ C, illustration, titre, texte, cta }: {
   );
 }
 
-function SigSparkline({ serie, color }: { serie: number[]; color: string }) {
-  if (serie.length < 2) return null;
-  const max = Math.max(...serie, 1);
-  const points = serie.map((v, i) => {
-    const x = (i / (serie.length - 1)) * 100;
-    const y = 28 - (v / max) * 24 - 2;
-    return `${x},${y}`;
-  }).join(" ");
-  return (
-    <svg viewBox="0 0 100 28" preserveAspectRatio="none" style={{ width: "100%", height: "28px", display: "block" }}>
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-function SigDelta({ delta, C }: { delta: number | null; C: ThemeTokens }) {
-  if (delta === null) return <span style={{ color: C.t3, fontSize: "10px" }}>Pas de comparaison</span>;
-  if (delta === 0) return <span style={{ color: C.t3, fontSize: "10px", fontWeight: 700 }}>= vs hier</span>;
-  const positif = delta > 0;
-  return <span style={{ color: positif ? C.green : C.red, fontSize: "10px", fontWeight: 700 }}>{positif ? "+" : ""}{delta} vs hier</span>;
-}
-function SigKpiCard({ label, icon, color, value, delta, serie, C }: {
-  label: string; icon: React.ReactNode; color: string; value: string; delta: number | null; serie: number[]; C: ThemeTokens;
-}) {
-  return (
-    <Card tokens={toCardTokens(C)} padding="18px" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <div style={{ width: "30px", height: "30px", borderRadius: "9px", backgroundColor: `${color}18`, display: "flex", alignItems: "center", justifyContent: "center", color, flexShrink: 0 }}>{icon}</div>
-        <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</span>
-      </div>
-      <div style={{ color: C.t1, fontSize: "28px", fontWeight: 800, lineHeight: 1 }}>{value}</div>
-      <SigDelta delta={delta} C={C}/>
-      {serie.some(v => v > 0) && <SigSparkline serie={serie} color={color}/>}
-    </Card>
-  );
-}
-
 function SigModal({ C, titre, onClose, children }: { C: ThemeTokens; titre: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 1100, backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", display: "flex", alignItems: "flex-end", justifyContent: "center", animation: "fadeIn 0.2s ease" }} onClick={onClose}>
@@ -325,6 +301,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
   const [membres, setMembres] = useState<Membre[]>([]);
   const [citoyens, setCitoyens] = useState<CitoyenOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [erreurListe, setErreurListe] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [maintenant, setMaintenant] = useState(Date.now());
 
@@ -378,9 +355,10 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
     try {
       const res = await fetch("/api/institution/signalements");
       const json = await res.json().catch(() => null);
-      if (res.ok && json?.signalements) setSignalements(json.signalements);
+      if (res.ok && json?.signalements) { setSignalements(json.signalements); setErreurListe(false); }
+      else setErreurListe(true);
       setLastSync(new Date());
-    } catch {}
+    } catch { setErreurListe(true); }
     if (avecSpinner) setLoading(false);
   }, []);
 
@@ -462,20 +440,6 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
   const kpiEnCours = signalements.filter(s => s.statut === "en_cours" || s.statut === "en_attente").length;
   const kpiResolus = signalements.filter(s => s.statut === "resolu" || s.statut === "cloture").length;
 
-  // Tendance 8 jours = nouveaux cas créés par jour correspondant au filtre
-  // (pas un historique reconstruit de statut journalier — cette donnée
-  // n'existe pas, même limitation déjà documentée pour les KPI Employés
-  // ailleurs sur ce dashboard). Valeur affichée en gros = compteur courant
-  // réel, la sparkline montre juste le rythme de création récent.
-  function serieCreation(filtre: (s: Signalement) => boolean): number[] {
-    const jours: number[] = [];
-    for (let i = 7; i >= 0; i--) {
-      const jour = new Date(); jour.setDate(jour.getDate() - i);
-      const jourStr = jour.toISOString().slice(0, 10);
-      jours.push(signalements.filter(s => filtre(s) && s.created_at.slice(0, 10) === jourStr).length);
-    }
-    return jours;
-  }
   function deltaCreationJour(filtre: (s: Signalement) => boolean): number {
     const hier = new Date(); hier.setDate(hier.getDate() - 1);
     const avantHier = new Date(); avantHier.setDate(avantHier.getDate() - 2);
@@ -784,7 +748,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                   <select value={creRdvId} onChange={e => setCreRdvId(e.target.value)} style={{ ...inputStyle(C), color: creRdvId ? C.t1 : C.t3 }}>
                     <option value="">Aucun rendez-vous spécifique</option>
                     {rdvsEligibles.map(r => (
-                      <option key={r.id} value={r.id}>{formatDateRdv(r.date_rdv)} à {r.heure_rdv?.slice(0, 5)} — {r.objet || "RDV général"}</option>
+                      <option key={r.id} value={r.id}>{formatDateRdv(r.date_rdv)} à {heureAmPm(r.heure_rdv)} — {r.objet || "RDV général"}</option>
                     ))}
                   </select>
                 )}
@@ -845,12 +809,12 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                 </div>
                 <div>
                   <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Date</div>
-                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>{formatDateRdv(creIncidentDate)}{creIncidentHeure && ` · ${creIncidentHeure}`}</div>
+                  <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>{formatDateRdv(creIncidentDate)}{creIncidentHeure && ` · ${heureAmPm(creIncidentHeure) || creIncidentHeure}`}</div>
                 </div>
                 <div>
                   <div style={{ color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", marginBottom: "3px" }}>Rendez-vous concerné</div>
                   <div style={{ color: C.t1, fontSize: "14px", fontWeight: 700 }}>
-                    {rdvCree ? `${formatDateRdv(rdvCree.date_rdv)} à ${rdvCree.heure_rdv?.slice(0, 5)} — ${rdvCree.objet || "RDV général"}` : "Aucun rendez-vous spécifique"}
+                    {rdvCree ? `${formatDateRdv(rdvCree.date_rdv)} à ${heureAmPm(rdvCree.heure_rdv)} —${rdvCree.objet || "RDV général"}` : "Aucun rendez-vous spécifique"}
                   </div>
                 </div>
                 <div>
@@ -926,11 +890,55 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
   // ─────────────────────────────────────────────────────────────────────
   // VUE LISTE — boîte de réception
   // ─────────────────────────────────────────────────────────────────────
+  const FILTRES_RAPIDES = [
+    { key: "tous", label: "Tous" },
+    { key: "ouverts", label: "À traiter" },
+    { key: "en_cours", label: "En cours" },
+    { key: "resolus", label: "Résolus" },
+    { key: "rejetes", label: "Rejetés" },
+  ] as const;
+  const kpiRejetes = signalements.filter(s => s.statut === "rejete" || s.statut === "doublon").length;
+  const compteurs: Record<typeof FILTRES_RAPIDES[number]["key"], number> = {
+    tous: signalements.length, ouverts: kpiOuverts, en_cours: kpiEnCours, resolus: kpiResolus, rejetes: kpiRejetes,
+  };
+  const nbAvances = [filtrePriorite, filtreAssigne, filtreMotif].filter(Boolean).length;
+  function reinitialiserFiltres() {
+    setRecherche(""); setFiltrePriorite(""); setFiltreAssigne(""); setFiltreMotif(""); setFiltreRapide("tous");
+  }
+  const chips = [
+    ...(recherche.trim() ? [{ key: "q", label: `Recherche : ${recherche.trim()}`, onRemove: () => setRecherche("") }] : []),
+    ...(filtrePriorite ? [{ key: "p", label: `Priorité : ${SIGNALEMENT_PRIORITE_LABELS[filtrePriorite as SignalementPriorite] ?? filtrePriorite}`, onRemove: () => setFiltrePriorite("") }] : []),
+    ...(filtreAssigne ? [{ key: "a", label: `Assigné : ${membreNom(filtreAssigne)}`, onRemove: () => setFiltreAssigne("") }] : []),
+    ...(filtreMotif ? [{ key: "m", label: `Motif : ${motifLabel(filtreMotif)}`, onRemove: () => setFiltreMotif("") }] : []),
+  ];
+  const lignes: SigRowData[] = listeFiltree.map(s => ({
+    id: s.id, numero: s.numero_public, titre: motifLabel(s.motif), citoyen: s.citoyen_name || null,
+    contreVous: s.type_signaleur === "citoyen",
+    priorite: s.priorite, prioriteLabel: SIGNALEMENT_PRIORITE_LABELS[s.priorite],
+    statut: s.statut, statutLabel: SIG_STATUT_CFG(C)[s.statut]?.label ?? s.statut,
+    assigne: s.assigne_a_membre_id ? membreNom(s.assigne_a_membre_id) : null,
+    createdAt: s.created_at,
+  }));
+  const kpiItems: SigKpiItem[] = [
+    { key: "ouverts", label: "À traiter", value: kpiOuverts, delta: deltaCreationJour(s => s.statut === "nouveau" || s.statut === "a_traiter"), active: filtreRapide === "ouverts",
+      onClick: () => setFiltreRapide(filtreRapide === "ouverts" ? "tous" : "ouverts"),
+      icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg> },
+    // Aucun filtre rapide ne couvre "critique + haute" (filtrePriorite n'accepte
+    // qu'une valeur) : indicateur volontairement non cliquable.
+    { key: "priorite", label: "Priorité élevée", value: kpiPrioriteElevee, delta: deltaCreationJour(s => s.priorite === "critique" || s.priorite === "haute"), active: false, alerte: true,
+      icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+    { key: "en_cours", label: "En cours", value: kpiEnCours, delta: deltaCreationJour(s => s.statut === "en_cours" || s.statut === "en_attente"), active: filtreRapide === "en_cours",
+      onClick: () => setFiltreRapide(filtreRapide === "en_cours" ? "tous" : "en_cours"),
+      icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> },
+    { key: "resolus", label: "Résolus", value: kpiResolus, delta: deltaCreationJour(s => s.statut === "resolu" || s.statut === "cloture"), active: filtreRapide === "resolus",
+      onClick: () => setFiltreRapide(filtreRapide === "resolus" ? "tous" : "resolus"),
+      icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> },
+  ];
+
   return (
-    <div style={{ padding: "16px", animation: "fadeUp 0.2s ease" }}>
+    <div className="sigx-page" style={{ animation: "fadeUp 0.2s ease" }}>
+      <SigStyles C={C}/>
       <style>{`
-        @media(max-width:759px){ .sig-table{ display:none!important } }
-        @media(min-width:760px){ .sig-cards{ display:none!important } }
         @media(min-width:1024px){
           .sig-fiche-overlay{align-items:center!important}
           .sig-fiche-panel{max-width:920px!important;border-radius:20px!important;max-height:86svh!important}
@@ -940,167 +948,65 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
         }
       `}</style>
 
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", marginBottom: "18px" }}>
-        <div>
-          <h1 className="yelen-h2" style={{ color: C.t1, marginBottom: "4px" }}>Signalements</h1>
-          <p style={{ color: C.t2, fontSize: "12.5px", marginBottom: "6px" }}>Gestion des cas de signalement — création, traitement, résolution.</p>
-          <button onClick={() => setShowCanauxInfo(true)} className="tap" style={{ background: "none", border: "none", padding: 0, color: C.gold, fontSize: "11.5px", fontWeight: 700, cursor: "pointer", marginBottom: "6px" }}>
-            Signalements, avis, messages, questions clients — quel canal pour quoi ?
-          </button>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "5px", color: C.green, fontSize: "10.5px", fontWeight: 800 }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: C.green, boxShadow: `0 0 0 3px ${C.green}25` }}/>
-              Live
-            </span>
-            {lastSync && <span style={{ color: C.t3, fontSize: "10.5px" }}>Dernière synchronisation : {ilYA(lastSync, maintenant)}</span>}
-          </div>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={exporterCsv}>Exporter CSV</Button>
-          <Button
-            tokens={toUiTokens(C)}
-            className="tap"
-            variant="secondary"
-            size="sm"
-            icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>}
-            onClick={() => chargerListe(true)}
-          >
-            Actualiser
-          </Button>
-          {canWrite && (
-            <Button
-              tokens={toUiTokens(C)}
-              className="tap"
-              variant="primary"
-              size="sm"
-              icon={<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
-              onClick={() => setVue("creation")}
-            >
-              Nouveau signalement
-            </Button>
-          )}
-        </div>
-      </div>
+      <SigHeader C={C} helpSlot={<HelpCenterGuide tab="signalements" />} canWrite={canWrite}
+        onCanaux={() => setShowCanauxInfo(true)} onExport={exporterCsv} onNew={() => setVue("creation")}
+        lastSync={lastSync !== null}
+        maintenantTexte={lastSync ? ilYA(lastSync, maintenant) : ""}
+        maintenantSr={lastSync ? ilYA(lastSync, Math.floor(maintenant / 60000) * 60000) : ""}
+        onRefresh={() => chargerListe(true)}/>
 
-      {/* KPI exécutifs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-        <SigKpiCard label="À traiter" color={C.gold} value={String(kpiOuverts)} delta={deltaCreationJour(s => s.statut === "nouveau" || s.statut === "a_traiter")} serie={serieCreation(s => s.statut === "nouveau" || s.statut === "a_traiter")} C={C}
-          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>}/>
-        <SigKpiCard label="Priorité élevée" color={C.red} value={String(kpiPrioriteElevee)} delta={deltaCreationJour(s => s.priorite === "critique" || s.priorite === "haute")} serie={serieCreation(s => s.priorite === "critique" || s.priorite === "haute")} C={C}
-          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}/>
-        <SigKpiCard label="En cours" color={C.blue} value={String(kpiEnCours)} delta={deltaCreationJour(s => s.statut === "en_cours" || s.statut === "en_attente")} serie={serieCreation(s => s.statut === "en_cours" || s.statut === "en_attente")} C={C}
-          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>}/>
-        <SigKpiCard label="Résolus" color={C.green} value={String(kpiResolus)} delta={deltaCreationJour(s => s.statut === "resolu" || s.statut === "cloture")} serie={serieCreation(s => s.statut === "resolu" || s.statut === "cloture")} C={C}
-          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>}/>
-      </div>
+      {loading ? <SigSkeleton C={C} kpi/> : <SigKpiStrip C={C} items={kpiItems}/>}
 
-      {/* Recherche + filtres */}
-      <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher un numéro, un motif, un citoyen…" style={{ ...inputStyle(C), marginBottom: "10px" }}/>
-      <div style={{ display: "flex", gap: "6px", marginBottom: "10px", overflowX: "auto" }}>
-        {([
-          { key: "tous", label: "Tous" },
-          { key: "ouverts", label: "À traiter" },
-          { key: "en_cours", label: "En cours" },
-          { key: "resolus", label: "Résolus" },
-          { key: "rejetes", label: "Rejetés" },
-        ] as const).map(f => (
-          <button key={f.key} onClick={() => setFiltreRapide(f.key)} className="tap" style={{ backgroundColor: filtreRapide === f.key ? C.gold : C.bg3, color: filtreRapide === f.key ? "#000" : C.t2, border: `1px solid ${filtreRapide === f.key ? C.gold : C.border}`, fontWeight: 700, fontSize: "11.5px", padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap" }}>{f.label}</button>
-        ))}
-        <button onClick={() => setFiltresAvances(v => !v)} className="tap" style={{ backgroundColor: filtresAvances ? `${C.gold}15` : C.bg3, color: filtresAvances ? C.gold : C.t2, border: `1px solid ${filtresAvances ? C.gold + "50" : C.border}`, fontWeight: 700, fontSize: "11.5px", padding: "7px 12px", borderRadius: "20px", cursor: "pointer", whiteSpace: "nowrap" }}>Filtres avancés</button>
-      </div>
+      <SigToolbar C={C} active={active} recherche={recherche} onRecherche={setRecherche}
+        tabs={FILTRES_RAPIDES.map(f => ({ key: f.key, label: f.label, count: compteurs[f.key] }))}
+        tabActive={filtreRapide}
+        onTab={k => { const f = FILTRES_RAPIDES.find(x => x.key === k); if (f) setFiltreRapide(f.key); }}
+        avancesOuverts={filtresAvances} onToggleAvances={() => setFiltresAvances(v => !v)} avancesCount={nbAvances}
+        total={listeFiltree.length}/>
       {filtresAvances && (
-        <Card tokens={toCardTokens(C)} padding="12px" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "14px" }}>
-          <select value={filtrePriorite} onChange={e => setFiltrePriorite(e.target.value)} style={inputStyle(C)}>
+        <Card tokens={toCardTokens(C)} padding="12px" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px", marginBottom: "12px" }}>
+          <select aria-label="Filtrer par priorité" value={filtrePriorite} onChange={e => setFiltrePriorite(e.target.value)} style={inputStyle(C)}>
             <option value="">Toutes priorités</option>
             {SIGNALEMENT_PRIORITES.map(p => <option key={p} value={p}>{SIGNALEMENT_PRIORITE_LABELS[p]}</option>)}
           </select>
-          <select value={filtreAssigne} onChange={e => setFiltreAssigne(e.target.value)} style={inputStyle(C)}>
+          <select aria-label="Filtrer par assigné" value={filtreAssigne} onChange={e => setFiltreAssigne(e.target.value)} style={inputStyle(C)}>
             <option value="">Tous les assignés</option>
             {membres.map(m => <option key={m.id} value={m.id}>{m.prenom} {m.nom}</option>)}
           </select>
-          <select value={filtreMotif} onChange={e => setFiltreMotif(e.target.value)} style={inputStyle(C)}>
+          <select aria-label="Filtrer par motif" value={filtreMotif} onChange={e => setFiltreMotif(e.target.value)} style={inputStyle(C)}>
             <option value="">Tous les motifs</option>
-            {MOTIFS_INSTITUTION.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            {[...SIGNALEMENT_MOTIFS_INSTITUTION, ...SIGNALEMENT_MOTIFS_CITOYEN].filter((m, i, arr) => arr.findIndex(x => x.value === m.value) === i).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </Card>
       )}
+      <SigChips C={C} chips={chips} onReset={reinitialiserFiltres}/>
 
       {/* Liste */}
       {loading ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: "60px" }}><YelenLoader size={32}/></div>
+        <SigSkeleton C={C}/>
+      ) : erreurListe && signalements.length === 0 ? (
+        <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center" }}>
+          <div role="alert" style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Impossible de charger les signalements</div>
+          <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Vérifiez votre connexion puis réessayez.</div>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => chargerListe(true)}>Réessayer</Button>
+        </Card>
       ) : signalements.length === 0 ? (
         <SigEmptyState C={C} illustration={<IllustrationSignalements C={C}/>}
-          titre="Rien à signaler pour l'instant"
+          titre="Aucun signalement"
           texte="Les signalements créés par votre équipe, ou remontés par un citoyen, apparaîtront ici avec leur historique de traitement complet."
-          cta={canWrite ? { label: "+ Nouveau signalement", onClick: () => setVue("creation") } : undefined}/>
+          cta={canWrite ? { label: "Nouveau signalement", onClick: () => setVue("creation") } : undefined}/>
       ) : listeFiltree.length === 0 && filtreVideCfg ? (
         <SigEmptyState C={C} illustration={filtreVideCfg.illustration(C)} titre={filtreVideCfg.titre} texte={filtreVideCfg.texte}/>
       ) : listeFiltree.length === 0 ? (
-        <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center", color: C.t2, fontSize: "13px" }}>
-          Aucun signalement ne correspond à ces critères.
+        <Card tokens={toCardTokens(C)} padding="32px" style={{ textAlign: "center" }}>
+          <div style={{ color: C.t1, fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Aucun résultat</div>
+          <div style={{ color: C.t2, fontSize: "13px", marginBottom: "14px" }}>Aucun signalement ne correspond à ces critères.</div>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={reinitialiserFiltres}>Réinitialiser les filtres</Button>
         </Card>
       ) : (
         <>
-          {/* Desktop : tableau */}
-          <Card tokens={toCardTokens(C)} padding="0" className="sig-table" style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", fontSize: "12.5px" }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  {["N°", "Sens", "Signalement", "Citoyen", "Priorité", "Statut", "Assigné", "Créé", ""].map(h => (
-                    <th key={h} style={{ textAlign: "left", padding: "10px 14px", color: C.t3, fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {listeFiltree.map((s, i, arr) => {
-                  const cfg = SIG_STATUT_CFG(C)[s.statut];
-                  const estime = s.statut === "cloture" || s.statut === "rejete" || s.statut === "doublon";
-                  return (
-                    <tr key={s.id} onClick={() => setSelectedId(s.id)} className="tap" style={{ borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer", opacity: estime ? 0.55 : 1 }}>
-                      <td style={{ padding: "12px 14px", whiteSpace: "nowrap", fontFamily: "monospace", color: C.t2, fontSize: "11px" }}>{s.numero_public}</td>
-                      <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                        <span style={{ backgroundColor: s.type_signaleur === "citoyen" ? C.orangeL : C.bg3, color: s.type_signaleur === "citoyen" ? C.orange : C.t2, fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "20px" }}>{s.type_signaleur === "citoyen" ? "Contre vous" : "Déposé par vous"}</span>
-                      </td>
-                      <td style={{ padding: "12px 14px", color: C.t1, fontWeight: 700, maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{motifLabel(s.motif)}</td>
-                      <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{s.citoyen_name || "—"}</td>
-                      <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                        <span style={{ backgroundColor: prioriteBg(s.priorite, C), color: prioriteColor(s.priorite, C), fontSize: "10.5px", fontWeight: 700, padding: "3px 9px", borderRadius: "20px" }}>{SIGNALEMENT_PRIORITE_LABELS[s.priorite]}</span>
-                      </td>
-                      <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                        <span style={{ backgroundColor: cfg.bg, color: cfg.color, fontSize: "10.5px", fontWeight: 700, padding: "3px 9px", borderRadius: "20px" }}>{cfg.label}</span>
-                      </td>
-                      <td style={{ padding: "12px 14px", color: C.t2, whiteSpace: "nowrap" }}>{membreNom(s.assigne_a_membre_id)}</td>
-                      <td style={{ padding: "12px 14px", color: C.t3, whiteSpace: "nowrap" }}>{formatDateSig(s.created_at)}</td>
-                      <td style={{ padding: "12px 14px" }}><Ic_Chevron C={C}/></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </Card>
-
-          {/* Mobile : cards */}
-          <div className="sig-cards" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {listeFiltree.map(s => {
-              const cfg = SIG_STATUT_CFG(C)[s.statut];
-              const estime = s.statut === "cloture" || s.statut === "rejete" || s.statut === "doublon";
-              return (
-                <Card key={s.id} tokens={toCardTokens(C)} padding="14px 16px" onClick={() => setSelectedId(s.id)} className="tap" style={{ opacity: estime ? 0.6 : 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-                    <span style={{ fontFamily: "monospace", color: C.t3, fontSize: "10.5px" }}>{s.numero_public}</span>
-                    <span style={{ backgroundColor: cfg.bg, color: cfg.color, fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "20px" }}>{cfg.label}</span>
-                  </div>
-                  <span style={{ display: "inline-block", backgroundColor: s.type_signaleur === "citoyen" ? C.orangeL : C.bg3, color: s.type_signaleur === "citoyen" ? C.orange : C.t2, fontSize: "9.5px", fontWeight: 700, padding: "2px 7px", borderRadius: "20px", marginBottom: "6px" }}>{s.type_signaleur === "citoyen" ? "Contre vous" : "Déposé par vous"}</span>
-                  <p style={{ color: C.t1, fontSize: "14px", fontWeight: 700, margin: "0 0 3px" }}>{motifLabel(s.motif)}</p>
-                  <p style={{ color: C.t2, fontSize: "12px", margin: "0 0 8px" }}>{s.citoyen_name || "—"}</p>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ backgroundColor: prioriteBg(s.priorite, C), color: prioriteColor(s.priorite, C), fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "20px" }}>{SIGNALEMENT_PRIORITE_LABELS[s.priorite]}</span>
-                    <span style={{ color: C.t3, fontSize: "11px" }}>{formatDateSig(s.created_at)}</span>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
+          <SigTable C={C} rows={lignes} maintenant={maintenant} onOpen={setSelectedId}/>
+          <SigCards C={C} rows={lignes} maintenant={maintenant} onOpen={setSelectedId}/>
         </>
       )}
 
@@ -1139,7 +1045,7 @@ export function SignalementsTab({ access = "full", active = true }: { instId: st
                         <div style={{ backgroundColor: C.bg3, borderRadius: "12px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "8px", fontSize: "12.5px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Citoyen</span><span style={{ color: C.t1, fontWeight: 700 }}>{sig.citoyen_name || "—"}</span></div>
                           {sig.citoyen_phone && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Téléphone</span><span style={{ color: C.t1 }}>{sig.citoyen_phone}</span></div>}
-                          {sig.incident_date && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Date de l&apos;incident</span><span style={{ color: C.t1 }}>{formatDateRdv(sig.incident_date)}{sig.incident_heure && ` · ${sig.incident_heure.slice(0, 5)}`}</span></div>}
+                          {sig.incident_date && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Date de l&apos;incident</span><span style={{ color: C.t1 }}>{formatDateRdv(sig.incident_date)}{sig.incident_heure && ` · ${heureAmPm(sig.incident_heure) || sig.incident_heure.slice(0, 5)}`}</span></div>}
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Créé le</span><span style={{ color: C.t1 }}>{formatDateHeureSig(sig.created_at)}</span></div>
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Assigné à</span><span style={{ color: C.t1, fontWeight: 700 }}>{membreNom(sig.assigne_a_membre_id)}</span></div>
                           <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.t3 }}>Niveau</span><span style={{ color: C.t1 }}>{sig.escalade_niveau === "agent" ? "Agent" : sig.escalade_niveau === "superviseur" ? "Superviseur" : "Admin"}</span></div>

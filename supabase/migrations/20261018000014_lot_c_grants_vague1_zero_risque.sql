@@ -1,0 +1,13 @@
+-- Lot C — Vague 1 (18/10/2026) : réduction des grants historiques sur les
+-- 4 tables sans aucune policy RLS (admin_users, logs_admin, rdv_alertes,
+-- signalements). Ces tables ont RLS actif mais zéro policy — anon/
+-- authenticated ne peuvent déjà RIEN faire dessus aujourd'hui (refus par
+-- défaut RLS), quel que soit le grant table. Ce changement ne modifie
+-- donc aucun comportement fonctionnel, c'est de la défense en profondeur
+-- pure : si une policy permissive était ajoutée par erreur demain sur une
+-- de ces tables, le grant large aurait été le seul filet de sécurité
+-- restant. Vérifié avant écriture (pg_policies, 0 ligne pour ces 4 tables).
+--
+-- service_role n'est pas touché (garde tous ses privilèges, accès
+-- exclusif voulu pour ces tables).
+REVOKE ALL ON TABLE admin_users, logs_admin, rdv_alertes, signalements FROM anon, authenticated;

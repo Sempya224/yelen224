@@ -67,9 +67,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "id et reponse requis" }, { status: 400 });
   }
 
-  const { data: question } = await sb.from("questions_institution").select("id, institution_id, citoyen_id").eq("id", id).maybeSingle();
+  const { data: question } = await sb.from("questions_institution").select("id, institution_id, citoyen_id, reponse").eq("id", id).maybeSingle();
   if (!question || question.institution_id !== authInstId) {
     return NextResponse.json({ error: "Question introuvable pour cette institution" }, { status: 404 });
+  }
+
+  // Réponse déjà publiée = immuable (voir avis/repondre/route.ts, même
+  // demande Bryan 12/10/2026) — barrière serveur, pas seulement l'UI.
+  if (question.reponse) {
+    return NextResponse.json({ error: "Cette réponse est déjà publiée et ne peut plus être modifiée." }, { status: 409 });
   }
 
   const { error } = await sb

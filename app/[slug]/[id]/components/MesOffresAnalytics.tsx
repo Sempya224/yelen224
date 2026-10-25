@@ -1,15 +1,17 @@
 "use client";
 
-// Bottom analytics "Mes offres" (chantier "Centre de pilotage des offres",
-// 02/08/2026) — Top offres (vues réelles), Activité récente (Journal
-// d'activité institution, cible_table="offres"), Modération (compteurs
-// réels valide_le/motif_refus, pas un historique multi-refus), Calendrier
+// Panneaux d'analyse "Mes offres" (chantier "Centre de pilotage des offres",
+// 02/08/2026, réorganisés en onglets le 20/10/2026) — Top offres (vues
+// réelles, onglet Performance), puis Activité récente (Journal d'activité
+// institution, cible_table="offres"), Modération (compteurs réels
+// valide_le/motif_refus, pas un historique multi-refus) et Calendrier
 // (stub "Bientôt disponible" — la planification de publication n'est pas
-// construite dans ce chantier, décision Bryan).
+// construite, décision Bryan) dans l'onglet Activité et modération.
 import { useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens } from "../theme";
 import { type Offre } from "./MesOffresTab";
+import { dateRelative, dateHeure } from "./MesOffresUi";
 
 type JournalEntree = { id: string; membre_nom: string; action: string; cible_id: string | null; created_at: string };
 
@@ -25,27 +27,55 @@ const ACTION_LABELS: Record<string, string> = {
   offre_suspendue_admin: "a suspendu l'offre",
 };
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "À l'instant";
-  if (m < 60) return `Il y a ${m} min`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `Il y a ${h} h`;
-  return `Il y a ${Math.floor(h / 24)} j`;
-}
-
 function panelStyle(C: ThemeTokens): React.CSSProperties {
-  return { background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "20px", padding: "18px" };
+  return { background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "20px" };
 }
+const titreStyle = (C: ThemeTokens): React.CSSProperties => ({ color: C.t1, fontSize: "16px", fontWeight: 600, margin: "0 0 14px" });
 
-export function MesOffresAnalytics({ items, vuesParOffre }: {
+export function MesOffresTopOffres({ items, vuesParOffre }: {
   items: Offre[];
   vuesParOffre: Record<string, { vues: number; clics: number }>;
 }) {
   const { theme } = useTheme();
   const C = T[theme] as ThemeTokens;
+  const topOffres = [...items]
+    .sort((a, b) => (vuesParOffre[b.id]?.vues ?? 0) - (vuesParOffre[a.id]?.vues ?? 0))
+    .slice(0, 5);
+  const maxVues = Math.max(1, ...topOffres.map(o => vuesParOffre[o.id]?.vues ?? 0));
+
+  return (
+    <div style={panelStyle(C)}>
+      <h2 style={titreStyle(C)}>Top offres</h2>
+      {topOffres.length === 0 ? (
+        <div style={{ color: C.t2, fontSize: "13px" }}>Aucune donnée pour le moment.</div>
+      ) : (
+        <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "14px" }}>
+          {topOffres.map((o, i) => {
+            const v = vuesParOffre[o.id]?.vues ?? 0;
+            return (
+              <li key={o.id}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{ width: "18px", color: C.t3, fontSize: "12px", fontVariantNumeric: "tabular-nums" }}>{i + 1}</span>
+                  <span title={o.titre} style={{ flex: 1, minWidth: 0, color: C.t1, fontSize: "14px", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.titre}</span>
+                  <span style={{ color: C.t2, fontSize: "13px", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{v} vue{v > 1 ? "s" : ""}</span>
+                </div>
+                <div aria-hidden="true" style={{ height: "3px", borderRadius: "2px", backgroundColor: C.bg3, margin: "6px 0 0 28px", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(v / maxVues) * 100}%`, backgroundColor: C.gold, borderRadius: "2px" }}/>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+export function MesOffresActivite({ items }: { items: Offre[] }) {
+  const { theme } = useTheme();
+  const C = T[theme] as ThemeTokens;
   const [journal, setJournal] = useState<JournalEntree[]>([]);
+  const [maintenant] = useState(() => Date.now());
 
   const ids = items.map(o => o.id).join(",");
   useEffect(() => {
@@ -57,75 +87,67 @@ export function MesOffresAnalytics({ items, vuesParOffre }: {
     })();
   }, [ids]);
 
-  const topOffres = [...items]
-    .sort((a, b) => (vuesParOffre[b.id]?.vues ?? 0) - (vuesParOffre[a.id]?.vues ?? 0))
-    .slice(0, 5);
+  // Regroupement à l'affichage seulement : des événements consécutifs de
+  // même auteur et même action ("a soumis l'offre à la modération" ×4)
+  // deviennent une ligne "×4" — les données du journal ne sont pas modifiées.
+  const groupes: { entree: JournalEntree; n: number }[] = [];
+  for (const e of journal) {
+    const dernier = groupes[groupes.length - 1];
+    if (dernier && dernier.entree.membre_nom === e.membre_nom && dernier.entree.action === e.action) dernier.n += 1;
+    else groupes.push({ entree: e, n: 1 });
+  }
 
   const enAttente = items.filter(o => o.statut === "en_attente_validation").length;
   const approuvees = items.filter(o => !!o.valide_le).length;
   const refusees = items.filter(o => o.motif_refus).length;
+  const ligne = (label: string, valeur: number, color: string) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", fontSize: "14px" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: "8px", color: C.t2 }}>
+        <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: color, flexShrink: 0 }}/>{label}
+      </span>
+      <span style={{ color: C.t1, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{valeur}</span>
+    </div>
+  );
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: "16px", marginTop: "20px" }}>
-      <div style={panelStyle(C)}>
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Top offres</div>
-        {topOffres.length === 0 ? (
-          <div style={{ color: C.t3, fontSize: "12px" }}>Aucune donnée pour le moment.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {topOffres.map((o, i) => (
-              <div key={o.id} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ width: "20px", color: C.t3, fontSize: "11px", fontWeight: 800 }}>{i + 1}</span>
-                <span style={{ flex: 1, color: C.t1, fontSize: "12.5px", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.titre}</span>
-                <span style={{ color: C.t3, fontSize: "11px", flexShrink: 0 }}>{vuesParOffre[o.id]?.vues ?? 0} vues</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "16px", alignItems: "stretch" }}>
+        <div style={{ ...panelStyle(C), display: "flex", flexDirection: "column", minHeight: "240px" }}>
+          <h2 style={titreStyle(C)}>Activité récente</h2>
+          {groupes.length === 0 ? (
+            <div style={{ color: C.t2, fontSize: "13px" }}>Aucune activité pour le moment.</div>
+          ) : (
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: "320px", overflowY: "auto" }}>
+              {groupes.map(({ entree: e, n }, i) => (
+                <li key={e.id} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px", padding: "9px 0", borderBottom: i < groupes.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <span style={{ color: C.t2, fontSize: "14px", minWidth: 0, overflowWrap: "anywhere" }}>
+                    <strong style={{ color: C.t1, fontWeight: 500 }}>{e.membre_nom}</strong> {ACTION_LABELS[e.action] ?? e.action}
+                    {n > 1 && <span style={{ color: C.t3, marginLeft: "6px", fontVariantNumeric: "tabular-nums" }}>· ×{n}</span>}
+                  </span>
+                  <span title={dateHeure(e.created_at)} style={{ color: C.t3, fontSize: "12px", flexShrink: 0, whiteSpace: "nowrap" }}>{dateRelative(e.created_at, maintenant)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      <div style={panelStyle(C)}>
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Activité récente</div>
-        {journal.length === 0 ? (
-          <div style={{ color: C.t3, fontSize: "12px" }}>Aucune activité pour le moment.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {journal.slice(0, 8).map(e => (
-              <div key={e.id} style={{ fontSize: "12px" }}>
-                <div style={{ color: C.t2 }}>
-                  <strong style={{ color: C.t1 }}>{e.membre_nom}</strong> {ACTION_LABELS[e.action] ?? e.action}
-                </div>
-                <div style={{ color: C.t3, fontSize: "10.5px", marginTop: "2px" }}>{timeAgo(e.created_at)}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div style={panelStyle(C)}>
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Modération</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12.5px" }}>
-            <span style={{ color: C.t2 }}>En attente</span>
-            <span style={{ color: C.orange, fontWeight: 800 }}>{enAttente}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12.5px" }}>
-            <span style={{ color: C.t2 }}>Approuvées (au moins une fois)</span>
-            <span style={{ color: C.green, fontWeight: 800 }}>{approuvees}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12.5px" }}>
-            <span style={{ color: C.t2 }}>Refusées (au moins une fois)</span>
-            <span style={{ color: C.red, fontWeight: 800 }}>{refusees}</span>
+        <div style={panelStyle(C)}>
+          <h2 style={titreStyle(C)}>Modération</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {ligne("En attente", enAttente, C.orange)}
+            {ligne("Approuvées (au moins une fois)", approuvees, C.green)}
+            {ligne("Refusées (au moins une fois)", refusees, C.red)}
           </div>
         </div>
       </div>
 
-      <div style={panelStyle(C)}>
-        <div style={{ color: C.t1, fontSize: "13px", fontWeight: 800, marginBottom: "14px" }}>Calendrier de publication</div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "16px 8px", textAlign: "center" }}>
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          <div style={{ color: C.t3, fontSize: "11.5px", lineHeight: 1.6 }}>Bientôt disponible — nécessite la planification de publication.</div>
+      <div style={{ ...panelStyle(C), padding: "14px 20px", display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+        <svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="1.6" strokeLinecap="round" style={{ flexShrink: 0 }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <div style={{ flex: 1, minWidth: "200px" }}>
+          <h2 style={{ color: C.t1, fontSize: "16px", fontWeight: 600, margin: 0 }}>Calendrier de publication</h2>
+          <div style={{ color: C.t2, fontSize: "13px", marginTop: "2px" }}>Nécessite la planification de publication.</div>
         </div>
+        <span style={{ fontSize: "12px", fontWeight: 600, color: C.t2, backgroundColor: C.bg3, borderRadius: "6px", padding: "2px 8px" }}>Bientôt disponible</span>
       </div>
     </div>
   );

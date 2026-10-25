@@ -28,14 +28,16 @@ import { useTheme } from "@/components/ThemeProvider";
 import { T, type ThemeTokens, toUiTokens } from "../../theme";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { YelenLoader } from "@/components/YelenLoader";
 import { DOCUMENT_TRAVAIL_ACCEPTED_MIME, MAX_DOCUMENT_TRAVAIL_SIZE } from "@/lib/documentsTravail";
 import {
   type DocumentTravail, type Membre, CATEGORIES_DOCUMENT_TRAVAIL,
-  categorieLabel, formatTaille, fileTypeInfo, fileTypeLabel, nomMembre, peutGerer,
+  categorieLabel, fileTypeLabel, nomMembre, peutGerer,
   useDialogA11y, CategoryPicker, DocumentDetailsPanel, DocumentPreviewDialog,
 } from "./DocumentsOverlays";
 import { type Projet, ProjectLinkPicker } from "./ProjetsOverlays";
+import { DocsStyles, DocsToolbar, DropArea, FileTypeIcon, tailleFr, titreAffiche, dateDocument, nomPropre, initiales } from "./DocumentsUi";
+import { TasksSkeleton, TasksMessage } from "./TachesUi";
+import { ClockStyles, ClockModal, ModalField, champStyle, ComboField, StatusPill, RowActionsMenu } from "../../components/ClockInShiftUi";
 
 type SortKey = "nom" | "categorie" | "taille" | "membre" | "date";
 type DateBucket = "aujourdhui" | "semaine" | "mois" | "plus_ancien" | null;
@@ -249,70 +251,43 @@ export function DocumentsSection({ instId, onToast }: { instId: string; onToast:
   const isTrueEmpty = !loading && !loadError && documents.length === 0;
   const isNoResults = !loading && !loadError && documents.length > 0 && filtered.length === 0;
 
+  const compteParCategorie = new Map<string, number>();
+  for (const d of documents) compteParCategorie.set(d.categorie, (compteParCategorie.get(d.categorie) ?? 0) + 1);
+  const aFiltre = activeFilterChips.length > 0 || search.trim() !== "";
+  const SORT_LABELS: Record<SortKey, string> = { date: "Date", nom: "Nom", categorie: "Catégorie", taille: "Taille", membre: "Ajouté par" };
+
   return (
     <div>
-      <div style={{ marginBottom: "10px" }}>
-        <div style={{ position: "relative" }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="2.5" strokeLinecap="round" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un document…" style={{ width: "100%", backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "10px 12px 10px 34px", fontSize: "13px", color: C.t1, boxSizing: "border-box" }}/>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: "6px", overflowX: "auto", flex: "1 1 auto" }}>
-          <button onClick={() => setCategorie("tous")} style={{ flexShrink: 0, backgroundColor: categorie === "tous" ? `${C.gold}20` : C.bgCard, border: `1px solid ${categorie === "tous" ? C.gold + "40" : C.border}`, borderRadius: "20px", padding: "6px 12px", color: categorie === "tous" ? C.gold : C.t2, fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>Tous</button>
-          {CATEGORIES_DOCUMENT_TRAVAIL.map(c => (
-            <button key={c.value} onClick={() => setCategorie(c.value)} style={{ flexShrink: 0, backgroundColor: categorie === c.value ? `${C.gold}20` : C.bgCard, border: `1px solid ${categorie === c.value ? C.gold + "40" : C.border}`, borderRadius: "20px", padding: "6px 12px", color: categorie === c.value ? C.gold : C.t2, fontSize: "11px", fontWeight: "700", cursor: "pointer" }}>{c.label}</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
-          <button ref={filtersBtnRef} onClick={() => setFiltersOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: "6px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>
-            Filtrer{(filters.types.length + filters.creePar.length + (filters.date ? 1 : 0)) > 0 && <span style={{ backgroundColor: C.gold, color: "#000", fontSize: "9.5px", fontWeight: "800", borderRadius: "20px", padding: "1px 6px" }}>{filters.types.length + filters.creePar.length + (filters.date ? 1 : 0)}</span>}
-          </button>
-          <button ref={sortBtnRef} onClick={() => setSortOpen(v => !v)} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "9px", padding: "8px 12px", fontSize: "11.5px", fontWeight: "700", color: C.t2, cursor: "pointer" }}>Trier</button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setUploadOpen(true)}>+ Ajouter</Button>
-        </div>
-      </div>
-
-      {activeFilterChips.length > 0 && (
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
-          {activeFilterChips.map(c => (
-            <button key={c.key} onClick={c.onRemove} style={{ display: "flex", alignItems: "center", gap: "5px", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "20px", padding: "3px 6px 3px 10px", fontSize: "11px", fontWeight: "700", color: C.t1, cursor: "pointer" }}>
-              {c.label}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.t3} strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          ))}
-          <button onClick={resetFilters} style={{ background: "none", border: "none", color: C.t3, fontSize: "11px", fontWeight: "700", cursor: "pointer", textDecoration: "underline" }}>Réinitialiser</button>
-        </div>
-      )}
+      <ClockStyles C={C}/>
+      <DocsStyles C={C}/>
+      <DocsToolbar C={C} search={search} onSearch={setSearch}
+        categorie={
+          <ComboField C={C} id="docs-categorie" compact valeur={categorie === "tous" ? "" : categorie} onChange={v => setCategorie(v || "tous")} aucunLabel={`Toutes les catégories (${documents.length})`}
+            options={CATEGORIES_DOCUMENT_TRAVAIL.map(c => ({ value: c.value, label: compteParCategorie.get(c.value) ? `${c.label} (${compteParCategorie.get(c.value)})` : c.label }))}/>
+        }
+        filtersRef={filtersBtnRef} filtersCount={filters.types.length + filters.creePar.length + (filters.date ? 1 : 0) + (filters.projetId ? 1 : 0)} onFilters={() => setFiltersOpen(v => !v)}
+        sortRef={sortBtnRef} sortLabel={SORT_LABELS[sortKey]} onSort={() => setSortOpen(v => !v)}
+        chips={activeFilterChips} onReset={resetFilters} aFiltre={aFiltre} total={filtered.length} onAdd={() => setUploadOpen(true)}/>
 
       {loadError && !loading && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: C.redL, border: `1px solid ${C.red}30`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
-          <span style={{ fontSize: "12.5px", fontWeight: "700", color: C.red }}>Impossible de charger les documents.</span>
-          <button onClick={load} style={{ background: "none", border: "none", color: C.red, fontSize: "12px", fontWeight: "800", cursor: "pointer", textDecoration: "underline" }}>Réessayer</button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", backgroundColor: `${C.red}14`, border: `1px solid ${C.red}33`, borderRadius: "10px", padding: "10px 14px", marginBottom: "12px" }}>
+          <span role="alert" style={{ fontSize: "13px", fontWeight: 500, color: C.red }}>Impossible de charger les documents.</span>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={load}>Réessayer</Button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: "40px", display: "flex", justifyContent: "center" }}>
-          <YelenLoader size={24}/>
-        </div>
+        <TasksSkeleton label="Chargement des documents"/>
       ) : isTrueEmpty ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "48px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "14px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Aucun document</div>
-          <p style={{ color: C.t3, fontSize: "12px", marginBottom: "16px" }}>Centralisez ici les contrats, rapports, factures et autres documents de l&apos;institution.</p>
-          <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="sm" onClick={() => setUploadOpen(true)}>+ Ajouter un document</Button>
-        </div>
+        <TasksMessage C={C} titre="Aucun document" texte={`Ajoutez vos contrats, factures et rapports. Formats acceptés : ${ACCEPT_LABEL} · ${MAX_SIZE_LABEL}.`} action={{ label: "+ Ajouter", onClick: () => setUploadOpen(true), primaire: true }}/>
       ) : isNoResults ? (
-        <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: "13px", fontWeight: "700", color: C.t1, marginBottom: "4px" }}>Aucun résultat</div>
-          <p style={{ color: C.t3, fontSize: "12px", marginBottom: "12px" }}>{search.trim() ? <>Aucun document ne correspond à « {search.trim()} ».</> : "Aucun document ne correspond à ces filtres."}</p>
-          <button onClick={resetFilters} style={{ color: C.gold, background: "none", border: "none", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>{search.trim() ? "Effacer la recherche" : "Réinitialiser les filtres"}</button>
-        </div>
+        <TasksMessage C={C} titre="Aucun résultat" texte={search.trim() ? `Aucun document ne correspond à « ${search.trim()} ».` : "Aucun document ne correspond à ces filtres."}
+          action={{ label: search.trim() ? "Effacer la recherche" : "Réinitialiser", onClick: resetFilters }}/>
       ) : (
-        <DocumentList C={C} docs={filtered} membres={membres} projets={projets} moiId={moiId} moiRole={moiRole}
+        <DocumentList C={C} docs={filtered} membres={membres} moiId={moiId} moiRole={moiRole}
           sortKey={sortKey} sortDir={sortDir} onToggleSort={toggleSort}
-          onOpenDetails={setDetailsDoc} onChangeCategorie={changerCategorie}/>
+          onOpenDetails={setDetailsDoc} onChangeCategorie={changerCategorie}
+          onPreview={setPreviewDoc} onDownload={telecharger} onEdit={setEditDoc} onDelete={requestDelete}/>
       )}
 
       {filtersOpen && <DocFiltersPopover C={C} anchorRef={filtersBtnRef} onClose={() => setFiltersOpen(false)} filters={filters} setFilters={setFilters} membres={membres} projets={projets}/>}
@@ -357,62 +332,113 @@ export function DocumentsSection({ instId, onToast }: { instId: string; onToast:
 // (item 8). Catégorie modifiable en un clic (popover), reste en lecture
 // seule pour un document qu'on ne peut pas gérer.
 // ─────────────────────────────────────────────────────────────────────────
-function SortHeader({ label, active, dir, onClick }: { label: string; active: boolean; dir: "asc" | "desc"; onClick: () => void }) {
-  return (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
-      {label}
-      {active && <span style={{ fontSize: "9px" }}>{dir === "asc" ? "▲" : "▼"}</span>}
-    </div>
-  );
-}
-
-function DocumentList({ C, docs, membres, projets, moiId, moiRole, sortKey, sortDir, onToggleSort, onOpenDetails, onChangeCategorie }: {
-  C: ThemeTokens; docs: DocumentTravail[]; membres: Membre[]; projets: Projet[]; moiId: string | null; moiRole: string | null;
+function DocumentList({ C, docs, membres, moiId, moiRole, sortKey, sortDir, onToggleSort, onOpenDetails, onChangeCategorie, onPreview, onDownload, onEdit, onDelete }: {
+  C: ThemeTokens; docs: DocumentTravail[]; membres: Membre[]; moiId: string | null; moiRole: string | null;
   sortKey: SortKey; sortDir: "asc" | "desc"; onToggleSort: (k: SortKey) => void;
   onOpenDetails: (d: DocumentTravail) => void; onChangeCategorie: (id: string, c: string) => void;
+  onPreview: (d: DocumentTravail) => void; onDownload: (d: DocumentTravail) => void; onEdit: (d: DocumentTravail) => void; onDelete: (d: DocumentTravail) => void;
 }) {
   const [catPickerId, setCatPickerId] = useState<string | null>(null);
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const COLS: { h: string; cle?: SortKey; right?: boolean; w?: string }[] = [
+    { h: "Document", cle: "nom" }, { h: "Catégorie", cle: "categorie", w: "150px" }, { h: "Taille", cle: "taille", right: true, w: "96px" },
+    { h: "Ajouté par", cle: "membre", w: "180px" }, { h: "Date", cle: "date", w: "140px" }, { h: "Actions", w: "72px", right: true },
+  ];
+  const actionsDe = (d: DocumentTravail, gerable: boolean) => [
+    { label: "Aperçu", onClick: () => onPreview(d) },
+    { label: "Télécharger", onClick: () => onDownload(d) },
+    ...(gerable ? [{ label: "Modifier", onClick: () => onEdit(d) }, { label: "Supprimer", onClick: () => onDelete(d), danger: true }] : []),
+  ];
+  const ouvrir = (d: DocumentTravail) => (e: React.KeyboardEvent) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpenDetails(d); } };
 
   return (
-    <div style={{ backgroundColor: C.bgCard, borderRadius: "14px", border: `1px solid ${C.border}`, overflowX: "auto" }}>
-      <div style={{ minWidth: "700px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 150px 100px", gap: "8px", padding: "11px 16px", borderBottom: `1px solid ${C.border}`, backgroundColor: C.bg3, color: C.t3, fontSize: "10px", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-          <SortHeader label="Document" active={sortKey === "nom"} dir={sortDir} onClick={() => onToggleSort("nom")}/>
-          <SortHeader label="Catégorie" active={sortKey === "categorie"} dir={sortDir} onClick={() => onToggleSort("categorie")}/>
-          <SortHeader label="Taille" active={sortKey === "taille"} dir={sortDir} onClick={() => onToggleSort("taille")}/>
-          <SortHeader label="Ajouté par" active={sortKey === "membre"} dir={sortDir} onClick={() => onToggleSort("membre")}/>
-          <SortHeader label="Date" active={sortKey === "date"} dir={sortDir} onClick={() => onToggleSort("date")}/>
-        </div>
-        {docs.map((d, i) => {
-          const type = fileTypeInfo(d.type_mime, C);
-          const auteur = nomMembre(d.membre_id, membres);
+    <>
+      <div className="dcx-table" style={{ backgroundColor: C.bgCard, borderRadius: "12px", border: `1px solid ${C.border}`, overflow: "auto", maxHeight: "68svh" }}>
+        <table style={{ width: "100%", minWidth: "860px", tableLayout: "fixed", borderCollapse: "collapse" }}>
+          <colgroup>{COLS.map(c => <col key={c.h} style={{ width: c.w }}/>)}</colgroup>
+          <thead>
+            <tr>
+              {COLS.map(c => (
+                <th key={c.h} scope="col" aria-sort={c.cle && c.cle === sortKey ? (sortDir === "asc" ? "ascending" : "descending") : undefined}
+                  style={{ position: "sticky", top: 0, zIndex: 1, backgroundColor: C.bgCard2, borderBottom: `1px solid ${C.border}`, textAlign: c.right ? "right" : "left", padding: "10px 14px", color: C.t2, fontSize: "12px", fontWeight: 500, whiteSpace: "nowrap" }}>
+                  {c.cle ? (
+                    <button type="button" className="dcx-btn tap" onClick={() => onToggleSort(c.cle!)} style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      {c.h}
+                      {c.cle === sortKey && <svg aria-hidden="true" width="9" height="9" viewBox="0 0 10 10" fill="currentColor">{sortDir === "asc" ? <path d="M5 1l4 7H1z"/> : <path d="M5 9L1 2h8z"/>}</svg>}
+                    </button>
+                  ) : c.h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map(d => {
+              const type = fileTypeLabel(d.type_mime);
+              const auteur = nomMembre(d.membre_id, membres);
+              const gerable = peutGerer(d, moiId, moiRole);
+              const dt = dateDocument(d.uploaded_at);
+              const titre = titreAffiche(d.nom);
+              const td = { padding: "0 14px", height: "64px", borderBottom: `1px solid ${C.border}`, verticalAlign: "middle", overflow: "hidden" } as const;
+              return (
+                <tr key={d.id} role="row" tabIndex={0} className="dcx-row tap" onClick={() => onOpenDetails(d)} onKeyDown={ouvrir(d)} style={{ cursor: "pointer" }}>
+                  <td style={td}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+                      <FileTypeIcon C={C} type={type}/>
+                      <div style={{ minWidth: 0 }}>
+                        <div title={d.nom} style={{ fontSize: "14px", fontWeight: 500, color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{titre}</div>
+                        {d.description && <div title={d.description} style={{ fontSize: "12px", color: C.t3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.description}</div>}
+                      </div>
+                    </div>
+                  </td>
+                  <td style={td}>
+                    <button ref={el => { refs.current[d.id] = el; }} type="button" className="dcx-btn tap" aria-label={`Catégorie : ${categorieLabel(d.categorie)}${gerable ? ", modifier" : ""}`} disabled={!gerable}
+                      onClick={e => { e.stopPropagation(); if (gerable) setCatPickerId(d.id); }} style={{ background: "none", border: "none", padding: 0, cursor: gerable ? "pointer" : "default" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", height: "22px", padding: "0 8px", borderRadius: "6px", boxSizing: "border-box", backgroundColor: C.bg3, border: `1px solid ${C.border}`, color: C.t1, fontSize: "12px", fontWeight: 500, whiteSpace: "nowrap" }}>{categorieLabel(d.categorie)}</span>
+                    </button>
+                    <CategoryPicker open={catPickerId === d.id} onClose={() => setCatPickerId(null)} anchorRef={{ current: refs.current[d.id] ?? null }} tokens={C} value={d.categorie} onSelect={c => onChangeCategorie(d.id, c)}/>
+                  </td>
+                  <td style={{ ...td, textAlign: "right", color: C.t2, fontSize: "13px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{tailleFr(d.taille)}</td>
+                  <td style={td}>
+                    {auteur ? (
+                      <span title={auteur} style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                        <span aria-hidden="true" style={{ width: "24px", height: "24px", borderRadius: "50%", backgroundColor: C.bg3, color: C.t2, fontSize: "10px", fontWeight: 600, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initiales(auteur)}</span>
+                        <span style={{ color: C.t1, fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nomPropre(auteur)}</span>
+                      </span>
+                    ) : <span style={{ color: C.t3, fontSize: "13px" }}>—</span>}
+                  </td>
+                  <td style={{ ...td, color: C.t2, fontSize: "13px", whiteSpace: "nowrap" }}><span title={dt.complet}>{dt.court}</span></td>
+                  <td style={{ ...td, textAlign: "right" }}><RowActionsMenu C={C} label={`Actions pour ${titre}`} items={actionsDe(d, gerable)}/></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="dcx-cards" style={{ flexDirection: "column", gap: "10px" }}>
+        {docs.map(d => {
+          const type = fileTypeLabel(d.type_mime);
           const gerable = peutGerer(d, moiId, moiRole);
-          const projet = d.projet_id ? projets.find(p => p.id === d.projet_id) : null;
+          const dt = dateDocument(d.uploaded_at);
+          const titre = titreAffiche(d.nom);
           return (
-            <div key={d.id} onClick={() => onOpenDetails(d)} className="tap" style={{ display: "grid", gridTemplateColumns: "1fr 130px 90px 150px 100px", gap: "8px", alignItems: "center", padding: "11px 16px", borderBottom: i < docs.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "9px", minWidth: 0 }}>
-                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "26px", height: "26px", borderRadius: "6px", backgroundColor: `${type.color}18`, color: type.color, fontSize: "7.5px", fontWeight: 800, flexShrink: 0 }}>{type.label}</span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "12.5px", fontWeight: "700", color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.nom}</div>
-                  {/* Projet en 2e ligne discrète, pas un badge de plus
-                      (même principe que Tâches, revue finale item 3). */}
-                  {projet ? <div style={{ color: C.goldD, fontSize: "10.5px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projet.nom}</div>
-                    : d.description && <div style={{ color: C.t3, fontSize: "10.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.description}</div>}
-                </div>
+            <div key={d.id} role="button" tabIndex={0} className="dcx-row tap" onClick={() => onOpenDetails(d)} onKeyDown={ouvrir(d)}
+              style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "12px", padding: "14px 16px", cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <FileTypeIcon C={C} type={type}/>
+                <div style={{ flex: 1, minWidth: 0, fontSize: "14px", fontWeight: 500, color: C.t1, overflowWrap: "anywhere" }}>{titre}</div>
+                <RowActionsMenu C={C} label={`Actions pour ${titre}`} items={actionsDe(d, gerable)}/>
               </div>
-              <div>
-                <button ref={el => { refs.current[d.id] = el; }} onClick={e => { e.stopPropagation(); if (gerable) setCatPickerId(d.id); }} disabled={!gerable} style={{ background: "none", border: "none", color: C.t2, fontSize: "11.5px", cursor: gerable ? "pointer" : "default", padding: 0, textAlign: "left" }}>{categorieLabel(d.categorie)}</button>
-                <CategoryPicker open={catPickerId === d.id} onClose={() => setCatPickerId(null)} anchorRef={{ current: refs.current[d.id] ?? null }} tokens={C} value={d.categorie} onSelect={c => onChangeCategorie(d.id, c)}/>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 12px", marginTop: "10px", color: C.t2, fontSize: "12.5px", fontVariantNumeric: "tabular-nums" }}>
+                <StatusPill label={categorieLabel(d.categorie)} color={C.t2}/>
+                <span>{tailleFr(d.taille)}</span><span title={dt.complet}>{dt.court}</span>
               </div>
-              <span style={{ color: C.t3, fontSize: "11.5px" }}>{formatTaille(d.taille)}</span>
-              <span style={{ color: C.t2, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{auteur || "—"}</span>
-              <span style={{ color: C.t3, fontSize: "11.5px" }}>{new Date(d.uploaded_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
             </div>
           );
         })}
       </div>
-    </div>
+      <div aria-live="polite" style={{ color: C.t2, fontSize: "13px", marginTop: "10px", fontVariantNumeric: "tabular-nums" }}>1–{docs.length} sur {docs.length}</div>
+    </>
   );
 }
 
@@ -437,7 +463,7 @@ function DocFiltersPopover({ C, anchorRef, onClose, filters, setFilters, membres
   function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (
       <div style={{ marginBottom: "12px" }}>
-        <div style={{ fontSize: "9.5px", fontWeight: "800", color: C.t3, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>{title}</div>
+        <div style={{ fontSize: "13px", fontWeight: 600, color: C.t1, marginBottom: "6px" }}>{title}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>{children}</div>
       </div>
     );
@@ -586,17 +612,14 @@ type UploadItemState = { id: string; file: File; status: "attente" | "upload" | 
 function UploadDialog({ C, onClose, onToast, onUploaded }: {
   C: ThemeTokens; onClose: () => void; onToast: (msg: string, color?: string) => void; onUploaded: () => void;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<UploadItemState[]>([]);
   const [single, setSingle] = useState<{ nom: string; categorie: string; description: string } | null>(null);
-  const [dragOver, setDragOver] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
 
   const uploading = items.some(i => i.status === "upload" || i.status === "attente");
 
   function requestClose() { if (uploading) { setConfirmClose(true); return; } onClose(); }
-  useDialogA11y(panelRef, !confirmClose, requestClose);
 
   function pickFiles(files: FileList | File[]) {
     const arr = Array.from(files);
@@ -648,6 +671,8 @@ function UploadDialog({ C, onClose, onToast, onUploaded }: {
   }
 
   const allDone = items.length > 0 && items.every(i => i.status === "termine" || i.status === "erreur" || i.status === "annule");
+  const singleEnAttente = !!single && items.length === 1 && items[0].status === "attente";
+  const ui = toUiTokens(C);
 
   if (confirmClose) {
     return (
@@ -657,77 +682,87 @@ function UploadDialog({ C, onClose, onToast, onUploaded }: {
     );
   }
 
+  const actions = items.length === 0 ? (
+    <>
+      <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={requestClose}>Annuler</Button>
+      <Button tokens={ui} className="tap" variant="primary" size="md" disabled>Ajouter</Button>
+    </>
+  ) : singleEnAttente ? (
+    <>
+      <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={() => { setItems([]); setSingle(null); }}>Retirer</Button>
+      <Button tokens={ui} className="tap" variant="primary" size="md" disabled={!single?.nom.trim()} onClick={envoyerSingle}>Ajouter</Button>
+    </>
+  ) : allDone ? (
+    <Button tokens={ui} className="tap" variant="primary" size="md" onClick={onClose}>Terminer</Button>
+  ) : (
+    <Button tokens={ui} className="tap" variant="secondary" size="md" onClick={requestClose}>Fermer</Button>
+  );
+  const aide = items.length === 0 ? "Sélectionnez au moins un fichier." : singleEnAttente ? (!single?.nom.trim() ? "Renseignez le titre du document." : undefined) : allDone ? undefined : "Envoi en cours…";
+
   return (
-    <div onClick={requestClose} style={{ position: "fixed", inset: 0, zIndex: 300, backgroundColor: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-      <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ backgroundColor: C.bgCard, borderRadius: "18px", padding: "24px", width: "100%", maxWidth: "500px", maxHeight: "86vh", overflowY: "auto", border: `1px solid ${C.border2}`, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", outline: "none" }}>
-        <div style={{ fontSize: "15px", fontWeight: "800", marginBottom: "16px" }}>Ajouter un document</div>
+    <ClockModal C={C} titre="Ajouter un document" sousTitre="Téléversez un ou plusieurs fichiers." labelId="document-modal-titre" largeur={560}
+      onClose={requestClose} modifie={false} aide={aide} actions={actions}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        {items.length === 0 && <DropArea C={C} accept={ACCEPT_ATTR} aide={`${ACCEPT_LABEL} · ${MAX_SIZE_LABEL}`} onFichiers={pickFiles}/>}
 
-        {items.length === 0 && (
-          <div
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files) pickFiles(e.dataTransfer.files); }}
-            style={{ border: `1.5px dashed ${dragOver ? C.gold : C.border2}`, borderRadius: "14px", padding: "32px 20px", textAlign: "center", backgroundColor: dragOver ? `${C.gold}0D` : C.bg3, marginBottom: "8px" }}>
-            <div style={{ fontSize: "13px", fontWeight: 700, color: C.t1, marginBottom: "4px" }}>Glissez-déposez vos fichiers ici</div>
-            <div style={{ fontSize: "11px", color: C.t3, marginBottom: "16px" }}>{ACCEPT_LABEL} · {MAX_SIZE_LABEL}</div>
-            <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>Sélectionner des fichiers</Button>
-            <input ref={fileInputRef} type="file" multiple accept={ACCEPT_ATTR} style={{ display: "none" }} onChange={e => { if (e.target.files) pickFiles(e.target.files); e.target.value = ""; }}/>
-          </div>
-        )}
-
-        {single && items.length === 1 && items[0].status === "attente" && (
-          <div style={{ marginBottom: "16px" }}>
-            <div style={{ color: C.t3, fontSize: "11px", marginBottom: "14px" }}>{items[0].file.name} · {formatTaille(items[0].file.size)}</div>
-            <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", marginBottom: "5px" }}>Nom du document</div>
-            <input value={single.nom} onChange={e => setSingle(s => s ? { ...s, nom: e.target.value } : s)} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "13px", marginBottom: "10px", color: C.t1, boxSizing: "border-box" }}/>
-            <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", marginBottom: "5px" }}>Catégorie</div>
-            <select value={single.categorie} onChange={e => setSingle(s => s ? { ...s, categorie: e.target.value } : s)} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px", fontSize: "13px", marginBottom: "10px", color: C.t1 }}>
-              {CATEGORIES_DOCUMENT_TRAVAIL.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-            <div style={{ color: C.t3, fontSize: "10px", fontWeight: "700", textTransform: "uppercase", marginBottom: "5px" }}>Note (optionnel)</div>
-            <textarea value={single.description} onChange={e => setSingle(s => s ? { ...s, description: e.target.value } : s)} placeholder="Ajouter une note sur ce document…" rows={2} style={{ width: "100%", backgroundColor: C.bg3, border: `1px solid ${C.border2}`, borderRadius: "10px", padding: "10px 12px", fontSize: "12px", marginBottom: "16px", color: C.t1, resize: "none", boxSizing: "border-box" }}/>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" onClick={() => { setItems([]); setSingle(null); }}>Retirer</Button>
-              <Button tokens={toUiTokens(C)} className="tap" variant="primary" size="md" disabled={!single.nom.trim()} onClick={envoyerSingle}>Envoyer</Button>
-            </div>
-          </div>
-        )}
-
-        {items.length > 0 && !(single && items.length === 1 && items[0].status === "attente") && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "16px" }}>
-            {items.map(it => (
-              <div key={it.id} style={{ backgroundColor: C.bg3, borderRadius: "10px", padding: "10px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px", gap: "8px" }}>
-                  <span style={{ fontSize: "12px", fontWeight: 700, color: C.t1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.file.name}</span>
-                  {it.status === "termine" && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>}
-                  {it.status === "upload" && <button onClick={() => cancelItem(it)} style={{ background: "none", border: "none", color: C.t3, fontSize: "10.5px", cursor: "pointer", flexShrink: 0 }}>Annuler</button>}
-                </div>
-                {(it.status === "upload" || it.status === "termine") && (
-                  <div style={{ height: "5px", borderRadius: "3px", backgroundColor: C.border, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${it.progress}%`, backgroundColor: it.status === "termine" ? C.green : C.gold, borderRadius: "3px", transition: "width 0.15s ease" }}/>
-                  </div>
-                )}
-                {it.status === "erreur" && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
-                    <span style={{ fontSize: "11px", color: C.red, fontWeight: 600 }}>{it.error || "Erreur d'envoi"}</span>
-                    <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
-                      <button onClick={() => retry(it)} style={{ background: "none", border: "none", color: C.gold, fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>Réessayer</button>
-                      <button onClick={() => removeItem(it.id)} style={{ background: "none", border: "none", color: C.t3, fontSize: "11px", cursor: "pointer" }}>Retirer</button>
-                    </div>
-                  </div>
-                )}
-                {it.status === "annule" && <span style={{ fontSize: "11px", color: C.t3 }}>Envoi annulé</span>}
+        {singleEnAttente && single && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: "10px" }}>
+              <FileTypeIcon C={C} type={fileTypeLabel(items[0].file.type)}/>
+              <div style={{ minWidth: 0 }}>
+                <div title={items[0].file.name} style={{ color: C.t1, fontSize: "14px", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{items[0].file.name}</div>
+                <div style={{ color: C.t3, fontSize: "12px" }}>{tailleFr(items[0].file.size)}</div>
               </div>
-            ))}
-            <button onClick={() => fileInputRef.current?.click()} style={{ alignSelf: "flex-start", background: "none", border: "none", color: C.gold, fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>+ Ajouter d&apos;autres fichiers</button>
-            <input ref={fileInputRef} type="file" multiple accept={ACCEPT_ATTR} style={{ display: "none" }} onChange={e => { if (e.target.files) pickFiles(e.target.files); e.target.value = ""; }}/>
-          </div>
+            </div>
+            <ModalField C={C} id="document-titre" label="Titre" requis>
+              <input id="document-titre" data-autofocus className="cix-input" value={single.nom} onChange={e => setSingle(s => s ? { ...s, nom: e.target.value } : s)} style={champStyle(C)}/>
+            </ModalField>
+            <ModalField C={C} id="document-categorie" label="Catégorie">
+              <ComboField C={C} id="document-categorie" sansAucun valeur={single.categorie} onChange={v => setSingle(s => s ? { ...s, categorie: v } : s)}
+                options={CATEGORIES_DOCUMENT_TRAVAIL.map(c => ({ value: c.value, label: c.label }))}/>
+            </ModalField>
+            <ModalField C={C} id="document-note" label="Description" optionnel>
+              <textarea id="document-note" className="cix-input" rows={3} value={single.description} onChange={e => setSingle(s => s ? { ...s, description: e.target.value } : s)} placeholder="Ajouter une note sur ce document…"
+                style={{ ...champStyle(C), height: "auto", minHeight: "88px", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }}/>
+            </ModalField>
+          </>
         )}
 
-        {(items.length === 0 || allDone) && (
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="md" fullWidth onClick={onClose}>{allDone ? "Terminé" : "Fermer"}</Button>
+        {items.length > 0 && !singleEnAttente && (
+          <>
+            <ul aria-live="polite" style={{ listStyle: "none", margin: 0, padding: 0, border: `1px solid ${C.border}`, borderRadius: "10px" }}>
+              {items.map((it, i) => (
+                <li key={it.id} style={{ padding: "10px 12px", borderTop: i > 0 ? `1px solid ${C.border}` : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <FileTypeIcon C={C} type={fileTypeLabel(it.file.type)} taille={32}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div title={it.file.name} style={{ color: C.t1, fontSize: "14px", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.file.name}</div>
+                      <div style={{ color: it.status === "erreur" ? C.red : it.status === "termine" ? C.green : C.t3, fontSize: "12px", fontVariantNumeric: "tabular-nums" }}>
+                        {tailleFr(it.file.size)} · {it.status === "attente" ? "En attente" : it.status === "upload" ? `Envoi ${it.progress} %` : it.status === "termine" ? "Terminé" : it.status === "annule" ? "Envoi annulé" : (it.error || "Erreur d'envoi")}
+                      </div>
+                    </div>
+                    {it.status === "erreur" && <Button tokens={ui} className="tap" variant="secondary" size="sm" onClick={() => retry(it)}>Réessayer</Button>}
+                    {(it.status === "upload" || it.status === "erreur" || it.status === "annule") && (
+                      <button type="button" className="dcx-btn tap" aria-label={it.status === "upload" ? `Annuler l'envoi de ${it.file.name}` : `Retirer ${it.file.name}`} onClick={() => (it.status === "upload" ? cancelItem(it) : removeItem(it.id))}
+                        style={{ width: "28px", height: "28px", background: "none", border: "none", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                    )}
+                    {it.status === "termine" && <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>}
+                  </div>
+                  {(it.status === "upload" || it.status === "termine") && (
+                    <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={it.progress} style={{ height: "4px", borderRadius: "2px", backgroundColor: C.bg3, overflow: "hidden", marginTop: "8px" }}>
+                      <div style={{ height: "100%", width: `${it.progress}%`, backgroundColor: it.status === "termine" ? C.green : C.gold, borderRadius: "2px", transition: "width 0.15s ease" }}/>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="dcx-btn tap" onClick={() => fileInputRef.current?.click()} style={{ alignSelf: "flex-start", background: "none", border: "none", color: C.t1, fontSize: "13px", fontWeight: 500, textDecoration: "underline", cursor: "pointer", padding: 0 }}>+ Ajouter d&apos;autres fichiers</button>
+            <input ref={fileInputRef} type="file" multiple accept={ACCEPT_ATTR} hidden onChange={e => { if (e.target.files) pickFiles(e.target.files); e.target.value = ""; }}/>
+          </>
         )}
       </div>
-    </div>
+    </ClockModal>
   );
 }

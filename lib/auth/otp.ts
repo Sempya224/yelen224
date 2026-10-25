@@ -34,16 +34,16 @@ function genererCode6Chiffres(): string {
 }
 
 /**
- * Génère un OTP pour ce citoyen, le hache et le stocke, puis "l'envoie"
- * (adaptateur SMS — no-op réel tant qu'aucun SMS_PROVIDER n'est configuré).
- * Lève une erreur explicite si ni un fournisseur SMS ni CITOYEN_OTP_FALLBACK
- * ne sont configurés : jamais de repli silencieux sur une valeur en dur.
+ * Produit le code OTP (aléatoire, ou CITOYEN_OTP_FALLBACK tant qu'aucun
+ * SMS_PROVIDER n'est branché), son hash bcrypt et son expiration. Partagé
+ * par le parcours citoyen existant et la vérification téléphonique invité
+ * (lib/auth/inviteOtp.ts) pour n'avoir qu'une seule implémentation.
+ * Erreur explicite si ni fournisseur SMS ni CITOYEN_OTP_FALLBACK : jamais de
+ * repli silencieux sur une valeur en dur.
  */
-export async function genererEtEnvoyerOtp(
-  sb: SupabaseClient,
-  userId: string,
+export async function preparerOtp(
   phone: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; codeHash: string; expiresAt: string } | { ok: false; error: string }> {
   const provider = process.env.SMS_PROVIDER; // ex. "nimba" — pas encore branché
 
   let code: string;
@@ -65,10 +65,41 @@ export async function genererEtEnvoyerOtp(
   const codeHash = await bcrypt.hash(code, 10);
   const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
 
-  const { error } = await sb.from("users").update({ otp_code_hash: codeHash, otp_expires_at: expiresAt }).eq("id", userId);
-  if (error) return { ok: false, error: error.message };
-
   void phone; // conservé dans la signature pour l'envoi SMS réel à venir
+  return { ok: true, codeHash, expiresAt };
+}
+
+/**
+ * Compare un code saisi au hash et à l'expiration stockés — partagé avec
+ * lib/auth/inviteOtp.ts. Ne touche à aucun stockage : la consommation du
+ * code reste à la charge de l'appelant.
+ */
+export async function comparerOtp(
+  hash: string | null | undefined,
+  expiresAt: string | null | undefined,
+  code: string
+): Promise<{ ok: true } | { ok: false; reason: "aucun_code" | "expire" | "incorrect" }> {
+  if (!hash || !expiresAt) return { ok: false, reason: "aucun_code" };
+  if (new Date(expiresAt).getTime() < Date.now()) return { ok: false, reason: "expire" };
+  const valide = await bcrypt.compare(code, hash);
+  if (!valide) return { ok: false, reason: "incorrect" };
+  return { ok: true };
+}
+
+/**
+ * Génère un OTP pour ce citoyen, le hache et le stocke, puis "l'envoie"
+ * (adaptateur SMS — no-op réel tant qu'aucun SMS_PROVIDER n'est configuré).
+ */
+export async function genererEtEnvoyerOtp(
+  sb: SupabaseClient,
+  userId: string,
+  phone: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const otp = await preparerOtp(phone);
+  if (!otp.ok) return otp;
+
+  const { error } = await sb.from("users").update({ otp_code_hash: otp.codeHash, otp_expires_at: otp.expiresAt }).eq("id", userId);
+  if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
 
@@ -90,10 +121,5 @@ export async function verifierOtp(
   // Un seul essai par code, correct ou non : on le consomme immédiatement.
   await sb.from("users").update({ otp_code_hash: null, otp_expires_at: null }).eq("id", userId);
 
-  if (!hash || !expiresAt) return { ok: false, reason: "aucun_code" };
-  if (new Date(expiresAt).getTime() < Date.now()) return { ok: false, reason: "expire" };
-
-  const valide = await bcrypt.compare(code, hash);
-  if (!valide) return { ok: false, reason: "incorrect" };
-  return { ok: true };
+  return comparerOtp(hash, expiresAt, code);
 }

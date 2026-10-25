@@ -16,6 +16,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/Button";
 import { type ThemeTokens, toUiTokens } from "../theme";
 import { calculerCheckInAvailableAt, calculerCheckInStatus, type CheckInStatus } from "@/lib/rdvGating";
+import { heureAmPm } from "@/lib/heure";
 
 type CheckInStatusResponse = {
   appointmentStartTime: string;
@@ -28,8 +29,9 @@ function pad2(n: number): string {
   return String(Math.max(0, n)).padStart(2, "0");
 }
 
+// Heure murale de la Date (composantes locales, comme calculerCheckInAvailableAt), en 12 h AM/PM.
 function formatHeure(d: Date): string {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return heureAmPm(`${d.getHours()}:${pad2(d.getMinutes())}`);
 }
 
 function diffJoursCalendaires(a: Date, b: Date): number {
@@ -59,7 +61,7 @@ function formatDateRdv(dateRdv: string, heureRdv: string): string {
   const [y, m, d] = dateRdv.split("-").map(Number);
   const jourSemaine = JOURS_FR[new Date(y, m - 1, d).getDay()];
   const jourSemaineCap = jourSemaine.charAt(0).toUpperCase() + jourSemaine.slice(1);
-  return `${jourSemaineCap} ${d} ${MOIS_FR[m - 1]} à ${heureRdv}`;
+  return `${jourSemaineCap} ${d} ${MOIS_FR[m - 1]} à ${heureAmPm(heureRdv) || heureRdv}`;
 }
 
 function formatCompteARebours(remainingMs: number): string {

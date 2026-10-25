@@ -369,7 +369,9 @@ export function FicheValidation({ C, booking: b, maintenant, controles, checkIn,
         </div>
       </header>
 
-      <div className="vf-body">
+      {/* Barre de défilement toujours visible : le style global masque toutes les barres,
+          `client-fiche-scroll` (globals.css) est la barre large et fixe des fiches. */}
+      <div className="vf-body client-fiche-scroll">
         <div className="vf-top">
           <div role="status" aria-live="polite" style={{ backgroundColor: couleurSit.bg, border: `1px solid ${couleurSit.color}33`, borderRadius: "12px", padding: "14px 16px", marginBottom: "14px" }}>
             <div style={{ color: couleurSit.color, fontSize: "15px", fontWeight: 600 }}>{sit.titre}</div>
@@ -503,7 +505,7 @@ export function FicheValidation({ C, booking: b, maintenant, controles, checkIn,
         </div>
       </div>
 
-      {pied && <div className="vf-foot"><div className="vf-foot-in">{pied}</div></div>}
+      {pied && <div className="vf-foot client-fiche-scroll"><div className="vf-foot-in">{pied}</div></div>}
     </div>
   );
 }

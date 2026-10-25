@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedMembre } from "@/lib/institutionAuth";
 import { can, canAccessTab } from "@/lib/institutionPermissions";
+import { enregistrerAction, getMembreNomPourJournal } from "@/lib/journalActivite";
 
 // Table dédiée institution_responsables (migration 20260711000002) — séparée
 // de institutions, pas de policy RLS anon/authenticated (accès exclusivement
@@ -48,5 +49,20 @@ export async function PUT(req: NextRequest) {
 
   const { error } = await sb.from("institution_responsables").upsert(payload, { onConflict: "institution_id" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Journalisation (audit Profil Responsable, 19/10/2026) — cette route
+  // n'avait jamais aucune trace, contrairement à toute autre écriture
+  // d'identité/accès du dashboard (membres/route.ts). Champs modifiés
+  // listés, jamais les valeurs elles-mêmes (coordonnées personnelles).
+  await enregistrerAction({
+    institutionId: authInstId,
+    membreId: membre.membreId,
+    membreNom: await getMembreNomPourJournal(membre.membreId),
+    action: "responsable_modifie",
+    cibleTable: "institution_responsables",
+    details: { champs: EDITABLE_FIELDS.filter(f => f in body) },
+    req,
+  });
+
   return NextResponse.json({ ok: true });
 }

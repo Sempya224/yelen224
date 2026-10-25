@@ -59,10 +59,30 @@ const JOURS_SEMAINE = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 const JOURS_COMPLETS: Record<string, string> = { Dim: "dimanche", Lun: "lundi", Mar: "mardi", Mer: "mercredi", Jeu: "jeudi", Ven: "vendredi", Sam: "samedi" };
 const MOIS_ANNEE = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
 
+// Nombre maximal de réservations lues par le calcul (les plus récentes). Au-delà, les
+// chiffres du rapport sont sous-évalués : voir compterReservationsRapport().
+export const LIMITE_RESERVATIONS_RAPPORT = 5000;
+
+function debutPerimetreRapport(now: Date): Date {
+  return new Date(now.getFullYear() - 1, 0, 1);
+}
+
+// Vrai quand la limite de lecture est atteinte (les exports de rapport le signalent) :
+// même périmètre que le calcul ci-dessous (statuts, début de l'année précédente).
+export async function limiteReservationsRapportAtteinte(institutionId: string): Promise<boolean> {
+  const { count } = await sb
+    .from("paid_bookings")
+    .select("id", { count: "exact", head: true })
+    .eq("institution_id", institutionId)
+    .in("statut", ["confirme", "termine"])
+    .gte("created_at", debutPerimetreRapport(new Date()).toISOString());
+  return (count ?? 0) >= LIMITE_RESERVATIONS_RAPPORT;
+}
+
 export async function calculerRapportExecutif(institutionId: string): Promise<RapportExecutif> {
   const now = new Date();
   const finCourant = new Date(now.getTime() + 1);
-  const debutAnneePrec = new Date(now.getFullYear() - 1, 0, 1);
+  const debutAnneePrec = debutPerimetreRapport(now);
 
   const { data: raw } = await sb
     .from("paid_bookings")
@@ -71,7 +91,7 @@ export async function calculerRapportExecutif(institutionId: string): Promise<Ra
     .in("statut", ["confirme", "termine"])
     .gte("created_at", debutAnneePrec.toISOString())
     .order("created_at", { ascending: false })
-    .limit(5000);
+    .limit(LIMITE_RESERVATIONS_RAPPORT);
 
   type BookingRow = {
     id: string; montant_paye: number | null; created_at: string; traite_le: string | null; service_id: string;

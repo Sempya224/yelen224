@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { YelenLoader } from "@/components/YelenLoader";
 import { DEVISE_LABEL } from "@/lib/devise";
+import { heureDepuisHorodatage } from "@/lib/heure";
 
 type PointSerie = { label: string; montant: number; ventes: number };
 type KpiPeriode = { montant: number; nb: number; delta: number | null };
@@ -38,7 +39,7 @@ type RapportExecutif = {
 
 function formatPrix(p: number): string { return Math.round(p).toLocaleString("fr-FR") + " " + DEVISE_LABEL; }
 function formatDateHeure(iso: string): string { return new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "long", year: "numeric" }); }
-function formatHeureCourte(iso: string): string { return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+function formatHeureCourte(iso: string): string { return heureDepuisHorodatage(iso); }
 
 const ICON_CLOCK = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
 const ICON_CALENDAR = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
@@ -374,6 +375,8 @@ export function RapportsTab({ instId }: { instId: string }) {
   const [categorieFiltre, setCategorieFiltre] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingXlsx, setExportingXlsx] = useState(false);
+  // Résultat du dernier export : référence et début d'empreinte, ou message d'erreur.
+  const [messageExport, setMessageExport] = useState<{ ok: boolean; texte: string } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -390,18 +393,37 @@ export function RapportsTab({ instId }: { instId: string }) {
     return categorieFiltre ? data.top_services.filter(s => s.categorie === categorieFiltre) : data.top_services;
   }, [data, categorieFiltre]);
 
-  async function telechargerFichier(url: string, filename: string, setBusy: (v: boolean) => void) {
+  // Export enregistré côté serveur : le nom du fichier (référence incluse) vient de
+  // l'en-tête de réponse ; en cas d'échec, un message explicite est affiché.
+  async function telechargerFichier(url: string, repli: string, setBusy: (v: boolean) => void) {
     setBusy(true);
-    const res = await fetch(url);
-    if (res.ok) {
+    setMessageExport(null);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setMessageExport({ ok: false, texte: typeof j?.error === "string" ? j.error : "L'export a échoué. Réessayez." });
+        return;
+      }
+      const filename = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || repli;
+      const reference = res.headers.get("X-Export-Reference");
+      const empreinte = res.headers.get("X-Empreinte-Sha256");
+      const limite = res.headers.get("X-Export-Tronque") === "true";
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objUrl; a.download = filename;
       a.click();
       URL.revokeObjectURL(objUrl);
+      setMessageExport({
+        ok: true,
+        texte: `Export ${reference ?? ""} généré${empreinte ? ` — empreinte SHA-256 : ${empreinte.slice(0, 16)}…` : ""}${limite ? " (chiffres calculés sur les 5000 réservations les plus récentes)" : ""}`.replace("  ", " "),
+      });
+    } catch {
+      setMessageExport({ ok: false, texte: "Erreur réseau lors de l'export. Réessayez." });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   if (loading) {
@@ -435,13 +457,16 @@ export function RapportsTab({ instId }: { instId: string }) {
           <span style={{ color: C.t3, fontSize: "10.5px", fontWeight: "600" }}>Synchronisé à {formatHeureCourte(data.genere_le)}</span>
         </div>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={exportingPdf} icon={ICON_PDF} onClick={() => telechargerFichier("/api/institution/rapports/pdf", `rapport-executif-${new Date().toISOString().slice(0, 10)}.pdf`, setExportingPdf)}>Export PDF</Button>
-          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={exportingXlsx} icon={ICON_EXCEL} onClick={() => telechargerFichier("/api/institution/rapports", `rapport-financier-${new Date().toISOString().slice(0, 10)}.xlsx`, setExportingXlsx)}>Export Excel</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={exportingPdf} icon={ICON_PDF} onClick={() => telechargerFichier("/api/institution/rapports/pdf", "rapport_financier.pdf", setExportingPdf)}>Export PDF</Button>
+          <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" loading={exportingXlsx} icon={ICON_EXCEL} onClick={() => telechargerFichier("/api/institution/rapports", "rapport_financier.xlsx", setExportingXlsx)}>Export Excel</Button>
           <Button tokens={toUiTokens(C)} className="tap" variant="secondary" size="sm" icon={ICON_PRINT} onClick={() => window.print()}>Imprimer</Button>
           <button onClick={load} className="tap" style={{ backgroundColor: C.bgCard, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "9px", fontSize: "12.5px", color: C.t2, cursor: "pointer", display: "flex", alignItems: "center" }} aria-label="Actualiser">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </button>
         </div>
+        {messageExport && (
+          <div role={messageExport.ok ? "status" : "alert"} style={{ flexBasis: "100%", color: messageExport.ok ? C.t2 : C.red, fontSize: "12.5px", lineHeight: 1.5 }}>{messageExport.texte}</div>
+        )}
       </Card>
 
       {/* KPI exécutifs (§3) */}

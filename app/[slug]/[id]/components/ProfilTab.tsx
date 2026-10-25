@@ -26,6 +26,7 @@ import { ROLE_LABELS, ROLE_DESCRIPTIONS, isMembreRole, type MembreRole } from "@
 import { YelenLoader } from "@/components/YelenLoader";
 import { TotpSection } from "./TotpSection";
 import { PasskeySection } from "./PasskeySection";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 type Moi = {
   id: string;
@@ -179,7 +180,10 @@ export function ProfilTab({ onToast, onNavigate }: { onToast: (msg: string, colo
         }
       `}</style>
 
-      <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Administration & accès</h1>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "4px" }}>
+        <h1 style={{ color: C.t1, fontSize: "22px", fontWeight: "800", letterSpacing: "-0.5px", marginBottom: "6px" }}>Administration & accès</h1>
+        <HelpCenterGuide tab="profil" />
+      </div>
       <p style={{ color: C.t2, fontSize: "13px", marginBottom: "18px", maxWidth: "620px" }}>Votre identité administrative, votre méthode d&apos;accès et l&apos;activité de ce compte.</p>
 
       {/* ── IDENTITÉ ── */}

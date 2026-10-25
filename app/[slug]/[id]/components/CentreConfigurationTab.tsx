@@ -39,6 +39,7 @@ import { T, type ThemeTokens, toUiTokens } from "../theme";
 import { Button } from "@/components/ui/Button";
 import { YelenLoader } from "@/components/YelenLoader";
 import { tabAllowed, tabReadOnly, type MembreRole, type TabKey } from "@/lib/institutionPermissions";
+import { HelpCenterGuide } from "./HelpCenterGuide";
 
 type DocSubStatut = "recu" | "valide" | "complement_demande" | "rejete" | null;
 type ConfigItem = { id: string; label: string; done: boolean; tab: TabKey; subStatut?: DocSubStatut };
@@ -368,8 +369,11 @@ export function CentreConfigurationTab({
 
       {/* ── Statut de préparation ──────────────────────────────────── */}
       <div style={{ backgroundColor: C.bgCard2, border: `1px solid ${C.border2}`, borderRadius: "14px", padding: "16px", marginBottom: "16px" }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px", gap: "10px", flexWrap: "wrap" }}>
           <span style={{ color: C.t1, fontSize: "15px", fontWeight: "800" }}>Préparation — {data.pct}%</span>
+          <HelpCenterGuide tab="accueil" />
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", marginBottom: "10px" }}>
           <span style={{ color: C.t3, fontSize: "11.5px", fontWeight: "700" }}>
             {missingBlocking.length === 0 ? "Toutes les étapes obligatoires sont terminées" : `${missingBlocking.length} étape${missingBlocking.length > 1 ? "s" : ""} obligatoire${missingBlocking.length > 1 ? "s" : ""} restante${missingBlocking.length > 1 ? "s" : ""}`}
           </span>

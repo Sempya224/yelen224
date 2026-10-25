@@ -5,6 +5,12 @@
 // Les labels ne sont jamais stockés en base — dérivés d'ici à chaque
 // lecture pour éviter toute staleness.
 
+// ⚠️ MIROIR SQL : la correspondance statut_juridique -> types de documents (et
+// les statuts de présence étrangère ci-dessous) est dupliquée dans le trigger
+// institutions_exiger_documents_avant_validation (migration
+// 20261024000002_institution_validation_exige_documents.sql), qui interdit la
+// validation d'un établissement sans documents soumis, même en SQL direct.
+// Toute modification de ces listes doit être reportée dans ce trigger.
 export type DocumentTypeSlug =
   | "nomination_habilitation"
   | "rccm"
@@ -154,4 +160,19 @@ export const DOCUMENTS_INTERNATIONAUX_PAR_STATUT_PRESENCE: Record<string, Docume
 export function getRequiredDocumentsInternational(statutPresenceGuinee: string | null | undefined): DocumentRequirement[] {
   if (!statutPresenceGuinee) return [];
   return DOCUMENTS_INTERNATIONAUX_PAR_STATUT_PRESENCE[statutPresenceGuinee] || [];
+}
+
+// Libellé lisible de chaque type de document (dérivé des listes ci-dessus, jamais
+// stocké en base) — utilisé pour nommer les pièces demandées en complément d'un
+// changement de profil.
+export const LIBELLE_TYPE_DOCUMENT: Record<DocumentTypeSlug, string> = (() => {
+  const libelles = {} as Record<DocumentTypeSlug, string>;
+  for (const liste of [...Object.values(DOCUMENTS_PAR_STATUT_JURIDIQUE), ...Object.values(DOCUMENTS_INTERNATIONAUX_PAR_STATUT_PRESENCE)]) {
+    for (const exigence of liste) libelles[exigence.type] = exigence.label;
+  }
+  return libelles;
+})();
+
+export function estTypeDocument(valeur: unknown): valeur is DocumentTypeSlug {
+  return typeof valeur === "string" && Object.prototype.hasOwnProperty.call(LIBELLE_TYPE_DOCUMENT, valeur);
 }

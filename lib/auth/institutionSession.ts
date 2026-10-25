@@ -64,10 +64,12 @@ export type TotpChallengePayload = {
   membreId: string;
   role: string;
   rememberMe: boolean;
-  // Renseigné uniquement par membre/login/route.ts — signale à
-  // totp/login-verify qu'il doit journaliser l'action "connexion" une fois
-  // la 2FA validée (comme le faisait membre/login avant l'ajout de la 2FA),
-  // ce que les 3 autres flux (OTP/PIN/WebAuthn) ne font pas.
+  // Renseigné par les 4 flux de connexion qui peuvent minter ce challenge
+  // (verify-otp, membre/login, pin/verify, webauthn/auth-verify, audit
+  // Profil Responsable 19/10/2026) — signale à totp/login-verify qu'il doit
+  // journaliser l'action "connexion" une fois la 2FA validée. Reste
+  // optionnel dans le type (défense en profondeur) : un futur appelant qui
+  // l'omettrait ne casse rien, il manque juste la journalisation.
   membreNom?: string;
 };
 
