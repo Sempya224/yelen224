@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("paid_bookings")
       .select(
-        "montant_paye,montant_declare_citoyen," +
+        "montant_paye,montant_declare_citoyen,prix_unitaire_reserve,nuits,montant_total_reserve," +
         "paid_services(nom,description,description_courte,prix,unite_prix,taux_taxe,photos,est_chambre," +
         "capacite_max,capacite_adultes,capacite_enfants,superficie_m2,inclus,non_inclus,a_savoir,equipements_chambre)"
       )
@@ -52,7 +52,11 @@ export async function GET(request: NextRequest) {
       inclus: string[] | null; non_inclus: string[] | null; a_savoir: string | null;
       equipements_chambre: string[] | null;
     };
-    const row = data as unknown as { montant_paye: number | null; montant_declare_citoyen: number | null; paid_services: ServiceRow | null } | null;
+    const row = data as unknown as {
+      montant_paye: number | null; montant_declare_citoyen: number | null;
+      prix_unitaire_reserve: number | null; nuits: number | null; montant_total_reserve: number | null;
+      paid_services: ServiceRow | null;
+    } | null;
     if (!row?.paid_services) return NextResponse.json({ success: true, service: null });
 
     const s = row.paid_services;
@@ -76,6 +80,11 @@ export async function GET(request: NextRequest) {
         a_savoir: s.a_savoir,
         equipements_chambre: s.equipements_chambre ?? [],
         montant_paye: row.montant_paye,
+        // Montant figé à la réservation (NULL pour les réservations antérieures
+        // à la migration 20261025000001 et les services gratuits).
+        prix_unitaire_reserve: row.prix_unitaire_reserve,
+        nuits: row.nuits,
+        montant_total_reserve: row.montant_total_reserve,
         montant_declare_citoyen: row.montant_declare_citoyen,
       },
     });

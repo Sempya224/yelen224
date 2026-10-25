@@ -620,6 +620,89 @@ describe("montant_vu_base (Mission B)", () => {
   });
 });
 
+// Lot 1a — séjour hôtel : montant courant = prix × nuits (calculerMontantReservation).
+// Le repli ne joue que si montant_paye est vide ; un montant_paye figé n'est jamais recalculé.
+describe("séjour hôtel — montant courant prix × nuits (Lot 1a)", () => {
+  const SEJOUR_3_NUITS = { date_rdv: "2026-08-06", date_depart: "2026-08-09" };
+
+  it("3 nuits, montant_paye vide : le repli fige prix × 3 (6000) et accepte la déclaration de 6000", async () => {
+    Object.assign(bookingParId("B1"), { ...SEJOUR_3_NUITS, montant_paye: null, montant_declare_citoyen: 6000 });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme", montant_vu: 6000, montant_vu_base: "declare" }));
+    expect(res.status).toBe(200);
+    expect(bookingParId("B1")).toMatchObject({ statut: "confirme", montant_paye: 6000 });
+  });
+
+  it("3 nuits, déclaration d'une seule nuit (2000) et montant_paye vide : MONTANTS_INCOHERENTS", async () => {
+    Object.assign(bookingParId("B1"), { ...SEJOUR_3_NUITS, montant_paye: null, montant_declare_citoyen: 2000 });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("MONTANTS_INCOHERENTS");
+    expect(bookingParId("B1").statut).toBe("en_attente");
+  });
+
+  it("montant_paye déjà figé (ancienne réservation à 2000) : jamais recalculé, validation inchangée", async () => {
+    Object.assign(bookingParId("B1"), { ...SEJOUR_3_NUITS, montant_paye: 2000, montant_declare_citoyen: 2000 });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme", montant_vu: 2000, montant_vu_base: "declare" }));
+    expect(res.status).toBe(200);
+    expect(bookingParId("B1").montant_paye).toBe(2000);
+  });
+
+  it("PRIX_MODIFIE compare au montant courant (prix × nuits), pas au prix unitaire", async () => {
+    Object.assign(bookingParId("B1"), { ...SEJOUR_3_NUITS, montant_paye: null, montant_declare_citoyen: 6000 });
+    const { PATCH } = await importRoute();
+    const unitaire = await PATCH(patch({ id: "B1", action: "confirme", montant_vu: 2000, montant_vu_base: "prix" }));
+    const corps = await unitaire.json();
+    expect(unitaire.status).toBe(409);
+    expect(corps).toMatchObject({ code: "PRIX_MODIFIE", prix_courant: 6000 });
+    const total = await PATCH(patch({ id: "B1", action: "confirme", montant_vu: 6000, montant_vu_base: "prix" }));
+    expect(total.status).toBe(200);
+  });
+
+  it("montant figé à la réservation : prime sur le prix actuel (le prix du service a changé depuis)", async () => {
+    prixService = 9999;
+    Object.assign(bookingParId("B1"), { ...SEJOUR_3_NUITS, montant_paye: null, montant_total_reserve: 6000, montant_declare_citoyen: 6000 });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme", montant_vu: 6000, montant_vu_base: "prix" }));
+    expect(res.status).toBe(200);
+    expect(bookingParId("B1").montant_paye).toBe(6000);
+  });
+
+  it("montant figé : une déclaration différente du montant figé est refusée (MONTANTS_INCOHERENTS)", async () => {
+    Object.assign(bookingParId("B1"), { ...SEJOUR_3_NUITS, montant_paye: null, montant_total_reserve: 6000, montant_declare_citoyen: 2000 });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("MONTANTS_INCOHERENTS");
+  });
+
+  it("montant figé présent : des dates invalides ne bloquent pas la validation", async () => {
+    Object.assign(bookingParId("B1"), { date_rdv: "2026-08-06", date_depart: "2026-08-06", montant_paye: null, montant_total_reserve: 2000, montant_declare_citoyen: 2000 });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme" }));
+    expect(res.status).toBe(200);
+    expect(bookingParId("B1").montant_paye).toBe(2000);
+  });
+
+  it("dates de séjour invalides (départ ≤ arrivée) et montant_paye vide : 409 DATES_INVALIDES, rien d'écrit", async () => {
+    Object.assign(bookingParId("B1"), { date_rdv: "2026-08-06", date_depart: "2026-08-06", montant_paye: null, montant_declare_citoyen: 2000 });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("DATES_INVALIDES");
+    expect(bookingParId("B1").statut).toBe("en_attente");
+  });
+
+  it("dates invalides mais montant_paye déjà figé : la validation n'est pas bloquée", async () => {
+    Object.assign(bookingParId("B1"), { date_rdv: "2026-08-06", date_depart: "2026-08-06" });
+    const { PATCH } = await importRoute();
+    const res = await PATCH(patch({ id: "B1", action: "confirme" }));
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("GET — champs de la fiche de validation (Mission B)", () => {
   const rdvDe = (id: string, citoyen: string, extra: Ligne): Ligne => ({ ...rdv(id, citoyen, null), ...extra });
 

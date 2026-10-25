@@ -3,6 +3,7 @@
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { createAuthedSupabaseClient } from "@/lib/supabase";
+import { messageControleBase } from "@/lib/reservationErreurs";
 import { notifierReservation, notifierReservationChambre } from "@/lib/notificationEngine";
 import { generateSlotsInRange } from "@/lib/disponibilites";
 import { chargerRestrictionActive, RDV_RESTRICTION_MESSAGE_CREATION } from "@/lib/rdvRestrictions";
@@ -329,6 +330,8 @@ export async function creerReservationPayante(payload: {
     if (error.message.includes("SERVICE_INTROUVABLE")) {
       return { ok: false, error: "Ce service n'est plus disponible." };
     }
+    const controleBase = messageControleBase(error.message);
+    if (controleBase) return { ok: false, error: controleBase };
     return { ok: false, error: "Une erreur est survenue pendant la réservation. Réessayez dans un instant." };
   }
 
@@ -502,6 +505,8 @@ export async function creerReservationChambre(payload: {
     if (error.message.includes("SERVICE_INTROUVABLE")) {
       return { ok: false, error: "Cette chambre n'est plus disponible." };
     }
+    const controleBase = messageControleBase(error.message);
+    if (controleBase) return { ok: false, error: controleBase };
     return { ok: false, error: "Une erreur est survenue pendant la réservation. Réessayez dans un instant." };
   }
 

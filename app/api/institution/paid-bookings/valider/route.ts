@@ -11,6 +11,7 @@ import { chargerRestrictionActive, notifierSiEscalade } from "@/lib/rdvRestricti
 import { toucherActiviteInstitution } from "@/lib/activiteInstitution";
 import { getBookingAccess, bloqueTraitementExistant } from "@/lib/bookingAccess";
 import { peutVoirDemande, statsClient, type RdvStat } from "@/lib/rdvFiche";
+import { calculerMontantReservation } from "@/lib/montantReservation";
 
 // URL de vérification publique — jamais un sous-domaine dédié (décision
 // CEO 05/08/2026 : "zéro complexité DNS" pour la V2), une route interne de
@@ -406,7 +407,7 @@ async function traiterPatch(req: NextRequest, ctx: { bookingId?: string; institu
 
   const { data: booking, error: lookupErr } = await sb
     .from("paid_bookings").select(`
-      id,institution_id,citoyen_id,date_rdv,heure_rdv,statut,montant_paye,montant_declare_citoyen,declare_le,traite_le,service_id,rdv_id,confirmation_code,
+      id,institution_id,citoyen_id,date_rdv,date_depart,heure_rdv,statut,montant_paye,montant_total_reserve,montant_declare_citoyen,declare_le,traite_le,service_id,rdv_id,confirmation_code,
       paid_services(prix),
       institutions(name),
       users!paid_bookings_citoyen_id_fkey(prenom,nom)
@@ -508,7 +509,28 @@ async function traiterPatch(req: NextRequest, ctx: { bookingId?: string; institu
   // par la déclaration citoyen (app/api/citoyen/paid-bookings/declarer-paiement,
   // Lot A) pour tout service payant — ce fallback ne joue plus que pour les
   // services gratuits ou les réservations antérieures à ce lot.
-  const montantAFiger = booking.montant_paye ?? (booking.paid_services as unknown as { prix: number } | null)?.prix ?? null;
+  //
+  // Lot 1a : montant courant = prix × nuits pour un séjour hôtel (helper
+  // calculerMontantReservation, même calcul que declarer-paiement). Jamais
+  // appliqué à un montant_paye déjà figé. Si les dates du séjour sont
+  // invalides, le montant courant est inconnu : on n'invente rien — le
+  // blocage ne vaut que si on devrait justement le figer.
+  const prixService = (booking.paid_services as unknown as { prix: number } | null)?.prix ?? null;
+  const calculMontant = prixService === null
+    ? null
+    : calculerMontantReservation({ prix: prixService, dateRdv: booking.date_rdv as string, dateDepart: (booking.date_depart as string | null | undefined) ?? null });
+  // Priorité au montant FIGÉ à la réservation (migration 20261025000001,
+  // paid_bookings.montant_total_reserve) : c'est ce que le citoyen doit réellement,
+  // indépendamment d'un changement de prix du service depuis. NULL pour les
+  // réservations antérieures à cette migration et les services gratuits : repli
+  // sur le calcul au prix actuel.
+  const montantReserve = (booking.montant_total_reserve as number | null | undefined) ?? null;
+  const montantCourant = montantReserve ?? (calculMontant?.ok ? calculMontant.montant : null);
+  if (booking.montant_paye == null && montantReserve === null && calculMontant && !calculMontant.ok) {
+    console.error("[paid-bookings/valider] calcul du montant impossible:", calculMontant.code, JSON.stringify({ paid_booking_id: id }));
+    return NextResponse.json({ error: "Les dates du séjour sont invalides — impossible de calculer le montant à encaisser.", code: calculMontant.code }, { status: 409 });
+  }
+  const montantAFiger = booking.montant_paye ?? montantCourant;
 
   // Double confirmation obligatoire (Lot B, décision CEO 05/08/2026) —
   // uniquement pour les services PAYANTS : "aucune des deux parties ne
@@ -554,7 +576,9 @@ async function traiterPatch(req: NextRequest, ctx: { bookingId?: string; institu
     } else if (typeof brut !== "number" || !Number.isFinite(brut)) {
       return NextResponse.json({ error: "montant_vu invalide" }, { status: 400 });
     } else {
-      const prixCourant = (booking.paid_services as unknown as { prix: number } | null)?.prix ?? null;
+      // Montant courant (prix × nuits pour un séjour), pas le prix unitaire.
+      // La clé de réponse reste `prix_courant` (contrat inchangé pour l'écran).
+      const prixCourant = montantCourant;
       const montantFige = base === "declare" && booking.declare_le ? (booking.montant_declare_citoyen ?? booking.montant_paye ?? null) : null;
       if (montantFige !== null) {
         if (brut !== montantFige) {
