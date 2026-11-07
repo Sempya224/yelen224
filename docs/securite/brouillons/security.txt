@@ -1,0 +1,7 @@
+# BROUILLON - ne pas publier tant que l'adresse n'est pas verifiee (voir docs/securite/audit-dette-securite.md).
+# Emplacement futur : public/.well-known/security.txt (RFC 9116).
+Contact: mailto:{{ADRESSE_SECURITE}}
+Expires: {{DATE_EXPIRATION_ISO8601}}
+Preferred-Languages: fr, en
+Canonical: https://{{DOMAINE}}/.well-known/security.txt
+Policy: https://{{DOMAINE}}/security-policy
