@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { SignJWT } from "jose";
 import { generateAuthenticationOptions } from "@simplewebauthn/server";
+import { chargerSecretWebAuthn } from "@/lib/auth/webauthnSecret";
 import { extraireIpClient } from "@/lib/edgeSecurity";
 import {
   resoudreDeviceId, poserCookieDeviceSiNecessaire, evaluerTentative, messageSecurite,
@@ -12,8 +13,6 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
-
-const JWT_SECRET = new TextEncoder().encode(process.env.CITOYEN_WEBAUTHN_JWT_SECRET!);
 
 function getWebAuthnRpID(request: NextRequest): string {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -29,6 +28,10 @@ function getWebAuthnRpID(request: NextRequest): string {
 // fourni n'est qu'une prétention d'identité ; c'est auth-verify
 // (vérification de signature) qui la prouve cryptographiquement.
 export async function POST(request: NextRequest) {
+  const chargement = chargerSecretWebAuthn();
+  if ("reponse" in chargement) return chargement.reponse;
+  const JWT_SECRET = chargement.secret;
+
   // Auth Security (Lot 3, 30/08/2026) — remplace la Map IP locale, voir
   // lib/security/authSecurity.ts.
   const { deviceId, estNouveau } = resoudreDeviceId(request);

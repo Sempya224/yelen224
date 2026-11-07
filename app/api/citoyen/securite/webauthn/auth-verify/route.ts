@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { jwtVerify } from "jose";
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
+import { chargerSecretWebAuthn } from "@/lib/auth/webauthnSecret";
 import type { AuthenticationResponseJSON, WebAuthnCredential } from "@simplewebauthn/server";
 import { completerConnexionCitoyen, mintTotpChallengeToken, CITOYEN_REMEMBER_MAX_AGE_S } from "@/lib/auth/citoyenSession";
 import { extraireIpClient } from "@/lib/edgeSecurity";
@@ -15,8 +16,6 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
-
-const JWT_SECRET = new TextEncoder().encode(process.env.CITOYEN_WEBAUTHN_JWT_SECRET!);
 
 function getWebAuthnOrigin(request: NextRequest): { rpID: string; expectedOrigin: string } {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -38,6 +37,10 @@ function getWebAuthnOrigin(request: NextRequest): { rpID: string; expectedOrigin
 // se contenter d'un flag local. Le client redeem le hashed_token via
 // supabase.auth.verifyOtp(), exactement comme après un OTP réussi.
 export async function POST(request: NextRequest) {
+  const chargement = chargerSecretWebAuthn();
+  if ("reponse" in chargement) return chargement.reponse;
+  const JWT_SECRET = chargement.secret;
+
   // Auth Security (Lot 3, 30/08/2026) — remplace la Map locale
   // failedAttempts (non persistante, non partagée entre instances
   // serverless), dernière survivante de ce pattern côté citoyen — voir

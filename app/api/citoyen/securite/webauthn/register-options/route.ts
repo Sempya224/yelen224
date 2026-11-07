@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { SignJWT } from "jose";
 import { generateRegistrationOptions } from "@simplewebauthn/server";
+import { chargerSecretWebAuthn } from "@/lib/auth/webauthnSecret";
 import { verifierCitoyenToken } from "@/lib/citoyenAuth";
 
 const supabaseAdmin = createClient(
@@ -10,10 +11,6 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 );
 
-// Secret dédié — jamais réutilisé depuis ADMIN_JWT_SECRET ou
-// INSTITUTION_JWT_SECRET (3 systèmes d'auth distincts, cf. CLAUDE.md
-// /auth : mélanger leurs secrets brouillerait la frontière entre eux).
-const JWT_SECRET = new TextEncoder().encode(process.env.CITOYEN_WEBAUTHN_JWT_SECRET!);
 const RP_NAME = "YELEN224";
 
 function getWebAuthnRpID(request: NextRequest): string {
@@ -29,6 +26,10 @@ function getWebAuthnRpID(request: NextRequest): string {
 // précis, jamais sans savoir de façon certaine lequel (même garde que
 // register-options côté institution).
 export async function POST(request: NextRequest) {
+  const chargement = chargerSecretWebAuthn();
+  if ("reponse" in chargement) return chargement.reponse;
+  const JWT_SECRET = chargement.secret;
+
   try {
     const body = await request.json().catch(() => null);
     const accessToken = body?.accessToken;
