@@ -882,8 +882,10 @@ session courante, déploiement Cloudflare (voir
 16.3.0 comme envisagé plus tôt — advisory GitHub `GHSA-2xp9-vwfh-vxw4`
 vérifié directement par Bryan, `16.3.5` au-dessus du correctif `16.3.3`),
 `.github/dependabot.yml` ajouté (npm + github-actions, PRs minor/patch
-groupées). **Reste à faire par Bryan** : l'onglet Dependabot GitHub
-(`github.com/Sempya224/yelen224/security/dependabot`) signale **34
-vulnérabilités actives sur `main`** (2 critical/17 high/13 moderate/2
-low) — écart non réconcilié avec le décompte `npm audit` local, jamais
-investigué en détail, chantier dédié à prévoir.
+groupées). **Écart « 34 alertes » réconcilié le 07/11/2026** : ces 34
+alertes (2 critical/17 high/13 moderate/2 low) ont été **corrigées entre
+le 19 et le 21/09** par la montée de `next` (état `fixed` dans l'API
+Dependabot), pas « actives ». Au 07/11 : **22 nouvelles alertes ouvertes**
+(avis publiés depuis), traitées par les PR #17 (`next` 16.4.2, 14 alertes)
+et #24 (`vite`/`vitest`, 8 alertes dev). Source :
+`gh api repos/Sempya224/yelen224/dependabot/alerts?state=<état>`.
