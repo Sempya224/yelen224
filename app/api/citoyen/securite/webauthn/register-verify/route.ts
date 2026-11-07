@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { jwtVerify } from "jose";
 import { verifyRegistrationResponse } from "@simplewebauthn/server";
+import { chargerSecretWebAuthn } from "@/lib/auth/webauthnSecret";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import { envoyerNotification, salutation } from "@/lib/notificationEngine";
 import { verifierCitoyenToken } from "@/lib/citoyenAuth";
@@ -11,8 +12,6 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
-
-const JWT_SECRET = new TextEncoder().encode(process.env.CITOYEN_WEBAUTHN_JWT_SECRET!);
 
 function getWebAuthnOrigin(request: NextRequest): { rpID: string; expectedOrigin: string } {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -27,6 +26,10 @@ function getWebAuthnOrigin(request: NextRequest): { rpID: string; expectedOrigin
 }
 
 export async function POST(request: NextRequest) {
+  const chargement = chargerSecretWebAuthn();
+  if ("reponse" in chargement) return chargement.reponse;
+  const JWT_SECRET = chargement.secret;
+
   try {
     const body = await request.json();
     const { accessToken, credential, challengeToken, deviceLabel } = body as {
