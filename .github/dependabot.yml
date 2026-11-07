@@ -29,6 +29,22 @@ updates:
           - "minor"
           - "patch"
 
+  # Application mobile Expo (mobile/package.json + mobile/package-lock.json,
+  # manifeste distinct de la racine, non couvert avant).
+  - package-ecosystem: "npm"
+    directory: "/mobile"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      mobile-npm-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   # Actions utilisées dans .github/workflows/ci.yml (actions/checkout,
   # actions/setup-node...).
   - package-ecosystem: "github-actions"
